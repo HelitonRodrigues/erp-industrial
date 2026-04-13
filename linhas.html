@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ERP Industrial — Linhas de Produção</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/supabase.js"></script>
+<script src="js/utils.js"></script>
+</head>
+<body>
+<div id="sidebar-container"></div>
+<header class="topbar" id="topbar">
+  <button class="topbar-open-sidebar" onclick="toggleSidebar()">☰</button>
+  <div class="topbar-title">Linhas de Produção</div>
+  <div class="topbar-right">
+    <div class="topbar-user">
+      <div class="user-avatar" style="width:32px;height:32px;font-size:12px;" id="top-avatar">SA</div>
+      <div><div class="topbar-user-name" id="top-user-name">Super Admin</div><div class="topbar-user-profile" id="top-user-perfil">SADM</div></div>
+    </div>
+    <button class="btn btn-ghost btn-sm" onclick="doLogout()" style="color:#64748b;">Sair</button>
+  </div>
+</header>
+<main class="main-content" id="main-content">
+  <div class="page-header">
+    <div class="page-header-left"><h1>Linhas de Produção</h1><p>Gerencie as linhas de produção da fábrica</p></div>
+    <div style="display:flex;gap:10px;">
+      <button class="btn btn-secondary" onclick="exportarCSV(['Nome','Horímetro','Status'],_linhas.map(l=>[l.nome,(l.horimetro||0)+'h',l.status]),'linhas')">⬇️ CSV</button>
+      <button class="btn btn-secondary" onclick="exportarPDF('Linhas de Produção',['Nome','Horímetro','Status'],_linhas.map(l=>[l.nome,(l.horimetro||0)+'h',l.status]))">📄 PDF</button>
+      <button class="btn btn-primary" onclick="openModalLinha()">+ Nova Linha</button>
+    </div>
+  </div>
+  <div class="card">
+    <div class="search-bar">
+      <div class="search-input-wrap" style="flex:1;"><span class="search-icon">🔍</span><input type="text" class="form-input" id="busca-linha" placeholder="Buscar linha..." oninput="renderLinhas()"></div>
+      <select class="form-input" id="filtro-status-linha" style="width:140px;" onchange="renderLinhas()"><option value="">Todos os status</option><option value="ativo">Ativo</option><option value="inativo">Inativo</option></select>
+    </div>
+    <div class="table-wrap">
+      <table><thead><tr><th>Nome da Linha</th><th>Linhas de Produto / Cap. Hora</th><th>Horímetro (h)</th><th>Status</th><th>Ações</th></tr></thead>
+      <tbody id="tbody-linhas"></tbody></table>
+    </div>
+    <div id="linhas-empty" class="empty-state hidden"><div class="empty-icon">🏭</div><h3>Nenhuma linha cadastrada</h3><p>Clique em "+ Nova Linha" para começar.</p></div>
+  </div>
+</main>
+
+<!-- MODAL LINHA -->
+<div id="modal-linha" class="modal-overlay hidden">
+  <div class="modal modal-lg">
+    <div class="modal-header"><div class="modal-title" id="modal-linha-title">Nova Linha de Produção</div><button class="modal-close" onclick="closeModal('modal-linha')">✕</button></div>
+    <div style="display:flex;flex-direction:column;gap:16px;">
+      <div class="form-grid-2">
+        <div class="form-group"><label class="form-label">Nome da Linha <span class="req">*</span></label><input id="l-nome" type="text" class="form-input" placeholder="Ex: Linha 1, Linha A"></div>
+        <div class="form-group"><label class="form-label">Horímetro Atual (horas)</label><input id="l-horimetro" type="number" class="form-input" placeholder="0" min="0"></div>
+      </div>
+      <div class="form-grid-2">
+        <div class="form-group"><label class="form-label">Status</label><select id="l-status" class="form-input"><option value="ativo">✅ Ativo</option><option value="inativo">⚫ Inativo</option></select></div>
+        <div class="form-group"><label class="form-label">Observações</label><input id="l-obs" type="text" class="form-input" placeholder="Observações opcionais"></div>
+      </div>
+      <div style="border:1.2px solid #e2e8f0;border-radius:12px;padding:16px;background:#fafbfc;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+          <div><label class="form-label" style="margin:0;">📊 Linhas de Produto e Médias</label><p style="font-size:11px;color:#94a3b8;margin-top:3px;">Cada Linha de Produto tem sua própria média/hora.</p></div>
+          <button class="btn btn-secondary btn-sm" onclick="addProdutoLinha()">+ Adicionar</button>
+        </div>
+        <div id="l-produtos-list" style="display:flex;flex-direction:column;gap:8px;">
+          <div style="display:grid;grid-template-columns:2fr 100px 120px auto;gap:8px;padding:6px 0;border-bottom:1px solid #e2e8f0;margin-bottom:4px;">
+            <span style="font-size:11px;color:#94a3b8;font-weight:600;text-transform:uppercase;">Linha de Produto</span>
+            <span style="font-size:11px;color:#94a3b8;font-weight:600;text-transform:uppercase;">Média/h</span>
+            <span style="font-size:11px;color:#94a3b8;font-weight:600;text-transform:uppercase;">Unidade</span>
+            <span></span>
+          </div>
+        </div>
+        <p style="font-size:11px;color:#94a3b8;margin-top:8px;">💡 Ex: "Linha Concentrado" = 80 sacos/h | "Linha 20kg" = 60 sacos/h</p>
+      </div>
+      <div id="l-error" class="hidden alert alert-danger"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-linha')">Cancelar</button>
+      <button class="btn btn-primary" id="btn-salvar-linha" onclick="salvarLinha()">💾 Salvar Linha</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL HORÍMETRO -->
+<div id="modal-horimetro" class="modal-overlay hidden">
+  <div class="modal" style="max-width:420px;">
+    <div class="modal-header"><div class="modal-title">⏱️ Atualizar Horímetro</div><button class="modal-close" onclick="closeModal('modal-horimetro')">✕</button></div>
+    <div style="display:flex;flex-direction:column;gap:16px;">
+      <div style="background:#f8fafc;border-radius:10px;padding:14px;border:1.2px solid #e2e8f0;"><p style="font-size:12px;color:#64748b;margin-bottom:4px;">Linha de Produção</p><p style="font-weight:700;color:var(--primary);font-size:15px;" id="hm-nome">—</p></div>
+      <div class="form-grid-2">
+        <div class="form-group"><label class="form-label">Horímetro Atual (h)</label><input id="hm-atual" type="number" class="form-input" readonly style="background:#f5f7fa;color:#888;"></div>
+        <div class="form-group"><label class="form-label">Novo Horímetro (h) <span class="req">*</span></label><input id="hm-novo" type="number" class="form-input" placeholder="Ex: 1250" min="0"></div>
+      </div>
+      <div class="form-group"><label class="form-label">Motivo da Atualização</label><input id="hm-motivo" type="text" class="form-input" placeholder="Ex: Aferição mensal"></div>
+      <div id="hm-error" class="hidden alert alert-danger"></div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('modal-horimetro')">Cancelar</button><button class="btn btn-primary" onclick="salvarHorimetro()">✅ Atualizar</button></div>
+  </div>
+</div>
+
+<!-- MODAL CONFIRMAÇÃO -->
+<div id="modal-confirm" class="modal-overlay hidden">
+  <div class="modal" style="max-width:420px;">
+    <div class="modal-header"><div class="modal-title">⚠️ Confirmar Exclusão</div><button class="modal-close" onclick="closeModal('modal-confirm')">✕</button></div>
+    <p id="confirm-msg" style="font-size:14px;color:#475569;line-height:1.6;"></p>
+    <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('modal-confirm')">Cancelar</button><button class="btn btn-danger" id="confirm-ok-btn">🗑️ Sim, Excluir</button></div>
+  </div>
+</div>
+<div id="toast-container"></div>
+
+<script>
+let _editingLinhaId=null, _hmId=null, _linhas=[];
+
+fetch('partials/sidebar.html').then(r=>r.text()).then(html=>{
+  document.getElementById('sidebar-container').innerHTML=html;
+  document.querySelector('[href="linhas.html"]')?.classList.add('active');
+  openGroup('cadastros');
+});
+initSidebar('linhas.html');
+
+async function init(){const{data}=await _supabase.from('linhas_producao').select('*').order('nome');_linhas=data||[];renderLinhas();}
+
+function renderLinhas(){
+  const busca=(document.getElementById('busca-linha')?.value||'').toLowerCase();
+  const status=document.getElementById('filtro-status-linha')?.value||'';
+  const lista=_linhas.filter(l=>(!busca||l.nome?.toLowerCase().includes(busca))&&(!status||l.status===status));
+  const tbody=document.getElementById('tbody-linhas');const empty=document.getElementById('linhas-empty');
+  tbody.innerHTML='';
+  if(!lista.length){empty.classList.remove('hidden');return;}empty.classList.add('hidden');
+  lista.forEach(l=>{
+    const prods=l.produtos||[];
+    const prodsHtml=prods.length?prods.map(p=>`<span class="badge badge-info" style="margin:2px;font-size:11px;">${p.nome} — <strong>${p.capHora}</strong> ${p.unidade||'un'}/h</span>`).join(''):'<span style="color:#94a3b8;font-size:12px;">Nenhuma linha de produto</span>';
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td><strong style="color:var(--primary);">${l.nome}</strong>${l.obs?`<div style="font-size:11px;color:#94a3b8;">${l.obs}</div>`:''}</td>
+      <td><div style="display:flex;flex-wrap:wrap;gap:4px;">${prodsHtml}</div></td>
+      <td>${l.horimetro||0} h</td>
+      <td><span class="badge ${l.status==='ativo'?'badge-success':'badge-gray'}">${l.status==='ativo'?'✅ Ativo':'⚫ Inativo'}</span></td>
+      <td><div class="table-actions"><button class="btn btn-secondary btn-sm" onclick="abrirHorimetro('${l.id}','${l.nome}',${l.horimetro||0})">⏱️</button><button class="btn btn-secondary btn-sm" onclick="editarLinha('${l.id}')">✏️ Editar</button><button class="btn btn-danger btn-sm" onclick="confirmarExclusao('${l.id}','${l.nome}')">🗑️</button></div></td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+const _hdr=`<div style="display:grid;grid-template-columns:2fr 100px 120px auto;gap:8px;padding:6px 0;border-bottom:1px solid #e2e8f0;margin-bottom:4px;"><span style="font-size:11px;color:#94a3b8;font-weight:600;text-transform:uppercase;">Linha de Produto</span><span style="font-size:11px;color:#94a3b8;font-weight:600;text-transform:uppercase;">Média/h</span><span style="font-size:11px;color:#94a3b8;font-weight:600;text-transform:uppercase;">Unidade</span><span></span></div>`;
+
+function openModalLinha(){_editingLinhaId=null;document.getElementById('modal-linha-title').textContent='Nova Linha de Produção';['l-nome','l-horimetro','l-obs'].forEach(id=>document.getElementById(id).value='');document.getElementById('l-status').value='ativo';document.getElementById('l-produtos-list').innerHTML=_hdr;document.getElementById('l-error').classList.add('hidden');document.getElementById('modal-linha').classList.remove('hidden');}
+
+function editarLinha(id){const l=_linhas.find(x=>x.id===id);if(!l)return;_editingLinhaId=id;document.getElementById('modal-linha-title').textContent='Editar Linha';document.getElementById('l-nome').value=l.nome||'';document.getElementById('l-horimetro').value=l.horimetro||'';document.getElementById('l-obs').value=l.obs||'';document.getElementById('l-status').value=l.status||'ativo';document.getElementById('l-produtos-list').innerHTML=_hdr;(l.produtos||[]).forEach(p=>addProdutoLinha(p));document.getElementById('l-error').classList.add('hidden');document.getElementById('modal-linha').classList.remove('hidden');}
+
+function addProdutoLinha(prod){
+  const id='lp-'+Date.now()+'-'+Math.floor(Math.random()*9999);const p=prod||{};const div=document.createElement('div');div.id=id;
+  div.style.cssText='display:grid;grid-template-columns:2fr 100px 120px auto;gap:8px;align-items:center;background:#fff;border:1.2px solid #e2e8f0;border-radius:8px;padding:10px 12px;';
+  const unidOpts=['sacos','litros','sachês','unidades','kg','toneladas','caixas'].map(u=>`<option value="${u}" ${p.unidade===u?'selected':''}>${u}</option>`).join('');
+  div.innerHTML=`<input type="text" class="form-input" placeholder="Nome da Linha de Produto" value="${p.nome||''}" data-field="nome" style="font-size:13px;padding:7px 10px;"><input type="number" class="form-input" placeholder="Média/h" value="${p.capHora||''}" min="1" data-field="capHora" style="font-size:13px;padding:7px 10px;"><select class="form-input" data-field="unidade" style="font-size:13px;padding:7px 10px;">${unidOpts}</select><button onclick="document.getElementById('${id}').remove()" style="background:none;border:none;font-size:20px;cursor:pointer;color:#ff4f64;padding:4px;">✕</button>`;
+  document.getElementById('l-produtos-list').appendChild(div);
+}
+
+function getProdutosFromForm(){const prods=[];document.querySelectorAll('#l-produtos-list > div:not(:first-child)').forEach(div=>{const nome=div.querySelector('[data-field="nome"]')?.value?.trim();const capHora=div.querySelector('[data-field="capHora"]')?.value;const unidade=div.querySelector('[data-field="unidade"]')?.value;if(nome&&capHora)prods.push({nome,capHora:parseFloat(capHora),unidade});});return prods;}
+
+async function salvarLinha(){
+  const nome=document.getElementById('l-nome').value.trim();const errEl=document.getElementById('l-error');const btn=document.getElementById('btn-salvar-linha');
+  if(!nome){errEl.textContent='Nome da linha é obrigatório!';errEl.classList.remove('hidden');return;}
+  const dados={nome,horimetro:parseFloat(document.getElementById('l-horimetro').value)||0,obs:document.getElementById('l-obs').value.trim()||null,status:document.getElementById('l-status').value,produtos:getProdutosFromForm(),atualizado_em:new Date().toISOString()};
+  btn.innerHTML='<span class="spin"></span>';btn.disabled=true;
+  try{
+    if(_editingLinhaId){await _supabase.from('linhas_producao').update(dados).eq('id',_editingLinhaId);await addLog('UPDATE','LINHAS',_editingLinhaId,'Atualizada: '+nome);toast('Linha atualizada!','success');}
+    else{const{data}=await _supabase.from('linhas_producao').insert(dados).select().single();await addLog('CREATE','LINHAS',data.id,'Nova linha: '+nome);toast('Linha cadastrada!','success');}
+    closeModal('modal-linha');await init();
+  }catch(e){errEl.textContent='Erro: '+e.message;errEl.classList.remove('hidden');}
+  btn.innerHTML='💾 Salvar Linha';btn.disabled=false;
+}
+
+function abrirHorimetro(id,nome,atual){_hmId=id;document.getElementById('hm-nome').textContent=nome;document.getElementById('hm-atual').value=atual||0;document.getElementById('hm-novo').value='';document.getElementById('hm-motivo').value='';document.getElementById('hm-error').classList.add('hidden');document.getElementById('modal-horimetro').classList.remove('hidden');}
+
+async function salvarHorimetro(){
+  const novo=parseFloat(document.getElementById('hm-novo').value);const atual=parseFloat(document.getElementById('hm-atual').value)||0;const motivo=document.getElementById('hm-motivo').value.trim();const errEl=document.getElementById('hm-error');
+  if(isNaN(novo)||novo<0){errEl.textContent='Informe um horímetro válido!';errEl.classList.remove('hidden');return;}
+  if(novo<atual){errEl.textContent=`Atenção: novo valor (${novo}h) é menor que o atual (${atual}h).`;errEl.classList.remove('hidden');}
+  try{
+    await _supabase.from('linhas_producao').update({horimetro:novo,atualizado_em:new Date().toISOString()}).eq('id',_hmId);
+    const l=_linhas.find(x=>x.id===_hmId);
+    if(l){const{data:eqs}=await _supabase.from('equipamentos_linhas').select('id').eq('linha',l.nome);if(eqs&&eqs.length){await _supabase.from('equipamentos_linhas').update({horimetro:novo}).eq('linha',l.nome);toast(`Horímetro ${novo}h — ${eqs.length} equip. sincronizado(s)!`,'success');}else{toast(`Horímetro atualizado para ${novo}h!`,'success');}}
+    await addLog('UPDATE','HORIMETRO',_hmId,`Horímetro: ${atual}h → ${novo}h${motivo?' ('+motivo+')':''}`);
+    closeModal('modal-horimetro');await init();
+  }catch(e){errEl.textContent='Erro: '+e.message;errEl.classList.remove('hidden');}
+}
+
+function confirmarExclusao(id,nome){document.getElementById('confirm-msg').innerHTML=`Deseja excluir a linha <strong>${nome}</strong>?`;document.getElementById('confirm-ok-btn').onclick=async()=>{await _supabase.from('linhas_producao').delete().eq('id',id);await addLog('DELETE','LINHAS',id,'Excluída: '+nome);toast('Linha excluída.','warning');closeModal('modal-confirm');await init();};document.getElementById('modal-confirm').classList.remove('hidden');}
+
+init();
+</script>
+</body>
+</html>

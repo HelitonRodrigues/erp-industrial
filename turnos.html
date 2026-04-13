@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ERP Industrial — Turnos</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/supabase.js"></script>
+<script src="js/utils.js"></script>
+</head>
+<body>
+<div id="sidebar-container"></div>
+<header class="topbar" id="topbar">
+  <button class="topbar-open-sidebar" onclick="toggleSidebar()">☰</button>
+  <div class="topbar-title">Turnos</div>
+  <div class="topbar-right">
+    <div class="topbar-user">
+      <div class="user-avatar" style="width:32px;height:32px;font-size:12px;" id="top-avatar">SA</div>
+      <div><div class="topbar-user-name" id="top-user-name">Super Admin</div><div class="topbar-user-profile" id="top-user-perfil">SADM</div></div>
+    </div>
+    <button class="btn btn-ghost btn-sm" onclick="doLogout()" style="color:#64748b;">Sair</button>
+  </div>
+</header>
+<main class="main-content" id="main-content">
+  <div class="page-header">
+    <div class="page-header-left"><h1>Turnos</h1><p>Gerencie os turnos de trabalho da fábrica</p></div>
+    <div style="display:flex;gap:10px;">
+      <button class="btn btn-secondary" onclick="exportarCSV(['Nome','Dias Ativos','Horas/Semana','Refeição','Status'],_turnos.map(t=>{const cal=t.calendario||{};const dias=DIAS_SEMANA.filter(d=>cal[d]?.ativo&&cal[d]?.inicio).map(d=>DIAS_SHORT[DIAS_SEMANA.indexOf(d)]).join(', ');let tot=0;DIAS_SEMANA.forEach(d=>{if(cal[d]?.ativo)tot+=calcMinutos(cal[d].inicio,cal[d].fim);});return[t.nome,dias||'—',minsParaHoras(tot),t.refeicaoNome||'—',t.status];}),'turnos')">⬇️ CSV</button>
+      <button class="btn btn-secondary" onclick="exportarPDF('Turnos',['Nome','Status'],_turnos.map(t=>[t.nome,t.status]))">📄 PDF</button>
+      <button class="btn btn-primary" onclick="openModalTurno()">+ Novo Turno</button>
+    </div>
+  </div>
+  <div class="card">
+    <div class="search-bar">
+      <div class="search-input-wrap" style="flex:1;"><span class="search-icon">🔍</span><input type="text" class="form-input" id="busca-turno" placeholder="Buscar turno..." oninput="renderTurnos()"></div>
+      <select class="form-input" id="filtro-status-turno" style="width:140px;" onchange="renderTurnos()"><option value="">Todos os status</option><option value="ativo">Ativo</option><option value="inativo">Inativo</option></select>
+    </div>
+    <div class="table-wrap">
+      <table><thead><tr><th>Nome do Turno</th><th>Dias Ativos</th><th>Horário Principal</th><th>Refeição</th><th>Horas/Dia</th><th>Horas/Semana</th><th>Status</th><th>Ações</th></tr></thead>
+      <tbody id="tbody-turnos"></tbody></table>
+    </div>
+    <div id="turnos-empty" class="empty-state hidden"><div class="empty-icon">🕐</div><h3>Nenhum turno cadastrado</h3><p>Clique em "+ Novo Turno" para começar.</p></div>
+  </div>
+</main>
+
+<!-- MODAL TURNO -->
+<div id="modal-turno" class="modal-overlay hidden">
+  <div class="modal modal-lg">
+    <div class="modal-header"><div class="modal-title" id="modal-turno-title">Novo Turno</div><button class="modal-close" onclick="closeModal('modal-turno')">✕</button></div>
+    <div style="display:flex;flex-direction:column;gap:20px;">
+      <div class="form-grid-2">
+        <div class="form-group"><label class="form-label">Nome do Turno <span class="req">*</span></label><input id="t-nome" type="text" class="form-input" placeholder="Ex: 1º Turno Manhã"></div>
+        <div class="form-group"><label class="form-label">Status</label><select id="t-status" class="form-input"><option value="ativo">✅ Ativo</option><option value="inativo">⚫ Inativo</option></select></div>
+      </div>
+      <div class="form-group">
+        <label class="form-label" style="margin-bottom:10px;">📅 Calendário Semanal — Horários por Dia</label>
+        <div style="border:1.2px solid #e2e8f0;border-radius:12px;overflow:hidden;">
+          <table style="width:100%;border-collapse:collapse;font-size:13px;">
+            <thead><tr style="background:var(--primary);">
+              <th style="color:#fff;padding:10px 14px;text-align:left;font-size:11px;text-transform:uppercase;width:120px;">Dia</th>
+              <th style="color:#fff;padding:10px 8px;text-align:center;font-size:11px;">Trabalha?</th>
+              <th style="color:#fff;padding:10px 8px;text-align:center;font-size:11px;">Início</th>
+              <th style="color:#fff;padding:10px 8px;text-align:center;font-size:11px;">Fim</th>
+              <th style="color:#fff;padding:10px 8px;text-align:center;font-size:11px;">Horas</th>
+            </tr></thead>
+            <tbody id="t-calendario-tbody"></tbody>
+          </table>
+        </div>
+        <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn btn-secondary btn-sm" onclick="aplicarHorarioTodos()">📋 Aplicar mesmo horário a todos os dias ativos</button>
+          <button class="btn btn-ghost btn-sm" onclick="marcarSemana('util')">Seg–Sex</button>
+          <button class="btn btn-ghost btn-sm" onclick="marcarSemana('todos')">Todos</button>
+          <button class="btn btn-ghost btn-sm" onclick="marcarSemana('nenhum')">Limpar</button>
+        </div>
+      </div>
+      <div style="background:#f8fafc;border-radius:12px;padding:16px;border:1.2px solid #e2e8f0;">
+        <label class="form-label" style="margin-bottom:12px;">🍽️ Intervalo de Refeição</label>
+        <div class="form-grid-2">
+          <div class="form-group"><label class="form-label">Nome do Intervalo</label><input id="t-ref-nome" type="text" class="form-input" placeholder="Ex: Almoço, Jantar, Lanche"></div>
+          <div class="form-group"><label class="form-label">Duração (minutos)</label><input id="t-ref-min" type="number" class="form-input" placeholder="60" min="0" max="120" oninput="calcTotalTurno()"></div>
+        </div>
+        <div class="form-grid-2" style="margin-top:10px;">
+          <div class="form-group"><label class="form-label">Horário de Início</label><input id="t-ref-inicio" type="time" class="form-input"></div>
+          <div class="form-group"><label class="form-label">Horário de Fim</label><input id="t-ref-fim" type="time" class="form-input"></div>
+        </div>
+      </div>
+      <div id="t-resumo" style="background:linear-gradient(135deg,#042D4D,#0E3B62);border-radius:12px;padding:16px;color:#fff;display:none;">
+        <p style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#7aa3c0;margin-bottom:10px;font-weight:700;">📊 Resumo Semanal</p>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;" id="t-resumo-grid"></div>
+      </div>
+      <div id="t-error" class="hidden alert alert-danger"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-turno')">Cancelar</button>
+      <button class="btn btn-primary" id="btn-salvar-turno" onclick="salvarTurno()">💾 Salvar Turno</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL VISUALIZAR TURNO -->
+<div id="modal-view-turno" class="modal-overlay hidden">
+  <div class="modal modal-lg">
+    <div class="modal-header"><div class="modal-title" id="modal-view-turno-title">🕐 Turno</div><button class="modal-close" onclick="closeModal('modal-view-turno')">✕</button></div>
+    <div id="modal-view-turno-body"></div>
+    <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('modal-view-turno')">Fechar</button></div>
+  </div>
+</div>
+
+<!-- MODAL CONFIRMAÇÃO -->
+<div id="modal-confirm" class="modal-overlay hidden">
+  <div class="modal" style="max-width:420px;">
+    <div class="modal-header"><div class="modal-title">⚠️ Confirmar Exclusão</div><button class="modal-close" onclick="closeModal('modal-confirm')">✕</button></div>
+    <p id="confirm-msg" style="font-size:14px;color:#475569;line-height:1.6;"></p>
+    <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('modal-confirm')">Cancelar</button><button class="btn btn-danger" id="confirm-ok-btn">🗑️ Sim, Excluir</button></div>
+  </div>
+</div>
+<div id="toast-container"></div>
+
+<script>
+const DIAS_SEMANA=['Segunda','Terça','Quarta','Quinta','Sexta','Sábado','Domingo'];
+const DIAS_SHORT=['Seg','Ter','Qua','Qui','Sex','Sáb','Dom'];
+let _editingTurnoId=null, _turnos=[];
+
+fetch('partials/sidebar.html').then(r=>r.text()).then(html=>{
+  document.getElementById('sidebar-container').innerHTML=html;
+  document.querySelector('[href="turnos.html"]')?.classList.add('active');
+  openGroup('cadastros');
+});
+initSidebar('turnos.html');
+
+function calcMinutos(ini,fim){if(!ini||!fim)return 0;const[h1,m1]=ini.split(':').map(Number);let[h2,m2]=fim.split(':').map(Number);let mins=(h2*60+m2)-(h1*60+m1);if(mins<0)mins+=1440;return mins;}
+function minsParaHoras(mins){if(!mins)return'0h';const h=Math.floor(mins/60),m=mins%60;return`${h}h${m>0?String(m).padStart(2,'0')+'min':''}`;}
+
+async function init(){const{data}=await _supabase.from('turnos').select('*').order('nome');_turnos=data||[];renderTurnos();}
+
+function renderTurnos(){
+  const busca=(document.getElementById('busca-turno')?.value||'').toLowerCase();
+  const status=document.getElementById('filtro-status-turno')?.value||'';
+  const lista=_turnos.filter(t=>(!busca||t.nome?.toLowerCase().includes(busca))&&(!status||t.status===status));
+  const tbody=document.getElementById('tbody-turnos');const empty=document.getElementById('turnos-empty');
+  tbody.innerHTML='';
+  if(!lista.length){empty.classList.remove('hidden');return;}empty.classList.add('hidden');
+  lista.forEach(t=>{
+    const cal=t.calendario||{};
+    const diasAtivos=DIAS_SEMANA.filter(d=>cal[d]?.ativo&&cal[d]?.inicio);
+    const diasShort=diasAtivos.map(d=>DIAS_SHORT[DIAS_SEMANA.indexOf(d)]).join(', ')||'—';
+    const refMins=parseInt(t.refeicao_min||t.refeicaoMin||'0')||0;
+    let totalMins=0;diasAtivos.forEach(d=>{const m=calcMinutos(cal[d].inicio,cal[d].fim);totalMins+=Math.max(0,m-refMins);});
+    const mediaDia=diasAtivos.length>0?Math.round(totalMins/diasAtivos.length):0;
+    const primD=diasAtivos[0];
+    const horarioPrincipal=primD?`${cal[primD].inicio} → ${cal[primD].fim}`:'—';
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td><strong style="color:var(--primary);">${t.nome}</strong></td>
+      <td style="font-size:12px;">${diasShort}</td>
+      <td><strong>🕐 ${horarioPrincipal}</strong></td>
+      <td style="font-size:12px;">${t.refeicao_nome||t.refeicaoNome||'—'}${refMins>0?` (${refMins}min)`:''}</td>
+      <td><span class="badge badge-info">${mediaDia>0?minsParaHoras(mediaDia):'—'}</span></td>
+      <td><span class="badge badge-success">${totalMins>0?minsParaHoras(totalMins):'—'}</span></td>
+      <td><span class="badge ${t.status==='ativo'?'badge-success':'badge-gray'}">${t.status==='ativo'?'✅ Ativo':'⚫ Inativo'}</span></td>
+      <td><div class="table-actions">
+        <button class="btn btn-secondary btn-sm" onclick="visualizarTurno('${t.id}')">👁️</button>
+        <button class="btn btn-secondary btn-sm" onclick="editarTurno('${t.id}')">✏️ Editar</button>
+        <button class="btn btn-danger btn-sm" onclick="confirmarExclusao('${t.id}','${t.nome}')">🗑️</button>
+      </div></td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+function buildCalendarioTurno(turnoData){
+  const tbody=document.getElementById('t-calendario-tbody');tbody.innerHTML='';
+  const cal=turnoData?.calendario||{};
+  DIAS_SEMANA.forEach((dia,i)=>{
+    const d=cal[dia]||{ativo:i<5,inicio:'',fim:''};
+    const refMins=parseInt(document.getElementById('t-ref-min')?.value||'0')||0;
+    const mins=calcMinutos(d.inicio,d.fim);
+    const liquido=d.ativo&&mins>0?Math.max(0,mins-refMins):0;
+    const tr=document.createElement('tr');tr.style.borderBottom='1px solid #f1f5f9';
+    tr.innerHTML=`<td style="padding:8px 14px;font-weight:600;font-size:13px;color:var(--primary);">${dia}</td>
+      <td style="text-align:center;padding:8px;"><label class="toggle"><input type="checkbox" id="t-cal-ativo-${i}" ${d.ativo?'checked':''} onchange="calcTotalTurno()"><span class="toggle-slider"></span></label></td>
+      <td style="padding:6px 8px;"><div style="display:flex;gap:6px;align-items:center;">
+        <input type="time" id="t-cal-ini-${i}" value="${d.inicio||''}" class="form-input" style="padding:6px 8px;font-size:12px;width:110px;" oninput="calcTotalTurno()">
+        <span style="color:#94a3b8;font-size:12px;">→</span>
+        <input type="time" id="t-cal-fim-${i}" value="${d.fim||''}" class="form-input" style="padding:6px 8px;font-size:12px;width:110px;" oninput="calcTotalTurno()">
+      </div></td>
+      <td style="padding:6px 8px;display:none;"></td>
+      <td style="text-align:center;padding:8px;" id="t-cal-horas-${i}"><span class="badge ${liquido>0?'badge-success':'badge-gray'}" style="font-size:11px;">${liquido>0?minsParaHoras(liquido):'Folga'}</span></td>`;
+    tbody.appendChild(tr);
+  });
+  calcTotalTurno();
+}
+
+function calcTotalTurno(){
+  const refMins=parseInt(document.getElementById('t-ref-min')?.value||'0')||0;
+  let totalSemana=0;const diasAtivos=[];
+  DIAS_SEMANA.forEach((dia,i)=>{
+    const ativo=document.getElementById(`t-cal-ativo-${i}`)?.checked;
+    const ini=document.getElementById(`t-cal-ini-${i}`)?.value||'';
+    const fim=document.getElementById(`t-cal-fim-${i}`)?.value||'';
+    const mins=calcMinutos(ini,fim);
+    const liquido=ativo&&mins>0?Math.max(0,mins-refMins):0;
+    const badge=document.getElementById(`t-cal-horas-${i}`);
+    if(badge)badge.innerHTML=`<span class="badge ${liquido>0?'badge-success':'badge-gray'}" style="font-size:11px;">${liquido>0?minsParaHoras(liquido):'Folga'}</span>`;
+    if(ativo&&liquido>0){totalSemana+=liquido;diasAtivos.push(DIAS_SHORT[i]);}
+  });
+  const resumo=document.getElementById('t-resumo');const grid=document.getElementById('t-resumo-grid');
+  if(totalSemana>0){
+    resumo.style.display='block';
+    const mediaDia=diasAtivos.length>0?Math.round(totalSemana/diasAtivos.length):0;
+    const totalMes=Math.round(totalSemana*4.33);
+    grid.innerHTML=`<div style="text-align:center;"><div style="font-size:20px;font-weight:800;color:var(--accent);">${diasAtivos.length}</div><div style="font-size:11px;color:#7aa3c0;">Dias/Semana</div></div>
+      <div style="text-align:center;"><div style="font-size:20px;font-weight:800;color:var(--accent);">${minsParaHoras(mediaDia)}</div><div style="font-size:11px;color:#7aa3c0;">Média/Dia</div></div>
+      <div style="text-align:center;"><div style="font-size:20px;font-weight:800;color:var(--accent);">${minsParaHoras(totalSemana)}</div><div style="font-size:11px;color:#7aa3c0;">Total/Semana</div></div>
+      <div style="text-align:center;"><div style="font-size:20px;font-weight:800;color:var(--accent);">${minsParaHoras(totalMes)}</div><div style="font-size:11px;color:#7aa3c0;">Estimado/Mês</div></div>`;
+  } else {resumo.style.display='none';}
+}
+
+function aplicarHorarioTodos(){
+  let iniRef='',fimRef='';
+  DIAS_SEMANA.forEach((_,i)=>{const ativo=document.getElementById(`t-cal-ativo-${i}`)?.checked;const ini=document.getElementById(`t-cal-ini-${i}`)?.value||'';const fim=document.getElementById(`t-cal-fim-${i}`)?.value||'';if(ativo&&ini&&fim&&!iniRef){iniRef=ini;fimRef=fim;}});
+  if(!iniRef){toast('Defina o horário de pelo menos um dia ativo!','warning');return;}
+  DIAS_SEMANA.forEach((_,i)=>{const ativo=document.getElementById(`t-cal-ativo-${i}`)?.checked;if(ativo){document.getElementById(`t-cal-ini-${i}`).value=iniRef;document.getElementById(`t-cal-fim-${i}`).value=fimRef;}});
+  calcTotalTurno();toast('Horário aplicado!','success');
+}
+
+function marcarSemana(tipo){
+  DIAS_SEMANA.forEach((_,i)=>{const c=document.getElementById(`t-cal-ativo-${i}`);if(!c)return;if(tipo==='util')c.checked=i<5;if(tipo==='todos')c.checked=true;if(tipo==='nenhum')c.checked=false;});
+  calcTotalTurno();
+}
+
+function getCalendarioFromForm(){const cal={};DIAS_SEMANA.forEach((dia,i)=>{cal[dia]={ativo:document.getElementById(`t-cal-ativo-${i}`)?.checked||false,inicio:document.getElementById(`t-cal-ini-${i}`)?.value||'',fim:document.getElementById(`t-cal-fim-${i}`)?.value||''};});return cal;}
+
+function openModalTurno(){
+  _editingTurnoId=null;
+  document.getElementById('modal-turno-title').textContent='Novo Turno';
+  document.getElementById('t-nome').value='';document.getElementById('t-status').value='ativo';
+  document.getElementById('t-ref-nome').value='';document.getElementById('t-ref-min').value='';
+  document.getElementById('t-ref-inicio').value='';document.getElementById('t-ref-fim').value='';
+  document.getElementById('t-resumo').style.display='none';document.getElementById('t-error').classList.add('hidden');
+  buildCalendarioTurno(null);document.getElementById('modal-turno').classList.remove('hidden');
+}
+
+function editarTurno(id){
+  const t=_turnos.find(x=>x.id===id);if(!t)return;
+  _editingTurnoId=id;
+  document.getElementById('modal-turno-title').textContent='Editar Turno — '+t.nome;
+  document.getElementById('t-nome').value=t.nome||'';document.getElementById('t-status').value=t.status||'ativo';
+  document.getElementById('t-ref-nome').value=t.refeicao_nome||t.refeicaoNome||'';
+  document.getElementById('t-ref-min').value=t.refeicao_min||t.refeicaoMin||'';
+  document.getElementById('t-ref-inicio').value=t.refeicao_inicio||t.refeicaoInicio||'';
+  document.getElementById('t-ref-fim').value=t.refeicao_fim||t.refeicaoFim||'';
+  document.getElementById('t-error').classList.add('hidden');
+  buildCalendarioTurno(t);document.getElementById('modal-turno').classList.remove('hidden');
+}
+
+async function salvarTurno(){
+  const nome=document.getElementById('t-nome').value.trim();
+  const errEl=document.getElementById('t-error');const btn=document.getElementById('btn-salvar-turno');
+  if(!nome){errEl.textContent='Nome do turno é obrigatório!';errEl.classList.remove('hidden');return;}
+  const cal=getCalendarioFromForm();
+  const temDia=DIAS_SEMANA.some(d=>cal[d].ativo&&cal[d].inicio&&cal[d].fim);
+  if(!temDia){errEl.textContent='Configure pelo menos um dia com horário!';errEl.classList.remove('hidden');return;}
+  const dados={nome,status:document.getElementById('t-status').value,calendario:cal,
+    refeicao_nome:document.getElementById('t-ref-nome').value,
+    refeicao_min:parseInt(document.getElementById('t-ref-min').value)||0,
+    refeicao_inicio:document.getElementById('t-ref-inicio').value,
+    refeicao_fim:document.getElementById('t-ref-fim').value,
+    atualizado_em:new Date().toISOString()};
+  btn.innerHTML='<span class="spin"></span>';btn.disabled=true;
+  try{
+    if(_editingTurnoId){await _supabase.from('turnos').update(dados).eq('id',_editingTurnoId);await addLog('UPDATE','TURNOS',_editingTurnoId,'Atualizado: '+nome);toast('Turno atualizado!','success');}
+    else{const{data}=await _supabase.from('turnos').insert(dados).select().single();await addLog('CREATE','TURNOS',data.id,'Novo turno: '+nome);toast('Turno cadastrado!','success');}
+    closeModal('modal-turno');await init();
+  }catch(e){errEl.textContent='Erro: '+e.message;errEl.classList.remove('hidden');}
+  btn.innerHTML='💾 Salvar Turno';btn.disabled=false;
+}
+
+function visualizarTurno(id){
+  const t=_turnos.find(x=>x.id===id);if(!t)return;
+  document.getElementById('modal-view-turno-title').textContent='🕐 '+t.nome;
+  const cal=t.calendario||{};const refMins=parseInt(t.refeicao_min||t.refeicaoMin||0)||0;
+  const diasHtml=DIAS_SEMANA.map((dia,i)=>{
+    const d=cal[dia]||{};const mins=d.ativo?calcMinutos(d.inicio,d.fim):0;const liq=Math.max(0,mins-refMins);
+    return`<tr style="border-bottom:1px solid #f1f5f9;">
+      <td style="padding:8px 12px;font-weight:600;color:${d.ativo&&d.inicio?'var(--primary)':'#94a3b8'};">${dia}</td>
+      <td style="padding:8px 12px;font-size:12px;">${d.ativo&&d.inicio?`${d.inicio} → ${d.fim}`:'Folga'}</td>
+      <td style="padding:8px 12px;"><span class="badge ${liq>0?'badge-success':'badge-gray'}" style="font-size:11px;">${liq>0?minsParaHoras(liq):'—'}</span></td>
+    </tr>`;}).join('');
+  document.getElementById('modal-view-turno-body').innerHTML=`
+    <table style="width:100%;border-collapse:collapse;margin-bottom:16px;"><thead><tr style="background:#f8fafc;"><th style="padding:8px 12px;text-align:left;font-size:11px;text-transform:uppercase;color:#64748b;">Dia</th><th style="padding:8px 12px;text-align:left;font-size:11px;text-transform:uppercase;color:#64748b;">Horário</th><th style="padding:8px 12px;text-align:left;font-size:11px;text-transform:uppercase;color:#64748b;">Horas Líquidas</th></tr></thead><tbody>${diasHtml}</tbody></table>
+    ${t.refeicao_nome||t.refeicaoNome?`<div style="background:#f8fafc;border-radius:10px;padding:12px;border:1px solid #e2e8f0;"><p style="font-size:12px;color:#64748b;">🍽️ ${t.refeicao_nome||t.refeicaoNome} — ${refMins} min</p></div>`:''}`;
+  document.getElementById('modal-view-turno').classList.remove('hidden');
+}
+
+function confirmarExclusao(id,nome){
+  document.getElementById('confirm-msg').innerHTML=`Deseja excluir o turno <strong>${nome}</strong>?`;
+  document.getElementById('confirm-ok-btn').onclick=async()=>{await _supabase.from('turnos').delete().eq('id',id);await addLog('DELETE','TURNOS',id,'Excluído: '+nome);toast('Turno excluído.','warning');closeModal('modal-confirm');await init();};
+  document.getElementById('modal-confirm').classList.remove('hidden');
+}
+
+init();
+</script>
+</body>
+</html>
