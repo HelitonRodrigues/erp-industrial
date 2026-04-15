@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ERP Industrial — Produção</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/supabase.js"></script>
+<script src="js/utils.js"></script>
+<style>
+.tab-btn{padding:10px 18px;background:none;border:none;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;color:#64748b;border-bottom:2px solid transparent;margin-bottom:-2px;transition:all .15s;}
+.tab-btn.active{color:var(--primary);border-bottom-color:var(--primary);}
+.pallet-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(42px,1fr));gap:5px;padding:16px;}
+.pallet-box{width:42px;height:42px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;cursor:pointer;transition:all .15s;border:2px solid transparent;user-select:none;}
+.pallet-box.pendente{background:#fef9c3;color:#854d0e;border-color:#fde047;}
+.pallet-box.aprovado{background:#dcfce7;color:#166534;border-color:#86efac;}
+.pallet-box.reprovado{background:#fee2e2;color:#991b1b;border-color:#fca5a5;}
+.pallet-box:hover{transform:scale(1.1);box-shadow:0 2px 8px rgba(0,0,0,.15);}
+.pallet-box.sel{box-shadow:0 0 0 3px var(--primary);}
+.sec{background:#f8fafc;border-radius:12px;padding:16px;border:1.2px solid #e2e8f0;}
+.sec-title{font-size:11px;font-weight:700;color:var(--primary);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px;}
+.hcalc{background:linear-gradient(135deg,#042D4D,#0E3B62);border-radius:10px;padding:12px 16px;color:#fff;display:flex;gap:24px;align-items:center;flex-wrap:wrap;}
+.hval .n{font-size:20px;font-weight:800;color:#C9FF64;}
+.hval .l{font-size:10px;color:#7aa3c0;text-transform:uppercase;}
+</style>
+</head>
+<body>
+<div id="sidebar-container"></div>
+<header class="topbar" id="topbar">
+  <button class="topbar-open-sidebar" onclick="toggleSidebar()">☰</button>
+  <div class="topbar-title">Produção</div>
+  <div class="topbar-right">
+    <div class="topbar-user">
+      <div class="user-avatar" style="width:32px;height:32px;font-size:12px;" id="top-avatar">SA</div>
+      <div><div class="topbar-user-name" id="top-user-name">Super Admin</div><div class="topbar-user-profile" id="top-user-perfil">SADM</div></div>
+    </div>
+    <button class="btn btn-ghost btn-sm" onclick="doLogout()" style="color:#64748b;">Sair</button>
+  </div>
+</header>
+<main class="main-content" id="main-content">
+  <div class="page-header">
+    <div class="page-header-left"><h1>Produção</h1><p>Lançamentos de turno, pallets e controle de martelos</p></div>
+    <div style="display:flex;gap:10px;">
+      <button class="btn btn-secondary" onclick="doExportCSV()">⬇️ CSV</button>
+      <button class="btn btn-primary" onclick="openModalLanc()">+ Novo Lançamento</button>
+    </div>
+  </div>
+
+  <div style="display:flex;border-bottom:2px solid #e2e8f0;margin-bottom:20px;flex-wrap:wrap;gap:0;">
+    <button class="tab-btn active" onclick="swTab('tab-lanc',this)">📋 Lançamentos de Turno</button>
+    <button class="tab-btn" onclick="swTab('tab-pallets',this)">📦 Análise de Pallets</button>
+    <button class="tab-btn" onclick="swTab('tab-martelos',this)">🔨 Controle de Martelos</button>
+    <button class="tab-btn" onclick="swTab('tab-metas',this)">🎯 Meta por Encarregado</button>
+  </div>
+
+  <!-- LANÇAMENTOS -->
+  <div id="tab-lanc">
+    <div class="card" style="margin-bottom:14px;">
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+        <div class="form-group" style="margin:0;"><label class="form-label">Data</label><input type="date" id="fl-data" class="form-input" style="width:150px;" onchange="rlL()"></div>
+        <div class="form-group" style="margin:0;"><label class="form-label">Linha</label><select id="fl-linha" class="form-input" style="width:170px;" onchange="rlL()"><option value="">Todas</option></select></div>
+        <div class="form-group" style="margin:0;"><label class="form-label">Turno</label><select id="fl-turno" class="form-input" style="width:150px;" onchange="rlL()"><option value="">Todos</option></select></div>
+        <button class="btn btn-ghost btn-sm" onclick="document.getElementById('fl-linha').value='';document.getElementById('fl-turno').value='';rlL()">Limpar</button>
+      </div>
+    </div>
+    <div id="resumo-dia" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;margin-bottom:14px;"></div>
+    <div class="card">
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Data</th><th>Dia</th><th>Linha</th><th>Turno</th><th>Encarregado</th><th>Produto</th><th>H.T</th><th>H.P</th><th>Sacos</th><th>Disp%</th><th>Lenha m³</th><th>Lote MP</th><th>Status</th><th>Ações</th></tr></thead>
+          <tbody id="tbody-lanc"></tbody>
+        </table>
+      </div>
+      <div id="lanc-empty" class="empty-state hidden"><div class="empty-icon">⚙️</div><h3>Nenhum lançamento encontrado</h3></div>
+    </div>
+  </div>
+
+  <!-- PALLETS -->
+  <div id="tab-pallets" style="display:none;">
+    <div class="card" style="margin-bottom:14px;">
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+        <div class="form-group" style="margin:0;"><label class="form-label">De</label><input type="date" id="fp-ini" class="form-input" style="width:150px;" onchange="rlP()"></div>
+        <div class="form-group" style="margin:0;"><label class="form-label">Até</label><input type="date" id="fp-fim" class="form-input" style="width:150px;" onchange="rlP()"></div>
+        <div class="form-group" style="margin:0;"><label class="form-label">Linha</label><select id="fp-linha" class="form-input" style="width:170px;" onchange="rlP()"><option value="">Todas</option></select></div>
+        <div class="form-group" style="margin:0;"><label class="form-label">Status</label>
+          <select id="fp-status" class="form-input" style="width:150px;" onchange="rlP()"><option value="">Todos</option><option value="pendente">🟡 Pendente</option><option value="aprovado">🟢 Aprovado</option><option value="reprovado">🔴 Reprovado</option></select>
+        </div>
+      </div>
+    </div>
+    <div id="pallet-kpis" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px;margin-bottom:14px;"></div>
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border-bottom:1px solid #f1f5f9;flex-wrap:wrap;gap:8px;">
+        <div style="font-size:12px;color:#64748b;"><kbd>Ctrl+Clique</kbd> para selecionar múltiplos</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <span style="font-size:11px;color:#64748b;">🟡 Pendente &nbsp; 🟢 Aprovado &nbsp; 🔴 Reprovado</span>
+          <button class="btn btn-secondary btn-sm" id="btn-apr" onclick="bulkPallet('aprovado')" style="display:none;">✅ Aprovar</button>
+          <button class="btn btn-danger btn-sm" id="btn-rep" onclick="bulkPallet('reprovado')" style="display:none;">❌ Reprovar</button>
+        </div>
+      </div>
+      <div id="pallet-grid" class="pallet-grid"></div>
+      <div id="pallet-empty" class="empty-state hidden"><div class="empty-icon">📦</div><h3>Nenhum pallet encontrado</h3></div>
+    </div>
+  </div>
+
+  <!-- MARTELOS -->
+  <div id="tab-martelos" style="display:none;">
+    <div style="display:flex;justify-content:flex-end;margin-bottom:14px;">
+      <button class="btn btn-primary" onclick="openModalMartelo()">+ Registrar Martelo</button>
+    </div>
+    <div class="card">
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Linha</th><th>Tipo</th><th>Retirada</th><th>Devolução</th><th>P.Ini (kg)</th><th>P.Fin (kg)</th><th>Gasto (kg)</th><th>H.I</th><th>H.F</th><th>H.T</th><th>Sacos</th><th>sc/kg</th><th>Fornecedor</th><th>Ações</th></tr></thead>
+          <tbody id="tbody-mart"></tbody>
+        </table>
+      </div>
+      <div id="mart-empty" class="empty-state hidden"><div class="empty-icon">🔨</div><h3>Nenhum registro de martelo</h3></div>
+    </div>
+  </div>
+
+  <!-- METAS -->
+  <div id="tab-metas" style="display:none;">
+    <div class="card" style="margin-bottom:14px;">
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+        <div class="form-group" style="margin:0;"><label class="form-label">Mês/Ano</label><input type="month" id="fm-mes" class="form-input" style="width:170px;" onchange="rlM()"></div>
+        <div class="form-group" style="margin:0;"><label class="form-label">Encarregado</label><select id="fm-enc" class="form-input" style="width:200px;" onchange="rlM()"><option value="">Todos</option></select></div>
+      </div>
+    </div>
+    <div id="ranking-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px;margin-bottom:20px;"></div>
+    <div class="card">
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>#</th><th>Encarregado</th><th>Turnos</th><th>H.T</th><th>H.P</th><th>Disponib.</th><th>Sacos Total</th><th>Média sc/h</th><th>Linhas</th></tr></thead>
+          <tbody id="tbody-meta"></tbody>
+        </table>
+      </div>
+      <div id="meta-empty" class="empty-state hidden"><div class="empty-icon">🎯</div><h3>Sem dados</h3></div>
+    </div>
+  </div>
+</main>
+
+<!-- ===== MODAL LANÇAMENTO ===== -->
+<div id="modal-lanc" class="modal-overlay hidden">
+  <div class="modal modal-lg" style="max-width:880px;">
+    <div class="modal-header"><div class="modal-title" id="mlanc-title">Novo Lançamento de Turno</div><button class="modal-close" onclick="closeModal('modal-lanc')">✕</button></div>
+    <div style="display:flex;flex-direction:column;gap:12px;">
+
+      <div class="sec"><div class="sec-title">📋 Identificação</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
+          <div class="form-group"><label class="form-label">Data <span class="req">*</span></label><input id="l-data" type="date" class="form-input" onchange="lCalcDia()"></div>
+          <div class="form-group"><label class="form-label">Dia da Semana</label><input id="l-dia" type="text" class="form-input" readonly style="background:#f5f7fa;color:#64748b;font-weight:600;"></div>
+          <div class="form-group"><label class="form-label">Tipo de Linha</label>
+            <select id="l-tipo-linha" class="form-input"><option value="">—</option><option>Concentrado</option><option>BAG</option><option>Nanodry</option><option>20kg</option><option>25kg</option></select>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:10px;">
+          <div class="form-group"><label class="form-label">Linha <span class="req">*</span></label><select id="l-linha" class="form-input" onchange="lCarregarProd()"><option value="">Selecione...</option></select></div>
+          <div class="form-group"><label class="form-label">Turno <span class="req">*</span></label><select id="l-turno" class="form-input"><option value="">Selecione...</option></select></div>
+          <div class="form-group"><label class="form-label">Encarregado</label><select id="l-enc" class="form-input"><option value="">—</option></select></div>
+        </div>
+        <div class="form-group" style="margin-top:10px;"><label class="form-label">Produto <span class="req">*</span></label><select id="l-prod" class="form-input" onchange="lCalcEfic()"><option value="">Selecione a linha...</option></select></div>
+      </div>
+
+      <div class="sec"><div class="sec-title">⏱️ Horímetros & Horas</div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:10px;">
+          <div class="form-group"><label class="form-label">H.I — Horímetro Inicial</label><input id="l-hi" type="number" class="form-input" step="0.1" oninput="lCalcHoras()"></div>
+          <div class="form-group"><label class="form-label">H.F — Horímetro Final</label><input id="l-hf" type="number" class="form-input" step="0.1" oninput="lCalcHoras()"></div>
+          <div class="form-group"><label class="form-label">H.P — Horas Paradas</label><input id="l-hp" type="number" class="form-input" step="0.1" oninput="lCalcHoras()"></div>
+          <div class="form-group"><label class="form-label">Horas Extras</label>
+            <div style="display:flex;align-items:center;gap:8px;height:42px;">
+              <label class="toggle"><input type="checkbox" id="l-he-chk" onchange="document.getElementById('l-he-val').style.display=this.checked?'block':'none'"><span class="toggle-slider"></span></label>
+              <input id="l-he-val" type="number" class="form-input" min="0" step="0.5" placeholder="h" style="width:64px;display:none;">
+            </div>
+          </div>
+        </div>
+        <div id="l-hcalc" class="hcalc" style="display:none;">
+          <div class="hval"><div class="n" id="l-ht-d">—</div><div class="l">H.T Trabalhadas</div></div>
+          <div style="color:#7aa3c0;">|</div>
+          <div class="hval"><div class="n" id="l-hp-min-d">—</div><div class="l">H.P em minutos</div></div>
+          <div style="color:#7aa3c0;">|</div>
+          <div class="hval"><div class="n" id="l-disp-d">—</div><div class="l">Disponibilidade</div></div>
+        </div>
+      </div>
+
+      <div class="sec"><div class="sec-title">🛑 Motivos de Parada</div>
+        <div id="l-motivos-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:6px;margin-bottom:10px;"></div>
+        <div class="form-group"><label class="form-label">Observações da Parada</label><textarea id="l-obs-parada" class="form-input" rows="2"></textarea></div>
+      </div>
+
+      <div class="sec"><div class="sec-title">📦 Produção & Qualidade</div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:10px;">
+          <div class="form-group"><label class="form-label">Total Produzido (sacos) <span class="req">*</span></label><input id="l-sacos" type="number" class="form-input" min="0" oninput="lCalcEfic()"></div>
+          <div class="form-group"><label class="form-label">Sacos em Análise</label><input id="l-s-analise" type="number" class="form-input" min="0" value="0"></div>
+          <div class="form-group"><label class="form-label">Sacos Reprovados</label><input id="l-s-repr" type="number" class="form-input" min="0" value="0"></div>
+          <div class="form-group"><label class="form-label">Motivo Reprovação</label>
+            <select id="l-mot-repr" class="form-input"><option value="">—</option><option>Umidade fora</option><option>Granulometria fora</option><option>Massa irregular</option><option>Laudo reprovado</option><option>Outro</option></select>
+          </div>
+        </div>
+        <div class="form-group"><label class="form-label">Eficiência (calculada automaticamente)</label>
+          <div id="l-efic-d" style="padding:10px 14px;background:#f8fafc;border-radius:8px;border:1.2px solid #e2e8f0;font-size:18px;font-weight:800;color:var(--primary);">—</div>
+        </div>
+      </div>
+
+      <div class="sec"><div class="sec-title">🌡️ Dados Técnicos & Rastreabilidade</div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:10px;">
+          <div class="form-group"><label class="form-label">Consumo de Lenha (m³)</label><input id="l-lenha" type="number" class="form-input" step="0.1"></div>
+          <div class="form-group"><label class="form-label">Temperatura do Moinho (°C)</label><input id="l-temp" type="number" class="form-input" step="0.1"></div>
+          <div class="form-group"><label class="form-label">Perda Filtro Manga (mmCA)</label><input id="l-filtro" type="number" class="form-input" step="0.1"></div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+          <div class="form-group"><label class="form-label">Lote de MP</label><input id="l-lote-mp" type="text" class="form-input" placeholder="Ex: MP-2025-001"></div>
+          <div class="form-group"><label class="form-label">Lote de Aditivo</label><input id="l-lote-ad" type="text" class="form-input" placeholder="Ex: AD-2025-042"></div>
+        </div>
+
+        <!-- AFERIÇÃO ATUAL -->
+        <div style="margin-top:10px;background:#fff;border-radius:8px;border:1px solid #e2e8f0;padding:12px;">
+          <div class="sec-title" style="color:#2563eb;">⚙️ Aferição Atual</div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px;">
+            <div class="form-group"><label class="form-label" style="font-size:10px;">Separador (RPM)</label><input id="af-sep" type="number" class="form-input" style="font-size:12px;padding:6px 8px;"></div>
+            <div class="form-group"><label class="form-label" style="font-size:10px;">Granulometria</label><input id="af-gran" type="text" class="form-input" style="font-size:12px;padding:6px 8px;"></div>
+            <div class="form-group"><label class="form-label" style="font-size:10px;">Temp. Ciclone (°C)</label><input id="af-tciclone" type="number" class="form-input" style="font-size:12px;padding:6px 8px;"></div>
+            <div class="form-group"><label class="form-label" style="font-size:10px;">Rot. Alimentador (RPM)</label><input id="af-alim" type="number" class="form-input" style="font-size:12px;padding:6px 8px;"></div>
+            <div class="form-group"><label class="form-label" style="font-size:10px;">Rot. Aditivador (RPM)</label><input id="af-aditv" type="number" class="form-input" style="font-size:12px;padding:6px 8px;"></div>
+            <div class="form-group"><label class="form-label" style="font-size:10px;">Média sc/h</label><input id="af-sch" type="number" class="form-input" oninput="calcScMin('af')" style="font-size:12px;padding:6px 8px;"></div>
+            <div class="form-group"><label class="form-label" style="font-size:10px;">sc/min (auto)</label><div id="af-scmin" style="padding:6px 8px;background:#f8fafc;border-radius:6px;border:1px solid #e2e8f0;font-size:12px;font-weight:700;">—</div></div>
+            <div class="form-group"><label class="form-label" style="font-size:10px;">Tempo Coleta (s)</label><input id="af-tempo" type="number" class="form-input" style="font-size:12px;padding:6px 8px;"></div>
+            <div class="form-group"><label class="form-label" style="font-size:10px;">Peso Coleta (g)</label><input id="af-peso" type="number" class="form-input" style="font-size:12px;padding:6px 8px;"></div>
+            <div class="form-group"><label class="form-label" style="font-size:10px;">Aditivação (g/saco)</label><input id="af-adit-saco" type="number" class="form-input" style="font-size:12px;padding:6px 8px;font-weight:700;"></div>
+          </div>
+        </div>
+
+        <!-- AFERIÇÃO REGULADO -->
+        <div style="margin-top:8px;background:#fff;border-radius:8px;border:1px solid #e2e8f0;padding:12px;">
+          <div class="sec-title" style="color:#16a34a;">✅ Aferição Regulado (estado ideal)</div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px;">
+            <div class="form-group"><label class="form-label" style="font-size:10px;">Separador (RPM)</label><input id="rg-sep" type="number" class="form-input" style="font-size:12px;padding:6px 8px;"></div>
+            <div class="form-group"><label class="form-label" style="font-size:10px;">Granulometria</label><input id="rg-gran" type="text" class="form-input" style="font-size:12px;padding:6px 8px;"></div>
+            <div class="form-group"><label class="form-label" style="font-size:10px;">Temp. Ciclone (°C)</label><input id="rg-tciclone" type="number" class="form-input" style="font-size:12px;padding:6px 8px;"></div>
+            <div class="form-group"><label class="form-label" style="font-size:10px;">Rot. Alimentador (RPM)</label><input id="rg-alim" type="number" class="form-input" style="font-size:12px;padding:6px 8px;"></div>
+            <div class="form-group"><label class="form-label" style="font-size:10px;">Rot. Aditivador (RPM)</label><input id="rg-aditv" type="number" class="form-input" style="font-size:12px;padding:6px 8px;"></div>
+            <div class="form-group"><label class="form-label" style="font-size:10px;">Média sc/h</label><input id="rg-sch" type="number" class="form-input" style="font-size:12px;padding:6px 8px;"></div>
+            <div class="form-group"><label class="form-label" style="font-size:10px;">Tempo Coleta (s)</label><input id="rg-tempo" type="number" class="form-input" style="font-size:12px;padding:6px 8px;"></div>
+            <div class="form-group"><label class="form-label" style="font-size:10px;">Peso Coleta (g)</label><input id="rg-peso" type="number" class="form-input" style="font-size:12px;padding:6px 8px;"></div>
+            <div class="form-group"><label class="form-label" style="font-size:10px;">Aditivação (g/saco)</label><input id="rg-adit-saco" type="number" class="form-input" style="font-size:12px;padding:6px 8px;"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="form-group"><label class="form-label">Observações Gerais</label><textarea id="l-obs" class="form-input" rows="2"></textarea></div>
+      <div id="l-err" class="hidden alert alert-danger"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-lanc')">Cancelar</button>
+      <button class="btn btn-primary" id="btn-sl" onclick="salvarLanc()">💾 Salvar Lançamento</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL PALLET -->
+<div id="modal-pallet" class="modal-overlay hidden">
+  <div class="modal" style="max-width:520px;">
+    <div class="modal-header"><div class="modal-title" id="mpal-title">📦 Análise do Pallet</div><button class="modal-close" onclick="closeModal('modal-pallet')">✕</button></div>
+    <div style="display:flex;flex-direction:column;gap:12px;">
+      <div style="background:#f8fafc;border-radius:8px;padding:10px 14px;border:1px solid #e2e8f0;font-size:12px;color:#64748b;" id="pal-info"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div class="form-group"><label class="form-label">Cimento CP II F32 (g) ✏️</label><input id="pal-cim" type="number" class="form-input" value="100"></div>
+        <div class="form-group"><label class="form-label">Areia 600g</label><input id="pal-areia" type="number" class="form-input"></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div class="form-group"><label class="form-label">Água (mL)</label><input id="pal-agua" type="number" class="form-input"></div>
+        <div class="form-group"><label class="form-label">Densidade (g/mL)</label><input id="pal-dens" type="number" class="form-input" step="0.01"></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div class="form-group"><label class="form-label">Liga</label><select id="pal-liga" class="form-input"><option value="">—</option><option>Muito Bom</option><option>Bom</option><option>Ruim</option></select></div>
+        <div class="form-group"><label class="form-label">Exsudação (EXS)</label><select id="pal-exs" class="form-input"><option value="">—</option><option>Muito Bom</option><option>Bom</option><option>Ruim</option></select></div>
+      </div>
+      <div class="sec" style="margin:0;">
+        <div class="sec-title">📊 Granulometria % Retido</div>
+        <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;align-items:end;">
+          <div class="form-group"><label class="form-label" style="font-size:10px;">#20</label><input id="pal-p20" type="number" class="form-input" min="0" max="100" step="0.1" oninput="calcPalSoma()" style="padding:6px;"></div>
+          <div class="form-group"><label class="form-label" style="font-size:10px;">#50</label><input id="pal-p50" type="number" class="form-input" min="0" max="100" step="0.1" oninput="calcPalSoma()" style="padding:6px;"></div>
+          <div class="form-group"><label class="form-label" style="font-size:10px;">#100</label><input id="pal-p100" type="number" class="form-input" min="0" max="100" step="0.1" oninput="calcPalSoma()" style="padding:6px;"></div>
+          <div class="form-group"><label class="form-label" style="font-size:10px;">#200</label><input id="pal-p200" type="number" class="form-input" min="0" max="100" step="0.1" oninput="calcPalSoma()" style="padding:6px;"></div>
+          <div class="form-group"><label class="form-label" style="font-size:10px;">Total</label><div id="pal-soma" style="padding:6px;background:#f8fafc;border-radius:6px;border:1px solid #e2e8f0;font-size:12px;font-weight:800;">0%</div></div>
+        </div>
+      </div>
+      <div class="form-group"><label class="form-label">Status <span class="req">*</span></label>
+        <select id="pal-status" class="form-input"><option value="pendente">🟡 Pendente</option><option value="aprovado">🟢 Aprovado</option><option value="reprovado">🔴 Reprovado</option></select>
+      </div>
+      <div class="form-group"><label class="form-label">Observações</label><textarea id="pal-obs" class="form-input" rows="2"></textarea></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-pallet')">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarPallet()">💾 Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL MARTELO -->
+<div id="modal-mart" class="modal-overlay hidden">
+  <div class="modal modal-lg">
+    <div class="modal-header"><div class="modal-title" id="mmart-title">Registrar Martelo</div><button class="modal-close" onclick="closeModal('modal-mart')">✕</button></div>
+    <div style="display:flex;flex-direction:column;gap:12px;">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div class="form-group"><label class="form-label">Linha <span class="req">*</span></label><select id="m-linha" class="form-input"><option value="">Selecione...</option></select></div>
+        <div class="form-group"><label class="form-label">Tipo</label><select id="m-tipo" class="form-input"><option>STR / Cercal</option><option>Novo</option><option>Usado</option></select></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div class="form-group"><label class="form-label">Data de Retirada <span class="req">*</span></label><input id="m-ret" type="date" class="form-input"></div>
+        <div class="form-group"><label class="form-label">Data de Devolução</label><input id="m-dev" type="date" class="form-input"></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
+        <div class="form-group"><label class="form-label">Peso Inicial (kg) <span class="req">*</span></label><input id="m-pi" type="number" class="form-input" step="0.1" oninput="calcMart()"></div>
+        <div class="form-group"><label class="form-label">Peso Final (kg)</label><input id="m-pf" type="number" class="form-input" step="0.1" oninput="calcMart()"></div>
+        <div class="form-group"><label class="form-label">Total Gasto (kg)</label><div id="m-gasto" style="padding:10px 14px;background:#f8fafc;border-radius:8px;border:1.2px solid #e2e8f0;font-weight:800;color:#dc2626;">—</div></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
+        <div class="form-group"><label class="form-label">Horímetro Inicial</label><input id="m-hi" type="number" class="form-input" step="0.1" oninput="calcMart()"></div>
+        <div class="form-group"><label class="form-label">Horímetro Final</label><input id="m-hf" type="number" class="form-input" step="0.1" oninput="calcMart()"></div>
+        <div class="form-group"><label class="form-label">Horas Trabalhadas</label><div id="m-ht" style="padding:10px 14px;background:#f8fafc;border-radius:8px;border:1.2px solid #e2e8f0;font-weight:800;color:var(--primary);">—</div></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div class="form-group"><label class="form-label">Produção Gerada (sacos)</label><input id="m-sacos" type="number" class="form-input" oninput="calcMart()"></div>
+        <div class="form-group"><label class="form-label">Média (sacos/kg)</label><div id="m-media" style="padding:10px 14px;background:#f8fafc;border-radius:8px;border:1.2px solid #e2e8f0;font-weight:800;color:#16a34a;">—</div></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div class="form-group"><label class="form-label">Fornecedor</label><input id="m-forn" type="text" class="form-input"></div>
+        <div class="form-group"><label class="form-label">Observações</label><input id="m-obs" type="text" class="form-input"></div>
+      </div>
+      <div id="m-err" class="hidden alert alert-danger"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-mart')">Cancelar</button>
+      <button class="btn btn-primary" id="btn-sm" onclick="salvarMart()">💾 Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL CONFIRM -->
+<div id="modal-confirm" class="modal-overlay hidden">
+  <div class="modal" style="max-width:420px;">
+    <div class="modal-header"><div class="modal-title">⚠️ Confirmar</div><button class="modal-close" onclick="closeModal('modal-confirm')">✕</button></div>
+    <p id="confirm-msg" style="font-size:14px;color:#475569;line-height:1.6;"></p>
+    <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('modal-confirm')">Cancelar</button><button class="btn btn-danger" id="confirm-ok-btn">Excluir</button></div>
+  </div>
+</div>
+<div id="toast-container"></div>
+
+<script>
+const DIAS=['Domingo','Segunda-feira','Terça-feira','Quarta-feira','Quinta-feira','Sexta-feira','Sábado'];
+const MOTIVOS_STD=['Problemas Elétricos','Esvaziando Silo','Produção Sem Ensaque','Queda de Energia','Problemas Mecânicos','Troca de Martelo','Pesando Martelo','Problemas Pneumáticos','Falta de Embalagem','Falta de Funcionário','Falta de Material','Desarme do Equipamento','Virando Martelo','Problema no Alimentador','Troca de Material','Falta de Pallet','Parada para Alimentação','Desligamento da Fábrica','Ajuda ao Motorista','Strechando','Serviços a Terceiros','Parada Indevida','Estoque Cheio','Parada Programada','Limpeza da Linha','Partida da Fábrica','Alocação de Funcionários','Não Informou'];
+
+let _eL=null,_eM=null,_ePal=null;
+let _lancs=[],_pallets=[],_marts=[],_linhas=[],_turnos=[],_funcs=[],_prods=[],_motivosDB=[];
+let _palSel=new Set();
+
+fetch('partials/sidebar.html').then(r=>r.text()).then(html=>{
+  document.getElementById('sidebar-container').innerHTML=html;
+  document.querySelector('[href="producao.html"]')?.classList.add('active');
+  openGroup('producao');
+});
+initSidebar('producao.html');
+
+async function init(){
+  const hoje=new Date().toISOString().split('T')[0];
+  document.getElementById('fl-data').value=hoje;
+  const mIni=new Date();mIni.setDate(1);
+  document.getElementById('fp-ini').value=mIni.toISOString().split('T')[0];
+  document.getElementById('fp-fim').value=hoje;
+  document.getElementById('fm-mes').value=hoje.slice(0,7);
+
+  const[{data:ln},{data:tn},{data:fn},{data:mt},{data:pr}]=await Promise.all([
+    _supabase.from('linhas_producao').select('*').eq('status','ativo').order('nome'),
+    _supabase.from('turnos').select('*').eq('status','ativo').order('nome'),
+    _supabase.from('funcionarios').select('id,nome,funcao').eq('status','ativo').order('nome'),
+    _supabase.from('motivos_parada').select('*').eq('status','ativo').order('nome'),
+    _supabase.from('produtos').select('*').eq('status','ativo').order('nome'),
+  ]);
+  _linhas=ln||[];_turnos=tn||[];_funcs=fn||[];_motivosDB=mt||[];_prods=pr||[];
+
+  // Popular filtros
+  [['fl-linha','fp-linha']].forEach(ids=>ids.forEach(id=>{const s=document.getElementById(id);if(s)_linhas.forEach(l=>{const o=document.createElement('option');o.value=l.nome;o.textContent=l.nome;s.appendChild(o);});}));
+  const sft=document.getElementById('fl-turno');_turnos.forEach(t=>{const o=document.createElement('option');o.value=t.nome;o.textContent=t.nome;sft.appendChild(o);});
+  // Popular filtro de linha pallets
+  const sfpl=document.getElementById('fp-linha');_linhas.forEach(l=>{const o=document.createElement('option');o.value=l.nome;o.textContent=l.nome;sfpl.appendChild(o);});
+  // Popular enc metas
+  const sme=document.getElementById('fm-enc');const encs=[...new Set(_funcs.map(f=>f.nome))];encs.forEach(n=>{const o=document.createElement('option');o.value=n;o.textContent=n;sme.appendChild(o);});
+
+  await Promise.all([loadLancs(),loadPallets(),loadMarts()]);
+  rlL();rlP();rlM();renderMarts();
+}
+
+async function loadLancs(){const{data}=await _supabase.from('producao').select('*').order('data',{ascending:false}).order('created_at',{ascending:false}).limit(300);_lancs=data||[];}
+async function loadPallets(){const{data}=await _supabase.from('producao_pallets').select('*').order('created_at',{ascending:false}).limit(1000);_pallets=data||[];}
+async function loadMarts(){const{data}=await _supabase.from('producao_martelos').select('*').order('data_retirada',{ascending:false}).limit(200);_marts=data||[];}
+
+function swTab(id,btn){
+  ['tab-lanc','tab-pallets','tab-martelos','tab-metas'].forEach(t=>document.getElementById(t).style.display=t===id?'block':'none');
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));if(btn)btn.classList.add('active');
+}
+
+// ── LANÇAMENTOS ──
+function rlL(){
+  const fd=document.getElementById('fl-data').value;const fl=document.getElementById('fl-linha').value;const ft=document.getElementById('fl-turno').value;
+  const lista=_lancs.filter(l=>(!fd||l.data===fd)&&(!fl||l.linha===fl)&&(!ft||l.turno===ft));
+  if(fd&&lista.length){
+    const ts=lista.reduce((s,l)=>s+(l.total_sacos||0),0);const tht=lista.reduce((s,l)=>s+(l.ht||0),0);
+    const thp=lista.reduce((s,l)=>s+(l.hp||0),0);const tl=lista.reduce((s,l)=>s+(l.consumo_lenha||0),0);
+    const disp=tht>0?((tht-thp)/tht*100).toFixed(1):0;
+    document.getElementById('resumo-dia').innerHTML=`
+      <div class="card" style="text-align:center;padding:12px;"><div style="font-size:22px;font-weight:800;color:var(--primary);">${ts.toLocaleString('pt-BR')}</div><div style="font-size:11px;color:#64748b;">Sacos</div></div>
+      <div class="card" style="text-align:center;padding:12px;"><div style="font-size:22px;font-weight:800;color:var(--primary);">${tht.toFixed(1)}h</div><div style="font-size:11px;color:#64748b;">H.T</div></div>
+      <div class="card" style="text-align:center;padding:12px;"><div style="font-size:22px;font-weight:800;color:#ef4444;">${thp.toFixed(1)}h</div><div style="font-size:11px;color:#64748b;">H.P</div></div>
+      <div class="card" style="text-align:center;padding:12px;"><div style="font-size:22px;font-weight:800;color:${parseFloat(disp)>=85?'#16a34a':parseFloat(disp)>=70?'#b45309':'#dc2626'};">${disp}%</div><div style="font-size:11px;color:#64748b;">Disponib.</div></div>
+      <div class="card" style="text-align:center;padding:12px;"><div style="font-size:22px;font-weight:800;color:#b45309;">${tl.toFixed(1)}m³</div><div style="font-size:11px;color:#64748b;">Lenha</div></div>`;
+  } else {document.getElementById('resumo-dia').innerHTML='';}
+  const tbody=document.getElementById('tbody-lanc');const empty=document.getElementById('lanc-empty');
+  tbody.innerHTML='';if(!lista.length){empty.classList.remove('hidden');return;}empty.classList.add('hidden');
+  lista.forEach(l=>{
+    const ht=l.ht||0;const hp=l.hp||0;const d=ht>0?Math.round((ht-hp)/ht*100):0;
+    const dc=d>=85?'#16a34a':d>=70?'#b45309':'#dc2626';const efic=l.eficiencia||0;
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td style="font-size:12px;">${l.data||'—'}</td><td style="font-size:11px;color:#64748b;">${l.dia_semana||'—'}</td>
+      <td><strong style="color:var(--primary);">${l.linha}</strong></td><td>${l.turno}</td>
+      <td style="font-size:12px;">${l.encarregado||'—'}</td><td style="font-size:12px;">${l.produto||'—'}</td>
+      <td style="font-weight:700;color:${dc};">${ht.toFixed(1)}h</td><td style="color:#ef4444;font-weight:600;">${hp.toFixed(1)}h</td>
+      <td><strong style="font-size:14px;">${(l.total_sacos||0).toLocaleString('pt-BR')}</strong></td>
+      <td><span style="font-weight:800;color:${dc};">${d}%</span></td>
+      <td style="font-size:12px;">${l.consumo_lenha||0}m³</td>
+      <td style="font-size:11px;color:#64748b;">${l.lote_mp||'—'}</td>
+      <td>${l.status==='parada'?'<span class="badge badge-danger">🛑 Parada</span>':l.status==='abaixo'?'<span class="badge badge-warning">⚠️ Abaixo</span>':'<span class="badge badge-success">✅ Normal</span>'}</td>
+      <td><div class="table-actions">
+        <button class="btn btn-secondary btn-sm" onclick="editLanc('${l.id}')">✏️</button>
+        <button class="btn btn-danger btn-sm" onclick="cfDel('lanc','${l.id}','${l.linha} ${l.data}')">🗑️</button>
+      </div></td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+function doExportCSV(){exportarCSV(['Data','Dia','Linha','Turno','Encarregado','Produto','H.I','H.F','H.T','H.P','Sacos','Lenha m³','Lote MP','Lote Aditivo'],_lancs.map(l=>[l.data,l.dia_semana||'—',l.linha,l.turno,l.encarregado||'—',l.produto,l.hi||0,l.hf||0,l.ht||0,l.hp||0,l.total_sacos||0,l.consumo_lenha||0,l.lote_mp||'—',l.lote_aditivo||'—']),'producao');}
+
+// CALCULOS MODAL
+function lCalcDia(){const d=document.getElementById('l-data').value;if(d)document.getElementById('l-dia').value=DIAS[new Date(d+'T12:00:00').getDay()];}
+function lCalcHoras(){
+  const hi=parseFloat(document.getElementById('l-hi').value)||0;const hf=parseFloat(document.getElementById('l-hf').value)||0;const hp=parseFloat(document.getElementById('l-hp').value)||0;
+  const ht=Math.max(0,hf-hi);const el=document.getElementById('l-hcalc');
+  if(ht>0||hp>0){el.style.display='flex';document.getElementById('l-ht-d').textContent=ht.toFixed(2)+'h';document.getElementById('l-hp-min-d').textContent=Math.round(hp*60)+' min';const d=ht>0?((ht-hp)/ht*100).toFixed(1):0;document.getElementById('l-disp-d').textContent=d+'%';}
+  else{el.style.display='none';}lCalcEfic();
+}
+function lCarregarProd(sel){
+  const ln=document.getElementById('l-linha').value;const s=document.getElementById('l-prod');s.innerHTML='<option value="">Selecione...</option>';
+  const l=_linhas.find(x=>x.nome===ln);const pp=l?.produtos||[];
+  if(pp.length)pp.forEach(p=>{const o=document.createElement('option');o.value=p.nome;o.textContent=p.nome+(p.capHora?` (${p.capHora} sc/h)`:'');s.appendChild(o);});
+  else _prods.forEach(p=>{const o=document.createElement('option');o.value=p.nome;o.textContent=p.nome;s.appendChild(o);});
+  if(sel)s.value=sel;lCalcEfic();
+}
+function lCalcEfic(){
+  const sc=parseInt(document.getElementById('l-sacos').value)||0;const hi=parseFloat(document.getElementById('l-hi').value)||0;const hf=parseFloat(document.getElementById('l-hf').value)||0;const hp=parseFloat(document.getElementById('l-hp').value)||0;
+  const ht=Math.max(0,hf-hi);const hd=Math.max(0,ht-hp);const ln=_linhas.find(l=>l.nome===document.getElementById('l-linha').value);const lp=ln?.produtos?.find(p=>p.nome===document.getElementById('l-prod').value);
+  const meta=lp?.capHora&&hd?lp.capHora*hd:0;const efic=meta>0?Math.round(sc/meta*100):0;
+  const el=document.getElementById('l-efic-d');
+  if(meta>0){el.textContent=efic+'%';el.style.color=efic>=85?'#16a34a':efic>=70?'#b45309':'#dc2626';}
+  else if(sc>0){el.textContent=sc.toLocaleString('pt-BR')+' sc';el.style.color='var(--primary)';}
+  else{el.textContent='—';el.style.color='var(--primary)';}
+}
+function calcScMin(pref){const v=parseFloat(document.getElementById(pref+'-sch').value)||0;document.getElementById(pref+'-scmin').textContent=v>0?(v/60).toFixed(3)+' sc/min':'—';}
+function getMotSel(){return[...document.querySelectorAll('#l-motivos-grid input[type=checkbox]:checked')].map(c=>c.value);}
+function buildMotGrid(sel){
+  const g=document.getElementById('l-motivos-grid');g.innerHTML='';
+  const todos=[...MOTIVOS_STD,..._motivosDB.map(m=>m.nome).filter(n=>!MOTIVOS_STD.includes(n))];
+  todos.forEach((m,i)=>{const lbl=document.createElement('label');lbl.style.cssText='display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;padding:5px 8px;border-radius:6px;border:1px solid #e2e8f0;background:#fff;';lbl.innerHTML=`<input type="checkbox" value="${m}" ${(sel||[]).includes(m)?'checked':''} style="accent-color:var(--primary);"><span>${m}</span>`;g.appendChild(lbl);});
+}
+function getAf(px){const n=id=>parseFloat(document.getElementById(px+id).value)||null;const t=id=>document.getElementById(px+id).value||null;return{separador:n('sep'),granulometria:t('gran'),temp_ciclone:n('tciclone'),rot_alimentador:n('alim'),rot_aditivador:n('aditv'),media_sch:n('sch'),tempo_coleta:n('tempo'),peso_coleta:n('peso'),aditivacao:n('adit-saco')};}
+function setAf(px,af){if(!af)return;const s=(id,v)=>{const el=document.getElementById(px+id);if(el&&v!=null)el.value=v;};s('sep',af.separador);s('gran',af.granulometria);s('tciclone',af.temp_ciclone);s('alim',af.rot_alimentador);s('aditv',af.rot_aditivador);s('sch',af.media_sch);s('tempo',af.tempo_coleta);s('peso',af.peso_coleta);s('adit-saco',af.aditivacao);if(px==='af-')calcScMin('af');}
+
+function openModalLanc(){
+  _eL=null;document.getElementById('mlanc-title').textContent='Novo Lançamento de Turno';
+  const hoje=new Date().toISOString().split('T')[0];document.getElementById('l-data').value=hoje;lCalcDia();
+  ['l-hi','l-hf','l-hp','l-sacos','l-lenha','l-temp','l-filtro','l-lote-mp','l-lote-ad','l-obs-parada','l-obs'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+  document.getElementById('l-s-analise').value='0';document.getElementById('l-s-repr').value='0';document.getElementById('l-mot-repr').value='';document.getElementById('l-tipo-linha').value='';document.getElementById('l-efic-d').textContent='—';document.getElementById('l-efic-d').style.color='var(--primary)';document.getElementById('l-hcalc').style.display='none';document.getElementById('l-he-chk').checked=false;document.getElementById('l-he-val').style.display='none';
+  const sL=document.getElementById('l-linha');sL.innerHTML='<option value="">Selecione...</option>';_linhas.forEach(l=>{const o=document.createElement('option');o.value=l.nome;o.textContent=l.nome;sL.appendChild(o);});
+  const sT=document.getElementById('l-turno');sT.innerHTML='<option value="">Selecione...</option>';_turnos.forEach(t=>{const o=document.createElement('option');o.value=t.nome;o.textContent=t.nome;sT.appendChild(o);});
+  const sE=document.getElementById('l-enc');sE.innerHTML='<option value="">—</option>';_funcs.forEach(f=>{const o=document.createElement('option');o.value=f.nome;o.textContent=f.nome;sE.appendChild(o);});
+  document.getElementById('l-prod').innerHTML='<option value="">Selecione a linha...</option>';
+  ['af-sep','af-gran','af-tciclone','af-alim','af-aditv','af-sch','af-tempo','af-peso','af-adit-saco','rg-sep','rg-gran','rg-tciclone','rg-alim','rg-aditv','rg-sch','rg-tempo','rg-peso','rg-adit-saco'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+  document.getElementById('af-scmin').textContent='—';
+  buildMotGrid([]);document.getElementById('l-err').classList.add('hidden');document.getElementById('modal-lanc').classList.remove('hidden');
+}
+
+function editLanc(id){
+  const l=_lancs.find(x=>x.id===id);if(!l)return;openModalLanc();_eL=id;document.getElementById('mlanc-title').textContent='Editar Lançamento';
+  document.getElementById('l-data').value=l.data||'';lCalcDia();document.getElementById('l-linha').value=l.linha||'';lCarregarProd(l.produto);document.getElementById('l-turno').value=l.turno||'';document.getElementById('l-enc').value=l.encarregado||'';document.getElementById('l-tipo-linha').value=l.tipo_linha||'';
+  document.getElementById('l-hi').value=l.hi||'';document.getElementById('l-hf').value=l.hf||'';document.getElementById('l-hp').value=l.hp||'';lCalcHoras();
+  if(l.horas_extras>0){document.getElementById('l-he-chk').checked=true;document.getElementById('l-he-val').style.display='block';document.getElementById('l-he-val').value=l.horas_extras;}
+  document.getElementById('l-sacos').value=l.total_sacos||'';document.getElementById('l-s-analise').value=l.sacos_analise||0;document.getElementById('l-s-repr').value=l.sacos_reprovados||0;document.getElementById('l-mot-repr').value=l.motivo_reprovacao||'';
+  document.getElementById('l-lenha').value=l.consumo_lenha||'';document.getElementById('l-temp').value=l.temp_moinho||'';document.getElementById('l-filtro').value=l.perda_filtro||'';document.getElementById('l-lote-mp').value=l.lote_mp||'';document.getElementById('l-lote-ad').value=l.lote_aditivo||'';document.getElementById('l-obs-parada').value=l.obs_parada||'';document.getElementById('l-obs').value=l.obs||'';
+  buildMotGrid(l.motivos_parada||[]);setAf('af-',l.afericao_atual);setAf('rg-',l.afericao_regulado);lCalcEfic();
+}
+
+async function salvarLanc(){
+  const linha=document.getElementById('l-linha').value;const turno=document.getElementById('l-turno').value;const prod=document.getElementById('l-prod').value;const data=document.getElementById('l-data').value;const sc=parseInt(document.getElementById('l-sacos').value)||0;
+  const errEl=document.getElementById('l-err');const btn=document.getElementById('btn-sl');
+  if(!linha||!turno||!prod||!data||!sc){errEl.textContent='Preencha: Data, Linha, Turno, Produto e Total Produzido!';errEl.classList.remove('hidden');return;}
+  const hi=parseFloat(document.getElementById('l-hi').value)||0;const hf=parseFloat(document.getElementById('l-hf').value)||0;const hp=parseFloat(document.getElementById('l-hp').value)||0;const ht=Math.max(0,hf-hi);const hd=Math.max(0,ht-hp);
+  const ln=_linhas.find(l=>l.nome===linha);const lp=ln?.produtos?.find(p=>p.nome===prod);const meta=lp?.capHora&&hd?lp.capHora*hd:0;const efic=meta>0?Math.round(sc/meta*100):0;
+  const motivos=getMotSel();const he=document.getElementById('l-he-chk').checked;
+  const dados={data,dia_semana:document.getElementById('l-dia').value,linha,turno,encarregado:document.getElementById('l-enc').value||null,produto:prod,tipo_linha:document.getElementById('l-tipo-linha').value||null,hi,hf,hp,ht,horas_extras:he?parseFloat(document.getElementById('l-he-val').value)||0:0,motivos_parada:motivos,obs_parada:document.getElementById('l-obs-parada').value.trim()||null,total_sacos:sc,sacos_analise:parseInt(document.getElementById('l-s-analise').value)||0,sacos_reprovados:parseInt(document.getElementById('l-s-repr').value)||0,motivo_reprovacao:document.getElementById('l-mot-repr').value||null,eficiencia:efic,consumo_lenha:parseFloat(document.getElementById('l-lenha').value)||null,temp_moinho:parseFloat(document.getElementById('l-temp').value)||null,perda_filtro:parseFloat(document.getElementById('l-filtro').value)||null,lote_mp:document.getElementById('l-lote-mp').value.trim()||null,lote_aditivo:document.getElementById('l-lote-ad').value.trim()||null,obs:document.getElementById('l-obs').value.trim()||null,afericao_atual:getAf('af-'),afericao_regulado:getAf('rg-'),status:sc===0?'parada':efic>0&&efic<70?'abaixo':'normal',atualizado_em:new Date().toISOString()};
+  btn.innerHTML='<span class="spin"></span>';btn.disabled=true;
+  try{
+    let lid=_eL;
+    if(_eL){await _supabase.from('producao').update(dados).eq('id',_eL);await addLog('UPDATE','PRODUCAO',_eL,`${linha} ${data}`);toast('Lançamento atualizado!','success');}
+    else{const{data:d}=await _supabase.from('producao').insert(dados).select().single();lid=d.id;await addLog('CREATE','PRODUCAO',d.id,`${linha} ${data} — ${sc} sacos`);toast('Lançamento registrado!','success');
+      // Gerar pallets automaticamente
+      if(sc>0&&lp?.capacidade_pallet){const qtd=Math.ceil(sc/lp.capacidade_pallet);if(qtd>0){const pls=Array.from({length:qtd},(_,i)=>({lancamento_id:lid,data,linha,turno,produto:prod,numero:i+1,status:'pendente'}));await _supabase.from('producao_pallets').insert(pls);toast(`${qtd} pallets gerados automaticamente!`,'info');}}
+    }
+    closeModal('modal-lanc');await Promise.all([loadLancs(),loadPallets()]);rlL();rlP();
+  }catch(e){errEl.textContent='Erro: '+e.message;errEl.classList.remove('hidden');}
+  btn.innerHTML='💾 Salvar Lançamento';btn.disabled=false;
+}
+
+// ── PALLETS ──
+function rlP(){
+  const ini=document.getElementById('fp-ini').value;const fim=document.getElementById('fp-fim').value;const fl=document.getElementById('fp-linha').value;const fs=document.getElementById('fp-status').value;
+  const lista=_pallets.filter(p=>(!ini||p.data>=ini)&&(!fim||p.data<=fim)&&(!fl||p.linha===fl)&&(!fs||p.status===fs));
+  const tot=lista.length,apr=lista.filter(p=>p.status==='aprovado').length,rep=lista.filter(p=>p.status==='reprovado').length,pen=lista.filter(p=>p.status==='pendente').length;
+  document.getElementById('pallet-kpis').innerHTML=`
+    <div class="card" style="text-align:center;padding:12px;"><div style="font-size:22px;font-weight:800;color:var(--primary);">${tot}</div><div style="font-size:11px;color:#64748b;">Total</div></div>
+    <div class="card" style="text-align:center;padding:12px;border-left:4px solid #22c55e;"><div style="font-size:22px;font-weight:800;color:#16a34a;">${apr}</div><div style="font-size:11px;color:#64748b;">🟢 Aprovados</div></div>
+    <div class="card" style="text-align:center;padding:12px;border-left:4px solid #ef4444;"><div style="font-size:22px;font-weight:800;color:#dc2626;">${rep}</div><div style="font-size:11px;color:#64748b;">🔴 Reprovados</div></div>
+    <div class="card" style="text-align:center;padding:12px;border-left:4px solid #f59e0b;"><div style="font-size:22px;font-weight:800;color:#b45309;">${pen}</div><div style="font-size:11px;color:#64748b;">🟡 Pendentes</div></div>`;
+  const grid=document.getElementById('pallet-grid');const empty=document.getElementById('pallet-empty');
+  grid.innerHTML='';_palSel.clear();updBtnSel();
+  if(!lista.length){empty.classList.remove('hidden');grid.style.display='none';return;}empty.classList.add('hidden');grid.style.display='grid';
+  lista.forEach(p=>{const div=document.createElement('div');div.className=`pallet-box ${p.status}`;div.dataset.id=p.id;div.title=`Pallet #${p.numero}\n${p.linha} | ${p.data}\n${p.produto||''}\nClique para analisar`;div.textContent=p.numero;div.onclick=e=>{if(e.ctrlKey||e.metaKey){div.classList.toggle('sel');if(div.classList.contains('sel'))_palSel.add(p.id);else _palSel.delete(p.id);updBtnSel();}else abrirPallet(p.id);};grid.appendChild(div);});
+}
+function updBtnSel(){const n=_palSel.size;document.getElementById('btn-apr').style.display=n>0?'inline-flex':'none';document.getElementById('btn-rep').style.display=n>0?'inline-flex':'none';}
+async function bulkPallet(st){if(!_palSel.size)return;await _supabase.from('producao_pallets').update({status:st}).in('id',[..._palSel]);toast(`${_palSel.size} pallet(s) ${st==='aprovado'?'aprovado(s)':'reprovado(s)'}!`,st==='aprovado'?'success':'warning');await loadPallets();rlP();}
+function calcPalSoma(){const s=['pal-p20','pal-p50','pal-p100','pal-p200'].reduce((a,id)=>a+(parseFloat(document.getElementById(id).value)||0),0);const el=document.getElementById('pal-soma');el.textContent=s.toFixed(1)+'%';el.style.color=s>100?'#dc2626':'var(--primary)';}
+function abrirPallet(id){
+  _ePal=id;const p=_pallets.find(x=>x.id===id);if(!p)return;
+  document.getElementById('mpal-title').textContent=`📦 Pallet #${p.numero} — ${p.linha}`;
+  document.getElementById('pal-info').textContent=`${p.data||'—'} | ${p.linha} | ${p.produto||'—'} | ${p.turno||'—'}`;
+  const a=p.analise||{};document.getElementById('pal-cim').value=a.cimento||100;document.getElementById('pal-areia').value=a.areia||'';document.getElementById('pal-agua').value=a.agua||'';document.getElementById('pal-dens').value=a.densidade||'';document.getElementById('pal-liga').value=a.liga||'';document.getElementById('pal-exs').value=a.exsudacao||'';document.getElementById('pal-p20').value=a.p20||'';document.getElementById('pal-p50').value=a.p50||'';document.getElementById('pal-p100').value=a.p100||'';document.getElementById('pal-p200').value=a.p200||'';document.getElementById('pal-obs').value=a.obs||'';document.getElementById('pal-status').value=p.status||'pendente';calcPalSoma();document.getElementById('modal-pallet').classList.remove('hidden');
+}
+async function salvarPallet(){
+  const st=document.getElementById('pal-status').value;
+  const an={cimento:parseFloat(document.getElementById('pal-cim').value)||100,areia:parseFloat(document.getElementById('pal-areia').value)||null,agua:parseFloat(document.getElementById('pal-agua').value)||null,densidade:parseFloat(document.getElementById('pal-dens').value)||null,liga:document.getElementById('pal-liga').value||null,exsudacao:document.getElementById('pal-exs').value||null,p20:parseFloat(document.getElementById('pal-p20').value)||null,p50:parseFloat(document.getElementById('pal-p50').value)||null,p100:parseFloat(document.getElementById('pal-p100').value)||null,p200:parseFloat(document.getElementById('pal-p200').value)||null,obs:document.getElementById('pal-obs').value||null};
+  await _supabase.from('producao_pallets').update({status:st,analise:an}).eq('id',_ePal);
+  if(st==='reprovado')toast('🔴 Pallet REPROVADO — bloqueado para carregamento!','danger');else toast('Análise salva!','success');
+  closeModal('modal-pallet');await loadPallets();rlP();
+}
+
+// ── MARTELOS ──
+function calcMart(){
+  const pi=parseFloat(document.getElementById('m-pi').value)||0;const pf=parseFloat(document.getElementById('m-pf').value)||null;const hi=parseFloat(document.getElementById('m-hi').value)||0;const hf=parseFloat(document.getElementById('m-hf').value)||0;const sc=parseInt(document.getElementById('m-sacos').value)||0;
+  const gasto=pf!=null&&pi>0?Math.max(0,pi-pf):null;const ht=hf>0&&hi>=0?Math.max(0,hf-hi):null;const media=gasto&&sc>0?(sc/gasto).toFixed(2):null;
+  document.getElementById('m-gasto').textContent=gasto!=null?gasto.toFixed(2)+' kg':'—';document.getElementById('m-ht').textContent=ht!=null?ht.toFixed(2)+'h':'—';document.getElementById('m-media').textContent=media?media+' sc/kg':'—';
+}
+function renderMarts(){
+  const tbody=document.getElementById('tbody-mart');const empty=document.getElementById('mart-empty');tbody.innerHTML='';
+  if(!_marts.length){empty.classList.remove('hidden');return;}empty.classList.add('hidden');
+  _marts.forEach(m=>{
+    const gasto=m.peso_final!=null&&m.peso_inicial?Math.max(0,m.peso_inicial-m.peso_final):null;const ht=m.horimetro_final!=null&&m.horimetro_inicial!=null?Math.max(0,m.horimetro_final-m.horimetro_inicial):null;const media=gasto&&m.producao_sacos?(m.producao_sacos/gasto).toFixed(2):null;
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td><strong style="color:var(--primary);">${m.linha||'—'}</strong></td><td><span class="badge badge-info">${m.tipo||'—'}</span></td><td style="font-size:12px;">${m.data_retirada||'—'}</td><td style="font-size:12px;">${m.data_devolucao||'—'}</td><td>${m.peso_inicial||'—'}</td><td>${m.peso_final!=null?m.peso_final:'—'}</td><td><strong style="color:#dc2626;">${gasto!=null?gasto.toFixed(2):'—'}</strong></td><td style="font-size:12px;">${m.horimetro_inicial||'—'}</td><td style="font-size:12px;">${m.horimetro_final||'—'}</td><td><strong>${ht!=null?ht.toFixed(2)+'h':'—'}</strong></td><td>${m.producao_sacos?.toLocaleString('pt-BR')||'—'}</td><td><strong style="color:#16a34a;">${media?media+' sc/kg':'—'}</strong></td><td style="font-size:12px;">${m.fornecedor||'—'}</td><td><div class="table-actions"><button class="btn btn-secondary btn-sm" onclick="editMart('${m.id}')">✏️</button><button class="btn btn-danger btn-sm" onclick="cfDel('mart','${m.id}','${m.linha}')">🗑️</button></div></td>`;
+    tbody.appendChild(tr);
+  });
+}
+function openModalMartelo(){
+  _eM=null;document.getElementById('mmart-title').textContent='Registrar Martelo';['m-pi','m-pf','m-hi','m-hf','m-sacos','m-forn','m-obs'].forEach(id=>document.getElementById(id).value='');document.getElementById('m-ret').value=new Date().toISOString().split('T')[0];document.getElementById('m-dev').value='';document.getElementById('m-tipo').value='STR / Cercal';document.getElementById('m-gasto').textContent='—';document.getElementById('m-ht').textContent='—';document.getElementById('m-media').textContent='—';
+  const sl=document.getElementById('m-linha');sl.innerHTML='<option value="">Selecione...</option>';_linhas.forEach(l=>{const o=document.createElement('option');o.value=l.nome;o.textContent=l.nome;sl.appendChild(o);});
+  document.getElementById('m-err').classList.add('hidden');document.getElementById('modal-mart').classList.remove('hidden');
+}
+function editMart(id){const m=_marts.find(x=>x.id===id);if(!m)return;openModalMartelo();_eM=id;document.getElementById('mmart-title').textContent='Editar Martelo';document.getElementById('m-linha').value=m.linha||'';document.getElementById('m-tipo').value=m.tipo||'STR / Cercal';document.getElementById('m-ret').value=m.data_retirada||'';document.getElementById('m-dev').value=m.data_devolucao||'';document.getElementById('m-pi').value=m.peso_inicial||'';document.getElementById('m-pf').value=m.peso_final!=null?m.peso_final:'';document.getElementById('m-hi').value=m.horimetro_inicial||'';document.getElementById('m-hf').value=m.horimetro_final||'';document.getElementById('m-sacos').value=m.producao_sacos||'';document.getElementById('m-forn').value=m.fornecedor||'';document.getElementById('m-obs').value=m.obs||'';calcMart();}
+async function salvarMart(){
+  const linha=document.getElementById('m-linha').value;const ret=document.getElementById('m-ret').value;const pi=parseFloat(document.getElementById('m-pi').value)||null;
+  const errEl=document.getElementById('m-err');const btn=document.getElementById('btn-sm');
+  if(!linha||!ret||!pi){errEl.textContent='Linha, Data de Retirada e Peso Inicial são obrigatórios!';errEl.classList.remove('hidden');return;}
+  const dados={linha,tipo:document.getElementById('m-tipo').value,data_retirada:ret,data_devolucao:document.getElementById('m-dev').value||null,peso_inicial:pi,peso_final:parseFloat(document.getElementById('m-pf').value)||null,horimetro_inicial:parseFloat(document.getElementById('m-hi').value)||null,horimetro_final:parseFloat(document.getElementById('m-hf').value)||null,producao_sacos:parseInt(document.getElementById('m-sacos').value)||null,fornecedor:document.getElementById('m-forn').value.trim()||null,obs:document.getElementById('m-obs').value.trim()||null};
+  btn.innerHTML='<span class="spin"></span>';btn.disabled=true;
+  try{if(_eM){await _supabase.from('producao_martelos').update(dados).eq('id',_eM);toast('Atualizado!','success');}else{await _supabase.from('producao_martelos').insert(dados);toast('Registrado!','success');}closeModal('modal-mart');await loadMarts();renderMarts();}catch(e){errEl.textContent='Erro: '+e.message;errEl.classList.remove('hidden');}
+  btn.innerHTML='💾 Salvar';btn.disabled=false;
+}
+
+// ── METAS ──
+function rlM(){
+  const mes=document.getElementById('fm-mes').value;const ef=document.getElementById('fm-enc').value;if(!mes)return;
+  const ini=mes+'-01';const fim=mes+'-31';
+  const lista=_lancs.filter(l=>l.data>=ini&&l.data<=fim&&(!ef||l.encarregado===ef));
+  const mp={};lista.forEach(l=>{const e=l.encarregado||'Não informado';if(!mp[e])mp[e]={enc:e,turnos:0,ht:0,hp:0,sacos:0,linhas:{}};mp[e].turnos++;mp[e].ht+=l.ht||0;mp[e].hp+=l.hp||0;mp[e].sacos+=l.total_sacos||0;if(!mp[e].linhas[l.linha])mp[e].linhas[l.linha]=0;mp[e].linhas[l.linha]+=l.total_sacos||0;});
+  const rank=Object.values(mp).sort((a,b)=>b.sacos-a.sacos);
+  const rg=document.getElementById('ranking-grid');rg.innerHTML='';
+  const mdl=['🥇','🥈','🥉'];
+  rank.slice(0,6).forEach((r,i)=>{const hd=Math.max(0,r.ht-r.hp);const msc=hd>0?(r.sacos/hd).toFixed(1):0;const d=r.ht>0?((r.ht-r.hp)/r.ht*100).toFixed(1):0;const dc=parseFloat(d)>=85?'#16a34a':parseFloat(d)>=70?'#b45309':'#dc2626';rg.innerHTML+=`<div class="card" style="padding:14px;border-left:4px solid ${i===0?'#f59e0b':i===1?'#94a3b8':i===2?'#b45309':'#e2e8f0'};"><div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;"><span style="font-size:20px;">${mdl[i]||`${i+1}°`}</span><div><div style="font-weight:800;color:var(--primary);">${r.enc}</div><div style="font-size:11px;color:#64748b;">${r.turnos} turno(s)</div></div></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:12px;"><div style="background:#f8fafc;border-radius:6px;padding:8px;text-align:center;"><div style="font-size:16px;font-weight:800;color:var(--primary);">${r.sacos.toLocaleString('pt-BR')}</div><div style="color:#64748b;">Sacos</div></div><div style="background:#f8fafc;border-radius:6px;padding:8px;text-align:center;"><div style="font-size:16px;font-weight:800;color:${dc};">${d}%</div><div style="color:#64748b;">Disponib.</div></div><div style="background:#f8fafc;border-radius:6px;padding:8px;text-align:center;"><div style="font-size:16px;font-weight:800;color:var(--primary);">${msc}</div><div style="color:#64748b;">sc/h</div></div><div style="background:#f8fafc;border-radius:6px;padding:8px;text-align:center;"><div style="font-size:16px;font-weight:800;color:var(--primary);">${r.ht.toFixed(1)}h</div><div style="color:#64748b;">H.T</div></div></div></div>`;});
+  const tbody=document.getElementById('tbody-meta');const empty=document.getElementById('meta-empty');tbody.innerHTML='';if(!rank.length){empty.classList.remove('hidden');return;}empty.classList.add('hidden');
+  rank.forEach((r,i)=>{const hd=Math.max(0,r.ht-r.hp);const msc=hd>0?(r.sacos/hd).toFixed(1):0;const d=r.ht>0?((r.ht-r.hp)/r.ht*100).toFixed(1):0;const dc=parseFloat(d)>=85?'#16a34a':parseFloat(d)>=70?'#b45309':'#dc2626';const lstr=Object.entries(r.linhas).map(([l,s])=>`${l}: ${s.toLocaleString('pt-BR')}`).join(' | ');const tr=document.createElement('tr');tr.innerHTML=`<td><strong>${i+1}°</strong></td><td><strong style="color:var(--primary);">${r.enc}</strong></td><td>${r.turnos}</td><td>${r.ht.toFixed(1)}h</td><td style="color:#ef4444;">${r.hp.toFixed(1)}h</td><td><strong style="color:${dc};">${d}%</strong></td><td><strong>${r.sacos.toLocaleString('pt-BR')}</strong></td><td>${msc}</td><td style="font-size:11px;color:#64748b;">${lstr}</td>`;tbody.appendChild(tr);});
+}
+
+// ── EXCLUIR ──
+function cfDel(tipo,id,desc){
+  document.getElementById('confirm-msg').innerHTML=`Excluir <strong>${desc}</strong>?`;
+  document.getElementById('confirm-ok-btn').onclick=async()=>{
+    if(tipo==='lanc'){await _supabase.from('producao').delete().eq('id',id);await addLog('DELETE','PRODUCAO',id,desc);await loadLancs();rlL();}
+    else if(tipo==='mart'){await _supabase.from('producao_martelos').delete().eq('id',id);await loadMarts();renderMarts();}
+    toast('Excluído.','warning');closeModal('modal-confirm');
+  };
+  document.getElementById('modal-confirm').classList.remove('hidden');
+}
+
+init();
+</script>
+</body>
+</html>

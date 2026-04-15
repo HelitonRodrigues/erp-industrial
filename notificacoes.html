@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ERP Industrial — Notificações</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/supabase.js"></script>
+<script src="js/utils.js"></script>
+<style>
+.notif-item{background:#fff;border-radius:12px;padding:14px 16px;border:1.5px solid #e2e8f0;display:flex;align-items:flex-start;gap:12px;transition:all .15s;cursor:pointer;}
+.notif-item:hover{border-color:var(--primary);box-shadow:0 2px 8px rgba(4,45,77,.07);}
+.notif-item.lida{opacity:.55;}
+.notif-item.urgente{border-left:4px solid #ef4444;}
+.notif-item.aviso{border-left:4px solid #f59e0b;}
+.notif-item.info{border-left:4px solid #2563eb;}
+.notif-icon{width:38px;height:38px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;}
+.notif-icon.urgente{background:#fee2e2;}
+.notif-icon.aviso{background:#fef9c3;}
+.notif-icon.info{background:#eff6ff;}
+.notif-titulo{font-weight:700;font-size:13px;color:var(--primary);margin-bottom:2px;}
+.notif-desc{font-size:12px;color:#64748b;line-height:1.5;}
+.notif-meta{font-size:10px;color:#94a3b8;margin-top:4px;}
+.tab-btn{padding:8px 16px;background:none;border:none;font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;color:#64748b;border-bottom:2px solid transparent;margin-bottom:-2px;transition:all .15s;}
+.tab-btn.active{color:var(--primary);border-bottom-color:var(--primary);}
+.badge-cnt{background:#ef4444;color:#fff;border-radius:20px;padding:1px 6px;font-size:10px;font-weight:800;margin-left:4px;}
+</style>
+</head>
+<body>
+<div id="sidebar-container"></div>
+<header class="topbar" id="topbar">
+  <button class="topbar-open-sidebar" onclick="toggleSidebar()">☰</button>
+  <div class="topbar-title">🔔 Notificações</div>
+  <div class="topbar-right">
+    <div class="topbar-user">
+      <div class="user-avatar" style="width:32px;height:32px;font-size:12px;" id="top-avatar">SA</div>
+      <div><div class="topbar-user-name" id="top-user-name">Super Admin</div><div class="topbar-user-profile" id="top-user-perfil">SADM</div></div>
+    </div>
+    <button class="btn btn-ghost btn-sm" onclick="doLogout()" style="color:#64748b;">Sair</button>
+  </div>
+</header>
+
+<main class="main-content" id="main-content">
+  <div class="page-header">
+    <div class="page-header-left"><h1>Central de Notificações</h1><p>Alertas e avisos de todos os módulos do sistema</p></div>
+    <div style="display:flex;gap:8px;">
+      <button class="btn btn-secondary" onclick="marcarTodasLidas()">✅ Marcar todas como lidas</button>
+      <button class="btn btn-secondary" onclick="gerarAlertas()">🔄 Verificar Alertas</button>
+    </div>
+  </div>
+
+  <!-- RESUMO -->
+  <div id="notif-resumo" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:12px;margin-bottom:20px;"></div>
+
+  <!-- FILTROS + TABS -->
+  <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:16px;">
+    <div style="display:flex;border-bottom:2px solid #e2e8f0;gap:0;">
+      <button class="tab-btn active" onclick="swTab('todas',this)">Todas <span class="badge-cnt" id="cnt-todas">0</span></button>
+      <button class="tab-btn" onclick="swTab('urgente',this)">🔴 Urgentes <span class="badge-cnt" id="cnt-urgente">0</span></button>
+      <button class="tab-btn" onclick="swTab('aviso',this)">🟡 Avisos <span class="badge-cnt" id="cnt-aviso">0</span></button>
+      <button class="tab-btn" onclick="swTab('nao_lida',this)">Não Lidas <span class="badge-cnt" id="cnt-nao-lida">0</span></button>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;">
+      <select id="filtro-modulo" class="form-input" style="width:170px;font-size:12px;" onchange="renderNotifs()">
+        <option value="">Todos os módulos</option>
+        <option value="producao">⚙️ Produção</option>
+        <option value="laboratorio">🧪 Laboratório</option>
+        <option value="manutencao">🔧 Manutenção</option>
+        <option value="almoxarifado">📦 Almoxarifado</option>
+        <option value="epi">🦺 EPI</option>
+        <option value="rh">👥 RH</option>
+        <option value="portaria">🚪 Portaria</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- LISTA -->
+  <div id="notif-lista" style="display:flex;flex-direction:column;gap:8px;"></div>
+  <div id="notif-empty" class="empty-state hidden"><div class="empty-icon">🔔</div><h3>Nenhuma notificação</h3><p>O sistema está verificando alertas automaticamente.</p></div>
+</main>
+
+<div id="toast-container"></div>
+
+<script>
+let _notifs=[],_tabAtiva='todas';
+
+fetch('partials/sidebar.html').then(r=>r.text()).then(html=>{
+  document.getElementById('sidebar-container').innerHTML=html;
+  document.querySelector('[href="notificacoes.html"]')?.classList.add('active');
+  openGroup('sistema');
+});
+initSidebar('notificacoes.html');
+
+async function init(){
+  await Promise.all([carregarNotifsSalvas(),gerarAlertas()]);
+}
+
+async function carregarNotifsSalvas(){
+  const{data}=await _supabase.from('notificacoes').select('*').order('created_at',{ascending:false}).limit(200);
+  _notifs=data||[];
+  atualizarContadores();renderNotifs();
+}
+
+async function gerarAlertas(){
+  const hoje=new Date().toISOString().split('T')[0];
+  const alertasGerados=[];
+
+  // EPI vencidos
+  const{data:epiV}=await _supabase.from('epi_entregas').select('funcionario_id,epi_id,data_prevista_troca').lt('data_prevista_troca',hoje);
+  if((epiV||[]).length){
+    for(const e of epiV.slice(0,5)){
+      const{data:fn}=await _supabase.from('funcionarios').select('nome').eq('id',e.funcionario_id).single();
+      const{data:ep}=await _supabase.from('epi_cadastro').select('nome').eq('id',e.epi_id).single();
+      alertasGerados.push({tipo:'urgente',modulo:'epi',titulo:'EPI Vencido',descricao:`${fn?.nome||'Funcionário'} — ${ep?.nome||'EPI'} venceu em ${e.data_prevista_troca}`,lida:false});
+    }
+  }
+
+  // Almoxarifado zerado
+  const{data:almxZ}=await _supabase.from('almoxarifado').select('nome,estoque_atual,estoque_minimo').lte('estoque_atual',0);
+  for(const a of (almxZ||[]).filter(x=>(x.estoque_minimo||0)>0).slice(0,5)){
+    alertasGerados.push({tipo:'urgente',modulo:'almoxarifado',titulo:'Insumo Zerado',descricao:`${a.nome} está com estoque zerado!`,lida:false});
+  }
+
+  // Almoxarifado baixo
+  const{data:almxB}=await _supabase.from('almoxarifado').select('nome,estoque_atual,estoque_minimo').gt('estoque_atual',0);
+  for(const a of (almxB||[]).filter(x=>x.estoque_minimo>0&&x.estoque_atual<=x.estoque_minimo).slice(0,5)){
+    alertasGerados.push({tipo:'aviso',modulo:'almoxarifado',titulo:'Estoque Baixo',descricao:`${a.nome}: ${a.estoque_atual} unidade(s) — mínimo: ${a.estoque_minimo}`,lida:false});
+  }
+
+  // Manutenção urgente aberta
+  const{data:manutU}=await _supabase.from('manutencao').select('equipamento,linha').eq('prioridade','urgente').eq('status','aberta');
+  for(const mn of (manutU||[]).slice(0,3)){
+    alertasGerados.push({tipo:'urgente',modulo:'manutencao',titulo:'OS Urgente Aberta',descricao:`${mn.equipamento}${mn.linha?' — '+mn.linha:''}`,lida:false});
+  }
+
+  // Férias em gozo (informativo)
+  const{data:ferias}=await _supabase.from('rh_ferias').select('funcionario_id,data_fim').eq('status','em_gozo').gte('data_fim',hoje);
+  if((ferias||[]).length){
+    alertasGerados.push({tipo:'info',modulo:'rh',titulo:'Funcionários em Férias',descricao:`${ferias.length} funcionário(s) em gozo de férias no momento`,lida:false});
+  }
+
+  // Salvar alertas novos (evitar duplicatas pelo título+descrição)
+  if(alertasGerados.length){
+    for(const al of alertasGerados){
+      const jaExiste=_notifs.find(n=>n.titulo===al.titulo&&n.descricao===al.descricao&&!n.lida);
+      if(!jaExiste){
+        try{await _supabase.from('notificacoes').insert(al);}catch(e){/* tabela pode não existir ainda */}
+      }
+    }
+  }
+
+  await carregarNotifsSalvas();
+}
+
+function atualizarContadores(){
+  const nl=_notifs.filter(n=>!n.lida).length;
+  const nu=_notifs.filter(n=>n.tipo==='urgente'&&!n.lida).length;
+  const na=_notifs.filter(n=>n.tipo==='aviso'&&!n.lida).length;
+  document.getElementById('cnt-todas').textContent=_notifs.length;
+  document.getElementById('cnt-urgente').textContent=nu;
+  document.getElementById('cnt-aviso').textContent=na;
+  document.getElementById('cnt-nao-lida').textContent=nl;
+
+  document.getElementById('notif-resumo').innerHTML=`
+    <div class="card" style="text-align:center;padding:12px;border-left:4px solid #ef4444;"><div style="font-size:22px;font-weight:800;color:#dc2626;">${nu}</div><div style="font-size:10px;color:#64748b;">🔴 Urgentes</div></div>
+    <div class="card" style="text-align:center;padding:12px;border-left:4px solid #f59e0b;"><div style="font-size:22px;font-weight:800;color:#b45309;">${na}</div><div style="font-size:10px;color:#64748b;">🟡 Avisos</div></div>
+    <div class="card" style="text-align:center;padding:12px;border-left:4px solid #2563eb;"><div style="font-size:22px;font-weight:800;color:#2563eb;">${_notifs.filter(n=>n.tipo==='info').length}</div><div style="font-size:10px;color:#64748b;">ℹ️ Informativas</div></div>
+    <div class="card" style="text-align:center;padding:12px;border-left:4px solid #94a3b8;"><div style="font-size:22px;font-weight:800;color:#64748b;">${_notifs.filter(n=>n.lida).length}</div><div style="font-size:10px;color:#64748b;">✅ Lidas</div></div>`;
+}
+
+function renderNotifs(){
+  const modulo=document.getElementById('filtro-modulo').value;
+  let lista=_notifs.filter(n=>(!modulo||n.modulo===modulo));
+  if(_tabAtiva==='urgente')lista=lista.filter(n=>n.tipo==='urgente');
+  else if(_tabAtiva==='aviso')lista=lista.filter(n=>n.tipo==='aviso');
+  else if(_tabAtiva==='nao_lida')lista=lista.filter(n=>!n.lida);
+
+  const cont=document.getElementById('notif-lista');const empty=document.getElementById('notif-empty');
+  cont.innerHTML='';
+  if(!lista.length){empty.classList.remove('hidden');return;}empty.classList.add('hidden');
+
+  const icones={producao:'⚙️',laboratorio:'🧪',manutencao:'🔧',almoxarifado:'📦',epi:'🦺',rh:'👥',portaria:'🚪',sistema:'⚙️'};
+  const tipoLabel={urgente:'🔴 Urgente',aviso:'🟡 Aviso',info:'ℹ️ Informativo'};
+
+  lista.forEach(n=>{
+    const ts=n.created_at?new Date(n.created_at).toLocaleString('pt-BR'):'—';
+    const div=document.createElement('div');
+    div.className=`notif-item ${n.tipo||'info'} ${n.lida?'lida':''}`;
+    div.innerHTML=`
+      <div class="notif-icon ${n.tipo||'info'}">${icones[n.modulo]||'🔔'}</div>
+      <div style="flex:1;">
+        <div class="notif-titulo">${n.titulo||'—'}</div>
+        <div class="notif-desc">${n.descricao||'—'}</div>
+        <div class="notif-meta">${tipoLabel[n.tipo]||''} &nbsp;•&nbsp; ${n.modulo||'—'} &nbsp;•&nbsp; ${ts}</div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end;flex-shrink:0;">
+        ${!n.lida?`<button class="btn btn-ghost btn-sm" onclick="marcarLida('${n.id}',event)" style="font-size:11px;color:#64748b;" title="Marcar como lida">✓ Lida</button>`:'<span style="font-size:11px;color:#94a3b8;">✓ Lida</span>'}
+        <button class="btn btn-ghost btn-sm" onclick="excluirNotif('${n.id}',event)" style="font-size:11px;color:#ef4444;" title="Remover">✕</button>
+      </div>`;
+    div.onclick=()=>{if(!n.lida)marcarLida(n.id,null);};
+    cont.appendChild(div);
+  });
+}
+
+function swTab(tab,btn){
+  _tabAtiva=tab;
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));if(btn)btn.classList.add('active');
+  renderNotifs();
+}
+
+async function marcarLida(id,e){
+  if(e)e.stopPropagation();
+  await _supabase.from('notificacoes').update({lida:true}).eq('id',id);
+  const n=_notifs.find(x=>x.id===id);if(n)n.lida=true;
+  atualizarContadores();renderNotifs();
+}
+
+async function marcarTodasLidas(){
+  await _supabase.from('notificacoes').update({lida:true}).eq('lida',false);
+  _notifs.forEach(n=>n.lida=true);atualizarContadores();renderNotifs();toast('Todas marcadas como lidas!','success');
+}
+
+async function excluirNotif(id,e){
+  if(e)e.stopPropagation();
+  await _supabase.from('notificacoes').delete().eq('id',id);
+  _notifs=_notifs.filter(n=>n.id!==id);atualizarContadores();renderNotifs();
+}
+
+init();
+</script>
+</body>
+</html>
