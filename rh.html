@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ERP Industrial — RH & Escala</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/supabase.js"></script>
+<script src="js/utils.js"></script>
+</head>
+<body>
+<div id="sidebar-container"></div>
+<header class="topbar" id="topbar">
+  <button class="topbar-open-sidebar" onclick="toggleSidebar()">☰</button>
+  <div class="topbar-title">RH & Escala</div>
+  <div class="topbar-right">
+    <div class="topbar-user">
+      <div class="user-avatar" style="width:32px;height:32px;font-size:12px;" id="top-avatar">SA</div>
+      <div><div class="topbar-user-name" id="top-user-name">Super Admin</div><div class="topbar-user-profile" id="top-user-perfil">SADM</div></div>
+    </div>
+    <button class="btn btn-ghost btn-sm" onclick="doLogout()" style="color:#64748b;">Sair</button>
+  </div>
+</header>
+<main class="main-content" id="main-content">
+  <div class="page-header">
+    <div class="page-header-left"><h1>RH & Escala</h1><p>Escala mensal de funcionários e controle de férias</p></div>
+    <div style="display:flex;gap:10px;">
+      <button class="btn btn-secondary" id="btn-ferias" onclick="switchRhTab('tab-ferias')">🏖️ Férias</button>
+      <button class="btn btn-primary" id="btn-escala" onclick="switchRhTab('tab-escala')">📅 Escala</button>
+    </div>
+  </div>
+
+  <div style="display:flex;border-bottom:2px solid #e2e8f0;margin-bottom:20px;">
+    <button class="tab-btn active" id="tab-btn-escala" onclick="switchRhTab('tab-escala')">📅 Escala Mensal</button>
+    <button class="tab-btn" id="tab-btn-ferias" onclick="switchRhTab('tab-ferias')">🏖️ Férias</button>
+  </div>
+
+  <!-- TAB ESCALA -->
+  <div id="tab-escala">
+    <div class="card" style="margin-bottom:16px;">
+      <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;">
+        <div class="form-group" style="margin:0;"><label class="form-label">Mês/Ano</label><input type="month" id="escala-mes" class="form-input" style="width:180px;" onchange="renderEscala()"></div>
+        <div class="form-group" style="margin:0;"><label class="form-label">Turno</label><select id="escala-turno-filtro" class="form-input" style="width:180px;" onchange="renderEscala()"><option value="">Todos os turnos</option></select></div>
+        <div class="form-group" style="margin:0;"><label class="form-label">Setor</label><select id="escala-setor-filtro" class="form-input" style="width:180px;" onchange="renderEscala()"><option value="">Todos os setores</option></select></div>
+        <button class="btn btn-primary btn-sm" onclick="openModalEscala()">+ Adicionar Escala</button>
+      </div>
+    </div>
+    <div class="card" style="overflow-x:auto;">
+      <div id="escala-grid" style="min-width:600px;"></div>
+      <div id="escala-empty" class="empty-state hidden"><div class="empty-icon">📅</div><h3>Nenhuma escala para este mês</h3></div>
+    </div>
+  </div>
+
+  <!-- TAB FÉRIAS -->
+  <div id="tab-ferias" style="display:none;">
+    <div style="display:flex;justify-content:flex-end;margin-bottom:16px;">
+      <button class="btn btn-primary" onclick="openModalFerias()">+ Agendar Férias</button>
+    </div>
+    <!-- ALERTAS FÉRIAS -->
+    <div id="ferias-alertas" style="margin-bottom:16px;"></div>
+    <div class="card">
+      <div class="search-bar">
+        <div class="search-input-wrap" style="flex:1;"><span class="search-icon">🔍</span><input type="text" class="form-input" id="busca-ferias" placeholder="Buscar funcionário..." oninput="renderFerias()"></div>
+        <select class="form-input" id="filtro-ferias-status" style="width:160px;" onchange="renderFerias()"><option value="">Todos</option><option value="agendada">📅 Agendada</option><option value="em_gozo">🏖️ Em Gozo</option><option value="concluida">✅ Concluída</option></select>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Funcionário</th><th>Setor</th><th>Início</th><th>Fim</th><th>Dias</th><th>Status</th><th>Observações</th><th>Ações</th></tr></thead>
+          <tbody id="tbody-ferias"></tbody>
+        </table>
+      </div>
+      <div id="ferias-empty" class="empty-state hidden"><div class="empty-icon">🏖️</div><h3>Nenhuma férias registrada</h3></div>
+    </div>
+  </div>
+</main>
+
+<!-- MODAL ESCALA -->
+<div id="modal-escala" class="modal-overlay hidden">
+  <div class="modal modal-lg">
+    <div class="modal-header"><div class="modal-title" id="modal-escala-title">Escala Mensal</div><button class="modal-close" onclick="closeModal('modal-escala')">✕</button></div>
+    <div style="display:flex;flex-direction:column;gap:14px;">
+      <div class="form-grid-2">
+        <div class="form-group"><label class="form-label">Funcionário <span class="req">*</span></label><select id="esc-func" class="form-input"></select></div>
+        <div class="form-group"><label class="form-label">Mês/Ano <span class="req">*</span></label><input type="month" id="esc-mes" class="form-input"></div>
+      </div>
+      <div class="form-group"><label class="form-label">Turno <span class="req">*</span></label><select id="esc-turno" class="form-input"></select></div>
+      <div class="form-group">
+        <label class="form-label" style="margin-bottom:8px;">Dias de Trabalho</label>
+        <p style="font-size:12px;color:#64748b;margin-bottom:10px;">Clique para marcar/desmarcar os dias de trabalho deste funcionário no mês</p>
+        <div id="esc-dias-grid" style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;"></div>
+      </div>
+      <div id="esc-error" class="hidden alert alert-danger"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-escala')">Cancelar</button>
+      <button class="btn btn-primary" id="btn-salvar-esc" onclick="salvarEscala()">💾 Salvar Escala</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL FÉRIAS -->
+<div id="modal-ferias" class="modal-overlay hidden">
+  <div class="modal">
+    <div class="modal-header"><div class="modal-title" id="modal-ferias-title">Agendar Férias</div><button class="modal-close" onclick="closeModal('modal-ferias')">✕</button></div>
+    <div style="display:flex;flex-direction:column;gap:14px;">
+      <div class="form-group"><label class="form-label">Funcionário <span class="req">*</span></label><select id="fer-func" class="form-input"></select></div>
+      <div class="form-grid-2">
+        <div class="form-group"><label class="form-label">Data Início <span class="req">*</span></label><input type="date" id="fer-inicio" class="form-input" onchange="calcDiasFerias()"></div>
+        <div class="form-group"><label class="form-label">Data Fim <span class="req">*</span></label><input type="date" id="fer-fim" class="form-input" onchange="calcDiasFerias()"></div>
+      </div>
+      <div class="form-group"><label class="form-label">Duração</label>
+        <div style="padding:10px 12px;background:#f8fafc;border-radius:8px;border:1.2px solid #e2e8f0;font-weight:700;color:var(--primary);" id="fer-dias-display">— dias</div>
+      </div>
+      <div class="form-group"><label class="form-label">Status</label>
+        <select id="fer-status" class="form-input"><option value="agendada">📅 Agendada</option><option value="em_gozo">🏖️ Em Gozo</option><option value="concluida">✅ Concluída</option></select>
+      </div>
+      <div class="form-group"><label class="form-label">Observações</label><textarea id="fer-obs" class="form-input" rows="2"></textarea></div>
+      <div id="fer-error" class="hidden alert alert-danger"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-ferias')">Cancelar</button>
+      <button class="btn btn-primary" id="btn-salvar-fer" onclick="salvarFerias()">💾 Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL CONFIRMAÇÃO -->
+<div id="modal-confirm" class="modal-overlay hidden">
+  <div class="modal" style="max-width:420px;">
+    <div class="modal-header"><div class="modal-title">⚠️ Confirmar</div><button class="modal-close" onclick="closeModal('modal-confirm')">✕</button></div>
+    <p id="confirm-msg" style="font-size:14px;color:#475569;line-height:1.6;"></p>
+    <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('modal-confirm')">Cancelar</button><button class="btn btn-danger" id="confirm-ok-btn">Confirmar</button></div>
+  </div>
+</div>
+<div id="toast-container"></div>
+
+<script>
+let _editingEscalaId=null, _editingFeriasId=null, _escalas=[], _ferias=[], _funcionarios=[], _turnos=[];
+let _escDiasTemp=[];
+
+fetch('partials/sidebar.html').then(r=>r.text()).then(html=>{
+  document.getElementById('sidebar-container').innerHTML=html;
+  document.querySelector('[href="rh.html"]')?.classList.add('active');
+  openGroup('pessoas');
+});
+initSidebar('rh.html');
+
+async function init(){
+  const hoje=new Date();document.getElementById('escala-mes').value=hoje.getFullYear()+'-'+String(hoje.getMonth()+1).padStart(2,'0');
+  const[{data:fn},{data:tn},{data:es},{data:fr}]=await Promise.all([
+    _supabase.from('funcionarios').select('id,nome,setor,turno').eq('status','ativo').order('nome'),
+    _supabase.from('turnos').select('id,nome').eq('status','ativo'),
+    _supabase.from('rh_escala').select('*').order('mes',{ascending:false}),
+    _supabase.from('rh_ferias').select('*').order('data_inicio',{ascending:false}),
+  ]);
+  _funcionarios=fn||[];_turnos=tn||[];_escalas=es||[];_ferias=fr||[];
+  popularFiltros();renderEscala();renderFerias();renderFeriasAlertas();
+}
+
+function popularFiltros(){
+  const setores=[...new Set(_funcionarios.map(f=>f.setor).filter(Boolean))];
+  const selS=document.getElementById('escala-setor-filtro');selS.innerHTML='<option value="">Todos os setores</option>';setores.forEach(s=>{const o=document.createElement('option');o.value=s;o.textContent=s;selS.appendChild(o);});
+  const selT=document.getElementById('escala-turno-filtro');selT.innerHTML='<option value="">Todos os turnos</option>';_turnos.forEach(t=>{const o=document.createElement('option');o.value=t.nome;o.textContent=t.nome;selT.appendChild(o);});
+}
+
+function renderEscala(){
+  const mes=document.getElementById('escala-mes').value;const turnoF=document.getElementById('escala-turno-filtro').value;const setorF=document.getElementById('escala-setor-filtro').value;
+  const escalasDoMes=_escalas.filter(e=>e.mes===mes);
+  const funcsDoMes=_funcionarios.filter(f=>(!turnoF||f.turno===turnoF)&&(!setorF||f.setor===setorF)).filter(f=>escalasDoMes.some(e=>e.funcionario_id===f.id)||true);
+  const grid=document.getElementById('escala-grid');const empty=document.getElementById('escala-empty');
+  if(!mes){grid.innerHTML='';empty.classList.remove('hidden');return;}
+  const[ano,m]=mes.split('-').map(Number);const diasNoMes=new Date(ano,m,0).getDate();
+  // Cabeçalho
+  let html=`<table style="width:100%;border-collapse:collapse;font-size:12px;">
+    <thead><tr style="background:var(--primary);color:#fff;">
+      <th style="padding:8px 12px;text-align:left;min-width:180px;position:sticky;left:0;background:var(--primary);">Funcionário</th>
+      <th style="padding:8px 4px;text-align:center;min-width:60px;">Turno</th>
+      ${Array.from({length:diasNoMes},(_,i)=>{const dow=new Date(ano,m-1,i+1).getDay();const isWE=dow===0||dow===6;return`<th style="padding:6px 4px;text-align:center;min-width:32px;${isWE?'opacity:.6':''}">${i+1}<div style="font-size:9px;">${['D','S','T','Q','Q','S','S'][dow]}</div></th>`}).join('')}
+      <th style="padding:8px 4px;text-align:center;min-width:50px;">Dias</th>
+      <th style="padding:8px 4px;text-align:center;min-width:50px;">Ações</th>
+    </tr></thead><tbody>`;
+  funcsDoMes.forEach(f=>{
+    const escala=escalasDoMes.find(e=>e.funcionario_id===f.id);const dias=escala?.dias_trabalho||[];const count=dias.length;
+    html+=`<tr style="border-bottom:1px solid #f1f5f9;">
+      <td style="padding:8px 12px;font-weight:600;color:var(--primary);position:sticky;left:0;background:#fff;">${f.nome}<div style="font-size:10px;color:#94a3b8;">${f.setor||'—'}</div></td>
+      <td style="padding:6px 4px;text-align:center;font-size:11px;">${escala?.turno||f.turno||'—'}</td>
+      ${Array.from({length:diasNoMes},(_,i)=>{const d=i+1;const dow=new Date(ano,m-1,d).getDay();const trab=dias.includes(d);const isWE=dow===0||dow===6;return`<td style="text-align:center;padding:4px 2px;"><div style="width:26px;height:26px;margin:0 auto;border-radius:50%;background:${trab?'#22c55e':isWE?'#f1f5f9':'transparent'};color:${trab?'#fff':isWE?'#94a3b8':'transparent'};font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;">${trab?'✓':isWE?'—':''}</div></td>`}).join('')}
+      <td style="text-align:center;font-weight:800;color:var(--primary);">${count}</td>
+      <td style="text-align:center;"><button class="btn btn-secondary btn-sm" onclick="editarEscala('${f.id}','${mes}')">✏️</button></td>
+    </tr>`;
+  });
+  html+='</tbody></table>';
+  grid.innerHTML=html;empty.classList.add('hidden');
+}
+
+function renderFeriasAlertas(){
+  const hoje=new Date().toISOString().split('T')[0];
+  const prox=_ferias.filter(f=>f.status==='agendada'&&f.data_inicio>=hoje);
+  const em=_ferias.filter(f=>f.status==='em_gozo');
+  let html='';
+  if(em.length>0)html+=`<div class="alert alert-info">🏖️ <strong>${em.length} funcionário(s) em férias</strong></div>`;
+  if(prox.length>0)html+=`<div class="alert alert-warning">📅 <strong>${prox.length} férias agendada(s)</strong> próximas</div>`;
+  document.getElementById('ferias-alertas').innerHTML=html;
+}
+
+function renderFerias(){
+  const busca=(document.getElementById('busca-ferias').value||'').toLowerCase();const status=document.getElementById('filtro-ferias-status').value;
+  const lista=_ferias.filter(f=>{const fn=_funcionarios.find(x=>x.id===f.funcionario_id);return(!busca||fn?.nome?.toLowerCase().includes(busca))&&(!status||f.status===status);});
+  const tbody=document.getElementById('tbody-ferias');const empty=document.getElementById('ferias-empty');
+  tbody.innerHTML='';if(!lista.length){empty.classList.remove('hidden');return;}empty.classList.add('hidden');
+  const stCfg={agendada:{cls:'badge-info',txt:'📅 Agendada'},em_gozo:{cls:'badge-success',txt:'🏖️ Em Gozo'},concluida:{cls:'badge-gray',txt:'✅ Concluída'}};
+  lista.forEach(f=>{
+    const fn=_funcionarios.find(x=>x.id===f.funcionario_id);const sc=stCfg[f.status]||stCfg.agendada;
+    const dias=f.data_inicio&&f.data_fim?Math.round((new Date(f.data_fim+'T00:00:00')-new Date(f.data_inicio+'T00:00:00'))/(1000*60*60*24))+1:0;
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td><strong style="color:var(--primary);">${fn?.nome||'—'}</strong></td>
+      <td>${fn?.setor||'—'}</td><td>${f.data_inicio||'—'}</td><td>${f.data_fim||'—'}</td>
+      <td><strong>${dias}</strong></td><td><span class="badge ${sc.cls}">${sc.txt}</span></td>
+      <td style="font-size:12px;color:#64748b;">${f.obs||'—'}</td>
+      <td><div class="table-actions">
+        <button class="btn btn-secondary btn-sm" onclick="editarFerias('${f.id}')">✏️</button>
+        <button class="btn btn-danger btn-sm" onclick="confirmarExclusao('ferias','${f.id}',fn?.nome||'')">🗑️</button>
+      </div></td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+function openModalEscala(){
+  _editingEscalaId=null;_escDiasTemp=[];
+  document.getElementById('modal-escala-title').textContent='Nova Escala';
+  const selF=document.getElementById('esc-func');selF.innerHTML='<option value="">Selecione...</option>';_funcionarios.forEach(f=>{const o=document.createElement('option');o.value=f.id;o.textContent=f.nome;selF.appendChild(o);});
+  const selT=document.getElementById('esc-turno');selT.innerHTML='<option value="">Selecione...</option>';_turnos.forEach(t=>{const o=document.createElement('option');o.value=t.nome;o.textContent=t.nome;selT.appendChild(o);});
+  document.getElementById('esc-mes').value=document.getElementById('escala-mes').value||'';
+  buildDiasGrid();document.getElementById('esc-error').classList.add('hidden');document.getElementById('modal-escala').classList.remove('hidden');
+}
+
+function editarEscala(funcId,mes){
+  const escala=_escalas.find(e=>e.funcionario_id===funcId&&e.mes===mes);
+  openModalEscala();_editingEscalaId=escala?.id||null;
+  document.getElementById('esc-func').value=funcId;document.getElementById('esc-mes').value=mes;
+  const func=_funcionarios.find(f=>f.id===funcId);if(func?.turno)document.getElementById('esc-turno').value=func.turno;
+  _escDiasTemp=[...(escala?.dias_trabalho||[])];buildDiasGrid();
+}
+
+function buildDiasGrid(){
+  const mes=document.getElementById('esc-mes').value;const grid=document.getElementById('esc-dias-grid');grid.innerHTML='';
+  if(!mes)return;const[ano,m]=mes.split('-').map(Number);const diasNoMes=new Date(ano,m,0).getDate();
+  const DIAS=['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+  DIAS.forEach(d=>{const h=document.createElement('div');h.style.cssText='text-align:center;font-size:10px;font-weight:700;color:#94a3b8;padding:4px 0;';h.textContent=d;grid.appendChild(h);});
+  const primeiroDia=new Date(ano,m-1,1).getDay();
+  for(let i=0;i<primeiroDia;i++){const b=document.createElement('div');grid.appendChild(b);}
+  for(let d=1;d<=diasNoMes;d++){
+    const dow=new Date(ano,m-1,d).getDay();const ativo=_escDiasTemp.includes(d);const isWE=dow===0||dow===6;
+    const btn=document.createElement('button');
+    btn.style.cssText=`width:34px;height:34px;border-radius:50%;border:none;cursor:pointer;font-size:12px;font-weight:700;margin:2px auto;display:block;background:${ativo?'var(--primary)':isWE?'#f1f5f9':'#e2e8f0'};color:${ativo?'#fff':isWE?'#94a3b8':'#475569'};transition:all .1s;`;
+    btn.textContent=d;btn.dataset.dia=d;
+    btn.onclick=()=>{const idx=_escDiasTemp.indexOf(d);if(idx>-1)_escDiasTemp.splice(idx,1);else _escDiasTemp.push(d);buildDiasGrid();};
+    grid.appendChild(btn);
+  }
+}
+
+async function salvarEscala(){
+  const funcId=document.getElementById('esc-func').value;const mes=document.getElementById('esc-mes').value;
+  const errEl=document.getElementById('esc-error');const btn=document.getElementById('btn-salvar-esc');
+  if(!funcId||!mes){errEl.textContent='Funcionário e Mês são obrigatórios!';errEl.classList.remove('hidden');return;}
+  const dados={funcionario_id:funcId,mes,turno:document.getElementById('esc-turno').value||null,dias_trabalho:_escDiasTemp.sort((a,b)=>a-b)};
+  btn.innerHTML='<span class="spin"></span>';btn.disabled=true;
+  try{
+    if(_editingEscalaId){await _supabase.from('rh_escala').update(dados).eq('id',_editingEscalaId);}
+    else{const exists=_escalas.find(e=>e.funcionario_id===funcId&&e.mes===mes);if(exists){await _supabase.from('rh_escala').update(dados).eq('id',exists.id);}else{await _supabase.from('rh_escala').insert(dados);}}
+    await addLog('UPDATE','RH_ESCALA',funcId,`Escala ${mes}`);toast('Escala salva!','success');closeModal('modal-escala');
+    const{data:es}=await _supabase.from('rh_escala').select('*').order('mes',{ascending:false});_escalas=es||[];renderEscala();
+  }catch(e){errEl.textContent='Erro: '+e.message;errEl.classList.remove('hidden');}
+  btn.innerHTML='💾 Salvar Escala';btn.disabled=false;
+}
+
+function openModalFerias(){
+  _editingFeriasId=null;document.getElementById('modal-ferias-title').textContent='Agendar Férias';
+  const selF=document.getElementById('fer-func');selF.innerHTML='<option value="">Selecione...</option>';_funcionarios.forEach(f=>{const o=document.createElement('option');o.value=f.id;o.textContent=f.nome;selF.appendChild(o);});
+  ['fer-inicio','fer-fim','fer-obs'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('fer-status').value='agendada';document.getElementById('fer-dias-display').textContent='— dias';
+  document.getElementById('fer-error').classList.add('hidden');document.getElementById('modal-ferias').classList.remove('hidden');
+}
+
+function editarFerias(id){
+  const f=_ferias.find(x=>x.id===id);if(!f)return;openModalFerias();_editingFeriasId=id;
+  document.getElementById('modal-ferias-title').textContent='Editar Férias';document.getElementById('fer-func').value=f.funcionario_id||'';
+  document.getElementById('fer-inicio').value=f.data_inicio||'';document.getElementById('fer-fim').value=f.data_fim||'';
+  document.getElementById('fer-status').value=f.status||'agendada';document.getElementById('fer-obs').value=f.obs||'';calcDiasFerias();
+}
+
+function calcDiasFerias(){
+  const ini=document.getElementById('fer-inicio').value;const fim=document.getElementById('fer-fim').value;
+  if(ini&&fim){const dias=Math.round((new Date(fim+'T00:00:00')-new Date(ini+'T00:00:00'))/(1000*60*60*24))+1;document.getElementById('fer-dias-display').textContent=dias>0?dias+' dias':'Datas inválidas';}
+}
+
+async function salvarFerias(){
+  const funcId=document.getElementById('fer-func').value;const ini=document.getElementById('fer-inicio').value;const fim=document.getElementById('fer-fim').value;
+  const errEl=document.getElementById('fer-error');const btn=document.getElementById('btn-salvar-fer');
+  if(!funcId||!ini||!fim){errEl.textContent='Funcionário, início e fim são obrigatórios!';errEl.classList.remove('hidden');return;}
+  const dados={funcionario_id:funcId,data_inicio:ini,data_fim:fim,status:document.getElementById('fer-status').value,obs:document.getElementById('fer-obs').value.trim()||null};
+  btn.innerHTML='<span class="spin"></span>';btn.disabled=true;
+  try{
+    if(_editingFeriasId){await _supabase.from('rh_ferias').update(dados).eq('id',_editingFeriasId);}else{await _supabase.from('rh_ferias').insert(dados);}
+    await addLog('UPDATE','RH_FERIAS',funcId,'Férias: '+ini+' a '+fim);toast('Férias salvas!','success');closeModal('modal-ferias');
+    const{data:fr}=await _supabase.from('rh_ferias').select('*').order('data_inicio',{ascending:false});_ferias=fr||[];renderFerias();renderFeriasAlertas();
+  }catch(e){errEl.textContent='Erro: '+e.message;errEl.classList.remove('hidden');}
+  btn.innerHTML='💾 Salvar';btn.disabled=false;
+}
+
+function switchRhTab(tab){['tab-escala','tab-ferias'].forEach(t=>document.getElementById(t).style.display=t===tab?'block':'none');document.querySelectorAll('.tab-btn').forEach(b=>{b.classList.remove('active');if(b.getAttribute('onclick')?.includes(tab))b.classList.add('active');});}
+
+function confirmarExclusao(tipo,id,nome){
+  document.getElementById('confirm-msg').innerHTML=`Excluir o registro de <strong>${nome}</strong>?`;
+  document.getElementById('confirm-ok-btn').onclick=async()=>{
+    if(tipo==='ferias')await _supabase.from('rh_ferias').delete().eq('id',id);
+    toast('Excluído.','warning');closeModal('modal-confirm');
+    const{data:fr}=await _supabase.from('rh_ferias').select('*').order('data_inicio',{ascending:false});_ferias=fr||[];renderFerias();
+  };
+  document.getElementById('modal-confirm').classList.remove('hidden');
+}
+
+document.head.insertAdjacentHTML('beforeend','<style>.tab-btn{padding:10px 20px;background:none;border:none;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;color:#64748b;border-bottom:2px solid transparent;margin-bottom:-2px;transition:all .15s;}.tab-btn.active{color:var(--primary);border-bottom-color:var(--primary);}.alert-info{background:#eff6ff;border:1px solid #93c5fd;color:#1e40af;padding:12px 16px;border-radius:8px;margin-bottom:8px;}</style>');
+init();
+</script>
+</body>
+</html>

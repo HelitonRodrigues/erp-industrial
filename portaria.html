@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ERP Industrial — Portaria</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/supabase.js"></script>
+<script src="js/utils.js"></script>
+<style>
+.fila-card{background:#fff;border-radius:14px;padding:16px;border:1.5px solid #e2e8f0;transition:all .15s;}
+.fila-card.status-aguardando{border-left:5px solid #f59e0b;}
+.fila-card.status-carregando{border-left:5px solid #22c55e;}
+.fila-card.status-finalizado{border-left:5px solid #94a3b8;opacity:.7;}
+.fila-card.status-sem_ordem{border-left:5px solid #ef4444;}
+.balanca-status{display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:700;}
+.balanca-ok{background:#dcfce7;color:#16a34a;}
+.balanca-err{background:#fee2e2;color:#dc2626;}
+</style>
+</head>
+<body>
+<div id="sidebar-container"></div>
+<header class="topbar" id="topbar">
+  <button class="topbar-open-sidebar" onclick="toggleSidebar()">☰</button>
+  <div class="topbar-title">Portaria</div>
+  <div class="topbar-right">
+    <div class="topbar-user">
+      <div class="user-avatar" style="width:32px;height:32px;font-size:12px;" id="top-avatar">SA</div>
+      <div><div class="topbar-user-name" id="top-user-name">Super Admin</div><div class="topbar-user-profile" id="top-user-perfil">SADM</div></div>
+    </div>
+    <button class="btn btn-ghost btn-sm" onclick="doLogout()" style="color:#64748b;">Sair</button>
+  </div>
+</header>
+<main class="main-content" id="main-content">
+  <div class="page-header">
+    <div class="page-header-left"><h1>Portaria</h1><p>Fila de motoristas e controle de pesagem</p></div>
+    <div style="display:flex;gap:10px;align-items:center;">
+      <div class="balanca-status" id="balanca-status-badge"><span>⚖️</span><span id="balanca-status-txt">Balança: Manual</span></div>
+      <button class="btn btn-secondary" onclick="testarBalanca()">🔌 Testar Conexão</button>
+      <button class="btn btn-primary" onclick="openModalEntrada()">+ Registrar Chegada</button>
+    </div>
+  </div>
+
+  <!-- RESUMO FILA -->
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;margin-bottom:20px;">
+    <div class="card" style="text-align:center;padding:14px;border-left:4px solid #ef4444;"><div style="font-size:26px;font-weight:800;color:#ef4444;" id="cnt-sem-ordem">0</div><div style="font-size:11px;color:#64748b;">Sem Ordem</div></div>
+    <div class="card" style="text-align:center;padding:14px;border-left:4px solid #f59e0b;"><div style="font-size:26px;font-weight:800;color:#f59e0b;" id="cnt-aguardando">0</div><div style="font-size:11px;color:#64748b;">Aguardando</div></div>
+    <div class="card" style="text-align:center;padding:14px;border-left:4px solid #22c55e;"><div style="font-size:26px;font-weight:800;color:#22c55e;" id="cnt-carregando">0</div><div style="font-size:11px;color:#64748b;">Carregando</div></div>
+    <div class="card" style="text-align:center;padding:14px;border-left:4px solid #94a3b8;"><div style="font-size:26px;font-weight:800;color:#94a3b8;" id="cnt-finalizado">0</div><div style="font-size:11px;color:#64748b;">Finalizados Hoje</div></div>
+  </div>
+
+  <!-- FILTROS -->
+  <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;">
+    <select class="form-input" id="filtro-port-status" style="width:200px;" onchange="renderFila()">
+      <option value="">Todos os status</option>
+      <option value="sem_ordem">🔴 Sem Ordem</option>
+      <option value="aguardando">🟡 Aguardando Carregamento</option>
+      <option value="carregando">🟢 Em Carregamento</option>
+      <option value="finalizado">⚫ Finalizado</option>
+    </select>
+    <div class="search-input-wrap" style="flex:1;"><span class="search-icon">🔍</span><input type="text" class="form-input" id="busca-port" placeholder="Buscar por placa ou motorista..." oninput="renderFila()"></div>
+  </div>
+
+  <!-- FILA -->
+  <div id="fila-grid" style="display:flex;flex-direction:column;gap:12px;"></div>
+  <div id="fila-empty" class="empty-state hidden"><div class="empty-icon">🚪</div><h3>Nenhum veículo na fila</h3></div>
+</main>
+
+<!-- MODAL ENTRADA -->
+<div id="modal-entrada-port" class="modal-overlay hidden">
+  <div class="modal modal-lg">
+    <div class="modal-header"><div class="modal-title" id="modal-port-title">Registrar Chegada</div><button class="modal-close" onclick="closeModal('modal-entrada-port')">✕</button></div>
+    <div style="display:flex;flex-direction:column;gap:14px;">
+      <div class="form-grid-2">
+        <div class="form-group"><label class="form-label">Placa <span class="req">*</span></label><input id="port-placa" type="text" class="form-input" placeholder="ABC-1234" style="text-transform:uppercase;"></div>
+        <div class="form-group"><label class="form-label">Tipo de Veículo</label>
+          <select id="port-tipo-veiculo" class="form-input"><option>Truck</option><option>LS</option><option>Bitrem</option><option>Rodotrem</option><option>VUC</option><option>Outros</option></select>
+        </div>
+      </div>
+      <div class="form-grid-2">
+        <div class="form-group"><label class="form-label">Nome do Motorista <span class="req">*</span></label><input id="port-motorista" type="text" class="form-input"></div>
+        <div class="form-group"><label class="form-label">Celular</label><input id="port-celular" type="text" class="form-input" placeholder="(00) 00000-0000"></div>
+      </div>
+      <div class="form-grid-2">
+        <div class="form-group"><label class="form-label">Transportadora</label><input id="port-transportadora" type="text" class="form-input"></div>
+        <div class="form-group"><label class="form-label">Tipo de Carga</label>
+          <select id="port-tipo-carga" class="form-input"><option value="com_stretch">Com Stretch</option><option value="sem_stretch">Sem Stretch</option></select>
+        </div>
+      </div>
+      <div class="form-group"><label class="form-label">Nº da Ordem (Expedição)</label><input id="port-ordem" type="text" class="form-input" placeholder="Número da ordem de carregamento"></div>
+      <!-- BALANÇA TARA -->
+      <div style="background:#f8fafc;border-radius:12px;padding:16px;border:1.2px solid #e2e8f0;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+          <label class="form-label" style="margin:0;">⚖️ Peso Tara (vazio)</label>
+          <div style="display:flex;gap:8px;">
+            <button class="btn btn-secondary btn-sm" id="btn-ler-balanca-tara" onclick="lerBalanca('port-tara')">📡 Ler Balança</button>
+          </div>
+        </div>
+        <div style="display:flex;gap:12px;align-items:center;">
+          <input id="port-tara" type="number" class="form-input" min="0" step="0.001" placeholder="Toneladas" style="flex:1;">
+          <span style="font-size:13px;color:#64748b;">t</span>
+        </div>
+      </div>
+      <div class="form-group"><label class="form-label">Status</label>
+        <select id="port-status" class="form-input">
+          <option value="sem_ordem">🔴 Sem Ordem</option>
+          <option value="aguardando">🟡 Aguardando Carregamento</option>
+          <option value="carregando">🟢 Em Carregamento</option>
+        </select>
+      </div>
+      <div id="port-error" class="hidden alert alert-danger"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-entrada-port')">Cancelar</button>
+      <button class="btn btn-primary" id="btn-salvar-port" onclick="salvarEntradaPort()">💾 Registrar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL FINALIZAR / PESO BRUTO -->
+<div id="modal-finalizar-port" class="modal-overlay hidden">
+  <div class="modal">
+    <div class="modal-header"><div class="modal-title">⚖️ Finalizar — Peso Bruto</div><button class="modal-close" onclick="closeModal('modal-finalizar-port')">✕</button></div>
+    <div style="display:flex;flex-direction:column;gap:14px;">
+      <input type="hidden" id="fin-port-id">
+      <div style="background:#f8fafc;border-radius:10px;padding:12px;border:1.2px solid #e2e8f0;">
+        <p style="font-size:12px;color:#64748b;">Veículo</p><p style="font-weight:800;color:var(--primary);font-size:15px;" id="fin-port-info">—</p>
+      </div>
+      <div style="background:#f8fafc;border-radius:12px;padding:16px;border:1.2px solid #e2e8f0;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+          <label class="form-label" style="margin:0;">⚖️ Peso Bruto (carregado)</label>
+          <button class="btn btn-secondary btn-sm" onclick="lerBalanca('fin-bruto')">📡 Ler Balança</button>
+        </div>
+        <div style="display:flex;gap:12px;align-items:center;">
+          <input id="fin-bruto" type="number" class="form-input" min="0" step="0.001" placeholder="Toneladas" oninput="calcPesoLiquido()" style="flex:1;">
+          <span style="font-size:13px;color:#64748b;">t</span>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+        <div style="padding:12px;background:#fff;border-radius:8px;border:1.2px solid #e2e8f0;text-align:center;"><p style="font-size:11px;color:#94a3b8;font-weight:600;text-transform:uppercase;">Tara</p><p style="font-size:20px;font-weight:800;color:var(--primary);" id="fin-tara-display">—</p></div>
+        <div style="padding:12px;background:linear-gradient(135deg,#042D4D,#0E3B62);border-radius:8px;text-align:center;"><p style="font-size:11px;color:#7aa3c0;font-weight:600;text-transform:uppercase;">Peso Líquido</p><p style="font-size:20px;font-weight:800;color:#C9FF64;" id="fin-liquido-display">—</p></div>
+      </div>
+      <div id="fin-port-error" class="hidden alert alert-danger"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-finalizar-port')">Cancelar</button>
+      <button class="btn btn-primary" onclick="confirmarFinalizacao()">✅ Finalizar & Gerar Romaneio</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL CONFIRMAÇÃO -->
+<div id="modal-confirm" class="modal-overlay hidden">
+  <div class="modal" style="max-width:420px;">
+    <div class="modal-header"><div class="modal-title">⚠️ Confirmar</div><button class="modal-close" onclick="closeModal('modal-confirm')">✕</button></div>
+    <p id="confirm-msg" style="font-size:14px;color:#475569;line-height:1.6;"></p>
+    <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('modal-confirm')">Cancelar</button><button class="btn btn-danger" id="confirm-ok-btn">Confirmar</button></div>
+  </div>
+</div>
+<div id="toast-container"></div>
+
+<script>
+let _editingPortId=null, _veiculos=[], _balancaConectada=false;
+
+fetch('partials/sidebar.html').then(r=>r.text()).then(html=>{
+  document.getElementById('sidebar-container').innerHTML=html;
+  document.querySelector('[href="portaria.html"]')?.classList.add('active');
+  openGroup('logistica');
+});
+initSidebar('portaria.html');
+
+async function init(){await loadVeiculos();renderFila();// Atualizar a cada 30s
+setInterval(async()=>{await loadVeiculos();renderFila();},30000);}
+
+async function loadVeiculos(){const{data}=await _supabase.from('portaria').select('*').order('hora_chegada',{ascending:true});_veiculos=data||[];atualizarContadores();}
+
+function atualizarContadores(){
+  const hoje=new Date().toISOString().split('T')[0];
+  document.getElementById('cnt-sem-ordem').textContent=_veiculos.filter(v=>v.status==='sem_ordem').length;
+  document.getElementById('cnt-aguardando').textContent=_veiculos.filter(v=>v.status==='aguardando').length;
+  document.getElementById('cnt-carregando').textContent=_veiculos.filter(v=>v.status==='carregando').length;
+  document.getElementById('cnt-finalizado').textContent=_veiculos.filter(v=>v.status==='finalizado'&&v.hora_chegada?.startsWith(hoje)).length;
+}
+
+function renderFila(){
+  const filtroStatus=document.getElementById('filtro-port-status').value;const busca=(document.getElementById('busca-port').value||'').toLowerCase();
+  const lista=_veiculos.filter(v=>(!filtroStatus||v.status===filtroStatus)&&(!busca||v.placa?.toLowerCase().includes(busca)||v.nome_motorista?.toLowerCase().includes(busca)));
+  const cont=document.getElementById('fila-grid');const empty=document.getElementById('fila-empty');
+  cont.innerHTML='';
+  if(!lista.length){empty.classList.remove('hidden');return;}empty.classList.add('hidden');
+  const stCfg={sem_ordem:{cls:'badge-danger',txt:'🔴 Sem Ordem'},aguardando:{cls:'badge-warning',txt:'🟡 Aguardando'},carregando:{cls:'badge-success',txt:'🟢 Carregando'},finalizado:{cls:'badge-gray',txt:'⚫ Finalizado'}};
+  lista.forEach((v,idx)=>{
+    const sc=stCfg[v.status]||stCfg.aguardando;
+    const chegada=v.hora_chegada?new Date(v.hora_chegada).toLocaleString('pt-BR'):'—';
+    const div=document.createElement('div');div.className=`fila-card status-${v.status}`;
+    div.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
+      <div style="display:flex;align-items:center;gap:12px;">
+        <div style="background:var(--primary);color:#fff;border-radius:50%;width:36px;height:36px;display:flex;align-items:center;justify-content:center;font-weight:800;flex-shrink:0;">${idx+1}</div>
+        <div><div style="font-size:16px;font-weight:800;color:var(--primary);">${v.placa||'—'}</div><div style="font-size:12px;color:#64748b;">${v.modelo_veiculo||'—'} — ${v.transportadora||'—'}</div></div>
+      </div>
+      <span class="badge ${sc.cls}">${sc.txt}</span>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px;margin-bottom:12px;font-size:12px;">
+      <div><span style="color:#94a3b8;">👨‍💼 Motorista</span><div style="font-weight:600;">${v.nome_motorista||'—'}</div></div>
+      <div><span style="color:#94a3b8;">📱 Celular</span><div style="font-weight:600;">${v.celular||'—'}</div></div>
+      <div><span style="color:#94a3b8;">📋 Ordem</span><div style="font-weight:600;">${v.numero_ordem||'Sem ordem'}</div></div>
+      <div><span style="color:#94a3b8;">⏰ Chegada</span><div style="font-weight:600;">${chegada}</div></div>
+      <div><span style="color:#94a3b8;">⚖️ Tara</span><div style="font-weight:600;">${v.peso_tara!=null?v.peso_tara+'t':'—'}</div></div>
+      <div><span style="color:#94a3b8;">⚖️ Bruto</span><div style="font-weight:600;">${v.peso_bruto!=null?v.peso_bruto+'t':'—'}</div></div>
+      ${v.peso_liquido!=null?`<div><span style="color:#94a3b8;">📊 Líquido</span><div style="font-weight:800;color:var(--primary);">${v.peso_liquido}t</div></div>`:''}
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+      ${v.status!=='finalizado'?`
+        ${v.status==='sem_ordem'?`<button class="btn btn-secondary btn-sm" onclick="atualizarStatus('${v.id}','aguardando')">🟡 Tem Ordem</button>`:''}
+        ${v.status==='aguardando'?`<button class="btn btn-secondary btn-sm" onclick="atualizarStatus('${v.id}','carregando')">🟢 Iniciar Carregamento</button>`:''}
+        ${v.status==='carregando'?`<button class="btn btn-primary btn-sm" onclick="abrirFinalizar('${v.id}')">⚖️ Finalizar & Pesar</button>`:''}
+        <button class="btn btn-secondary btn-sm" onclick="editarVeiculo('${v.id}')">✏️</button>
+      `:`<button class="btn btn-secondary btn-sm" onclick="gerarRomaneio('${v.id}')">🖨️ Romaneio</button>`}
+      <button class="btn btn-danger btn-sm" onclick="confirmarExclusao('${v.id}','${v.placa}')">🗑️</button>
+    </div>`;
+    cont.appendChild(div);
+  });
+}
+
+function testarBalanca(){toast('Modo manual — balança integrada requer agente local (RS232/TCP)','info');}
+function lerBalanca(inputId){toast('Modo manual: digite o peso diretamente.','info');}
+
+function openModalEntrada(){
+  _editingPortId=null;document.getElementById('modal-port-title').textContent='Registrar Chegada';
+  ['port-placa','port-motorista','port-celular','port-transportadora','port-ordem','port-tara'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('port-tipo-veiculo').value='Truck';document.getElementById('port-tipo-carga').value='com_stretch';document.getElementById('port-status').value='sem_ordem';
+  document.getElementById('port-error').classList.add('hidden');document.getElementById('modal-entrada-port').classList.remove('hidden');
+}
+
+function editarVeiculo(id){
+  const v=_veiculos.find(x=>x.id===id);if(!v)return;openModalEntrada();_editingPortId=id;
+  document.getElementById('modal-port-title').textContent='Editar Registro';
+  document.getElementById('port-placa').value=v.placa||'';document.getElementById('port-motorista').value=v.nome_motorista||'';
+  document.getElementById('port-celular').value=v.celular||'';document.getElementById('port-transportadora').value=v.transportadora||'';
+  document.getElementById('port-tipo-veiculo').value=v.modelo_veiculo||'Truck';document.getElementById('port-tipo-carga').value=v.tipo_carga||'com_stretch';
+  document.getElementById('port-ordem').value=v.numero_ordem||'';document.getElementById('port-tara').value=v.peso_tara||'';
+  document.getElementById('port-status').value=v.status||'sem_ordem';
+}
+
+async function salvarEntradaPort(){
+  const placa=document.getElementById('port-placa').value.trim().toUpperCase();const motorista=document.getElementById('port-motorista').value.trim();
+  const errEl=document.getElementById('port-error');const btn=document.getElementById('btn-salvar-port');
+  if(!placa||!motorista){errEl.textContent='Placa e Motorista são obrigatórios!';errEl.classList.remove('hidden');return;}
+  const dados={placa,nome_motorista:motorista,celular:document.getElementById('port-celular').value.trim()||null,transportadora:document.getElementById('port-transportadora').value.trim()||null,modelo_veiculo:document.getElementById('port-tipo-veiculo').value,tipo_carga:document.getElementById('port-tipo-carga').value,numero_ordem:document.getElementById('port-ordem').value.trim()||null,peso_tara:parseFloat(document.getElementById('port-tara').value)||null,status:document.getElementById('port-status').value,liberado:false};
+  btn.innerHTML='<span class="spin"></span>';btn.disabled=true;
+  try{
+    if(_editingPortId){await _supabase.from('portaria').update(dados).eq('id',_editingPortId);toast('Registro atualizado!','success');}
+    else{dados.hora_chegada=new Date().toISOString();await _supabase.from('portaria').insert(dados);await addLog('CREATE','PORTARIA',placa,'Chegada: '+placa+' '+motorista);toast('Chegada registrada!','success');}
+    closeModal('modal-entrada-port');await loadVeiculos();renderFila();
+  }catch(e){errEl.textContent='Erro: '+e.message;errEl.classList.remove('hidden');}
+  btn.innerHTML='💾 Registrar';btn.disabled=false;
+}
+
+async function atualizarStatus(id,novoStatus){
+  await _supabase.from('portaria').update({status:novoStatus}).eq('id',id);await loadVeiculos();renderFila();toast('Status atualizado!','success');}
+
+function abrirFinalizar(id){
+  const v=_veiculos.find(x=>x.id===id);if(!v)return;
+  document.getElementById('fin-port-id').value=id;
+  document.getElementById('fin-port-info').textContent=`${v.placa} — ${v.nome_motorista} (${v.modelo_veiculo||'—'})`;
+  document.getElementById('fin-tara-display').textContent=v.peso_tara!=null?v.peso_tara+'t':'Não informada';
+  document.getElementById('fin-bruto').value='';document.getElementById('fin-liquido-display').textContent='—';
+  document.getElementById('fin-port-error').classList.add('hidden');document.getElementById('modal-finalizar-port').classList.remove('hidden');
+}
+
+function calcPesoLiquido(){
+  const id=document.getElementById('fin-port-id').value;const v=_veiculos.find(x=>x.id===id);
+  const bruto=parseFloat(document.getElementById('fin-bruto').value)||0;const tara=v?.peso_tara||0;
+  const liq=bruto-tara;document.getElementById('fin-liquido-display').textContent=liq>=0?liq.toFixed(3)+'t':'—';
+}
+
+async function confirmarFinalizacao(){
+  const id=document.getElementById('fin-port-id').value;const v=_veiculos.find(x=>x.id===id);
+  const bruto=parseFloat(document.getElementById('fin-bruto').value)||0;const errEl=document.getElementById('fin-port-error');
+  if(!bruto){errEl.textContent='Informe o peso bruto!';errEl.classList.remove('hidden');return;}
+  const liquido=bruto-(v?.peso_tara||0);
+  await _supabase.from('portaria').update({peso_bruto:bruto,peso_liquido:liquido,status:'finalizado',hora_saida:new Date().toISOString()}).eq('id',id);
+  await addLog('UPDATE','PORTARIA',id,'Finalizado: '+v?.placa+' | Liq: '+liquido.toFixed(3)+'t');
+  toast('Finalizado! Gerando romaneio...','success');closeModal('modal-finalizar-port');await loadVeiculos();renderFila();
+  setTimeout(()=>gerarRomaneio(id),500);
+}
+
+function gerarRomaneio(id){
+  const v=_veiculos.find(x=>x.id===id);if(!v)return;
+  const html=`<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
+  body{font-family:'Plus Jakarta Sans',sans-serif;padding:32px;color:#032036;font-size:13px;}
+  h1{color:#042D4D;font-size:22px;margin-bottom:4px;}
+  .info-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:16px 0;}
+  .info-item{background:#f8fafc;border-radius:8px;padding:12px;border:1px solid #e2e8f0;}
+  .info-label{font-size:10px;color:#94a3b8;font-weight:700;text-transform:uppercase;}
+  .info-value{font-size:14px;font-weight:700;color:#042D4D;margin-top:2px;}
+  .pesos{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin:16px 0;}
+  .peso-box{text-align:center;padding:16px;border-radius:10px;border:2px solid #e2e8f0;}
+  .peso-value{font-size:24px;font-weight:800;color:#042D4D;}
+  .peso-label{font-size:11px;color:#64748b;margin-top:4px;}
+  .assinaturas{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:32px;}
+  .assinatura{border-top:2px solid #042D4D;padding-top:12px;text-align:center;}
+  .assinatura-nome{font-weight:700;font-size:12px;color:#042D4D;}
+  .assinatura-cargo{font-size:11px;color:#94a3b8;}
+  .assinatura-linha{height:60px;border-bottom:1px dashed #e2e8f0;margin:12px 0;}
+  </style></head><body>
+  <h1>🏭 Romaneio de Embarque</h1>
+  <p style="color:#64748b;font-size:12px;">Emitido em: ${new Date().toLocaleString('pt-BR')}</p>
+  <div class="info-grid">
+    <div class="info-item"><div class="info-label">Placa</div><div class="info-value">${v.placa||'—'}</div></div>
+    <div class="info-item"><div class="info-label">Tipo de Veículo</div><div class="info-value">${v.modelo_veiculo||'—'}</div></div>
+    <div class="info-item"><div class="info-label">Motorista</div><div class="info-value">${v.nome_motorista||'—'}</div></div>
+    <div class="info-item"><div class="info-label">Transportadora</div><div class="info-value">${v.transportadora||'—'}</div></div>
+    <div class="info-item"><div class="info-label">Nº da Ordem</div><div class="info-value">${v.numero_ordem||'Sem ordem'}</div></div>
+    <div class="info-item"><div class="info-label">Tipo de Carga</div><div class="info-value">${v.tipo_carga?.replace('_',' ')||'—'}</div></div>
+    <div class="info-item"><div class="info-label">Chegada</div><div class="info-value">${v.hora_chegada?new Date(v.hora_chegada).toLocaleString('pt-BR'):'—'}</div></div>
+    <div class="info-item"><div class="info-label">Saída</div><div class="info-value">${v.hora_saida?new Date(v.hora_saida).toLocaleString('pt-BR'):'—'}</div></div>
+  </div>
+  <div class="pesos">
+    <div class="peso-box"><div class="peso-value">${v.peso_tara!=null?v.peso_tara+'t':'—'}</div><div class="peso-label">Tara</div></div>
+    <div class="peso-box"><div class="peso-value">${v.peso_bruto!=null?v.peso_bruto+'t':'—'}</div><div class="peso-label">Peso Bruto</div></div>
+    <div class="peso-box" style="background:linear-gradient(135deg,#042D4D,#0E3B62);border-color:#042D4D;"><div class="peso-value" style="color:#C9FF64;">${v.peso_liquido!=null?v.peso_liquido+'t':'—'}</div><div class="peso-label" style="color:#7aa3c0;">Peso Líquido</div></div>
+  </div>
+  <div class="assinaturas">
+    <div class="assinatura"><div class="assinatura-linha"></div><div class="assinatura-nome">Expedição</div><div class="assinatura-cargo">Nome / Cargo / Data</div></div>
+    <div class="assinatura"><div class="assinatura-linha"></div><div class="assinatura-nome">Portaria</div><div class="assinatura-cargo">Nome / Cargo / Data</div></div>
+    <div class="assinatura"><div class="assinatura-linha"></div><div class="assinatura-nome">Fábrica</div><div class="assinatura-cargo">Nome / Cargo / Data</div></div>
+    <div class="assinatura"><div class="assinatura-linha"></div><div class="assinatura-nome">Motorista</div><div class="assinatura-cargo">Nome / CPF / Data</div></div>
+  </div>
+  </body></html>`;
+  const w=window.open('','_blank');w.document.write(html);w.document.close();setTimeout(()=>w.print(),500);
+}
+
+function confirmarExclusao(id,placa){
+  document.getElementById('confirm-msg').innerHTML=`Excluir o registro do veículo <strong>${placa}</strong>?`;
+  document.getElementById('confirm-ok-btn').onclick=async()=>{await _supabase.from('portaria').delete().eq('id',id);toast('Registro excluído.','warning');closeModal('modal-confirm');await loadVeiculos();renderFila();};
+  document.getElementById('modal-confirm').classList.remove('hidden');
+}
+
+init();
+</script>
+</body>
+</html>

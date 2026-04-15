@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ERP Industrial — Expedição</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/supabase.js"></script>
+<script src="js/utils.js"></script>
+</head>
+<body>
+<div id="sidebar-container"></div>
+<header class="topbar" id="topbar">
+  <button class="topbar-open-sidebar" onclick="toggleSidebar()">☰</button>
+  <div class="topbar-title">Expedição</div>
+  <div class="topbar-right">
+    <div class="topbar-user">
+      <div class="user-avatar" style="width:32px;height:32px;font-size:12px;" id="top-avatar">SA</div>
+      <div><div class="topbar-user-name" id="top-user-name">Super Admin</div><div class="topbar-user-profile" id="top-user-perfil">SADM</div></div>
+    </div>
+    <button class="btn btn-ghost btn-sm" onclick="doLogout()" style="color:#64748b;">Sair</button>
+  </div>
+</header>
+<main class="main-content" id="main-content">
+  <div class="page-header">
+    <div class="page-header-left"><h1>Expedição</h1><p>Ordens de carregamento e controle de saída</p></div>
+    <div style="display:flex;gap:10px;">
+      <button class="btn btn-secondary" onclick="exportarCSV(['Ordem','Cliente','Produto','Qtd','Prev.','Status','Motorista','Placa'],_ordens.map(o=>[o.numero_ordem||'—',o.cliente||'—',o.produto||'—',(o.quantidade||0),o.data_prevista||'—',o.status,o.motorista||'—',o.placa||'—']),'expedicao')">⬇️ CSV</button>
+      <button class="btn btn-primary" onclick="openModalOrdem()">+ Nova Ordem</button>
+    </div>
+  </div>
+
+  <!-- RESUMO -->
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;margin-bottom:20px;">
+    <div class="card" style="text-align:center;padding:14px;border-left:4px solid #f59e0b;"><div style="font-size:26px;font-weight:800;color:#f59e0b;" id="cnt-exp-pendente">0</div><div style="font-size:11px;color:#64748b;">Pendentes</div></div>
+    <div class="card" style="text-align:center;padding:14px;border-left:4px solid #2563eb;"><div style="font-size:26px;font-weight:800;color:#2563eb;" id="cnt-exp-liberado">0</div><div style="font-size:11px;color:#64748b;">Liberadas</div></div>
+    <div class="card" style="text-align:center;padding:14px;border-left:4px solid #22c55e;"><div style="font-size:26px;font-weight:800;color:#22c55e;" id="cnt-exp-carregando">0</div><div style="font-size:11px;color:#64748b;">Carregando</div></div>
+    <div class="card" style="text-align:center;padding:14px;border-left:4px solid #94a3b8;"><div style="font-size:26px;font-weight:800;color:#94a3b8;" id="cnt-exp-concluido">0</div><div style="font-size:11px;color:#64748b;">Concluídas</div></div>
+  </div>
+
+  <!-- FILTROS -->
+  <div class="card" style="margin-bottom:16px;">
+    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;">
+      <div class="search-input-wrap" style="flex:1;"><span class="search-icon">🔍</span><input type="text" class="form-input" id="busca-exp" placeholder="Buscar por cliente, produto ou nº ordem..." oninput="renderOrdens()"></div>
+      <select class="form-input" id="filtro-exp-status" style="width:180px;" onchange="renderOrdens()">
+        <option value="">Todos</option><option value="pendente">⏳ Pendente</option><option value="liberado">✅ Liberado</option><option value="carregando">🚛 Carregando</option><option value="concluido">📦 Concluído</option><option value="cancelado">❌ Cancelado</option>
+      </select>
+      <div class="form-group" style="margin:0;"><label class="form-label">Data Prevista</label><input type="date" id="filtro-exp-data" class="form-input" style="width:160px;" onchange="renderOrdens()"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Nº Ordem</th><th>Cliente</th><th>Produto</th><th>Qtd</th><th>Data Prevista</th><th>Status</th><th>Motorista</th><th>Placa</th><th>Ações</th></tr></thead>
+        <tbody id="tbody-expedicao"></tbody>
+      </table>
+    </div>
+    <div id="expedicao-empty" class="empty-state hidden"><div class="empty-icon">🚛</div><h3>Nenhuma ordem encontrada</h3></div>
+  </div>
+</main>
+
+<!-- MODAL ORDEM -->
+<div id="modal-ordem-exp" class="modal-overlay hidden">
+  <div class="modal modal-lg">
+    <div class="modal-header"><div class="modal-title" id="modal-exp-title">Nova Ordem de Carregamento</div><button class="modal-close" onclick="closeModal('modal-ordem-exp')">✕</button></div>
+    <div style="display:flex;flex-direction:column;gap:14px;">
+      <div class="form-grid-2">
+        <div class="form-group"><label class="form-label">Nº da Ordem <span class="req">*</span></label><input id="exp-numero" type="text" class="form-input" placeholder="Ex: OC-2025-001"></div>
+        <div class="form-group"><label class="form-label">Data Prevista <span class="req">*</span></label><input id="exp-data" type="date" class="form-input"></div>
+      </div>
+      <div class="form-group"><label class="form-label">Cliente <span class="req">*</span></label><input id="exp-cliente" type="text" class="form-input" placeholder="Nome do cliente"></div>
+      <div class="form-grid-2">
+        <div class="form-group"><label class="form-label">Produto <span class="req">*</span></label><select id="exp-produto" class="form-input"></select></div>
+        <div class="form-group"><label class="form-label">Quantidade</label><input id="exp-qtd" type="number" class="form-input" min="0" step="0.01"></div>
+      </div>
+      <div class="form-grid-2">
+        <div class="form-group"><label class="form-label">Motorista</label><input id="exp-motorista" type="text" class="form-input"></div>
+        <div class="form-group"><label class="form-label">Placa</label><input id="exp-placa" type="text" class="form-input" style="text-transform:uppercase;"></div>
+      </div>
+      <div class="form-group"><label class="form-label">Status</label>
+        <select id="exp-status" class="form-input">
+          <option value="pendente">⏳ Pendente</option><option value="liberado">✅ Liberado para embarque</option><option value="carregando">🚛 Em Carregamento</option><option value="concluido">📦 Concluído</option><option value="cancelado">❌ Cancelado</option>
+        </select>
+      </div>
+      <div class="form-group"><label class="form-label">Observações</label><textarea id="exp-obs" class="form-input" rows="2"></textarea></div>
+      <div id="exp-error" class="hidden alert alert-danger"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-ordem-exp')">Cancelar</button>
+      <button class="btn btn-primary" id="btn-salvar-exp" onclick="salvarOrdem()">💾 Salvar Ordem</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL VISUALIZAR -->
+<div id="modal-view-exp" class="modal-overlay hidden">
+  <div class="modal modal-lg">
+    <div class="modal-header"><div class="modal-title" id="modal-view-exp-title">Ordem de Carregamento</div><button class="modal-close" onclick="closeModal('modal-view-exp')">✕</button></div>
+    <div id="modal-view-exp-body"></div>
+    <div class="modal-footer"><button class="btn btn-secondary" onclick="imprimirOrdem()">🖨️ Imprimir</button><button class="btn btn-secondary" onclick="closeModal('modal-view-exp')">Fechar</button></div>
+  </div>
+</div>
+
+<!-- MODAL CONFIRMAÇÃO -->
+<div id="modal-confirm" class="modal-overlay hidden">
+  <div class="modal" style="max-width:420px;">
+    <div class="modal-header"><div class="modal-title">⚠️ Confirmar</div><button class="modal-close" onclick="closeModal('modal-confirm')">✕</button></div>
+    <p id="confirm-msg" style="font-size:14px;color:#475569;line-height:1.6;"></p>
+    <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('modal-confirm')">Cancelar</button><button class="btn btn-danger" id="confirm-ok-btn">Confirmar</button></div>
+  </div>
+</div>
+<div id="toast-container"></div>
+
+<script>
+let _editingExpId=null, _ordens=[], _produtos=[];
+let _viewExpId=null;
+
+fetch('partials/sidebar.html').then(r=>r.text()).then(html=>{
+  document.getElementById('sidebar-container').innerHTML=html;
+  document.querySelector('[href="expedicao.html"]')?.classList.add('active');
+  openGroup('logistica');
+});
+initSidebar('expedicao.html');
+
+async function init(){
+  const[{data:or},{data:pr}]=await Promise.all([
+    _supabase.from('expedicao').select('*').order('data_prevista',{ascending:false}).limit(300),
+    _supabase.from('produtos').select('id,nome').eq('status','ativo').order('nome'),
+  ]);
+  _ordens=or||[];_produtos=pr||[];
+  atualizarContadores();renderOrdens();
+}
+
+function atualizarContadores(){
+  ['pendente','liberado','carregando','concluido'].forEach(st=>{
+    const el=document.getElementById('cnt-exp-'+st);if(el)el.textContent=_ordens.filter(o=>o.status===st).length;
+  });
+}
+
+function renderOrdens(){
+  const busca=(document.getElementById('busca-exp').value||'').toLowerCase();
+  const status=document.getElementById('filtro-exp-status').value;
+  const data=document.getElementById('filtro-exp-data').value;
+  const lista=_ordens.filter(o=>(!busca||o.numero_ordem?.toLowerCase().includes(busca)||o.cliente?.toLowerCase().includes(busca)||o.produto?.toLowerCase().includes(busca))&&(!status||o.status===status)&&(!data||o.data_prevista===data));
+  const tbody=document.getElementById('tbody-expedicao');const empty=document.getElementById('expedicao-empty');
+  tbody.innerHTML='';
+  if(!lista.length){empty.classList.remove('hidden');return;}empty.classList.add('hidden');
+  const stCfg={pendente:{cls:'badge-warning',txt:'⏳ Pendente'},liberado:{cls:'badge-success',txt:'✅ Liberado'},carregando:{cls:'badge-info',txt:'🚛 Carregando'},concluido:{cls:'badge-gray',txt:'📦 Concluído'},cancelado:{cls:'badge-danger',txt:'❌ Cancelado'}};
+  const hoje=new Date().toISOString().split('T')[0];
+  lista.forEach(o=>{
+    const sc=stCfg[o.status]||stCfg.pendente;
+    const atrasado=o.data_prevista&&o.data_prevista<hoje&&o.status!=='concluido'&&o.status!=='cancelado';
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td><strong style="color:var(--primary);">${o.numero_ordem||'—'}</strong>${atrasado?`<span class="badge badge-danger" style="margin-left:6px;font-size:10px;">Atrasado</span>`:''}</td>
+      <td>${o.cliente||'—'}</td><td>${o.produto||'—'}</td>
+      <td><strong>${(o.quantidade||0).toLocaleString('pt-BR',{maximumFractionDigits:2})}</strong></td>
+      <td style="font-size:12px;${atrasado?'color:#dc2626;font-weight:700;':''}">${o.data_prevista||'—'}</td>
+      <td><span class="badge ${sc.cls}">${sc.txt}</span></td>
+      <td style="font-size:12px;">${o.motorista||'—'}</td>
+      <td style="font-size:12px;">${o.placa||'—'}</td>
+      <td><div class="table-actions">
+        <button class="btn btn-secondary btn-sm" onclick="visualizarOrdem('${o.id}')">👁️</button>
+        <button class="btn btn-secondary btn-sm" onclick="editarOrdem('${o.id}')">✏️</button>
+        <button class="btn btn-danger btn-sm" onclick="confirmarExclusao('${o.id}','${o.numero_ordem||o.id}')">🗑️</button>
+      </div></td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+function openModalOrdem(){
+  _editingExpId=null;document.getElementById('modal-exp-title').textContent='Nova Ordem de Carregamento';
+  ['exp-numero','exp-cliente','exp-motorista','exp-placa','exp-obs'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('exp-qtd').value='';document.getElementById('exp-data').value=new Date().toISOString().split('T')[0];
+  document.getElementById('exp-status').value='pendente';document.getElementById('exp-error').classList.add('hidden');
+  const sel=document.getElementById('exp-produto');sel.innerHTML='<option value="">Selecione...</option>';_produtos.forEach(p=>{const o=document.createElement('option');o.value=p.nome;o.textContent=p.nome;sel.appendChild(o);});
+  document.getElementById('modal-ordem-exp').classList.remove('hidden');
+}
+
+function editarOrdem(id){
+  const o=_ordens.find(x=>x.id===id);if(!o)return;openModalOrdem();_editingExpId=id;
+  document.getElementById('modal-exp-title').textContent='Editar Ordem';
+  document.getElementById('exp-numero').value=o.numero_ordem||'';document.getElementById('exp-cliente').value=o.cliente||'';
+  document.getElementById('exp-produto').value=o.produto||'';document.getElementById('exp-qtd').value=o.quantidade||'';
+  document.getElementById('exp-data').value=o.data_prevista||'';document.getElementById('exp-status').value=o.status||'pendente';
+  document.getElementById('exp-motorista').value=o.motorista||'';document.getElementById('exp-placa').value=o.placa||'';
+  document.getElementById('exp-obs').value=o.obs||'';
+}
+
+async function salvarOrdem(){
+  const numero=document.getElementById('exp-numero').value.trim();const cliente=document.getElementById('exp-cliente').value.trim();const produto=document.getElementById('exp-produto').value;
+  const errEl=document.getElementById('exp-error');const btn=document.getElementById('btn-salvar-exp');
+  if(!numero||!cliente||!produto){errEl.textContent='Número, Cliente e Produto são obrigatórios!';errEl.classList.remove('hidden');return;}
+  const dados={numero_ordem:numero,cliente,produto,quantidade:parseFloat(document.getElementById('exp-qtd').value)||null,data_prevista:document.getElementById('exp-data').value||null,status:document.getElementById('exp-status').value,motorista:document.getElementById('exp-motorista').value.trim()||null,placa:document.getElementById('exp-placa').value.trim().toUpperCase()||null,obs:document.getElementById('exp-obs').value.trim()||null,atualizado_em:new Date().toISOString()};
+  btn.innerHTML='<span class="spin"></span>';btn.disabled=true;
+  try{
+    if(_editingExpId){await _supabase.from('expedicao').update(dados).eq('id',_editingExpId);await addLog('UPDATE','EXPEDICAO',_editingExpId,'Atualizado: '+numero);toast('Ordem atualizada!','success');}
+    else{const{data:d}=await _supabase.from('expedicao').insert(dados).select().single();await addLog('CREATE','EXPEDICAO',d.id,'Nova ordem: '+numero);toast('Ordem criada!','success');}
+    closeModal('modal-ordem-exp');const{data:or}=await _supabase.from('expedicao').select('*').order('data_prevista',{ascending:false}).limit(300);_ordens=or||[];atualizarContadores();renderOrdens();
+  }catch(e){errEl.textContent='Erro: '+e.message;errEl.classList.remove('hidden');}
+  btn.innerHTML='💾 Salvar Ordem';btn.disabled=false;
+}
+
+function visualizarOrdem(id){
+  _viewExpId=id;const o=_ordens.find(x=>x.id===id);if(!o)return;
+  document.getElementById('modal-view-exp-title').textContent=`Ordem ${o.numero_ordem||id}`;
+  const stCfg={pendente:{cls:'badge-warning',txt:'⏳ Pendente'},liberado:{cls:'badge-success',txt:'✅ Liberado'},carregando:{cls:'badge-info',txt:'🚛 Carregando'},concluido:{cls:'badge-gray',txt:'📦 Concluído'},cancelado:{cls:'badge-danger',txt:'❌ Cancelado'}};
+  const sc=stCfg[o.status]||stCfg.pendente;
+  document.getElementById('modal-view-exp-body').innerHTML=`
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px;">
+      ${[['Nº da Ordem',o.numero_ordem],['Cliente',o.cliente],['Produto',o.produto],['Quantidade',o.quantidade?o.quantidade.toLocaleString('pt-BR',{maximumFractionDigits:2}):null],['Data Prevista',o.data_prevista],['Motorista',o.motorista],['Placa',o.placa]].filter(([,v])=>v).map(([l,v])=>`<div style="padding:10px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;"><p style="font-size:10px;color:#94a3b8;font-weight:700;text-transform:uppercase;">${l}</p><p style="font-size:14px;font-weight:700;color:var(--primary);">${v}</p></div>`).join('')}
+      <div style="padding:10px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;"><p style="font-size:10px;color:#94a3b8;font-weight:700;text-transform:uppercase;">Status</p><span class="badge ${sc.cls}" style="margin-top:4px;">${sc.txt}</span></div>
+    </div>
+    ${o.obs?`<div style="padding:12px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;"><p style="font-size:10px;color:#94a3b8;font-weight:700;text-transform:uppercase;margin-bottom:4px;">Observações</p><p style="font-size:13px;">${o.obs}</p></div>`:''}`;
+  document.getElementById('modal-view-exp').classList.remove('hidden');
+}
+
+function imprimirOrdem(){
+  const o=_ordens.find(x=>x.id===_viewExpId);if(!o)return;
+  const html=`<!DOCTYPE html><html><head><meta charset="UTF-8"><style>body{font-family:sans-serif;padding:32px;font-size:13px;}h1{color:#042D4D;font-size:20px;}.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:16px 0;}.item{background:#f8fafc;border-radius:8px;padding:12px;border:1px solid #e2e8f0;}.label{font-size:10px;color:#94a3b8;font-weight:700;text-transform:uppercase;}.value{font-size:14px;font-weight:700;color:#042D4D;margin-top:2px;}</style></head><body>
+  <h1>Ordem de Carregamento — ${o.numero_ordem||'—'}</h1>
+  <p style="color:#64748b;font-size:12px;">Emitido em: ${new Date().toLocaleString('pt-BR')}</p>
+  <div class="grid">
+    <div class="item"><div class="label">Cliente</div><div class="value">${o.cliente||'—'}</div></div>
+    <div class="item"><div class="label">Produto</div><div class="value">${o.produto||'—'}</div></div>
+    <div class="item"><div class="label">Quantidade</div><div class="value">${o.quantidade?o.quantidade.toLocaleString('pt-BR',{maximumFractionDigits:2}):'-'}</div></div>
+    <div class="item"><div class="label">Data Prevista</div><div class="value">${o.data_prevista||'—'}</div></div>
+    <div class="item"><div class="label">Motorista</div><div class="value">${o.motorista||'—'}</div></div>
+    <div class="item"><div class="label">Placa</div><div class="value">${o.placa||'—'}</div></div>
+  </div>
+  ${o.obs?`<p><strong>Obs:</strong> ${o.obs}</p>`:''}
+  </body></html>`;
+  const w=window.open('','_blank');w.document.write(html);w.document.close();setTimeout(()=>w.print(),500);
+}
+
+function confirmarExclusao(id,desc){
+  document.getElementById('confirm-msg').innerHTML=`Excluir a ordem <strong>${desc}</strong>?`;
+  document.getElementById('confirm-ok-btn').onclick=async()=>{await _supabase.from('expedicao').delete().eq('id',id);await addLog('DELETE','EXPEDICAO',id,'Excluído: '+desc);toast('Ordem excluída.','warning');closeModal('modal-confirm');const{data:or}=await _supabase.from('expedicao').select('*').order('data_prevista',{ascending:false}).limit(300);_ordens=or||[];atualizarContadores();renderOrdens();};
+  document.getElementById('modal-confirm').classList.remove('hidden');
+}
+
+init();
+</script>
+</body>
+</html>

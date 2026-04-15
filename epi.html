@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ERP Industrial — EPI</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/supabase.js"></script>
+<script src="js/utils.js"></script>
+</head>
+<body>
+<div id="sidebar-container"></div>
+<header class="topbar" id="topbar">
+  <button class="topbar-open-sidebar" onclick="toggleSidebar()">☰</button>
+  <div class="topbar-title">EPI — Equipamentos de Proteção</div>
+  <div class="topbar-right">
+    <div class="topbar-user">
+      <div class="user-avatar" style="width:32px;height:32px;font-size:12px;" id="top-avatar">SA</div>
+      <div><div class="topbar-user-name" id="top-user-name">Super Admin</div><div class="topbar-user-profile" id="top-user-perfil">SADM</div></div>
+    </div>
+    <button class="btn btn-ghost btn-sm" onclick="doLogout()" style="color:#64748b;">Sair</button>
+  </div>
+</header>
+<main class="main-content" id="main-content">
+  <div class="page-header">
+    <div class="page-header-left"><h1>EPI</h1><p>Controle de entregas e vencimentos de EPIs por funcionário</p></div>
+    <div style="display:flex;gap:10px;">
+      <button class="btn btn-secondary" onclick="switchEpiTab('tab-cadastro')">📦 Cadastro de EPIs</button>
+      <button class="btn btn-primary" onclick="openModalEntrega()">+ Registrar Entrega</button>
+    </div>
+  </div>
+
+  <!-- ALERTAS -->
+  <div id="epi-alertas" style="margin-bottom:16px;"></div>
+
+  <!-- TABS -->
+  <div style="display:flex;border-bottom:2px solid #e2e8f0;margin-bottom:20px;">
+    <button class="tab-btn active" id="tab-btn-fichas" onclick="switchEpiTab('tab-fichas')">📋 Fichas por Funcionário</button>
+    <button class="tab-btn" id="tab-btn-cadastro" onclick="switchEpiTab('tab-cadastro')">📦 Cadastro de EPIs</button>
+    <button class="tab-btn" id="tab-btn-alertas" onclick="switchEpiTab('tab-alertas')">⚠️ Painel de Alertas</button>
+  </div>
+
+  <!-- TAB FICHAS -->
+  <div id="tab-fichas">
+    <div class="card" style="margin-bottom:16px;">
+      <div style="display:flex;gap:12px;flex-wrap:wrap;">
+        <div class="search-input-wrap" style="flex:1;"><span class="search-icon">🔍</span><input type="text" class="form-input" id="busca-func-epi" placeholder="Buscar funcionário..." oninput="renderFichas()"></div>
+        <select class="form-input" id="filtro-setor-epi" style="width:180px;" onchange="renderFichas()"><option value="">Todos os setores</option></select>
+      </div>
+    </div>
+    <div id="fichas-grid" style="display:flex;flex-direction:column;gap:12px;"></div>
+    <div id="fichas-empty" class="empty-state hidden"><div class="empty-icon">🦺</div><h3>Nenhuma entrega registrada</h3></div>
+  </div>
+
+  <!-- TAB CADASTRO -->
+  <div id="tab-cadastro" style="display:none;">
+    <div style="display:flex;justify-content:flex-end;margin-bottom:16px;">
+      <button class="btn btn-primary" onclick="openModalEPI()">+ Novo EPI</button>
+    </div>
+    <div class="card">
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Nome</th><th>CA</th><th>Val. CA</th><th>Periodicidade</th><th>Estoque</th><th>Estoque Mín.</th><th>Custo Unit.</th><th>Ações</th></tr></thead>
+          <tbody id="tbody-epis"></tbody>
+        </table>
+      </div>
+      <div id="epis-empty" class="empty-state hidden"><div class="empty-icon">📦</div><h3>Nenhum EPI cadastrado</h3></div>
+    </div>
+  </div>
+
+  <!-- TAB ALERTAS -->
+  <div id="tab-alertas" style="display:none;">
+    <div class="card">
+      <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap;">
+        <select class="form-input" id="filtro-alerta-status" style="width:180px;" onchange="renderPainelAlertas()">
+          <option value="">Todos</option><option value="vencido">🔴 Vencidos</option><option value="proximo">🟡 Próximos (5 dias)</option><option value="em_dia">✅ Em Dia</option>
+        </select>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Funcionário</th><th>Setor</th><th>EPI</th><th>Data Entrega</th><th>Troca Prevista</th><th>Dias Restantes</th><th>Status</th></tr></thead>
+          <tbody id="tbody-alertas-epi"></tbody>
+        </table>
+      </div>
+      <div id="alertas-epi-empty" class="empty-state hidden"><div class="empty-icon">✅</div><h3>Nenhum alerta</h3></div>
+    </div>
+  </div>
+</main>
+
+<!-- MODAL EPI CADASTRO -->
+<div id="modal-epi" class="modal-overlay hidden">
+  <div class="modal">
+    <div class="modal-header"><div class="modal-title" id="modal-epi-title">Novo EPI</div><button class="modal-close" onclick="closeModal('modal-epi')">✕</button></div>
+    <div style="display:flex;flex-direction:column;gap:14px;">
+      <div class="form-group"><label class="form-label">Nome do EPI <span class="req">*</span></label><input id="epi-nome" type="text" class="form-input" placeholder="Ex: Capacete de segurança, Luva nitrílica"></div>
+      <div class="form-grid-2">
+        <div class="form-group"><label class="form-label">Certificado de Aprovação (CA)</label><input id="epi-ca" type="text" class="form-input" placeholder="Nº do CA"></div>
+        <div class="form-group"><label class="form-label">Validade do CA</label><input id="epi-val-ca" type="date" class="form-input"></div>
+      </div>
+      <div class="form-grid-2">
+        <div class="form-group"><label class="form-label">Periodicidade de Troca (dias)</label><input id="epi-periodo" type="number" class="form-input" min="1" placeholder="Ex: 90"></div>
+        <div class="form-group"><label class="form-label">Unidade</label>
+          <select id="epi-unidade" class="form-input"><option value="unidade">Unidade</option><option value="par">Par</option><option value="caixa">Caixa</option></select>
+        </div>
+      </div>
+      <div class="form-grid-2">
+        <div class="form-group"><label class="form-label">Estoque Atual</label><input id="epi-estoque" type="number" class="form-input" min="0" value="0"></div>
+        <div class="form-group"><label class="form-label">Estoque Mínimo</label><input id="epi-estoque-min" type="number" class="form-input" min="0" value="0"></div>
+      </div>
+      <div class="form-group"><label class="form-label">Custo Unitário (R$)</label><input id="epi-custo" type="number" class="form-input" min="0" step="0.01"></div>
+      <div id="epi-error" class="hidden alert alert-danger"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-epi')">Cancelar</button>
+      <button class="btn btn-primary" id="btn-salvar-epi" onclick="salvarEPI()">💾 Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL ENTREGA -->
+<div id="modal-entrega" class="modal-overlay hidden">
+  <div class="modal modal-lg">
+    <div class="modal-header"><div class="modal-title" id="modal-entrega-title">Registrar Entrega de EPI</div><button class="modal-close" onclick="closeModal('modal-entrega')">✕</button></div>
+    <div style="display:flex;flex-direction:column;gap:14px;">
+      <div class="form-grid-2">
+        <div class="form-group"><label class="form-label">Funcionário <span class="req">*</span></label><select id="ent-func" class="form-input"></select></div>
+        <div class="form-group"><label class="form-label">EPI <span class="req">*</span></label><select id="ent-epi" class="form-input" onchange="preencherPeriodo()"></select></div>
+      </div>
+      <div class="form-grid-2">
+        <div class="form-group"><label class="form-label">Data de Entrega <span class="req">*</span></label><input id="ent-data" type="date" class="form-input" onchange="calcDataTroca()"></div>
+        <div class="form-group"><label class="form-label">Quantidade</label><input id="ent-qtd" type="number" class="form-input" min="1" value="1"></div>
+      </div>
+      <div class="form-grid-2">
+        <div class="form-group"><label class="form-label">Validade do EPI</label><input id="ent-validade" type="date" class="form-input"></div>
+        <div class="form-group"><label class="form-label">Data Prevista para Troca</label><input id="ent-troca" type="date" class="form-input" style="background:#f5f7fa;" readonly></div>
+      </div>
+      <div id="ent-error" class="hidden alert alert-danger"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-entrega')">Cancelar</button>
+      <button class="btn btn-primary" id="btn-salvar-ent" onclick="salvarEntrega()">💾 Registrar Entrega</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL CONFIRMAÇÃO -->
+<div id="modal-confirm" class="modal-overlay hidden">
+  <div class="modal" style="max-width:420px;">
+    <div class="modal-header"><div class="modal-title">⚠️ Confirmar</div><button class="modal-close" onclick="closeModal('modal-confirm')">✕</button></div>
+    <p id="confirm-msg" style="font-size:14px;color:#475569;line-height:1.6;"></p>
+    <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('modal-confirm')">Cancelar</button><button class="btn btn-danger" id="confirm-ok-btn">Confirmar</button></div>
+  </div>
+</div>
+<div id="toast-container"></div>
+
+<script>
+let _editingEpiId=null, _epis=[], _entregas=[], _funcionarios=[];
+
+fetch('partials/sidebar.html').then(r=>r.text()).then(html=>{
+  document.getElementById('sidebar-container').innerHTML=html;
+  document.querySelector('[href="epi.html"]')?.classList.add('active');
+  openGroup('operacoes');
+});
+initSidebar('epi.html');
+
+async function init(){
+  const[{data:ep},{data:en},{data:fn}]=await Promise.all([
+    _supabase.from('epi_cadastro').select('*').order('nome'),
+    _supabase.from('epi_entregas').select('*').order('data_entrega',{ascending:false}),
+    _supabase.from('funcionarios').select('id,nome,setor').eq('status','ativo').order('nome'),
+  ]);
+  _epis=ep||[];_entregas=en||[];_funcionarios=fn||[];
+  popularSetores();renderAlertas();renderFichas();renderEPIs();renderPainelAlertas();
+}
+
+function popularSetores(){
+  const setores=[...new Set(_funcionarios.map(f=>f.setor).filter(Boolean))];
+  const sel=document.getElementById('filtro-setor-epi');sel.innerHTML='<option value="">Todos os setores</option>';
+  setores.forEach(s=>{const o=document.createElement('option');o.value=s;o.textContent=s;sel.appendChild(o);});
+}
+
+function getDiasRestantes(dataTroca){
+  if(!dataTroca)return null;
+  const hoje=new Date();hoje.setHours(0,0,0,0);
+  const troca=new Date(dataTroca+'T00:00:00');
+  return Math.round((troca-hoje)/(1000*60*60*24));
+}
+
+function getStatusEntrega(e){
+  const dias=getDiasRestantes(e.data_prevista_troca);
+  if(dias===null)return'em_dia';
+  if(dias<0)return'vencido';
+  if(dias<=5)return'proximo';
+  return'em_dia';
+}
+
+function renderAlertas(){
+  const vencidos=_entregas.filter(e=>getStatusEntrega(e)==='vencido').length;
+  const proximos=_entregas.filter(e=>getStatusEntrega(e)==='proximo').length;
+  let html='';
+  if(vencidos>0)html+=`<div class="alert alert-danger">🔴 <strong>${vencidos} EPI(s) vencido(s)</strong> — necessita reposição imediata!</div>`;
+  if(proximos>0)html+=`<div class="alert alert-warning">⚠️ <strong>${proximos} EPI(s) próximo(s) do vencimento</strong> (dentro de 5 dias)</div>`;
+  document.getElementById('epi-alertas').innerHTML=html;
+}
+
+function renderFichas(){
+  const busca=(document.getElementById('busca-func-epi').value||'').toLowerCase();
+  const setor=document.getElementById('filtro-setor-epi').value;
+  const funcs=_funcionarios.filter(f=>(!busca||f.nome.toLowerCase().includes(busca))&&(!setor||f.setor===setor));
+  const cont=document.getElementById('fichas-grid');const empty=document.getElementById('fichas-empty');
+  cont.innerHTML='';
+  if(!funcs.length){empty.classList.remove('hidden');return;}empty.classList.add('hidden');
+  funcs.forEach(f=>{
+    const ents=_entregas.filter(e=>e.funcionario_id===f.id);
+    const venc=ents.filter(e=>getStatusEntrega(e)==='vencido').length;
+    const prox=ents.filter(e=>getStatusEntrega(e)==='proximo').length;
+    const bordaCor=venc>0?'#dc2626':prox>0?'#f59e0b':'#22c55e';
+    const div=document.createElement('div');
+    div.style.cssText=`background:#fff;border-radius:12px;border:1.5px solid ${bordaCor};padding:16px;`;
+    div.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <div><div style="font-weight:800;color:var(--primary);">${f.nome}</div><div style="font-size:12px;color:#64748b;">${f.setor||'—'}</div></div>
+      <div style="display:flex;gap:6px;">
+        ${venc>0?`<span class="badge badge-danger">🔴 ${venc} vencido</span>`:prox>0?`<span class="badge badge-warning">⚠️ ${prox} próximo</span>`:`<span class="badge badge-success">✅ Em dia</span>`}
+        <button class="btn btn-secondary btn-sm" onclick="openModalEntregaFunc('${f.id}','${f.nome}')">+ Entrega</button>
+      </div>
+    </div>
+    ${ents.length?`<div class="table-wrap"><table style="font-size:12px;"><thead><tr><th>EPI</th><th>Entregue em</th><th>Troca Prevista</th><th>Status</th><th></th></tr></thead><tbody>
+    ${ents.map(e=>{const epi=_epis.find(x=>x.id===e.epi_id);const dias=getDiasRestantes(e.data_prevista_troca);const st=getStatusEntrega(e);const stCfg={vencido:{cls:'badge-danger',txt:`🔴 ${Math.abs(dias)}d atraso`},proximo:{cls:'badge-warning',txt:`⚠️ ${dias}d`},em_dia:{cls:'badge-success',txt:'✅ Em dia'}};const sc=stCfg[st];return`<tr><td><strong>${epi?.nome||'—'}</strong></td><td>${e.data_entrega||'—'}</td><td>${e.data_prevista_troca||'—'}</td><td><span class="badge ${sc.cls}">${sc.txt}</span></td><td><button class="btn btn-danger btn-sm" onclick="excluirEntrega('${e.id}')">🗑️</button></td></tr>`;}).join('')}
+    </tbody></table></div>`:`<p style="font-size:13px;color:#94a3b8;text-align:center;padding:12px 0;">Nenhuma entrega registrada</p>`}`;
+    cont.appendChild(div);
+  });
+}
+
+function renderEPIs(){
+  const tbody=document.getElementById('tbody-epis');const empty=document.getElementById('epis-empty');
+  tbody.innerHTML='';
+  if(!_epis.length){empty.classList.remove('hidden');return;}empty.classList.add('hidden');
+  _epis.forEach(e=>{
+    const vencCA=e.validade_ca?getDiasRestantes(e.validade_ca):null;
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td><strong style="color:var(--primary);">${e.nome}</strong></td>
+      <td>${e.ca||'—'}</td>
+      <td>${e.validade_ca||'—'}${vencCA!==null?`<span class="badge ${vencCA<0?'badge-danger':vencCA<=30?'badge-warning':'badge-success'}" style="margin-left:6px;font-size:10px;">${vencCA<0?'Vencido':`${vencCA}d`}</span>`:''}</td>
+      <td>${e.periodicidade_dias?e.periodicidade_dias+'d':'—'}</td>
+      <td>${e.estoque_atual||0} ${e.unidade||'un'}</td>
+      <td>${e.estoque_minimo||0}</td>
+      <td>${e.custo_unitario?'R$ '+parseFloat(e.custo_unitario).toFixed(2):'—'}</td>
+      <td><div class="table-actions">
+        <button class="btn btn-secondary btn-sm" onclick="editarEPI('${e.id}')">✏️</button>
+        <button class="btn btn-danger btn-sm" onclick="confirmarExclusao('${e.id}','${e.nome}')">🗑️</button>
+      </div></td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+function renderPainelAlertas(){
+  const filtro=document.getElementById('filtro-alerta-status').value;
+  const lista=_entregas.filter(e=>{const st=getStatusEntrega(e);return !filtro||st===filtro;}).map(e=>{
+    const func=_funcionarios.find(f=>f.id===e.funcionario_id);const epi=_epis.find(x=>x.id===e.epi_id);const dias=getDiasRestantes(e.data_prevista_troca);
+    return{...e,funcNome:func?.nome||'—',funcSetor:func?.setor||'—',epiNome:epi?.nome||'—',dias,status:getStatusEntrega(e)};
+  }).sort((a,b)=>(a.dias||0)-(b.dias||0));
+  const tbody=document.getElementById('tbody-alertas-epi');const empty=document.getElementById('alertas-epi-empty');
+  tbody.innerHTML='';
+  if(!lista.length){empty.classList.remove('hidden');return;}empty.classList.add('hidden');
+  const stCfg={vencido:{cls:'badge-danger',fn:e=>`🔴 ${Math.abs(e.dias)}d atraso`},proximo:{cls:'badge-warning',fn:e=>`⚠️ ${e.dias}d restantes`},em_dia:{cls:'badge-success',fn:()=>'✅ Em dia'}};
+  lista.forEach(e=>{const sc=stCfg[e.status];const tr=document.createElement('tr');
+    tr.innerHTML=`<td><strong>${e.funcNome}</strong></td><td>${e.funcSetor}</td><td>${e.epiNome}</td><td>${e.data_entrega||'—'}</td><td>${e.data_prevista_troca||'—'}</td><td style="font-weight:700;color:${e.dias<0?'#dc2626':e.dias<=5?'#b45309':'#16a34a'};">${e.dias!==null?e.dias+'d':'—'}</td><td><span class="badge ${sc.cls}">${sc.fn(e)}</span></td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+function switchEpiTab(tab){
+  ['tab-fichas','tab-cadastro','tab-alertas'].forEach(t=>{document.getElementById(t).style.display=t===tab?'block':'none';});
+  ['tab-btn-fichas','tab-btn-cadastro','tab-btn-alertas'].forEach(b=>{document.getElementById(b).classList.toggle('active',b.includes(tab.replace('tab-','')));});
+  document.querySelectorAll('.tab-btn').forEach(b=>{b.classList.remove('active');if(b.getAttribute('onclick')?.includes(tab))b.classList.add('active');});
+}
+
+function openModalEPI(){_editingEpiId=null;document.getElementById('modal-epi-title').textContent='Novo EPI';['epi-nome','epi-ca','epi-periodo','epi-custo'].forEach(id=>document.getElementById(id).value='');document.getElementById('epi-val-ca').value='';document.getElementById('epi-estoque').value='0';document.getElementById('epi-estoque-min').value='0';document.getElementById('epi-unidade').value='unidade';document.getElementById('epi-error').classList.add('hidden');document.getElementById('modal-epi').classList.remove('hidden');}
+function editarEPI(id){const e=_epis.find(x=>x.id===id);if(!e)return;openModalEPI();_editingEpiId=id;document.getElementById('modal-epi-title').textContent='Editar EPI';document.getElementById('epi-nome').value=e.nome||'';document.getElementById('epi-ca').value=e.ca||'';document.getElementById('epi-val-ca').value=e.validade_ca||'';document.getElementById('epi-periodo').value=e.periodicidade_dias||'';document.getElementById('epi-unidade').value=e.unidade||'unidade';document.getElementById('epi-estoque').value=e.estoque_atual||0;document.getElementById('epi-estoque-min').value=e.estoque_minimo||0;document.getElementById('epi-custo').value=e.custo_unitario||'';}
+
+async function salvarEPI(){
+  const nome=document.getElementById('epi-nome').value.trim();const errEl=document.getElementById('epi-error');const btn=document.getElementById('btn-salvar-epi');
+  if(!nome){errEl.textContent='Nome é obrigatório!';errEl.classList.remove('hidden');return;}
+  const dados={nome,ca:document.getElementById('epi-ca').value.trim()||null,validade_ca:document.getElementById('epi-val-ca').value||null,periodicidade_dias:parseInt(document.getElementById('epi-periodo').value)||null,unidade:document.getElementById('epi-unidade').value,estoque_atual:parseFloat(document.getElementById('epi-estoque').value)||0,estoque_minimo:parseFloat(document.getElementById('epi-estoque-min').value)||0,custo_unitario:parseFloat(document.getElementById('epi-custo').value)||null};
+  btn.innerHTML='<span class="spin"></span>';btn.disabled=true;
+  try{
+    if(_editingEpiId){await _supabase.from('epi_cadastro').update(dados).eq('id',_editingEpiId);toast('EPI atualizado!','success');}
+    else{await _supabase.from('epi_cadastro').insert(dados);toast('EPI cadastrado!','success');}
+    closeModal('modal-epi');const{data}=await _supabase.from('epi_cadastro').select('*').order('nome');_epis=data||[];renderEPIs();
+  }catch(e){errEl.textContent='Erro: '+e.message;errEl.classList.remove('hidden');}
+  btn.innerHTML='💾 Salvar';btn.disabled=false;
+}
+
+function openModalEntrega(){
+  document.getElementById('modal-entrega-title').textContent='Registrar Entrega de EPI';
+  const selF=document.getElementById('ent-func');selF.innerHTML='<option value="">Selecione...</option>';_funcionarios.forEach(f=>{const o=document.createElement('option');o.value=f.id;o.textContent=f.nome;selF.appendChild(o);});
+  const selE=document.getElementById('ent-epi');selE.innerHTML='<option value="">Selecione...</option>';_epis.forEach(e=>{const o=document.createElement('option');o.value=e.id;o.textContent=e.nome;selE.appendChild(o);});
+  document.getElementById('ent-data').value=new Date().toISOString().split('T')[0];
+  document.getElementById('ent-qtd').value='1';document.getElementById('ent-validade').value='';document.getElementById('ent-troca').value='';
+  document.getElementById('ent-error').classList.add('hidden');document.getElementById('modal-entrega').classList.remove('hidden');
+}
+function openModalEntregaFunc(funcId,funcNome){openModalEntrega();document.getElementById('ent-func').value=funcId;}
+
+function preencherPeriodo(){const epiId=document.getElementById('ent-epi').value;const epi=_epis.find(e=>e.id===epiId);if(epi?.periodicidade_dias)calcDataTroca();}
+function calcDataTroca(){const data=document.getElementById('ent-data').value;const epiId=document.getElementById('ent-epi').value;const epi=_epis.find(e=>e.id===epiId);if(!data||!epi?.periodicidade_dias)return;const d=new Date(data+'T00:00:00');d.setDate(d.getDate()+epi.periodicidade_dias);document.getElementById('ent-troca').value=d.toISOString().split('T')[0];}
+
+async function salvarEntrega(){
+  const funcId=document.getElementById('ent-func').value;const epiId=document.getElementById('ent-epi').value;const data=document.getElementById('ent-data').value;
+  const errEl=document.getElementById('ent-error');const btn=document.getElementById('btn-salvar-ent');
+  if(!funcId||!epiId||!data){errEl.textContent='Funcionário, EPI e Data são obrigatórios!';errEl.classList.remove('hidden');return;}
+  const dados={funcionario_id:funcId,epi_id:epiId,data_entrega:data,quantidade:parseInt(document.getElementById('ent-qtd').value)||1,validade:document.getElementById('ent-validade').value||null,data_prevista_troca:document.getElementById('ent-troca').value||null,status:'em_dia'};
+  btn.innerHTML='<span class="spin"></span>';btn.disabled=true;
+  try{
+    await _supabase.from('epi_entregas').insert(dados);
+    const epi=_epis.find(e=>e.id===epiId);if(epi){await _supabase.from('epi_cadastro').update({estoque_atual:Math.max(0,(epi.estoque_atual||0)-dados.quantidade)}).eq('id',epiId);}
+    await addLog('CREATE','EPI',funcId,'Entrega: '+(_epis.find(e=>e.id===epiId)?.nome||epiId));
+    toast('Entrega registrada!','success');closeModal('modal-entrega');
+    const[{data:ep},{data:en}]=await Promise.all([_supabase.from('epi_cadastro').select('*').order('nome'),_supabase.from('epi_entregas').select('*').order('data_entrega',{ascending:false})]);
+    _epis=ep||[];_entregas=en||[];renderAlertas();renderFichas();renderEPIs();renderPainelAlertas();
+  }catch(e){errEl.textContent='Erro: '+e.message;errEl.classList.remove('hidden');}
+  btn.innerHTML='💾 Registrar Entrega';btn.disabled=false;
+}
+
+async function excluirEntrega(id){
+  await _supabase.from('epi_entregas').delete().eq('id',id);toast('Entrega removida.','warning');
+  const{data:en}=await _supabase.from('epi_entregas').select('*').order('data_entrega',{ascending:false});_entregas=en||[];renderAlertas();renderFichas();renderPainelAlertas();
+}
+
+function confirmarExclusao(id,nome){
+  document.getElementById('confirm-msg').innerHTML=`Excluir o EPI <strong>${nome}</strong>?`;
+  document.getElementById('confirm-ok-btn').onclick=async()=>{await _supabase.from('epi_cadastro').delete().eq('id',id);toast('EPI excluído.','warning');closeModal('modal-confirm');const{data}=await _supabase.from('epi_cadastro').select('*').order('nome');_epis=data||[];renderEPIs();};
+  document.getElementById('modal-confirm').classList.remove('hidden');
+}
+
+// CSS tabs inline
+document.head.insertAdjacentHTML('beforeend','<style>.tab-btn{padding:10px 20px;background:none;border:none;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;color:#64748b;border-bottom:2px solid transparent;margin-bottom:-2px;transition:all .15s;}.tab-btn.active{color:var(--primary);border-bottom-color:var(--primary);}</style>');
+init();
+</script>
+</body>
+</html>
