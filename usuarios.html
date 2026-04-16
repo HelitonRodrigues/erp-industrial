@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ERP Industrial — Usuários</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/supabase.js"></script>
+<script src="js/utils.js"></script>
+</head>
+<body>
+<div id="sidebar-container"></div>
+<header class="topbar" id="topbar">
+  <button class="topbar-open-sidebar" onclick="toggleSidebar()">☰</button>
+  <div class="topbar-title">Usuários</div>
+  <div class="topbar-right">
+    <div class="topbar-user">
+      <div class="user-avatar" style="width:32px;height:32px;font-size:12px;" id="top-avatar">SA</div>
+      <div><div class="topbar-user-name" id="top-user-name">Super Admin</div><div class="topbar-user-profile" id="top-user-perfil">SADM</div></div>
+    </div>
+    <button class="btn btn-ghost btn-sm" onclick="doLogout()" style="color:#64748b;">Sair</button>
+  </div>
+</header>
+<main class="main-content" id="main-content">
+  <div class="page-header">
+    <div class="page-header-left"><h1>Usuários</h1><p>Gerencie os usuários e seus perfis de acesso</p></div>
+    <div style="display:flex;gap:10px;">
+      <button class="btn btn-secondary" onclick="exportarCSV(['Nome','E-mail','Perfil','Função','Setor','Status'],_usuarios.map(u=>[u.nome,u.email,u.perfil,u.funcao||'—',u.setor||'—',u.status]),'usuarios')">⬇️ CSV</button>
+      <button class="btn btn-secondary" onclick="exportarPDF('Usuários',['Nome','E-mail','Perfil','Função','Status'],_usuarios.map(u=>[u.nome,u.email,u.perfil,u.funcao||'—',u.status]))">📄 PDF</button>
+      <button class="btn btn-primary" onclick="openModalNovoUsuario()">+ Novo Usuário</button>
+    </div>
+  </div>
+  <div class="card">
+    <div class="search-bar">
+      <div class="search-input-wrap" style="flex:1;"><span class="search-icon">🔍</span><input type="text" class="form-input" id="busca-usuario" placeholder="Buscar por nome, e-mail ou perfil..." oninput="filtrarUsuarios()"></div>
+      <select class="form-input" id="filtro-perfil-user" style="width:180px;" onchange="filtrarUsuarios()"><option value="">Todos os perfis</option></select>
+      <select class="form-input" id="filtro-status-user" style="width:140px;" onchange="filtrarUsuarios()"><option value="">Todos os status</option><option value="ativo">Ativo</option><option value="inativo">Inativo</option></select>
+    </div>
+    <div class="table-wrap">
+      <table><thead><tr><th>Usuário</th><th>E-mail</th><th>Perfil</th><th>Último Acesso</th><th>Status</th><th>Ações</th></tr></thead>
+      <tbody id="tbody-usuarios"></tbody></table>
+    </div>
+    <div id="usuarios-empty" class="empty-state hidden"><div class="empty-icon">👥</div><h3>Nenhum usuário encontrado</h3><p>Cadastre um novo usuário.</p></div>
+  </div>
+</main>
+
+<!-- MODAL USUÁRIO -->
+<div id="modal-usuario" class="modal-overlay hidden">
+  <div class="modal modal-lg">
+    <div class="modal-header"><div class="modal-title" id="modal-usuario-title">Novo Usuário</div><button class="modal-close" onclick="closeModal('modal-usuario')">✕</button></div>
+    <div style="display:flex;flex-direction:column;gap:16px;">
+      <div class="form-grid-2">
+        <div class="form-group">
+          <label class="form-label">Nome Completo <span class="req">*</span></label>
+          <div style="position:relative;">
+            <input id="u-nome" type="text" class="form-input" placeholder="Nome completo" style="padding-right:40px;">
+            <button onclick="abrirBuscaFunc()" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;font-size:18px;color:var(--primary);">🔍</button>
+            <div id="u-func-dropdown" style="display:none;position:absolute;top:100%;left:0;right:0;background:#fff;border:1.2px solid #e2e8f0;border-radius:8px;z-index:200;max-height:200px;overflow-y:auto;box-shadow:0 4px 16px rgba(0,0,0,.12);margin-top:2px;"></div>
+          </div>
+          <p id="u-func-importado" style="font-size:11px;color:#16a34a;margin-top:4px;display:none;"></p>
+        </div>
+        <div class="form-group"><label class="form-label">CPF</label><input id="u-cpf" type="text" class="form-input" placeholder="000.000.000-00" maxlength="14" oninput="mascaraCPF(this)"></div>
+      </div>
+      <div class="form-grid-2">
+        <div class="form-group"><label class="form-label">E-mail <span class="req">*</span></label><input id="u-email" type="email" class="form-input" placeholder="usuario@empresa.com"></div>
+        <div class="form-group"><label class="form-label">Telefone</label><input id="u-tel" type="text" class="form-input" placeholder="(00) 00000-0000" oninput="mascaraTel(this)"></div>
+      </div>
+      <div class="form-grid-2">
+        <div class="form-group"><label class="form-label">Função / Cargo</label><input id="u-funcao" type="text" class="form-input" placeholder="Ex: Operador de Máquina"></div>
+        <div class="form-group"><label class="form-label">Setor</label><input id="u-setor" type="text" class="form-input" placeholder="Ex: Produção"></div>
+      </div>
+      <div class="form-grid-2">
+        <div class="form-group"><label class="form-label">Perfil de Acesso <span class="req">*</span></label><select id="u-perfil" class="form-input"></select></div>
+        <div class="form-group"><label class="form-label">Status</label><select id="u-status" class="form-input"><option value="ativo">Ativo</option><option value="inativo">Inativo</option></select></div>
+      </div>
+      <div class="form-group"><label class="form-label">Data de Admissão</label><input id="u-admissao" type="date" class="form-input" style="max-width:200px;"></div>
+      <div id="u-senha-group" style="display:flex;flex-direction:column;gap:16px;">
+        <div class="form-grid-2">
+          <div class="form-group"><label class="form-label">Senha <span class="req">*</span></label><input id="u-senha" type="password" class="form-input" placeholder="Mínimo 6 caracteres"></div>
+          <div class="form-group"><label class="form-label">Confirmar Senha <span class="req">*</span></label><input id="u-senha2" type="password" class="form-input" placeholder="Repita a senha"></div>
+        </div>
+      </div>
+      <div id="u-form-error" class="hidden alert alert-danger"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-usuario')">Cancelar</button>
+      <button class="btn btn-primary" id="btn-salvar-usuario" onclick="salvarUsuario()">💾 Salvar Usuário</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL CONFIRMAÇÃO -->
+<div id="modal-confirm" class="modal-overlay hidden">
+  <div class="modal" style="max-width:420px;">
+    <div class="modal-header"><div class="modal-title">⚠️ Confirmar Exclusão</div><button class="modal-close" onclick="closeModal('modal-confirm')">✕</button></div>
+    <p id="confirm-msg" style="font-size:14px;color:#475569;line-height:1.6;"></p>
+    <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('modal-confirm')">Cancelar</button><button class="btn btn-danger" id="confirm-ok-btn">🗑️ Sim, Excluir</button></div>
+  </div>
+</div>
+<div id="toast-container"></div>
+
+<script>
+let _editingUserId=null, _usuarios=[], _perfis=[], _funcionarios=[];
+
+fetch('partials/sidebar.html').then(r=>r.text()).then(html=>{
+  document.getElementById('sidebar-container').innerHTML=html;
+  document.querySelector('[href="usuarios.html"]')?.classList.add('active');
+  openGroup('gestao');
+});
+initSidebar('usuarios.html');
+
+async function init() {
+  await Promise.all([loadUsuarios(), loadPerfis(), loadFuncionarios()]);
+  popularFiltroPerfil();
+  filtrarUsuarios();
+}
+
+async function loadUsuarios(){const{data}=await _supabase.from('usuarios').select('*').order('nome');_usuarios=data||[];}
+async function loadPerfis(){const{data}=await _supabase.from('perfis').select('*').order('codigo');_perfis=data||[];}
+async function loadFuncionarios(){const{data}=await _supabase.from('funcionarios').select('id,nome,cpf,funcao,setor').eq('status','ativo');_funcionarios=data||[];}
+
+function popularFiltroPerfil() {
+  ['filtro-perfil-user','u-perfil'].forEach(id=>{
+    const sel=document.getElementById(id); if(!sel) return;
+    const isFilter=id.includes('filtro');
+    sel.innerHTML=isFilter?'<option value="">Todos os perfis</option>':'<option value="">Selecione...</option>';
+    _perfis.forEach(p=>{const o=document.createElement('option');o.value=p.codigo;o.textContent=`${p.codigo} — ${p.nome}`;sel.appendChild(o);});
+  });
+}
+
+function filtrarUsuarios() {
+  const busca=document.getElementById('busca-usuario').value.toLowerCase();
+  const perfil=document.getElementById('filtro-perfil-user').value;
+  const status=document.getElementById('filtro-status-user').value;
+  renderTabelaUsuarios(_usuarios.filter(u=>(!busca||u.nome?.toLowerCase().includes(busca)||u.email?.toLowerCase().includes(busca)||u.perfil?.toLowerCase().includes(busca))&&(!perfil||u.perfil===perfil)&&(!status||u.status===status)));
+}
+
+function renderTabelaUsuarios(lista) {
+  const tbody=document.getElementById('tbody-usuarios');
+  const empty=document.getElementById('usuarios-empty');
+  tbody.innerHTML='';
+  if(!lista.length){empty.classList.remove('hidden');return;}
+  empty.classList.add('hidden');
+  lista.forEach(u=>{
+    const p=_perfis.find(x=>x.codigo===u.perfil);
+    const cor=p?.cor||'#042D4D';
+    const ini=(u.nome||'?').split(' ').map(x=>x[0]).join('').substring(0,2).toUpperCase();
+    const tr=document.createElement('tr');
+    tr.innerHTML=`
+      <td><div style="display:flex;align-items:center;gap:10px;">
+        <div style="width:34px;height:34px;border-radius:50%;background:${cor};color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;flex-shrink:0;">${ini}</div>
+        <div><div style="font-weight:700;color:var(--primary);">${u.nome}</div><div style="font-size:11px;color:#94a3b8;">${u.funcao||'—'}</div></div>
+      </div></td>
+      <td>${u.email}</td>
+      <td><span class="badge" style="background:${cor};color:#fff;">${u.perfil}</span></td>
+      <td style="font-size:12px;color:#64748b;">${u.ultimo_acesso?new Date(u.ultimo_acesso).toLocaleString('pt-BR'):'Nunca'}</td>
+      <td><span class="badge ${u.status==='ativo'?'badge-success':'badge-gray'}">${u.status==='ativo'?'✅ Ativo':'⚫ Inativo'}</span></td>
+      <td><div class="table-actions">
+        <button class="btn btn-secondary btn-sm" onclick="editarUsuario('${u.id}')">✏️ Editar</button>
+        <button class="btn btn-danger btn-sm" onclick="confirmarExclusao('${u.id}','${u.nome}')">🗑️</button>
+      </div></td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+function openModalNovoUsuario() {
+  _editingUserId=null;
+  document.getElementById('modal-usuario-title').textContent='Novo Usuário';
+  ['u-nome','u-cpf','u-email','u-tel','u-funcao','u-setor','u-senha','u-senha2'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('u-status').value='ativo';
+  document.getElementById('u-perfil').value='';
+  document.getElementById('u-admissao').value=new Date().toISOString().split('T')[0];
+  document.getElementById('u-senha-group').style.display='flex';
+  document.getElementById('u-form-error').classList.add('hidden');
+  limparBuscaFunc();
+  document.getElementById('modal-usuario').classList.remove('hidden');
+}
+
+function editarUsuario(id) {
+  const u=_usuarios.find(x=>x.id===id); if(!u) return;
+  _editingUserId=id;
+  document.getElementById('modal-usuario-title').textContent='Editar Usuário';
+  document.getElementById('u-nome').value=u.nome||'';
+  document.getElementById('u-cpf').value=u.cpf||'';
+  document.getElementById('u-email').value=u.email||'';
+  document.getElementById('u-tel').value=u.telefone||'';
+  document.getElementById('u-funcao').value=u.funcao||'';
+  document.getElementById('u-setor').value=u.setor||'';
+  document.getElementById('u-perfil').value=u.perfil||'';
+  document.getElementById('u-status').value=u.status||'ativo';
+  document.getElementById('u-admissao').value=u.admissao||'';
+  document.getElementById('u-senha').value='';
+  document.getElementById('u-senha2').value='';
+  document.getElementById('u-form-error').classList.add('hidden');
+  limparBuscaFunc();
+  document.getElementById('modal-usuario').classList.remove('hidden');
+}
+
+async function salvarUsuario() {
+  const nome=document.getElementById('u-nome').value.trim();
+  const email=document.getElementById('u-email').value.trim();
+  const perfil=document.getElementById('u-perfil').value;
+  const errEl=document.getElementById('u-form-error');
+  const btn=document.getElementById('btn-salvar-usuario');
+  if(!nome||!email||!perfil){errEl.textContent='Preencha nome, e-mail e perfil!';errEl.classList.remove('hidden');return;}
+  const dados={nome,email,perfil,cpf:document.getElementById('u-cpf').value.trim(),telefone:document.getElementById('u-tel').value.trim(),funcao:document.getElementById('u-funcao').value.trim(),setor:document.getElementById('u-setor').value.trim(),status:document.getElementById('u-status').value,admissao:document.getElementById('u-admissao').value||null,atualizado_em:new Date().toISOString()};
+  const novaSenha=document.getElementById('u-senha').value;
+  if(novaSenha){if(novaSenha!==document.getElementById('u-senha2').value){errEl.textContent='Senhas não coincidem!';errEl.classList.remove('hidden');return;}dados.senha_hash=await sha256(novaSenha);}
+  btn.innerHTML='<span class="spin"></span>';btn.disabled=true;
+  try{
+    if(_editingUserId){await _supabase.from('usuarios').update(dados).eq('id',_editingUserId);await addLog('UPDATE','USUARIOS',_editingUserId,'Usuário atualizado: '+nome);toast('Usuário atualizado!','success');}
+    else{if(!novaSenha){errEl.textContent='Defina uma senha!';errEl.classList.remove('hidden');btn.innerHTML='💾 Salvar Usuário';btn.disabled=false;return;}if(_usuarios.find(x=>x.email===email)){errEl.textContent='E-mail já cadastrado!';errEl.classList.remove('hidden');btn.innerHTML='💾 Salvar Usuário';btn.disabled=false;return;}const{data}=await _supabase.from('usuarios').insert(dados).select().single();await addLog('CREATE','USUARIOS',data.id,'Novo usuário: '+nome);toast('Usuário cadastrado!','success');}
+    closeModal('modal-usuario');await loadUsuarios();filtrarUsuarios();
+  }catch(e){errEl.textContent='Erro: '+e.message;errEl.classList.remove('hidden');}
+  btn.innerHTML='💾 Salvar Usuário';btn.disabled=false;
+}
+
+function confirmarExclusao(id,nome){
+  document.getElementById('confirm-msg').innerHTML=`Deseja excluir o usuário <strong>${nome}</strong>?`;
+  document.getElementById('confirm-ok-btn').onclick=async()=>{await _supabase.from('usuarios').delete().eq('id',id);await addLog('DELETE','USUARIOS',id,'Excluído: '+nome);toast('Usuário excluído.','warning');closeModal('modal-confirm');await loadUsuarios();filtrarUsuarios();};
+  document.getElementById('modal-confirm').classList.remove('hidden');
+}
+
+function abrirBuscaFunc(){
+  const drop=document.getElementById('u-func-dropdown');
+  const q=document.getElementById('u-nome').value.toLowerCase().trim();
+  const lista=_funcionarios.filter(f=>!q||f.nome?.toLowerCase().includes(q)||(f.cpf||'').includes(q)).slice(0,8);
+  if(!lista.length){toast('Nenhum funcionário encontrado.','warning');return;}
+  drop.innerHTML=lista.map(f=>`<div onclick="importarFuncionario('${f.id}')" style="padding:10px 14px;cursor:pointer;border-bottom:1px solid #f1f5f9;display:flex;align-items:center;gap:10px;"><div style="width:32px;height:32px;border-radius:50%;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;flex-shrink:0;">${(f.nome||'?').split(' ').map(x=>x[0]).join('').substring(0,2).toUpperCase()}</div><div><div style="font-weight:600;font-size:13px;">${f.nome}</div><div style="font-size:11px;color:#94a3b8;">${f.funcao||'—'}</div></div></div>`).join('');
+  drop.style.display='block';
+  setTimeout(()=>{document.addEventListener('click',function h(e){if(!drop.contains(e.target)){drop.style.display='none';document.removeEventListener('click',h);}});},100);
+}
+
+function importarFuncionario(id){
+  const f=_funcionarios.find(x=>x.id===id);if(!f)return;
+  // Verificar se já existe usuário com este funcionário (evitar duplicata)
+  const jaExiste=_usuarios.find(u=>u.nome===f.nome&&u.id!==_editingUserId);
+  if(jaExiste){toast('⚠️ Já existe usuário cadastrado com este funcionário!','warning');document.getElementById('u-func-dropdown').style.display='none';return;}
+  document.getElementById('u-nome').value=f.nome||'';
+  document.getElementById('u-cpf').value=f.cpf||'';
+  document.getElementById('u-tel').value=f.telefone||'';
+  document.getElementById('u-email').value=f.email||'';
+  document.getElementById('u-funcao').value=f.funcao||'';
+  document.getElementById('u-setor').value=f.setor||'';
+  document.getElementById('u-func-dropdown').style.display='none';
+  // Aplicar máscaras nos campos importados
+  const cpfEl=document.getElementById('u-cpf');if(cpfEl&&cpfEl.value)mascaraCPF(cpfEl);
+  const telEl=document.getElementById('u-tel');if(telEl&&telEl.value)mascaraTel(telEl);
+  const imp=document.getElementById('u-func-importado');imp.textContent='✅ Importado: '+f.nome+(f.cpf?' — CPF: '+f.cpf:'');imp.style.display='block';
+}
+
+function limparBuscaFunc(){
+  const d=document.getElementById('u-func-dropdown');if(d)d.style.display='none';
+  const i=document.getElementById('u-func-importado');if(i){i.style.display='none';i.textContent='';}
+}
+
+init();
+</script>
+</body>
+</html>
