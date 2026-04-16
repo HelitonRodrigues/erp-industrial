@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ERP Industrial — Auditoria</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/supabase.js"></script>
+<script src="js/utils.js"></script>
+</head>
+<body>
+<div id="sidebar-container"></div>
+<header class="topbar" id="topbar">
+  <button class="topbar-open-sidebar" onclick="toggleSidebar()">☰</button>
+  <div class="topbar-title">Auditoria</div>
+  <div class="topbar-right">
+    <div class="topbar-user">
+      <div class="user-avatar" style="width:32px;height:32px;font-size:12px;" id="top-avatar">SA</div>
+      <div><div class="topbar-user-name" id="top-user-name">Super Admin</div><div class="topbar-user-profile" id="top-user-perfil">SADM</div></div>
+    </div>
+    <button class="btn btn-ghost btn-sm" onclick="doLogout()" style="color:#64748b;">Sair</button>
+  </div>
+</header>
+<main class="main-content" id="main-content">
+  <div class="page-header">
+    <div class="page-header-left">
+      <h1>Auditoria</h1>
+      <p>Registro imutável de todas as ações do sistema</p>
+    </div>
+    <div style="display:flex;gap:8px;">
+      <button class="btn btn-secondary" onclick="exportarAud()">⬇️ CSV</button>
+      <button class="btn btn-secondary" onclick="exportarAudPDF()">📄 PDF</button>
+    </div>
+  </div>
+
+  <!-- AVISO IMUTABILIDADE -->
+  <div class="alert alert-warning" style="margin-bottom:16px;">
+    🔒 <strong>Registros imutáveis.</strong> Nenhum perfil, nem o SADM, pode editar ou excluir registros de auditoria. Retenção mínima: 2 anos.
+  </div>
+
+  <!-- ESTATÍSTICAS RÁPIDAS -->
+  <div id="aud-stats" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px;margin-bottom:16px;"></div>
+
+  <!-- FILTROS -->
+  <div class="card" style="margin-bottom:16px;">
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+      <div class="form-group" style="margin:0;">
+        <label class="form-label">Data Início</label>
+        <input type="date" id="f-dt-ini" class="form-input" style="width:150px;" onchange="filtrar()">
+      </div>
+      <div class="form-group" style="margin:0;">
+        <label class="form-label">Data Fim</label>
+        <input type="date" id="f-dt-fim" class="form-input" style="width:150px;" onchange="filtrar()">
+      </div>
+      <div class="form-group" style="margin:0;">
+        <label class="form-label">Módulo</label>
+        <select id="f-modulo" class="form-input" style="width:170px;" onchange="filtrar()">
+          <option value="">Todos os módulos</option>
+          <option value="AUTH">Autenticação</option>
+          <option value="PRODUCAO">Produção</option>
+          <option value="LABORATORIO">Laboratório</option>
+          <option value="MANUTENCAO">Manutenção</option>
+          <option value="ALMOXARIFADO">Almoxarifado</option>
+          <option value="EPI">EPI</option>
+          <option value="RH_ESCALA">RH Escala</option>
+          <option value="RH_FERIAS">RH Férias</option>
+          <option value="PORTARIA">Portaria</option>
+          <option value="EXPEDICAO">Expedição</option>
+          <option value="USUARIOS">Usuários</option>
+          <option value="PERFIS">Perfis</option>
+          <option value="EMPRESA">Empresa</option>
+          <option value="FUNCIONARIOS">Funcionários</option>
+          <option value="LINHAS">Linhas</option>
+          <option value="TURNOS">Turnos</option>
+          <option value="PRODUTOS">Produtos</option>
+          <option value="EQUIPAMENTOS">Equipamentos</option>
+          <option value="MOTIVOS">Motivos</option>
+          <option value="PLANEJAMENTO">Planejamento</option>
+          <option value="AUDITORIA">Auditoria</option>
+        </select>
+      </div>
+      <div class="form-group" style="margin:0;">
+        <label class="form-label">Ação</label>
+        <select id="f-acao" class="form-input" style="width:140px;" onchange="filtrar()">
+          <option value="">Todas as ações</option>
+          <option value="LOGIN">LOGIN</option>
+          <option value="LOGOUT">LOGOUT</option>
+          <option value="CREATE">CREATE</option>
+          <option value="UPDATE">UPDATE</option>
+          <option value="DELETE">DELETE</option>
+          <option value="EXPORT">EXPORT</option>
+          <option value="VIEW">VIEW</option>
+          <option value="PRINT">PRINT</option>
+        </select>
+      </div>
+      <div class="form-group" style="margin:0;flex:1;min-width:180px;">
+        <label class="form-label">Buscar</label>
+        <div class="search-input-wrap"><span class="search-icon">🔍</span><input type="text" id="f-busca" class="form-input" placeholder="Usuário ou descrição..." oninput="filtrar()" style="padding-left:36px;"></div>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="limparFiltros()" style="margin-top:18px;">Limpar</button>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
+      <button class="btn btn-secondary btn-sm" onclick="filtrarRapido(7)">📅 Últimos 7 dias</button>
+      <button class="btn btn-secondary btn-sm" onclick="filtrarRapido(30)">📅 Últimos 30 dias</button>
+      <button class="btn btn-secondary btn-sm" onclick="filtrarRapido(0)">📅 Hoje</button>
+    </div>
+  </div>
+
+  <!-- TABELA -->
+  <div class="card">
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th style="cursor:pointer;" onclick="ordenar('created_at')">Data/Hora ⇅</th>
+            <th>Usuário</th>
+            <th>Módulo</th>
+            <th>Ação</th>
+            <th>Registro</th>
+            <th>Detalhes</th>
+          </tr>
+        </thead>
+        <tbody id="tbody-auditoria"></tbody>
+      </table>
+    </div>
+    <div id="aud-empty" class="empty-state hidden">
+      <div class="empty-icon">📋</div>
+      <h3>Nenhum registro encontrado</h3>
+      <p>Tente ajustar os filtros.</p>
+    </div>
+    <!-- PAGINAÇÃO -->
+    <div id="aud-paginacao" style="display:flex;justify-content:space-between;align-items:center;margin-top:16px;padding-top:14px;border-top:1px solid #f1f5f9;font-size:13px;color:#64748b;flex-wrap:wrap;gap:8px;"></div>
+  </div>
+</main>
+<div id="toast-container"></div>
+
+<script>
+let _logs=[], _filtrados=[], _ordem='desc';
+const POR_PAGINA=50; let _pagina=1;
+
+fetch('partials/sidebar.html').then(r=>r.text()).then(html=>{
+  document.getElementById('sidebar-container').innerHTML=html;
+  document.querySelector('[href="auditoria.html"]')?.classList.add('active');
+  openGroup('sistema');
+});
+initSidebar('auditoria.html');
+
+async function init(){
+  // Data padrão: último mês
+  const hoje=new Date().toISOString().split('T')[0];
+  const ini=new Date(); ini.setDate(ini.getDate()-30);
+  document.getElementById('f-dt-ini').value=ini.toISOString().split('T')[0];
+  document.getElementById('f-dt-fim').value=hoje;
+
+  const{data}=await _supabase.from('auditoria').select('*').order('created_at',{ascending:false}).limit(2000);
+  _logs=data||[];
+  filtrar();
+}
+
+function filtrar(){
+  const dtIni=document.getElementById('f-dt-ini').value;
+  const dtFim=document.getElementById('f-dt-fim').value;
+  const modulo=document.getElementById('f-modulo').value;
+  const acao=document.getElementById('f-acao').value;
+  const busca=(document.getElementById('f-busca').value||'').toLowerCase();
+
+  _filtrados=_logs.filter(l=>{
+    const dt=l.created_at?.split('T')[0]||'';
+    return (!dtIni||dt>=dtIni)&&
+           (!dtFim||dt<=dtFim)&&
+           (!modulo||l.modulo===modulo)&&
+           (!acao||l.acao===acao)&&
+           (!busca||l.usuario_email?.toLowerCase().includes(busca)||l.descricao?.toLowerCase().includes(busca)||l.registro_id?.toLowerCase().includes(busca));
+  });
+
+  if(_ordem==='asc') _filtrados.sort((a,b)=>a.created_at?.localeCompare(b.created_at));
+  else _filtrados.sort((a,b)=>b.created_at?.localeCompare(a.created_at));
+
+  _pagina=1;
+  renderStats();
+  renderTabela();
+}
+
+function renderStats(){
+  const total=_filtrados.length;
+  const logins=_filtrados.filter(l=>l.acao==='LOGIN').length;
+  const creates=_filtrados.filter(l=>l.acao==='CREATE').length;
+  const updates=_filtrados.filter(l=>l.acao==='UPDATE').length;
+  const deletes=_filtrados.filter(l=>l.acao==='DELETE').length;
+  const exports=_filtrados.filter(l=>l.acao==='EXPORT').length;
+
+  document.getElementById('aud-stats').innerHTML=`
+    <div class="card" style="padding:12px;text-align:center;"><div style="font-size:22px;font-weight:800;color:var(--primary);">${total.toLocaleString('pt-BR')}</div><div style="font-size:10px;color:#64748b;text-transform:uppercase;margin-top:2px;">Total</div></div>
+    <div class="card" style="padding:12px;text-align:center;border-left:3px solid #22c55e;"><div style="font-size:22px;font-weight:800;color:#16a34a;">${logins}</div><div style="font-size:10px;color:#64748b;text-transform:uppercase;margin-top:2px;">Logins</div></div>
+    <div class="card" style="padding:12px;text-align:center;border-left:3px solid #2563eb;"><div style="font-size:22px;font-weight:800;color:#2563eb;">${creates}</div><div style="font-size:10px;color:#64748b;text-transform:uppercase;margin-top:2px;">Criações</div></div>
+    <div class="card" style="padding:12px;text-align:center;border-left:3px solid #f59e0b;"><div style="font-size:22px;font-weight:800;color:#b45309;">${updates}</div><div style="font-size:10px;color:#64748b;text-transform:uppercase;margin-top:2px;">Edições</div></div>
+    <div class="card" style="padding:12px;text-align:center;border-left:3px solid #ef4444;"><div style="font-size:22px;font-weight:800;color:#dc2626;">${deletes}</div><div style="font-size:10px;color:#64748b;text-transform:uppercase;margin-top:2px;">Exclusões</div></div>
+    <div class="card" style="padding:12px;text-align:center;border-left:3px solid #7c3aed;"><div style="font-size:22px;font-weight:800;color:#7c3aed;">${exports}</div><div style="font-size:10px;color:#64748b;text-transform:uppercase;margin-top:2px;">Exports</div></div>`;
+}
+
+function renderTabela(){
+  const tbody=document.getElementById('tbody-auditoria');
+  const empty=document.getElementById('aud-empty');
+  const pag=document.getElementById('aud-paginacao');
+  tbody.innerHTML='';
+
+  if(!_filtrados.length){empty.classList.remove('hidden');pag.innerHTML='';return;}
+  empty.classList.add('hidden');
+
+  const inicio=(_pagina-1)*POR_PAGINA;
+  const fim=Math.min(inicio+POR_PAGINA,_filtrados.length);
+  const pagina=_filtrados.slice(inicio,fim);
+
+  const acaoCores={
+    LOGIN:'badge-success',LOGOUT:'badge-gray',
+    CREATE:'badge-success',UPDATE:'badge-info',
+    DELETE:'badge-danger',EXPORT:'badge-warning',
+    VIEW:'badge-gray',PRINT:'badge-warning'
+  };
+
+  pagina.forEach(l=>{
+    const tr=document.createElement('tr');
+    const dt=l.created_at?new Date(l.created_at).toLocaleString('pt-BR'):'—';
+    tr.innerHTML=`
+      <td style="font-size:11px;color:#64748b;white-space:nowrap;">${dt}</td>
+      <td style="font-size:12px;">${l.usuario_email||'—'}</td>
+      <td><span class="badge badge-gray" style="font-size:10px;">${l.modulo||'—'}</span></td>
+      <td><span class="badge ${acaoCores[l.acao]||'badge-gray'}" style="font-size:11px;">${l.acao||'—'}</span></td>
+      <td style="font-size:11px;color:#94a3b8;font-family:monospace;">${l.registro_id?.slice?.(0,12)||'—'}</td>
+      <td style="font-size:12px;color:#64748b;max-width:280px;word-break:break-word;">${l.descricao||'—'}</td>`;
+    tbody.appendChild(tr);
+  });
+
+  // Paginação
+  const total=_filtrados.length;
+  const totalPags=Math.ceil(total/POR_PAGINA);
+  pag.innerHTML=`
+    <span>Exibindo <strong>${inicio+1}–${fim}</strong> de <strong>${total.toLocaleString('pt-BR')}</strong> registros</span>
+    <div style="display:flex;gap:6px;align-items:center;">
+      <button class="btn btn-secondary btn-sm" onclick="_pagina=1;renderTabela()" ${_pagina===1?'disabled':''}>««</button>
+      <button class="btn btn-secondary btn-sm" onclick="_pagina--;renderTabela()" ${_pagina===1?'disabled':''}>‹ Anterior</button>
+      <span style="padding:6px 12px;background:#f8fafc;border-radius:6px;font-weight:600;font-size:12px;">Pág. ${_pagina} / ${totalPags}</span>
+      <button class="btn btn-secondary btn-sm" onclick="_pagina++;renderTabela()" ${_pagina>=totalPags?'disabled':''}>Próxima ›</button>
+      <button class="btn btn-secondary btn-sm" onclick="_pagina=${totalPags};renderTabela()" ${_pagina>=totalPags?'disabled':''}>»»</button>
+    </div>`;
+}
+
+function ordenar(campo){
+  _ordem=_ordem==='desc'?'asc':'desc';
+  filtrar();
+}
+
+function filtrarRapido(dias){
+  const hoje=new Date().toISOString().split('T')[0];
+  document.getElementById('f-dt-fim').value=hoje;
+  if(dias===0){document.getElementById('f-dt-ini').value=hoje;}
+  else{const ini=new Date();ini.setDate(ini.getDate()-dias);document.getElementById('f-dt-ini').value=ini.toISOString().split('T')[0];}
+  filtrar();
+}
+
+function limparFiltros(){
+  document.getElementById('f-modulo').value='';
+  document.getElementById('f-acao').value='';
+  document.getElementById('f-busca').value='';
+  filtrarRapido(30);
+}
+
+function exportarAud(){
+  exportarCSV(
+    ['Data/Hora','Usuário','Módulo','Ação','Registro ID','Detalhes'],
+    _filtrados.map(l=>[
+      l.created_at?new Date(l.created_at).toLocaleString('pt-BR'):'—',
+      l.usuario_email||'—',l.modulo||'—',l.acao||'—',
+      l.registro_id||'—',l.descricao||'—'
+    ]),
+    'auditoria_'+new Date().toISOString().split('T')[0]
+  );
+  addLog('EXPORT','AUDITORIA','csv','Exportação CSV de auditoria ('+_filtrados.length+' registros)');
+}
+
+function exportarAudPDF(){
+  exportarPDF(
+    'Log de Auditoria — '+new Date().toLocaleDateString('pt-BR'),
+    ['Data/Hora','Usuário','Módulo','Ação','Detalhes'],
+    _filtrados.slice(0,200).map(l=>[
+      l.created_at?new Date(l.created_at).toLocaleString('pt-BR'):'—',
+      l.usuario_email||'—',l.modulo||'—',l.acao||'—',l.descricao||'—'
+    ])
+  );
+}
+
+init();
+</script>
+</body>
+</html>

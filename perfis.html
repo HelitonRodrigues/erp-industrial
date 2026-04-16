@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ERP Industrial — Perfis & Permissões</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/supabase.js"></script>
+<script src="js/utils.js"></script>
+<style>
+.tabs{display:flex;border-bottom:2px solid #e2e8f0;margin-bottom:20px;}
+.tab-btn{padding:10px 20px;background:none;border:none;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;color:#64748b;border-bottom:3px solid transparent;margin-bottom:-2px;transition:all .15s;}
+.tab-btn.active{color:var(--primary);border-bottom-color:var(--primary);}
+.perfis-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px;}
+.perfil-card{background:#fff;border-radius:14px;padding:16px;border:1.5px solid #e2e8f0;transition:all .15s;}
+.perfil-card:hover{box-shadow:0 4px 16px rgba(4,45,77,.08);transform:translateY(-2px);}
+.perfil-badge{display:inline-block;padding:4px 10px;border-radius:6px;color:#fff;font-weight:800;font-size:13px;}
+.perfil-name{font-size:14px;font-weight:700;color:var(--primary);margin:10px 0 4px;}
+.perfil-desc{font-size:12px;color:#64748b;line-height:1.4;}
+.perm-matrix{width:100%;border-collapse:collapse;font-size:11px;}
+.perm-matrix th{background:var(--primary);color:#fff;padding:8px 6px;text-align:center;white-space:nowrap;}
+.perm-matrix th:first-child{text-align:left;padding-left:12px;min-width:140px;}
+.perm-matrix td{padding:6px;text-align:center;border-bottom:1px solid #f1f5f9;}
+.perm-matrix td:first-child{text-align:left;padding-left:12px;font-weight:600;color:var(--primary);}
+.perm-matrix tr:hover td{background:#f8fafc;}
+.cor-preset{width:28px;height:28px;border-radius:6px;cursor:pointer;border:2px solid transparent;transition:all .1s;}
+.cor-preset:hover{border-color:#fff;transform:scale(1.1);}
+</style>
+</head>
+<body>
+<div id="sidebar-container"></div>
+<header class="topbar" id="topbar">
+  <button class="topbar-open-sidebar" onclick="toggleSidebar()">☰</button>
+  <div class="topbar-title">Perfis & Permissões</div>
+  <div class="topbar-right">
+    <div class="topbar-user">
+      <div class="user-avatar" style="width:32px;height:32px;font-size:12px;" id="top-avatar">SA</div>
+      <div><div class="topbar-user-name" id="top-user-name">Super Admin</div><div class="topbar-user-profile" id="top-user-perfil">SADM</div></div>
+    </div>
+    <button class="btn btn-ghost btn-sm" onclick="doLogout()" style="color:#64748b;">Sair</button>
+  </div>
+</header>
+<main class="main-content" id="main-content">
+  <div class="page-header">
+    <div class="page-header-left"><h1>Perfis & Permissões</h1><p>20 perfis de acesso — do Super Admin ao Motorista</p></div>
+    <div style="display:flex;gap:8px;">
+      <button class="btn btn-secondary btn-sm" onclick="seedPerfis()" id="btn-seed" title="Criar os 20 perfis padrão no banco">🌱 Seed 20 Perfis</button>
+      <button class="btn btn-secondary" onclick="exportarCSV(['Código','Nome','Descrição'],_perfis.map(p=>[p.codigo,p.nome,p.descricao||'—']),'perfis')">⬇️ CSV</button>
+      <button class="btn btn-primary" onclick="openModalNovoPerfil()">+ Novo Perfil</button>
+    </div>
+  </div>
+
+  <div id="seed-alert" class="hidden alert alert-warning" style="margin-bottom:16px;">
+    ⚠️ Nenhum perfil cadastrado. Clique em <strong>"🌱 Seed 20 Perfis"</strong> para criar os perfis padrão automaticamente.
+  </div>
+
+  <div class="tabs">
+    <button class="tab-btn active" id="tbtn-cards" onclick="showTab('cards')">🃏 Perfis (Cards)</button>
+    <button class="tab-btn" id="tbtn-matrix" onclick="showTab('matrix')">📋 Matriz de Permissões</button>
+  </div>
+
+  <!-- CARDS -->
+  <div id="tab-cards">
+    <div class="perfis-grid" id="perfis-grid"></div>
+    <div id="perfis-empty" class="empty-state hidden"><div class="empty-icon">🔒</div><h3>Nenhum perfil cadastrado</h3><p>Clique em "🌱 Seed 20 Perfis" para criar os perfis padrão.</p></div>
+  </div>
+
+  <!-- MATRIZ -->
+  <div id="tab-matrix" style="display:none;">
+    <div class="card">
+      <p style="font-size:12px;color:#64748b;margin-bottom:14px;">✅ = tem acesso | ❌ = sem acesso | Mostra permissão <strong>can_view</strong> por módulo.</p>
+      <div style="overflow-x:auto;">
+        <table class="perm-matrix" id="matrix-table"></table>
+      </div>
+    </div>
+  </div>
+</main>
+
+<!-- MODAL PERFIL FORM -->
+<div id="modal-perfil-form" class="modal-overlay hidden">
+  <div class="modal modal-lg" style="max-width:860px;">
+    <div class="modal-header"><div class="modal-title" id="modal-pf-title">Novo Perfil</div><button class="modal-close" onclick="closeModal('modal-perfil-form')">✕</button></div>
+    <div style="display:flex;flex-direction:column;gap:16px;">
+      <div class="form-grid-2">
+        <div class="form-group">
+          <label class="form-label">Código <span class="req">*</span></label>
+          <input id="pf-codigo" type="text" class="form-input" placeholder="Ex: SUP" maxlength="6" style="text-transform:uppercase;">
+          <span style="font-size:11px;color:#94a3b8;">Máx. 6 caracteres</span>
+        </div>
+        <div class="form-group"><label class="form-label">Nome <span class="req">*</span></label><input id="pf-nome" type="text" class="form-input" placeholder="Ex: Supervisor de Produção"></div>
+      </div>
+      <div class="form-group"><label class="form-label">Descrição</label><input id="pf-desc" type="text" class="form-input" placeholder="Breve descrição das responsabilidades"></div>
+      <div class="form-group">
+        <label class="form-label">Cor do Perfil</label>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+          <input id="pf-cor" type="color" value="#042D4D" style="width:48px;height:38px;border:1.2px solid var(--border);border-radius:8px;cursor:pointer;padding:2px;">
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            ${['#042D4D','#1e40af','#7c3aed','#0f766e','#b45309','#dc2626','#16a34a','#374151','#9d174d','#164e63','#7e22ce','#b91c1c','#065f46','#92400e','#1e3a5f'].map(c=>`<div class="cor-preset" style="background:${c};" onclick="document.getElementById('pf-cor').value='${c}'"></div>`).join('')}
+          </div>
+        </div>
+      </div>
+      <!-- PERMISSÕES POR MÓDULO -->
+      <div class="form-group">
+        <label class="form-label" style="margin-bottom:10px;">Permissões por Módulo</label>
+        <div style="overflow-x:auto;border-radius:10px;border:1px solid #e2e8f0;">
+          <table style="width:100%;border-collapse:collapse;font-size:12px;">
+            <thead><tr>
+              <th style="background:var(--primary);color:#fff;padding:10px 14px;text-align:left;font-size:11px;text-transform:uppercase;">Módulo</th>
+              <th style="background:var(--primary);color:#fff;padding:10px 8px;text-align:center;font-size:11px;">👁️ Ver</th>
+              <th style="background:var(--primary);color:#fff;padding:10px 8px;text-align:center;font-size:11px;">➕ Criar</th>
+              <th style="background:var(--primary);color:#fff;padding:10px 8px;text-align:center;font-size:11px;">✏️ Editar</th>
+              <th style="background:var(--primary);color:#fff;padding:10px 8px;text-align:center;font-size:11px;">🗑️ Excluir</th>
+              <th style="background:var(--primary);color:#fff;padding:10px 8px;text-align:center;font-size:11px;">⬇️ Exportar</th>
+            </tr></thead>
+            <tbody id="pf-perm-tbody"></tbody>
+          </table>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:10px;">
+          <button class="btn btn-secondary btn-sm" onclick="setTodasPerms(true)">✅ Marcar tudo</button>
+          <button class="btn btn-ghost btn-sm" onclick="setTodasPerms(false)">❌ Desmarcar tudo</button>
+        </div>
+      </div>
+      <div id="pf-error" class="hidden alert alert-danger"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-perfil-form')">Cancelar</button>
+      <button class="btn btn-primary" id="btn-salvar-perfil" onclick="salvarPerfil()">💾 Salvar Perfil</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL DETALHE -->
+<div id="modal-perfil" class="modal-overlay hidden">
+  <div class="modal modal-lg">
+    <div class="modal-header"><div class="modal-title" id="modal-detalhe-title">Detalhes do Perfil</div><button class="modal-close" onclick="closeModal('modal-perfil')">✕</button></div>
+    <div id="modal-detalhe-body"></div>
+    <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('modal-perfil')">Fechar</button></div>
+  </div>
+</div>
+
+<!-- CONFIRM -->
+<div id="modal-confirm" class="modal-overlay hidden">
+  <div class="modal" style="max-width:420px;">
+    <div class="modal-header"><div class="modal-title">⚠️ Confirmar Exclusão</div><button class="modal-close" onclick="closeModal('modal-confirm')">✕</button></div>
+    <p id="confirm-msg" style="font-size:14px;color:#475569;line-height:1.6;"></p>
+    <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('modal-confirm')">Cancelar</button><button class="btn btn-danger" id="confirm-ok-btn">🗑️ Excluir</button></div>
+  </div>
+</div>
+<div id="toast-container"></div>
+
+<script>
+// 20 perfis padrão do briefing
+const PERFIS_PADRAO=[
+  {codigo:'SADM',nome:'Super Admin',descricao:'Acesso total e irrestrito. Imutável.',cor:'#042D4D',imutavel:true},
+  {codigo:'ADM',nome:'Administrador',descricao:'Acesso total exceto editar SADM.',cor:'#1e3a5f'},
+  {codigo:'DIR',nome:'Diretor',descricao:'Visualização total + relatórios.',cor:'#1e40af'},
+  {codigo:'GPR',nome:'Gerente de Produção',descricao:'Gestão completa de produção e indicadores.',cor:'#0f766e'},
+  {codigo:'GIN',nome:'Gerente Industrial',descricao:'Manutenção + produção + insumos.',cor:'#065f46'},
+  {codigo:'GCO',nome:'Gerente Comercial',descricao:'Expedição + carregamento + relatórios.',cor:'#164e63'},
+  {codigo:'ENC',nome:'Encarregado',descricao:'Produção + carregamento + insumos da sua linha.',cor:'#b45309'},
+  {codigo:'SGR',nome:'Supervisor Geral',descricao:'Visualização de todos os módulos operacionais.',cor:'#374151'},
+  {codigo:'MEC',nome:'Mecânico',descricao:'Somente manutenção mecânica.',cor:'#7c3aed'},
+  {codigo:'ELE',nome:'Eletricista',descricao:'Somente manutenção elétrica.',cor:'#7e22ce'},
+  {codigo:'OPM',nome:'Operador de Máquina',descricao:'Produção + visualização de carregamento.',cor:'#0f766e'},
+  {codigo:'ALM',nome:'Almoxarife',descricao:'Insumos + EPI + compras (visualização).',cor:'#92400e'},
+  {codigo:'FIN',nome:'Financeiro',descricao:'Módulo financeiro completo.',cor:'#16a34a'},
+  {codigo:'CPR',nome:'Comprador',descricao:'Módulo compras completo.',cor:'#065f46'},
+  {codigo:'LOG',nome:'Logística',descricao:'Expedição + ordens + portaria (visualização).',cor:'#1e40af'},
+  {codigo:'MOT',nome:'Motorista',descricao:'Apenas visualização da própria ordem.',cor:'#374151'},
+  {codigo:'PRT',nome:'Porteiro',descricao:'Módulo portaria completo.',cor:'#9d174d'},
+  {codigo:'VND',nome:'Vendedor',descricao:'Estoque de expedição + pedidos.',cor:'#b91c1c'},
+  {codigo:'RHD',nome:'RH / DP',descricao:'Férias + escala + EPI + treinamentos.',cor:'#1e3a5f'},
+  {codigo:'AUD',nome:'Auditor',descricao:'Leitura de todos os módulos + auditoria.',cor:'#374151'},
+];
+
+// Módulos do sistema
+const MODULOS=['Dashboard','Produção','Laboratório','Manutenção','Almoxarifado','EPI','RH','Portaria','Expedição','Planejamento','Usuários','Perfis','Funcionários','Linhas','Turnos','Produtos','Equipamentos','Motivos','Auditoria','Financeiro','Compras','Relatórios'];
+
+// Permissões padrão por código de perfil
+const PERMS_DEFAULT={
+  SADM:{all:true},
+  ADM:{all:true,exceto:{Financeiro:{del:false}}},
+  DIR:{all:false,view:true,export:true},
+  GPR:{modulos:{Dashboard:5,Produção:5,Laboratório:5,Planejamento:5,Manutenção:3,Almoxarifado:3,Relatórios:5}},
+  GIN:{modulos:{Dashboard:5,Produção:5,Laboratório:5,Manutenção:5,Almoxarifado:5,EPI:3,Equipamentos:5,Linhas:3}},
+  GCO:{modulos:{Dashboard:3,Expedição:5,Portaria:3,Relatórios:5}},
+  ENC:{modulos:{Produção:5,Laboratório:3,Almoxarifado:3,Portaria:3,Expedição:3,Dashboard:3}},
+  SGR:{all:false,view:true},
+  MEC:{modulos:{Manutenção:5,Equipamentos:3}},
+  ELE:{modulos:{Manutenção:5,Equipamentos:3}},
+  OPM:{modulos:{Produção:3,Portaria:3,Expedição:3}},
+  ALM:{modulos:{Almoxarifado:5,EPI:5,Dashboard:3}},
+  FIN:{modulos:{Financeiro:5,Dashboard:5,Relatórios:5}},
+  CPR:{modulos:{Compras:5,Almoxarifado:3}},
+  LOG:{modulos:{Expedição:5,Portaria:3,Dashboard:3}},
+  MOT:{modulos:{Expedição:{view:true}}},
+  PRT:{modulos:{Portaria:5,Dashboard:3}},
+  VND:{modulos:{Expedição:5,Dashboard:3}},
+  RHD:{modulos:{RH:5,EPI:5,Funcionários:3,Dashboard:3}},
+  AUD:{all:false,view:true,modulos:{Auditoria:5}},
+};
+// Nível 5 = tudo, 3 = ver/criar/editar, apenas view = só ver
+
+function buildPerms(codigo){
+  const def=PERMS_DEFAULT[codigo]||{};const perms={};
+  MODULOS.forEach(m=>{
+    if(def.all){perms[m]={view:true,create:true,edit:true,del:true,export:true};}
+    else if(def.view){perms[m]={view:true,create:false,edit:false,del:false,export:false};}
+    else{perms[m]={view:false,create:false,edit:false,del:false,export:false};}
+    if(def.modulos&&def.modulos[m]!==undefined){
+      const lvl=def.modulos[m];
+      if(lvl===5)perms[m]={view:true,create:true,edit:true,del:true,export:true};
+      else if(lvl===3)perms[m]={view:true,create:true,edit:true,del:false,export:false};
+      else if(typeof lvl==='object')Object.assign(perms[m],lvl);
+    }
+    if(def.exceto&&def.exceto[m])Object.assign(perms[m],def.exceto[m]);
+  });
+  return perms;
+}
+
+let _editingId=null,_perfis=[];
+
+fetch('partials/sidebar.html').then(r=>r.text()).then(html=>{
+  document.getElementById('sidebar-container').innerHTML=html;
+  document.querySelector('[href="perfis.html"]')?.classList.add('active');
+  openGroup('gestao');
+});
+initSidebar('perfis.html');
+
+async function init(){
+  const{data}=await _supabase.from('perfis').select('*').order('codigo');
+  _perfis=data||[];
+  if(!_perfis.length) document.getElementById('seed-alert').classList.remove('hidden');
+  else document.getElementById('seed-alert').classList.add('hidden');
+  renderPerfis();renderMatrix();
+}
+
+async function seedPerfis(){
+  const btn=document.getElementById('btn-seed');
+  btn.innerHTML='<span class="spin"></span>';btn.disabled=true;
+  const existentes=_perfis.map(p=>p.codigo);
+  const novos=PERFIS_PADRAO.filter(p=>!existentes.includes(p.codigo)).map(p=>({...p,permissoes:buildPerms(p.codigo)}));
+  if(!novos.length){toast('Todos os perfis já existem!','info');btn.innerHTML='🌱 Seed 20 Perfis';btn.disabled=false;return;}
+  const{error}=await _supabase.from('perfis').insert(novos);
+  if(error){toast('Erro: '+error.message,'danger');}
+  else{toast(`${novos.length} perfis criados com sucesso!`,'success');}
+  btn.innerHTML='🌱 Seed 20 Perfis';btn.disabled=false;
+  await init();
+}
+
+function renderPerfis(){
+  const grid=document.getElementById('perfis-grid'),empty=document.getElementById('perfis-empty');
+  grid.innerHTML='';
+  if(!_perfis.length){empty.classList.remove('hidden');return;}empty.classList.add('hidden');
+  _perfis.forEach(p=>{
+    const isImut=p.codigo==='SADM'||p.imutavel;
+    const card=document.createElement('div');card.className='perfil-card';
+    card.innerHTML=`
+      <div style="display:flex;align-items:center;justify-content:space-between;">
+        <span class="perfil-badge" style="background:${p.cor||'#042D4D'};">${p.codigo}</span>
+        ${isImut?'<span style="font-size:11px;color:#dc2626;">🔒 Imutável</span>':''}
+      </div>
+      <div class="perfil-name">${p.nome}</div>
+      <div class="perfil-desc">${p.descricao||'—'}</div>
+      <div style="display:flex;gap:6px;margin-top:14px;padding-top:12px;border-top:1px solid #f1f5f9;">
+        <button class="btn btn-secondary btn-sm" style="flex:1;" onclick="verDetalhes('${p.id}')">🔍 Detalhes</button>
+        ${!isImut?`<button class="btn btn-secondary btn-sm" onclick="editarPerfil('${p.id}')">✏️</button>
+        <button class="btn btn-danger btn-sm" onclick="confirmarExclusao('${p.id}','${p.nome}')">🗑️</button>`:''}
+      </div>`;
+    grid.appendChild(card);
+  });
+}
+
+function verDetalhes(id){
+  const p=_perfis.find(x=>x.id===id);if(!p)return;
+  document.getElementById('modal-detalhe-title').textContent=`${p.codigo} — ${p.nome}`;
+  const perms=p.permissoes||{};const all=['SADM','ADM'].includes(p.codigo);
+  let html=`<div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;padding:14px;background:#f8fafc;border-radius:10px;">
+    <span class="perfil-badge" style="background:${p.cor||'#042D4D'};font-size:15px;padding:6px 14px;">${p.codigo}</span>
+    <div><div style="font-weight:700;font-size:16px;color:var(--primary);">${p.nome}</div><div style="font-size:13px;color:#64748b;margin-top:2px;">${p.descricao||'—'}</div></div>
+  </div>
+  <h4 style="font-weight:700;color:var(--primary);margin-bottom:12px;text-transform:uppercase;font-size:12px;letter-spacing:1px;">Permissões por Módulo</h4>
+  <div style="overflow-x:auto;border-radius:10px;border:1px solid #e2e8f0;">
+    <table style="width:100%;border-collapse:collapse;font-size:12px;">
+      <thead><tr>
+        <th style="background:var(--primary);color:#fff;padding:8px 12px;text-align:left;">Módulo</th>
+        <th style="background:var(--primary);color:#fff;padding:8px;text-align:center;">👁️ Ver</th>
+        <th style="background:var(--primary);color:#fff;padding:8px;text-align:center;">➕ Criar</th>
+        <th style="background:var(--primary);color:#fff;padding:8px;text-align:center;">✏️ Editar</th>
+        <th style="background:var(--primary);color:#fff;padding:8px;text-align:center;">🗑️ Excluir</th>
+        <th style="background:var(--primary);color:#fff;padding:8px;text-align:center;">⬇️ Export</th>
+      </tr></thead><tbody>`;
+  MODULOS.forEach(m=>{
+    const mp=perms[m]||{};
+    const ico=b=>`<span style="font-size:14px;">${b?'✅':'❌'}</span>`;
+    html+=`<tr style="border-bottom:1px solid #f1f5f9;">
+      <td style="padding:7px 12px;font-weight:600;color:var(--primary);">${m}</td>
+      <td style="text-align:center;">${ico(mp.view!==undefined?mp.view:all)}</td>
+      <td style="text-align:center;">${ico(mp.create!==undefined?mp.create:all)}</td>
+      <td style="text-align:center;">${ico(mp.edit!==undefined?mp.edit:all)}</td>
+      <td style="text-align:center;">${ico(mp.del!==undefined?mp.del:all)}</td>
+      <td style="text-align:center;">${ico(mp.export!==undefined?mp.export:all)}</td>
+    </tr>`;
+  });
+  html+='</tbody></table></div>';
+  document.getElementById('modal-detalhe-body').innerHTML=html;
+  document.getElementById('modal-perfil').classList.remove('hidden');
+}
+
+function renderMatrix(){
+  const t=document.getElementById('matrix-table');
+  let html=`<thead><tr><th style="min-width:130px;">Módulo</th>`;
+  _perfis.forEach(p=>html+=`<th style="min-width:46px;" title="${p.nome}">${p.codigo}</th>`);
+  html+='</tr></thead><tbody>';
+  MODULOS.forEach(m=>{
+    html+=`<tr><td>${m}</td>`;
+    _perfis.forEach(p=>{
+      const mp=(p.permissoes||{})[m]||{};
+      const all=['SADM','ADM'].includes(p.codigo);
+      const v=mp.view!==undefined?mp.view:all;
+      html+=`<td style="text-align:center;font-size:12px;">${v?'✅':'❌'}</td>`;
+    });
+    html+='</tr>';
+  });
+  html+='</tbody>';t.innerHTML=html;
+}
+
+function openModalNovoPerfil(){
+  _editingId=null;document.getElementById('modal-pf-title').textContent='Novo Perfil';
+  document.getElementById('pf-codigo').value='';document.getElementById('pf-codigo').readOnly=false;
+  document.getElementById('pf-nome').value='';document.getElementById('pf-desc').value='';
+  document.getElementById('pf-cor').value='#042D4D';document.getElementById('pf-error').classList.add('hidden');
+  buildPermTable({});document.getElementById('modal-perfil-form').classList.remove('hidden');
+}
+
+function editarPerfil(id){
+  const p=_perfis.find(x=>x.id===id);if(!p)return;
+  _editingId=id;document.getElementById('modal-pf-title').textContent='Editar — '+p.nome;
+  document.getElementById('pf-codigo').value=p.codigo;document.getElementById('pf-codigo').readOnly=true;
+  document.getElementById('pf-nome').value=p.nome;document.getElementById('pf-desc').value=p.descricao||'';
+  document.getElementById('pf-cor').value=p.cor||'#042D4D';document.getElementById('pf-error').classList.add('hidden');
+  buildPermTable(p.permissoes||{});document.getElementById('modal-perfil-form').classList.remove('hidden');
+}
+
+function buildPermTable(perms){
+  const tbody=document.getElementById('pf-perm-tbody');tbody.innerHTML='';
+  MODULOS.forEach(m=>{
+    const p=perms[m]||{};const tr=document.createElement('tr');tr.style.borderBottom='1px solid #f1f5f9';
+    const mk=(key,val)=>`<td style="text-align:center;padding:7px;"><input type="checkbox" class="perm-check" data-modulo="${m}" data-key="${key}" ${val?'checked':''} style="width:15px;height:15px;cursor:pointer;accent-color:var(--primary);"></td>`;
+    tr.innerHTML=`<td style="padding:7px 14px;font-weight:600;color:var(--primary);font-size:13px;">${m}</td>${mk('view',p.view||false)}${mk('create',p.create||false)}${mk('edit',p.edit||false)}${mk('del',p.del||false)}${mk('export',p.export||false)}`;
+    tbody.appendChild(tr);
+  });
+}
+
+function setTodasPerms(val){document.querySelectorAll('.perm-check').forEach(c=>c.checked=val);}
+
+function getPermsFromForm(){
+  const perms={};
+  document.querySelectorAll('.perm-check').forEach(c=>{
+    if(!perms[c.dataset.modulo])perms[c.dataset.modulo]={};
+    perms[c.dataset.modulo][c.dataset.key]=c.checked;
+  });
+  return perms;
+}
+
+async function salvarPerfil(){
+  const codigo=document.getElementById('pf-codigo').value.trim().toUpperCase().replace(/\s/g,'');
+  const nome=document.getElementById('pf-nome').value.trim();
+  const errEl=document.getElementById('pf-error'),btn=document.getElementById('btn-salvar-perfil');
+  if(!codigo||!nome){errEl.textContent='Código e Nome são obrigatórios!';errEl.classList.remove('hidden');return;}
+  if(codigo.length>6){errEl.textContent='Código máximo 6 caracteres!';errEl.classList.remove('hidden');return;}
+  const dados={codigo,nome,descricao:document.getElementById('pf-desc').value.trim()||null,cor:document.getElementById('pf-cor').value,permissoes:getPermsFromForm()};
+  btn.innerHTML='<span class="spin"></span>';btn.disabled=true;
+  try{
+    if(_editingId){await _supabase.from('perfis').update(dados).eq('id',_editingId);await addLog('UPDATE','PERFIS',_editingId,'Atualizado: '+nome);toast('Perfil atualizado!','success');}
+    else{if(_perfis.find(x=>x.codigo===codigo)){errEl.textContent='Código já existe!';errEl.classList.remove('hidden');btn.innerHTML='💾 Salvar Perfil';btn.disabled=false;return;}await _supabase.from('perfis').insert(dados);await addLog('CREATE','PERFIS',codigo,'Novo: '+nome);toast('Perfil cadastrado!','success');}
+    closeModal('modal-perfil-form');await init();
+  }catch(e){errEl.textContent='Erro: '+e.message;errEl.classList.remove('hidden');}
+  btn.innerHTML='💾 Salvar Perfil';btn.disabled=false;
+}
+
+function confirmarExclusao(id,nome){
+  document.getElementById('confirm-msg').innerHTML=`Excluir o perfil <strong>${nome}</strong>?`;
+  document.getElementById('confirm-ok-btn').onclick=async()=>{await _supabase.from('perfis').delete().eq('id',id);await addLog('DELETE','PERFIS',id,nome);toast('Excluído.','warning');closeModal('modal-confirm');await init();};
+  document.getElementById('modal-confirm').classList.remove('hidden');
+}
+
+function showTab(t){
+  ['cards','matrix'].forEach(x=>{document.getElementById('tab-'+x).style.display=x===t?'block':'none';document.getElementById('tbtn-'+x).classList.toggle('active',x===t);});
+}
+
+init();
+</script>
+</body>
+</html>
