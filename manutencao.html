@@ -1,0 +1,1546 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ERP Industrial — Manutenção</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/supabase.js"></script>
+<script src="js/utils.js"></script>
+<style>
+.tabs{display:flex;border-bottom:2px solid #e2e8f0;margin-bottom:20px;overflow-x:auto;gap:0;}
+.tab-btn{padding:10px 16px;background:none;border:none;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;color:#64748b;border-bottom:3px solid transparent;margin-bottom:-2px;transition:all .15s;white-space:nowrap;}
+.tab-btn.active{color:var(--primary);border-bottom-color:var(--primary);}
+.comp-row{display:grid;grid-template-columns:2fr 1fr 1fr 1fr 1fr 1fr;gap:8px;align-items:center;padding:8px 12px;border-bottom:1px solid #f1f5f9;font-size:12px;}
+.comp-row:hover{background:#f8fafc;}
+.comp-header{background:var(--primary);color:#fff;font-weight:700;border-radius:8px 8px 0 0;padding:8px 12px;}
+.equip-section{background:#fff;border:1.5px solid #e2e8f0;border-radius:12px;margin-bottom:16px;overflow:hidden;}
+.equip-title{background:#f8fafc;padding:12px 16px;font-weight:800;color:var(--primary);border-bottom:1.5px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center;}
+.status-ok{color:#16a34a;font-weight:700;font-size:11px;}
+.status-rev{color:#dc2626;font-weight:700;font-size:11px;}
+.kpi-manut{background:#fff;border-radius:12px;padding:16px;border:1.5px solid #e2e8f0;text-align:center;}
+</style>
+</head>
+<body>
+<div id="sidebar-container"></div>
+<header class="topbar" id="topbar">
+  <button class="topbar-open-sidebar" onclick="toggleSidebar()">☰</button>
+  <div class="topbar-title">Manutenção</div>
+  <div class="topbar-right">
+    <div class="topbar-user">
+      <div class="user-avatar" style="width:32px;height:32px;font-size:12px;" id="top-avatar">SA</div>
+      <div><div class="topbar-user-name" id="top-user-name">Super Admin</div><div class="topbar-user-profile" id="top-user-perfil">SADM</div></div>
+    </div>
+    <button class="btn btn-ghost btn-sm" onclick="doLogout()" style="color:#64748b;">Sair</button>
+  </div>
+</header>
+<main class="main-content" id="main-content">
+  <div class="page-header">
+    <div class="page-header-left"><h1>Manutenção</h1><p>Mecânica, elétrica, compressores, frota, histórico e cronograma</p></div>
+    <div style="display:flex;gap:8px;">
+      <button class="btn btn-secondary btn-sm" onclick="showTab('cronograma')">📅 Cronograma</button>
+      <button class="btn btn-primary" onclick="openModalOS()">+ Nova OS</button>
+    </div>
+  </div>
+
+  <!-- ALERTAS REVISÃO -->
+  <div id="alertas-manut" style="margin-bottom:14px;"></div>
+
+  <div class="tabs">
+    <button class="tab-btn active" id="tbtn-monitor" onclick="showTab('monitor')">🖥️ Monitor</button>
+    <button class="tab-btn" id="tbtn-historico" onclick="showTab('historico')">📋 Ordens de Serviço</button>
+    <button class="tab-btn" id="tbtn-mecanica" onclick="showTab('mecanica')">⚙️ Mecânica</button>
+    <button class="tab-btn" id="tbtn-eletrica" onclick="showTab('eletrica')">⚡ Elétrica</button>
+    <button class="tab-btn" id="tbtn-compressores" onclick="showTab('compressores')">💨 Compressores</button>
+    <button class="tab-btn" id="tbtn-filtros" onclick="showTab('filtros')">🔽 Filtros Manga</button>
+    <button class="tab-btn" id="tbtn-frota" onclick="showTab('frota')">🚜 Frota</button>
+    <button class="tab-btn" id="tbtn-frota-cad" onclick="showTab('frota-cad')">🔑 Cadastro Frota</button>
+    <button class="tab-btn" id="tbtn-docs" onclick="showTab('docs')">📁 Documentação</button>
+    <button class="tab-btn" id="tbtn-cronograma" onclick="showTab('cronograma')">📅 Cronograma</button>
+    <button class="tab-btn" id="tbtn-kpis" onclick="showTab('kpis')">📊 KPIs</button>
+  </div>
+
+  <!-- MONITOR GERAL -->
+  <div id="tab-monitor">
+    <!-- KPIs -->
+    <div id="monitor-kpis" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;margin-bottom:18px;"></div>
+
+    <!-- Seleção múltipla toolbar -->
+    <div id="monitor-toolbar" style="display:none;background:#1e3a5f;color:#fff;border-radius:10px;padding:10px 16px;margin-bottom:14px;display:none;align-items:center;gap:12px;flex-wrap:wrap;">
+      <span style="font-size:13px;font-weight:700;">🔧 <span id="toolbar-count">0</span> componente(s) selecionado(s)</span>
+      <button class="btn btn-sm" style="background:#22c55e;color:#fff;border:none;" onclick="executarRevisaoLote()">✅ Executar Revisão em Lote</button>
+      <button class="btn btn-sm" style="background:#f59e0b;color:#fff;border:none;" onclick="programarRevisaoLote()">📅 Programar em Lote</button>
+      <button class="btn btn-sm" style="background:#ef4444;color:#fff;border:none;" onclick="limparSelecao()">✕ Cancelar</button>
+    </div>
+
+    <!-- LINHAS DE PRODUÇÃO -->
+    <div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;">⚙️ Linhas de Produção</div>
+    <div id="monitor-linhas-prod" style="display:flex;flex-direction:column;gap:8px;margin-bottom:20px;"></div>
+
+    <!-- EQUIPAMENTOS GERAIS -->
+    <div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;">🏭 Equipamentos Gerais</div>
+    <div id="monitor-gerais-prod" style="display:flex;flex-direction:column;gap:8px;margin-bottom:20px;"></div>
+
+    <!-- FROTA -->
+    <div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;">🚜 Frota</div>
+    <div id="monitor-frota" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px;margin-bottom:20px;"></div>
+
+    <!-- OS ABERTAS -->
+    <div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;">📋 OS Abertas</div>
+    <div id="monitor-os-abertas" style="display:flex;flex-direction:column;gap:6px;"></div>
+  </div>
+
+  <!-- CADASTRO FROTA -->
+  <div id="tab-frota-cad" style="display:none;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+      <div style="font-size:13px;color:#64748b;">Cadastre os veículos e máquinas da frota com revisões programadas</div>
+      <button class="btn btn-primary" onclick="openModalFrotaCad()">+ Cadastrar Veículo</button>
+    </div>
+    <div id="frota-cad-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px;"></div>
+    <div id="frota-cad-empty" class="empty-state hidden"><div class="empty-icon">🚜</div><h3>Nenhum veículo cadastrado</h3></div>
+  </div>
+
+  <!-- DOCUMENTAÇÃO TÉCNICA -->
+  <div id="tab-docs" style="display:none;">
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px;">
+      <select id="docs-categoria" class="form-input" style="width:200px;" onchange="renderDocs()">
+        <option value="">Todas as categorias</option>
+        <option value="linha">⚙️ Equipamentos Linha</option>
+        <option value="geral">🏭 Equipamentos Gerais</option>
+        <option value="frota">🚜 Frota</option>
+      </select>
+      <select id="docs-tipo" class="form-input" style="width:180px;" onchange="renderDocs()">
+        <option value="">Todos os tipos</option>
+        <option value="manual">📖 Manual</option>
+        <option value="desenho">📐 Desenho Técnico</option>
+        <option value="esquema">⚡ Esquema Elétrico</option>
+        <option value="ficha">📋 Ficha Técnica</option>
+        <option value="outro">📎 Outro</option>
+      </select>
+      <input type="text" id="docs-busca" class="form-input" placeholder="🔍 Buscar por nome ou equipamento..." style="width:260px;" oninput="renderDocs()">
+      <button class="btn btn-primary" onclick="openModalDoc()">+ Adicionar Documento</button>
+    </div>
+    <div id="docs-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;"></div>
+    <div id="docs-empty" class="empty-state hidden"><div class="empty-icon">📁</div><h3>Nenhum documento encontrado</h3><p>Adicione manuais, desenhos técnicos e esquemas dos equipamentos</p></div>
+  </div>
+
+  <!-- OS / HISTÓRICO -->
+  <div id="tab-historico" style="display:none;">
+    <!-- Resumo OS -->
+    <div id="os-resumo" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;margin-bottom:14px;"></div>
+    <div class="card" style="margin-bottom:14px;">
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+        <select id="f-os-status" class="form-input" style="width:180px;" onchange="renderOS()"><option value="">Todos os status</option><option value="aberta">📋 Aberta</option><option value="em_andamento">🔄 Em Andamento</option><option value="concluida">✅ Concluída</option><option value="cancelada">❌ Cancelada</option></select>
+        <select id="f-os-tipo" class="form-input" style="width:160px;" onchange="renderOS()"><option value="">Todos os tipos</option><option value="corretiva">Corretiva</option><option value="preventiva">Preventiva</option><option value="preditiva">Preditiva</option></select>
+        <select id="f-os-prior" class="form-input" style="width:140px;" onchange="renderOS()"><option value="">Todas prioridades</option><option value="urgente">🔴 Urgente</option><option value="alta">🟠 Alta</option><option value="normal">🟡 Normal</option><option value="baixa">🟢 Baixa</option></select>
+        <button class="btn btn-secondary btn-sm" onclick="exportarCSV(['OS#','Tipo','Prior.','Equip.','Linha','Abertura','Status','Técnico','Horas','Custo'],_ordens.map(o=>[`OS-${String(o.numero||0).padStart(4,'0')}`,o.tipo,o.prioridade,o.equipamento,o.linha||'—',o.data_abertura||'—',o.status,o.tecnico||'—',(o.horas_gastas||0)+'h',o.custo_manutencao?'R$ '+o.custo_manutencao:'—']),'ordens_servico')">⬇️ CSV</button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="table-wrap">
+        <table><thead><tr><th>OS#</th><th>Tipo</th><th>Prior.</th><th>Equipamento</th><th>Linha</th><th>Abertura</th><th>Status</th><th>Técnico</th><th>H.T</th><th>Custo</th><th>Ações</th></tr></thead>
+        <tbody id="tbody-os"></tbody></table>
+      </div>
+      <div id="os-empty" class="empty-state hidden"><div class="empty-icon">🔧</div><h3>Nenhuma OS encontrada</h3></div>
+    </div>
+  </div>
+
+  <!-- MECÂNICA -->
+  <div id="tab-mecanica" style="display:none;">
+    <div style="display:flex;justify-content:flex-end;margin-bottom:14px;gap:8px;">
+      <select id="f-mec-linha" class="form-input" style="width:200px;" onchange="renderMecanica()"><option value="">Todas as linhas</option></select>
+      <button class="btn btn-primary btn-sm" onclick="openModalComponente('mecanica')">+ Registrar Revisão</button>
+    </div>
+    <div id="mec-container">
+      <p style="color:#94a3b8;text-align:center;padding:32px;">Carregando...</p>
+    </div>
+  </div>
+
+  <!-- ELÉTRICA -->
+  <div id="tab-eletrica" style="display:none;">
+    <div style="display:flex;justify-content:flex-end;margin-bottom:14px;">
+      <button class="btn btn-primary btn-sm" onclick="openModalComponente('eletrica')">+ Registrar Revisão</button>
+    </div>
+    <div id="ele-container">
+      <p style="color:#94a3b8;text-align:center;padding:32px;">Carregando...</p>
+    </div>
+  </div>
+
+  <!-- COMPRESSORES -->
+  <div id="tab-compressores" style="display:none;">
+    <div style="display:flex;justify-content:flex-end;margin-bottom:14px;">
+      <button class="btn btn-primary btn-sm" onclick="openModalComponente('compressor')">+ Registrar Revisão</button>
+    </div>
+    <div id="comp-container">
+      <p style="color:#94a3b8;text-align:center;padding:32px;">Carregando...</p>
+    </div>
+  </div>
+
+  <!-- FILTROS MANGA -->
+  <div id="tab-filtros" style="display:none;">
+    <div style="display:flex;justify-content:flex-end;margin-bottom:14px;">
+      <button class="btn btn-primary btn-sm" onclick="openModalFiltro()">+ Nova Troca de Filtro</button>
+    </div>
+    <div class="card">
+      <div class="table-wrap">
+        <table><thead><tr><th>Linha</th><th>Medida (NOMEX)</th><th>Qtd</th><th>Data Troca</th><th>Intervalo (h)</th><th>Horím. Revisão</th><th>Status</th><th>Teste Chaminé</th><th>Responsável</th><th>Ações</th></tr></thead>
+        <tbody id="tbody-filtros"></tbody></table>
+      </div>
+      <div id="filtros-empty" class="empty-state hidden"><div class="empty-icon">🔽</div><h3>Nenhum filtro registrado</h3></div>
+    </div>
+  </div>
+
+  <!-- FROTA -->
+  <div id="tab-frota" style="display:none;">
+    <div style="display:flex;justify-content:flex-end;margin-bottom:14px;gap:8px;">
+      <select id="f-frota-equip" class="form-input" style="width:220px;" onchange="renderFrota()"><option value="">Todos os equipamentos</option></select>
+      <button class="btn btn-primary btn-sm" onclick="openModalFrota()">+ Registrar Revisão</button>
+    </div>
+    <div id="frota-container"></div>
+  </div>
+
+  <!-- CRONOGRAMA -->
+  <div id="tab-cronograma" style="display:none;">
+    <div class="card" style="margin-bottom:14px;">
+      <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">
+        <div class="form-group" style="margin:0;"><label class="form-label">Mês</label><input type="month" id="cron-mes" class="form-input" style="width:170px;" onchange="renderCronograma()"></div>
+        <button class="btn btn-primary btn-sm" onclick="openModalCron()">+ Adicionar Tarefa</button>
+        <button class="btn btn-secondary btn-sm" onclick="exportarCronograma()">⬇️ CSV</button>
+      </div>
+    </div>
+    <div class="card" style="overflow-x:auto;">
+      <div id="cron-container"><p style="color:#94a3b8;text-align:center;padding:32px;">Selecione o mês</p></div>
+    </div>
+  </div>
+
+  <!-- KPIs -->
+  <div id="tab-kpis" style="display:none;">
+    <div class="card" style="margin-bottom:14px;">
+      <div class="form-group" style="margin:0;max-width:200px;"><label class="form-label">Mês</label><input type="month" id="kpi-mes" class="form-input" onchange="renderKPIs()"></div>
+    </div>
+    <div id="kpis-manut" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:14px;margin-bottom:20px;"></div>
+    <div class="card">
+      <h3 style="font-size:13px;font-weight:800;color:var(--primary);text-transform:uppercase;letter-spacing:1px;margin-bottom:14px;">🏆 Top 5 Equipamentos com Mais Paradas</h3>
+      <div id="top5-equip"></div>
+    </div>
+  </div>
+</main>
+
+<!-- MODAL OS -->
+<div id="modal-os" class="modal-overlay hidden">
+  <div class="modal modal-lg">
+    <div class="modal-header"><div class="modal-title" id="os-title">Nova Ordem de Serviço</div><button class="modal-close" onclick="closeModal('modal-os')">✕</button></div>
+    <div style="display:flex;flex-direction:column;gap:14px;">
+      <div class="form-grid-2">
+        <div class="form-group"><label class="form-label">Tipo <span class="req">*</span></label><select id="os-tipo" class="form-input"><option value="corretiva">🔧 Corretiva</option><option value="preventiva">📅 Preventiva</option><option value="preditiva">🔍 Preditiva</option></select></div>
+        <div class="form-group"><label class="form-label">Prioridade</label><select id="os-prior" class="form-input"><option value="urgente">🔴 Urgente</option><option value="alta">🟠 Alta</option><option value="normal" selected>🟡 Normal</option><option value="baixa">🟢 Baixa</option></select></div>
+      </div>
+      <div class="form-grid-2">
+        <div class="form-group"><label class="form-label">Equipamento / Ativo <span class="req">*</span></label><input id="os-equip" type="text" class="form-input" placeholder="Nome ou TAG do equipamento"></div>
+        <div class="form-group"><label class="form-label">Linha</label><select id="os-linha" class="form-input"><option value="">Geral</option><option>Linha 2</option><option>Linha 3</option><option>IMETEC</option><option>Frota</option><option>Predial</option></select></div>
+      </div>
+      <div class="form-grid-2">
+        <div class="form-group"><label class="form-label">Parte Estrutural</label><input id="os-parte" type="text" class="form-input" placeholder="Ex: Mancal, Rolamento, Motor"></div>
+        <div class="form-group"><label class="form-label">Especialidade</label><select id="os-espec" class="form-input"><option value="">Geral</option><option value="mecanica">⚙️ Mecânica</option><option value="eletrica">⚡ Elétrica</option><option value="hidraulica">💧 Hidráulica</option><option value="predial">🏗️ Predial</option></select></div>
+      </div>
+      <div class="form-group"><label class="form-label">Descrição / Problema <span class="req">*</span></label><textarea id="os-desc" class="form-input" rows="3" placeholder="Descreva detalhadamente o problema ou serviço a realizar..."></textarea></div>
+      <div class="form-grid-2">
+        <div class="form-group"><label class="form-label">Data de Abertura <span class="req">*</span></label><input id="os-dt-abert" type="date" class="form-input"></div>
+        <div class="form-group"><label class="form-label">Data Prevista Conclusão</label><input id="os-dt-prev" type="date" class="form-input"></div>
+      </div>
+      <div class="form-grid-2">
+        <div class="form-group"><label class="form-label">Técnico Responsável</label><input id="os-tecnico" type="text" class="form-input"></div>
+        <div class="form-group"><label class="form-label">Terceiro (prestador)</label><input id="os-terceiro" type="text" class="form-input" placeholder="Nome da empresa/prestador"></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">
+        <div class="form-group"><label class="form-label">H. Início</label><input id="os-h-ini" type="time" class="form-input"></div>
+        <div class="form-group"><label class="form-label">H. Final</label><input id="os-h-fin" type="time" class="form-input" onchange="calcHorasOS()"></div>
+        <div class="form-group"><label class="form-label">Total Horas (auto)</label><div style="padding:10px 12px;background:#e0f2fe;border:1.2px solid #7dd3fc;border-radius:8px;font-weight:700;color:#0369a1;" id="os-htotal-d">—</div></div>
+      </div>
+      <div class="form-grid-2">
+        <div class="form-group"><label class="form-label">Horímetro</label><input id="os-horimetro" type="number" class="form-input" min="0" step="0.01" placeholder="Horímetro no momento"></div>
+        <div class="form-group"><label class="form-label">Custo da Manutenção (R$)</label><input id="os-custo" type="number" class="form-input" min="0" step="0.01" placeholder="0,00"></div>
+      </div>
+      <div class="form-group"><label class="form-label">Peças Trocadas</label><textarea id="os-pecas" class="form-input" rows="2" placeholder="Liste as peças trocadas, quantidades e especificações..."></textarea></div>
+      <div class="form-group"><label class="form-label">Inspeção / Serviço Realizado</label><textarea id="os-servico" class="form-input" rows="2" placeholder="Descreva o serviço executado e resultado..."></textarea></div>
+      <div class="form-group"><label class="form-label">Status</label>
+        <select id="os-status" class="form-input"><option value="aberta">📋 Aberta</option><option value="em_andamento">🔄 Em Andamento</option><option value="concluida">✅ Concluída</option><option value="cancelada">❌ Cancelada</option></select>
+      </div>
+      <div id="os-error" class="hidden alert alert-danger"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-os')">Cancelar</button>
+      <button class="btn btn-primary" id="btn-salvar-os" onclick="salvarOS()">💾 Salvar OS</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL COMPONENTE -->
+<div id="modal-comp" class="modal-overlay hidden">
+  <div class="modal modal-lg">
+    <div class="modal-header"><div class="modal-title" id="comp-title">Registrar Revisão</div><button class="modal-close" onclick="closeModal('modal-comp')">✕</button></div>
+    <div style="display:flex;flex-direction:column;gap:14px;">
+      <div class="form-grid-2">
+        <div class="form-group"><label class="form-label">Linha <span class="req">*</span></label><select id="comp-linha" class="form-input"><option value="">Selecione...</option><option>Linha 2</option><option>Linha 3</option><option>IMETEC</option></select></div>
+        <div class="form-group"><label class="form-label">Equipamento <span class="req">*</span></label>
+          <select id="comp-equip" class="form-input"><option value="">Selecione...</option>
+            <option>Alimentador</option><option>Aditivador</option><option>Carambola do Filtro</option><option>Elevador de Caneca</option>
+            <option>Ensacadeira</option><option>Esteira de Sacos</option><option>Rosca Ensacadeira (baixo)</option>
+            <option>Rosca do Ciclone</option><option>Rosca do Filtro</option><option>Separador</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-grid-2">
+        <div class="form-group"><label class="form-label">Componente <span class="req">*</span></label>
+          <select id="comp-componente" class="form-input"><option value="">Selecione...</option>
+            <option>Mancal</option><option>Rolamento Dianteiro</option><option>Rolamento Traseiro</option>
+            <option>Bucha</option><option>Correia 1</option><option>Correia 2</option><option>Redutor</option><option>Eixo</option>
+          </select>
+        </div>
+        <div class="form-group"><label class="form-label">Tipo de Manutenção</label>
+          <select id="comp-tipo" class="form-input"><option value="preventiva">Preventiva</option><option value="corretiva">Corretiva</option></select>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">
+        <div class="form-group"><label class="form-label">Data da Revisão <span class="req">*</span></label><input id="comp-data" type="date" class="form-input"></div>
+        <div class="form-group"><label class="form-label">Horímetro Revisão</label><input id="comp-horim" type="number" class="form-input" min="0" step="0.01" placeholder="horas"></div>
+        <div class="form-group"><label class="form-label">Próxima Revisão (h)</label><input id="comp-prox" type="number" class="form-input" min="0" placeholder="intervalo em horas"></div>
+      </div>
+      <div class="form-group"><label class="form-label">Responsável</label><input id="comp-resp" type="text" class="form-input"></div>
+      <div class="form-group"><label class="form-label">Observações</label><textarea id="comp-obs" class="form-input" rows="2"></textarea></div>
+      <div id="comp-error" class="hidden alert alert-danger"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-comp')">Cancelar</button>
+      <button class="btn btn-primary" id="btn-salvar-comp" onclick="salvarComponente()">💾 Salvar Revisão</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL FILTRO MANGA -->
+<div id="modal-filtro" class="modal-overlay hidden">
+  <div class="modal modal-lg">
+    <div class="modal-header"><div class="modal-title" id="filtro-title">Nova Troca de Filtro Manga</div><button class="modal-close" onclick="closeModal('modal-filtro')">✕</button></div>
+    <div style="display:flex;flex-direction:column;gap:14px;">
+      <div class="form-grid-2">
+        <div class="form-group"><label class="form-label">Linha <span class="req">*</span></label><select id="fm-linha" class="form-input"><option value="">Selecione...</option><option>Linha 2</option><option>Linha 3</option><option>IMETEC</option></select></div>
+        <div class="form-group"><label class="form-label">Medida (NOMEX) <span class="req">*</span></label><input id="fm-medida" type="text" class="form-input" placeholder="Ex: NOMEX 550 G/M² — 160x3600 MM"></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">
+        <div class="form-group"><label class="form-label">Quantidade</label><input id="fm-qtd" type="number" class="form-input" min="1" value="1"></div>
+        <div class="form-group"><label class="form-label">Data da Troca <span class="req">*</span></label><input id="fm-data" type="date" class="form-input"></div>
+        <div class="form-group"><label class="form-label">Intervalo (horas)</label><input id="fm-interv" type="number" class="form-input" min="0" placeholder="h"></div>
+      </div>
+      <div class="form-grid-2">
+        <div class="form-group"><label class="form-label">Horímetro Revisão</label><input id="fm-horim" type="number" class="form-input" min="0" step="0.01"></div>
+        <div class="form-group"><label class="form-label">Responsável</label><input id="fm-resp" type="text" class="form-input"></div>
+      </div>
+      <div class="form-grid-2">
+        <div class="form-group"><label class="form-label">Teste de Chaminé</label><select id="fm-chamine" class="form-input"><option value="">Não realizado</option><option value="OK">✅ OK</option><option value="NOK">❌ NOK</option></select></div>
+        <div class="form-group"><label class="form-label">Observações</label><input id="fm-obs" type="text" class="form-input"></div>
+      </div>
+      <div id="fm-error" class="hidden alert alert-danger"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-filtro')">Cancelar</button>
+      <button class="btn btn-primary" id="btn-salvar-fm" onclick="salvarFiltro()">💾 Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL CRONOGRAMA -->
+<div id="modal-cron" class="modal-overlay hidden">
+  <div class="modal modal-lg">
+    <div class="modal-header"><div class="modal-title">Nova Tarefa no Cronograma</div><button class="modal-close" onclick="closeModal('modal-cron')">✕</button></div>
+    <div style="display:flex;flex-direction:column;gap:14px;">
+      <div class="form-group"><label class="form-label">Equipamento <span class="req">*</span></label><input id="cron-equip" type="text" class="form-input" placeholder="Nome do equipamento"></div>
+      <div class="form-group"><label class="form-label">Descrição da Tarefa <span class="req">*</span></label><textarea id="cron-desc" class="form-input" rows="2"></textarea></div>
+      <div class="form-grid-2">
+        <div class="form-group"><label class="form-label">Equipe / Técnico</label><input id="cron-equipe" type="text" class="form-input"></div>
+        <div class="form-group"><label class="form-label">Status</label><select id="cron-status" class="form-input"><option value="PLAN">📋 Planejado</option><option value="REALIZADO">✅ Realizado</option></select></div>
+      </div>
+      <div class="form-grid-2">
+        <div class="form-group"><label class="form-label">Data Início <span class="req">*</span></label><input id="cron-dt-ini" type="date" class="form-input"></div>
+        <div class="form-group"><label class="form-label">Data Fim</label><input id="cron-dt-fim" type="date" class="form-input"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-cron')">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarCron()">💾 Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL CADASTRO FROTA -->
+<div id="modal-frota-cad" class="modal-overlay hidden">
+  <div class="modal modal-lg" style="max-width:600px;">
+    <div class="modal-header"><div class="modal-title">🚜 Cadastrar Veículo / Máquina</div><button class="modal-close" onclick="closeModal('modal-frota-cad')">✕</button></div>
+    <div style="display:flex;flex-direction:column;gap:12px;">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div class="form-group"><label class="form-label">Nome / Identificação *</label><input id="fc-nome" type="text" class="form-input" placeholder="Ex: Empilhadeira Clark 55C"></div>
+        <div class="form-group"><label class="form-label">Tipo *</label>
+          <select id="fc-tipo" class="form-input">
+            <option value="empilhadeira">🏗️ Empilhadeira</option>
+            <option value="carregadeira">🚜 Carregadeira</option>
+            <option value="caminhao">🚛 Caminhão</option>
+            <option value="pipa">🚒 Caminhão Pipa</option>
+            <option value="outro">🚗 Outro</option>
+          </select>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
+        <div class="form-group"><label class="form-label">Placa</label><input id="fc-placa" type="text" class="form-input" placeholder="ABC-1234"></div>
+        <div class="form-group"><label class="form-label">Marca</label><input id="fc-marca" type="text" class="form-input" placeholder="Clark, Toyota..."></div>
+        <div class="form-group"><label class="form-label">Modelo</label><input id="fc-modelo" type="text" class="form-input"></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div class="form-group"><label class="form-label">Ano</label><input id="fc-ano" type="number" class="form-input" placeholder="2020"></div>
+        <div class="form-group"><label class="form-label">Tipo de Revisão *</label>
+          <select id="fc-tipo-rev" class="form-input" onchange="toggleTipoRev()">
+            <option value="horas">⏱️ Por Horímetro (horas)</option>
+            <option value="data">📅 Por Data (caminhão pipa)</option>
+          </select>
+        </div>
+      </div>
+      <div id="fc-rev-horas-box" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div class="form-group"><label class="form-label">Revisão a cada (horas)</label><input id="fc-rev-horas" type="number" class="form-input" placeholder="250"></div>
+        <div class="form-group"><label class="form-label">Horímetro Atual (h)</label><input id="fc-horimetro" type="number" class="form-input" step="0.1" placeholder="0"></div>
+      </div>
+      <div id="fc-rev-data-box" style="display:none;">
+        <div class="form-group"><label class="form-label">Próxima Revisão (data)</label><input id="fc-proxima-rev" type="date" class="form-input"></div>
+      </div>
+      <div class="form-group"><label class="form-label">Observações</label><textarea id="fc-obs" class="form-input" rows="2"></textarea></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-frota-cad')">Cancelar</button>
+      <button class="btn btn-primary" id="btn-salvar-fc" onclick="salvarFrotaCad()">💾 Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL DOCUMENTAÇÃO -->
+<div id="modal-doc" class="modal-overlay hidden">
+  <div class="modal modal-lg" style="max-width:580px;">
+    <div class="modal-header"><div class="modal-title">📁 Adicionar Documento Técnico</div><button class="modal-close" onclick="closeModal('modal-doc')">✕</button></div>
+    <div style="display:flex;flex-direction:column;gap:12px;">
+      <div class="form-group"><label class="form-label">Equipamento *</label>
+        <select id="doc-equipamento" class="form-input"></select>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div class="form-group"><label class="form-label">Categoria</label>
+          <select id="doc-categoria" class="form-input">
+            <option value="linha">⚙️ Equipamento Linha</option>
+            <option value="geral">🏭 Equipamento Geral</option>
+            <option value="frota">🚜 Frota</option>
+          </select>
+        </div>
+        <div class="form-group"><label class="form-label">Tipo de Documento</label>
+          <select id="doc-tipo" class="form-input">
+            <option value="manual">📖 Manual</option>
+            <option value="desenho">📐 Desenho Técnico</option>
+            <option value="esquema">⚡ Esquema Elétrico</option>
+            <option value="ficha">📋 Ficha Técnica</option>
+            <option value="outro">📎 Outro</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group"><label class="form-label">Nome do Documento *</label><input id="doc-nome" type="text" class="form-input" placeholder="Ex: Manual do Operador — Empilhadeira Clark"></div>
+      <div class="form-group"><label class="form-label">Descrição</label><textarea id="doc-descricao" class="form-input" rows="2" placeholder="Descrição do conteúdo, versão, revisão..."></textarea></div>
+      <div class="form-group">
+        <label class="form-label">URL / Link do Documento</label>
+        <input id="doc-url" type="url" class="form-input" placeholder="https://drive.google.com/... ou link direto do PDF">
+        <div style="font-size:11px;color:#94a3b8;margin-top:4px;">💡 Suba o arquivo no Google Drive, Dropbox ou qualquer nuvem e cole o link aqui</div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-doc')">Cancelar</button>
+      <button class="btn btn-primary" id="btn-salvar-doc" onclick="salvarDoc()">💾 Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL EXECUTAR REVISÃO -->
+<div id="modal-revisao" class="modal-overlay hidden">
+  <div class="modal modal-lg" style="max-width:520px;">
+    <div class="modal-header"><div class="modal-title">✅ Executar Revisão</div><button class="modal-close" onclick="closeModal('modal-revisao')">✕</button></div>
+    <div style="display:flex;flex-direction:column;gap:12px;">
+      <div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:10px;padding:12px 14px;">
+        <div style="font-size:11px;color:#16a34a;font-weight:700;text-transform:uppercase;margin-bottom:2px;">Componente</div>
+        <div style="font-weight:800;font-size:14px;color:var(--primary);" id="rev-equip-nome">—</div>
+        <div style="font-size:12px;color:#64748b;margin-top:4px;">Horímetro atual do equipamento: <strong id="rev-horimetro-atual">—</strong> &nbsp;|&nbsp; Último horímetro do componente: <strong id="rev-comp-ultimo">—</strong></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div class="form-group"><label class="form-label">Tipo de Manutenção</label>
+          <select id="rev-tipo" class="form-input">
+            <option value="preventiva">📅 Preventiva</option>
+            <option value="corretiva">🔧 Corretiva</option>
+            <option value="preditiva">🔍 Preditiva</option>
+          </select>
+        </div>
+        <div class="form-group"><label class="form-label">Novo Horímetro (h) *</label>
+          <input id="rev-novo-horimetro" type="number" class="form-input" placeholder="Ex: 75500" step="0.1" min="0">
+        </div>
+      </div>
+      <div class="form-group"><label class="form-label">Responsável *</label>
+        <input id="rev-responsavel" type="text" class="form-input" placeholder="Nome do mecânico / eletricista">
+      </div>
+      <div class="form-group"><label class="form-label">Observações</label>
+        <textarea id="rev-obs" class="form-input" rows="2" placeholder="Peças trocadas, serviço realizado..."></textarea>
+      </div>
+      <div style="background:#fef9c3;border:1px solid #fde68a;border-radius:8px;padding:10px 12px;font-size:12px;color:#92400e;">
+        💡 Uma OS será criada automaticamente e o horímetro do componente será atualizado em <strong>Equip. Linhas / Gerais</strong>.
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-revisao')">Cancelar</button>
+      <button class="btn btn-primary" id="btn-salvar-rev" style="background:#16a34a;" onclick="salvarRevisao()">✅ Confirmar Revisão</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL PROGRAMAR REVISÃO -->
+<div id="modal-programar" class="modal-overlay hidden">
+  <div class="modal" style="max-width:460px;">
+    <div class="modal-header"><div class="modal-title">📅 Programar Revisão</div><button class="modal-close" onclick="closeModal('modal-programar')">✕</button></div>
+    <div style="display:flex;flex-direction:column;gap:12px;">
+      <div style="background:#eff6ff;border:1.5px solid #93c5fd;border-radius:10px;padding:10px 12px;">
+        <div style="font-size:11px;color:#2563eb;font-weight:700;text-transform:uppercase;margin-bottom:2px;">Componente</div>
+        <div style="font-weight:800;font-size:13px;color:var(--primary);" id="prog-equip-nome">—</div>
+      </div>
+      <div class="form-group"><label class="form-label">Data da Revisão *</label>
+        <input id="prog-data" type="date" class="form-input">
+      </div>
+      <div class="form-group"><label class="form-label">Responsável</label>
+        <input id="prog-responsavel" type="text" class="form-input" placeholder="Mecânico / eletricista responsável">
+      </div>
+      <div class="form-group"><label class="form-label">Observações</label>
+        <textarea id="prog-obs" class="form-input" rows="2" placeholder="Instruções, materiais necessários..."></textarea>
+      </div>
+      <div style="background:#fef9c3;border:1px solid #fde68a;border-radius:8px;padding:10px 12px;font-size:12px;color:#92400e;">
+        💡 Uma OS será aberta com data prevista e o componente ficará com revisão programada.
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-programar')">Cancelar</button>
+      <button class="btn btn-primary" id="btn-salvar-prog" onclick="salvarProgramacao()">📅 Programar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL CONFIRM -->
+<div id="modal-confirm" class="modal-overlay hidden">
+  <div class="modal" style="max-width:420px;">
+    <div class="modal-header"><div class="modal-title">⚠️ Confirmar</div><button class="modal-close" onclick="closeModal('modal-confirm')">✕</button></div>
+    <p id="confirm-msg" style="font-size:14px;color:#475569;line-height:1.6;"></p>
+    <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('modal-confirm')">Cancelar</button><button class="btn btn-danger" id="confirm-ok-btn">Confirmar</button></div>
+  </div>
+</div>
+<div id="toast-container"></div>
+
+<script>
+
+
+
+let _eOSId=null, _eCompId=null, _eFiltroId=null, _eFrotaId=null, _eFrotaCad=null, _eDoc=null;
+let _ordens=[], _componentes=[], _filtros=[], _frota=[], _cronograma=[];
+let _eqLinhas=[], _eqGerais=[], _frotaCad=[], _docs=[], _linhasProd=[];
+const EQUIPOS_MECANICA=['Alimentador','Aditivador','Carambola do Filtro','Elevador de Caneca','Ensacadeira','Esteira de Sacos','Rosca Ensacadeira (baixo)','Rosca do Ciclone','Rosca do Filtro','Separador'];
+const COMPS_MECANICA=['Mancal','Rolamento Dianteiro','Rolamento Traseiro','Bucha','Correia 1','Correia 2','Redutor','Eixo'];
+const EQUIPOS_FROTA=['COMAQ','Empilhadeira Clark 55C','Empilhadeira Toyota','Caminhão Pipa','Caminhão Munck','JCB Carregadeira','KOMAC','Trator','Bongoo'];
+const LINHAS_PROD=['Linha 2','Linha 3','IMETEC'];
+
+fetch('partials/sidebar.html').then(r=>r.text()).then(html=>{
+  document.getElementById('sidebar-container').innerHTML=html;
+  document.querySelector('[href="manutencao.html"]')?.classList.add('active');
+  openGroup('operacoes');
+});
+initSidebar('manutencao.html');
+
+// ═══════════════════════════════════════════
+// MONITOR INTERATIVO
+// ═══════════════════════════════════════════
+let _selComps=[]; // {equipId, compIdx, tabela, equipNome, compNome}
+
+function calcStatus(comp, horimetroEquip){
+  const intv=parseFloat(comp.intervalo_revisao)||0;
+  const compH=parseFloat(comp.horimetro_componente)||0;
+  const hTrab=horimetroEquip>0&&compH>0?horimetroEquip-compH:horimetroEquip||0;
+  const prox=intv>0?intv-hTrab:null;
+  return {intv,compH,hTrab,prox,
+    vencido:prox!==null&&prox<=0,
+    proximo:prox!==null&&prox>0&&prox<=intv*0.2};
+}
+
+function renderMonitor(){
+  const hoje=new Date().toISOString().split('T')[0];
+  // KPIs
+  const osAb=_ordens.filter(o=>['aberta','em_andamento'].includes(o.status));
+  let compVencL=0,compVencG=0;
+  _eqLinhas.forEach(e=>(e.componentes||[]).forEach(comp=>{if(calcStatus(comp,e.horimetro||0).vencido)compVencL++;}));
+  _eqGerais.forEach(e=>(e.componentes||[]).forEach(comp=>{if(calcStatus(comp,e.horimetro||0).vencido)compVencG++;}));
+  const vencF=_frotaCad.filter(v=>v.tipo_revisao==='data'?(v.proxima_revisao&&v.proxima_revisao<=hoje):(v.revisao_horas>0&&(v.horimetro_atual||0)>=v.revisao_horas)).length;
+  document.getElementById('monitor-kpis').innerHTML=[
+    ['📋 OS Abertas',osAb.length,osAb.length>0?'#dc2626':'#16a34a'],
+    ['⚙️ Rev. Vencidas Linha',compVencL,compVencL>0?'#dc2626':'#16a34a'],
+    ['🏭 Rev. Vencidas Geral',compVencG,compVencG>0?'#dc2626':'#16a34a'],
+    ['🚜 Frota Vencida',vencF,vencF>0?'#dc2626':'#16a34a'],
+    ['✅ Selecionados',_selComps.length,_selComps.length>0?'#2563eb':'#94a3b8'],
+  ].map(([t,v,cor])=>`<div class="kpi-manut" style="cursor:default"><div style="font-size:22px;font-weight:800;color:${cor};">${v}</div><div style="font-size:11px;color:#64748b;margin-top:2px;">${t}</div></div>`).join('');
+
+  // Agrupar equipamentos por linha
+  const porLinha={};
+  _eqLinhas.forEach(e=>{const l=e.linha||'Sem Linha';if(!porLinha[l])porLinha[l]=[];porLinha[l].push(e);});
+
+  const linhasEl=document.getElementById('monitor-linhas-prod');
+  if(!linhasEl)return;
+
+  // Buscar linhas reais do Supabase (_linhasProd já carregadas)
+  const linhasOrdem=_linhasProd.length?_linhasProd.map(l=>l.nome):Object.keys(porLinha).sort();
+  const todasLinhas=[...new Set([...linhasOrdem,...Object.keys(porLinha)])];
+
+  linhasEl.innerHTML='';
+  todasLinhas.forEach(nomeLinha=>{
+    const equips=porLinha[nomeLinha]||[];
+    const linhaObj=_linhasProd.find(l=>l.nome===nomeLinha)||{};
+    let totalVenc=0,totalComp=0;
+    equips.forEach(e=>(e.componentes||[]).forEach(comp=>{totalComp++;if(calcStatus(comp,e.horimetro||0).vencido)totalVenc++;}));
+    const div=document.createElement('div');
+    div.style.cssText='background:#fff;border-radius:12px;border:1.5px solid '+(totalVenc>0?'#fca5a5':'#e2e8f0')+';overflow:hidden;margin-bottom:4px;';
+    div.innerHTML=`
+      <div class="monitor-linha-header" onclick="toggleLinha(this)" style="padding:14px 16px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;background:${totalVenc>0?'#fff5f5':'#f8fafc'};user-select:none;">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <span style="font-size:18px;">${totalVenc>0?'🔴':'🟢'}</span>
+          <div>
+            <div style="font-weight:800;font-size:14px;color:var(--primary);">${nomeLinha}</div>
+            <div style="font-size:11px;color:#94a3b8;">${equips.length} equip. &nbsp;|&nbsp; Horímetro: <strong>${(linhaObj.horimetro||0).toFixed(1)}h</strong> &nbsp;|&nbsp; ${totalComp} componentes</div>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          ${totalVenc>0?`<span style="background:#fee2e2;color:#dc2626;font-size:11px;font-weight:700;padding:3px 10px;border-radius:8px;">⚠️ ${totalVenc} vencido(s)</span>`:''}
+          <span class="toggle-icon" style="font-size:18px;color:#94a3b8;transition:transform .2s;">▼</span>
+        </div>
+      </div>
+      <div class="monitor-linha-body" style="display:none;padding:12px;background:#fafbfc;">
+        ${equips.length?renderEquipamentos(equips,'linhas'):'<p style="color:#94a3b8;font-size:12px;padding:8px;">Nenhum equipamento cadastrado para esta linha. <a href="equip-linhas.html">Cadastrar</a></p>'}
+      </div>`;
+    linhasEl.appendChild(div);
+  });
+
+  if(!todasLinhas.length) linhasEl.innerHTML='<p style="color:#94a3b8;font-size:13px;padding:16px;">Nenhuma linha cadastrada. <a href="linhas.html">Cadastrar linhas</a></p>';
+
+  // Equipamentos Gerais
+  const geraisEl=document.getElementById('monitor-gerais-prod');
+  geraisEl.innerHTML='';
+  if(_eqGerais.length){
+    const div=document.createElement('div');
+    div.style.cssText='background:#fff;border-radius:12px;border:1.5px solid #e2e8f0;overflow:hidden;';
+    let gVenc=0; _eqGerais.forEach(e=>(e.componentes||[]).forEach(comp=>{if(calcStatus(comp,e.horimetro||0).vencido)gVenc++;}));
+    div.innerHTML=`
+      <div class="monitor-linha-header" onclick="toggleLinha(this)" style="padding:14px 16px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;background:${gVenc>0?'#fff5f5':'#f8fafc'};user-select:none;">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <span style="font-size:18px;">${gVenc>0?'🔴':'🟢'}</span>
+          <div>
+            <div style="font-weight:800;font-size:14px;color:var(--primary);">Equipamentos Gerais</div>
+            <div style="font-size:11px;color:#94a3b8;">${_eqGerais.length} equipamentos fora das linhas</div>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          ${gVenc>0?`<span style="background:#fee2e2;color:#dc2626;font-size:11px;font-weight:700;padding:3px 10px;border-radius:8px;">⚠️ ${gVenc} vencido(s)</span>`:''}
+          <span class="toggle-icon" style="font-size:18px;color:#94a3b8;">▼</span>
+        </div>
+      </div>
+      <div class="monitor-linha-body" style="display:none;padding:12px;background:#fafbfc;">
+        ${renderEquipamentos(_eqGerais,'gerais')}
+      </div>`;
+    geraisEl.appendChild(div);
+  } else {
+    geraisEl.innerHTML='<p style="color:#94a3b8;font-size:13px;padding:8px;">Nenhum equipamento geral. <a href="equip-gerais.html">Cadastrar</a></p>';
+  }
+
+  // Frota
+  const frotaEl=document.getElementById('monitor-frota');
+  frotaEl.innerHTML=_frotaCad.map(v=>{
+    const vencido=v.tipo_revisao==='data'?(v.proxima_revisao&&v.proxima_revisao<=hoje):(v.revisao_horas>0&&(v.horimetro_atual||0)>=v.revisao_horas);
+    const pct=v.tipo_revisao==='horas'&&v.revisao_horas>0?Math.min(100,(v.horimetro_atual||0)/v.revisao_horas*100):0;
+    const cor=vencido?'#dc2626':'#16a34a';
+    const ic={empilhadeira:'🏗️',carregadeira:'🚜',caminhao:'🚛',pipa:'🚒',outro:'🚗'}[v.tipo]||'🚜';
+    return`<div style="background:#fff;border-radius:12px;padding:14px;border:1.5px solid ${vencido?'#fca5a5':'#e2e8f0'};">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
+        <div><div style="font-size:20px;">${ic}</div><div style="font-weight:700;font-size:13px;color:var(--primary);margin-top:2px;">${v.nome}</div><div style="font-size:10px;color:#94a3b8;">${v.placa||'—'} | ${v.marca||''} ${v.modelo||''}</div></div>
+        <span style="font-size:11px;font-weight:800;color:${cor};">${vencido?'⚠️ VENCIDA':'✅ OK'}</span>
+      </div>
+      ${v.tipo_revisao==='horas'?`<div style="font-size:11px;color:#64748b;margin-bottom:4px;">${(v.horimetro_atual||0)}h / ${v.revisao_horas||0}h</div><div style="background:#f1f5f9;border-radius:3px;height:5px;overflow:hidden;margin-bottom:8px;"><div style="height:100%;background:${cor};width:${pct.toFixed(0)}%;"></div></div>`:`<div style="font-size:11px;color:#64748b;margin-bottom:8px;">Próx. revisão: <strong style="color:${cor};">${v.proxima_revisao||'—'}</strong></div>`}
+      <button class="btn btn-secondary btn-sm" style="width:100%;" onclick="abrirOSFrota('${v.nome}')">🔧 Abrir OS</button>
+    </div>`;
+  }).join('')||'<p style="color:#94a3b8;font-size:13px;">Cadastre veículos na aba Cadastro Frota</p>';
+
+  // OS abertas
+  const osEl=document.getElementById('monitor-os-abertas');
+  const osAbertas=_ordens.filter(o=>['aberta','em_andamento'].includes(o.status));
+  osEl.innerHTML=osAbertas.slice(0,6).map(o=>{
+    const cor=o.prioridade==='urgente'?'#dc2626':o.prioridade==='alta'?'#f59e0b':'#64748b';
+    return`<div style="display:flex;align-items:center;gap:12px;padding:10px 14px;background:#fff;border-radius:8px;border:1.2px solid #e2e8f0;border-left:3px solid ${cor};">
+      <div style="flex:1;"><span style="font-weight:700;color:var(--primary);font-size:12px;">OS-${String(o.numero||0).padStart(4,'0')}</span> <span style="font-size:12px;color:#64748b;">${o.equipamento||'—'}${o.linha?' — '+o.linha:''}</span></div>
+      <span style="font-size:10px;font-weight:700;color:${cor};text-transform:uppercase;">${o.prioridade}</span>
+      <button class="btn btn-secondary btn-sm" onclick="editarOS('${o.id}')">✏️</button>
+    </div>`;
+  }).join('')||'<div style="text-align:center;color:#94a3b8;padding:20px;">✅ Nenhuma OS aberta</div>';
+}
+
+function renderEquipamentos(equips, tabela){
+  return equips.map(e=>{
+    const comps=e.componentes||[];
+    const horimetro=parseFloat(e.horimetro)||0;
+    let nVenc=0,nProx=0;
+    comps.forEach(comp=>{const st=calcStatus(comp,horimetro);if(st.vencido)nVenc++;else if(st.proximo)nProx++;});
+    const osE=_ordens.filter(o=>o.equipamento===e.nome&&['aberta','em_andamento'].includes(o.status)).length;
+    const selComps=_selComps.filter(s=>s.equipId===e.id);
+    return`<div style="background:#fff;border-radius:10px;border:1.5px solid ${nVenc>0?'#fca5a5':nProx>0?'#fde68a':'#e2e8f0'};margin-bottom:6px;overflow:hidden;">
+      <div class="monitor-equip-header" onclick="toggleEquip(this)" style="padding:10px 14px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;user-select:none;background:${nVenc>0?'#fff8f8':'#fff'};">
+        <div style="display:flex;align-items:center;gap:10px;">
+          ${e.foto?`<img src="${e.foto}" style="width:36px;height:36px;border-radius:6px;object-fit:cover;flex-shrink:0;">`:'<div style="width:36px;height:36px;border-radius:6px;background:#f1f5f9;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;">⚙️</div>'}
+          <div>
+            <div style="font-weight:700;font-size:13px;color:var(--primary);">${e.nome} <span style="font-size:10px;color:#94a3b8;">${e.codigo||''}</span></div>
+            <div style="font-size:10px;color:#94a3b8;">Horímetro: ${horimetro.toFixed(1)}h &nbsp;|&nbsp; ${comps.length} componente(s)${osE>0?' | 🔧 '+osE+' OS':''}</div>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;">
+          ${nVenc>0?`<span style="background:#fee2e2;color:#dc2626;font-size:10px;font-weight:700;padding:2px 8px;border-radius:8px;">⚠️ ${nVenc} venc.</span>`:''}
+          ${nProx>0?`<span style="background:#fef9c3;color:#b45309;font-size:10px;font-weight:700;padding:2px 8px;border-radius:8px;">⚡ ${nProx} próx.</span>`:''}
+          ${selComps.length>0?`<span style="background:#dbeafe;color:#2563eb;font-size:10px;font-weight:700;padding:2px 8px;border-radius:8px;">✓ ${selComps.length}</span>`:''}
+          <span class="toggle-icon" style="font-size:16px;color:#94a3b8;">▼</span>
+        </div>
+      </div>
+      <div class="monitor-equip-body" style="display:none;padding:10px 14px;border-top:1px solid #f1f5f9;">
+        ${comps.length?renderComponentes(e,comps,tabela):'<p style="color:#94a3b8;font-size:12px;padding:4px 0;">Nenhum componente cadastrado.</p>'}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderComponentes(equip, comps, tabela){
+  const horimetro=parseFloat(equip.horimetro)||0;
+  let html='<div style="display:flex;justify-content:flex-end;gap:6px;margin-bottom:8px;">';
+  html+=`<button class="btn btn-sm" style="background:#2563eb;color:#fff;border:none;font-size:11px;" onclick="selecionarTodosEquip('${equip.id}',${JSON.stringify(equip.nome).replace(/"/g,"'")},${JSON.stringify(comps.map((_,i)=>i))})">☑️ Sel. todos</button>`;
+  html+=`<button class="btn btn-secondary btn-sm" style="font-size:11px;" onclick="abrirOSFrota('${equip.nome}')">🔧 Nova OS</button>`;
+  html+='</div>';
+  html+='<div style="display:flex;flex-direction:column;gap:6px;">';
+  comps.forEach((comp,idx)=>{
+    const st=calcStatus(comp,horimetro);
+    const isSelected=_selComps.some(s=>s.equipId===equip.id&&s.compIdx===idx);
+    const cor=st.vencido?'#dc2626':st.proximo?'#b45309':'#16a34a';
+    const bg=st.vencido?'#fff5f5':st.proximo?'#fffbeb':'#f8fafc';
+    const pct=st.intv>0?Math.min(100,st.hTrab/st.intv*100):0;
+    html+=`<div style="background:${bg};border-radius:8px;padding:10px 12px;border:1.5px solid ${isSelected?'#2563eb':st.vencido?'#fca5a5':st.proximo?'#fde68a':'#e2e8f0'};${isSelected?'box-shadow:0 0 0 2px #bfdbfe;':''}">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px;">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <input type="checkbox" ${isSelected?'checked':''} onchange="toggleSelComp(this,'${equip.id}','${tabela}',${idx},'${equip.nome}','${comp.nome?.replace(/'/g,"\\'")||''}')" style="width:15px;height:15px;cursor:pointer;accent-color:#2563eb;">
+          ${comp.foto_componente?`<img src="${comp.foto_componente}" style="width:32px;height:32px;border-radius:5px;object-fit:cover;">`:''}
+          <div>
+            <div style="font-weight:700;font-size:12px;color:var(--primary);">${comp.nome||'—'}</div>
+            <div style="font-size:10px;color:#94a3b8;">${comp.fabricante||''} ${comp.codigo?'| '+comp.codigo:''} ${comp.qtd?'| '+comp.qtd+' '+( comp.unidade||'un'):''}</div>
+          </div>
+        </div>
+        <span style="font-size:11px;font-weight:700;color:${cor};white-space:nowrap;">${st.vencido?'🔴 VENC.':st.proximo?'⚡ PRÓX.':'✅ OK'}</span>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;font-size:11px;color:#64748b;margin-bottom:6px;">
+        <div>Último horímetro:<br><strong>${st.compH>0?st.compH+'h':'—'}</strong></div>
+        <div>H. trabalhadas:<br><strong>${st.hTrab>0?st.hTrab.toFixed(1)+'h':'—'}</strong></div>
+        <div>Próx. troca:<br><strong style="color:${cor};">${st.prox!==null?st.prox.toFixed(0)+'h (cada '+st.intv+'h)':'—'}</strong></div>
+      </div>
+      ${st.intv>0?`<div style="background:#e2e8f0;border-radius:3px;height:5px;overflow:hidden;margin-bottom:8px;"><div style="height:100%;background:${cor};width:${pct.toFixed(0)}%;border-radius:3px;transition:width .3s;"></div></div>`:''}
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">
+        <button class="btn btn-sm" style="background:#16a34a;color:#fff;border:none;font-size:11px;" onclick="abrirRevisao('${equip.id}','${tabela}',${idx},'${equip.nome?.replace(/'/g,"\\'")||''}','${comp.nome?.replace(/'/g,"\\'")||''}',${horimetro})">✅ Executar Revisão</button>
+        <button class="btn btn-sm" style="background:#2563eb;color:#fff;border:none;font-size:11px;" onclick="programarRevisao('${equip.id}','${tabela}',${idx},'${equip.nome?.replace(/'/g,"\\'")||''}','${comp.nome?.replace(/'/g,"\\'")||''}')">📅 Programar</button>
+        ${st.vencido?`<button class="btn btn-sm" style="background:#dc2626;color:#fff;border:none;font-size:11px;" onclick="abrirOSComp('${equip.nome?.replace(/'/g,"\\'")||''}','${comp.nome?.replace(/'/g,"\\'")||''}','${equip.linha||''}')">🚨 Abrir OS Urgente</button>`:''}
+      </div>
+    </div>`;
+  });
+  html+='</div>';
+  return html;
+}
+
+function toggleLinha(header){
+  const body=header.nextElementSibling;
+  const icon=header.querySelector('.toggle-icon');
+  const open=body.style.display==='none';
+  body.style.display=open?'block':'none';
+  if(icon)icon.style.transform=open?'rotate(180deg)':'rotate(0)';
+}
+function toggleEquip(header){
+  const body=header.nextElementSibling;
+  const icon=header.querySelector('.toggle-icon');
+  const open=body.style.display==='none';
+  body.style.display=open?'block':'none';
+  if(icon)icon.style.transform=open?'rotate(180deg)':'rotate(0)';
+}
+
+function toggleSelComp(cb, equipId, tabela, compIdx, equipNome, compNome){
+  if(cb.checked){
+    if(!_selComps.some(s=>s.equipId===equipId&&s.compIdx===compIdx))
+      _selComps.push({equipId,tabela,compIdx,equipNome,compNome});
+  } else {
+    _selComps=_selComps.filter(s=>!(s.equipId===equipId&&s.compIdx===compIdx));
+  }
+  atualizarToolbar();
+}
+function selecionarTodosEquip(equipId, equipNome, idxs){
+  const equip=(_eqLinhas.concat(_eqGerais)).find(e=>e.id===equipId);
+  const tabela=_eqLinhas.find(e=>e.id===equipId)?'linhas':'gerais';
+  if(!equip)return;
+  const comps=equip.componentes||[];
+  // Remover existentes deste equip
+  _selComps=_selComps.filter(s=>s.equipId!==equipId);
+  comps.forEach((comp,idx)=>{_selComps.push({equipId,tabela,compIdx:idx,equipNome,compNome:comp.nome||'—'});});
+  atualizarToolbar();
+  renderMonitor();
+}
+function limparSelecao(){_selComps=[];atualizarToolbar();renderMonitor();}
+function atualizarToolbar(){
+  const tb=document.getElementById('monitor-toolbar');
+  const cnt=document.getElementById('toolbar-count');
+  if(tb){tb.style.display=_selComps.length>0?'flex':'none';if(cnt)cnt.textContent=_selComps.length;}
+  const kpiSel=document.getElementById('monitor-kpis');
+  if(kpiSel) renderMonitorKpis();
+}
+function renderMonitorKpis(){
+  const hoje=new Date().toISOString().split('T')[0];
+  const osAb=_ordens.filter(o=>['aberta','em_andamento'].includes(o.status));
+  let cVL=0,cVG=0;
+  _eqLinhas.forEach(e=>(e.componentes||[]).forEach(comp=>{if(calcStatus(comp,e.horimetro||0).vencido)cVL++;}));
+  _eqGerais.forEach(e=>(e.componentes||[]).forEach(comp=>{if(calcStatus(comp,e.horimetro||0).vencido)cVG++;}));
+  const vF=_frotaCad.filter(v=>v.tipo_revisao==='data'?(v.proxima_revisao&&v.proxima_revisao<=hoje):(v.revisao_horas>0&&(v.horimetro_atual||0)>=v.revisao_horas)).length;
+  document.getElementById('monitor-kpis').innerHTML=[
+    ['📋 OS Abertas',osAb.length,osAb.length>0?'#dc2626':'#16a34a'],
+    ['⚙️ Rev. Vencidas Linha',cVL,cVL>0?'#dc2626':'#16a34a'],
+    ['🏭 Rev. Vencidas Geral',cVG,cVG>0?'#dc2626':'#16a34a'],
+    ['🚜 Frota Vencida',vF,vF>0?'#dc2626':'#16a34a'],
+    ['✅ Selecionados',_selComps.length,_selComps.length>0?'#2563eb':'#94a3b8'],
+  ].map(([t,v,cor])=>`<div class="kpi-manut"><div style="font-size:22px;font-weight:800;color:${cor};">${v}</div><div style="font-size:11px;color:#64748b;margin-top:2px;">${t}</div></div>`).join('');
+}
+
+// Abrir modal de execução de revisão
+function abrirRevisao(equipId, tabela, compIdx, equipNome, compNome, horimetroAtual){
+  const equip=tabela==='linhas'?_eqLinhas.find(e=>e.id===equipId):_eqGerais.find(e=>e.id===equipId);
+  if(!equip)return;
+  const comp=(equip.componentes||[])[compIdx];
+  if(!comp)return;
+  document.getElementById('rev-equip-nome').textContent=equipNome+' → '+compNome;
+  document.getElementById('rev-horimetro-atual').textContent=(horimetroAtual||0).toFixed(1)+'h';
+  document.getElementById('rev-comp-ultimo').textContent=comp.horimetro_componente?comp.horimetro_componente+'h':'—';
+  document.getElementById('rev-novo-horimetro').value=horimetroAtual||'';
+  document.getElementById('rev-responsavel').value='';
+  document.getElementById('rev-obs').value='';
+  document.getElementById('rev-tipo').value='preventiva';
+  document.getElementById('modal-revisao').dataset.equipId=equipId;
+  document.getElementById('modal-revisao').dataset.tabela=tabela;
+  document.getElementById('modal-revisao').dataset.compIdx=compIdx;
+  document.getElementById('modal-revisao').dataset.equipNome=equipNome;
+  document.getElementById('modal-revisao').dataset.compNome=compNome;
+  document.getElementById('modal-revisao').classList.remove('hidden');
+}
+
+async function salvarRevisao(){
+  const modal=document.getElementById('modal-revisao');
+  const equipId=modal.dataset.equipId;
+  const tabela=modal.dataset.tabela;
+  const compIdx=parseInt(modal.dataset.compIdx);
+  const equipNome=modal.dataset.equipNome;
+  const compNome=modal.dataset.compNome;
+  const novoHorim=parseFloat(document.getElementById('rev-novo-horimetro').value);
+  const responsavel=document.getElementById('rev-responsavel').value.trim();
+  const obs=document.getElementById('rev-obs').value.trim();
+  const tipo=document.getElementById('rev-tipo').value;
+  if(!novoHorim){toast('Informe o horímetro atual!','warning');return;}
+  if(!responsavel){toast('Informe o responsável!','warning');return;}
+  const isLote=modal.dataset.lote==='true';
+  const btn=document.getElementById('btn-salvar-rev');btn.disabled=true;btn.innerHTML='<span class="spin"></span>';
+  try{
+    if(isLote){
+      await salvarRevisaoLoteExec(novoHorim,responsavel,obs,tipo);
+      toast('✅ '+_selComps.length+' revisões salvas!','success');
+      closeModal('modal-revisao');_selComps=[];atualizarToolbar();
+      const{data:novasOS}=await _supabase.from('manutencao').select('*').order('data_abertura',{ascending:false}).limit(300);
+      _ordens=novasOS||[];renderMonitor();
+      btn.disabled=false;btn.innerHTML='✅ Confirmar Revisão';return;
+    }
+    const tb=tabela==='linhas'?'equipamentos_linhas':'equipamentos_gerais';
+    const equip=tabela==='linhas'?_eqLinhas.find(e=>e.id===equipId):_eqGerais.find(e=>e.id===equipId);
+    // Criar OS automática
+    const hoje=new Date().toISOString().split('T')[0];
+    const maxNum=_ordens.length?Math.max(..._ordens.map(o=>o.numero||0)):0;
+    const novaOS={equipamento:equipNome,parte:compNome,linha:equip?.linha||null,tipo,prioridade:'normal',
+      status:'concluida',tecnico:responsavel,data_abertura:hoje,data_conclusao:hoje,
+      horimetro:novoHorim,obs_servico:obs||'Revisão de componente via Monitor',numero:maxNum+1};
+    const{data:osData}=await _supabase.from('manutencao').insert(novaOS).select().single();
+    const osNum=osData?.numero||maxNum+1;
+    // Atualizar componente no equipamento
+    const comps=JSON.parse(JSON.stringify(equip.componentes||[]));
+    comps[compIdx]={...comps[compIdx],horimetro_componente:novoHorim,
+      ultima_revisao:hoje,ultimo_responsavel:responsavel,ultima_os:String(osNum).padStart(4,'0'),ultima_obs:obs||null};
+    await _supabase.from(tb).update({componentes:comps,atualizado_em:new Date().toISOString()}).eq('id',equipId);
+    // Atualizar local
+    if(tabela==='linhas'){const e=_eqLinhas.find(x=>x.id===equipId);if(e)e.componentes=comps;}
+    else{const e=_eqGerais.find(x=>x.id===equipId);if(e)e.componentes=comps;}
+    toast(`✅ Revisão salva! OS-${String(osNum).padStart(4,'0')} criada.`,'success');
+    closeModal('modal-revisao');
+    // Recarregar ordens e re-render
+    const{data:novasOS}=await _supabase.from('manutencao').select('*').order('data_abertura',{ascending:false}).limit(300);
+    _ordens=novasOS||[];
+    renderMonitor();
+  }catch(e){toast('Erro: '+e.message,'danger');}
+  btn.disabled=false;btn.innerHTML='✅ Confirmar Revisão';
+}
+
+function programarRevisao(equipId, tabela, compIdx, equipNome, compNome){
+  document.getElementById('prog-equip-nome').textContent=equipNome+' → '+compNome;
+  document.getElementById('prog-data').value='';
+  document.getElementById('prog-obs').value='';
+  document.getElementById('prog-responsavel').value='';
+  document.getElementById('modal-programar').dataset.equipId=equipId;
+  document.getElementById('modal-programar').dataset.tabela=tabela;
+  document.getElementById('modal-programar').dataset.compIdx=compIdx;
+  document.getElementById('modal-programar').dataset.equipNome=equipNome;
+  document.getElementById('modal-programar').dataset.compNome=compNome;
+  document.getElementById('modal-programar').classList.remove('hidden');
+}
+
+async function salvarProgramacao(){
+  const modal=document.getElementById('modal-programar');
+  const equipId=modal.dataset.equipId;
+  const tabela=modal.dataset.tabela;
+  const compIdx=parseInt(modal.dataset.compIdx);
+  const equipNome=modal.dataset.equipNome;
+  const compNome=modal.dataset.compNome;
+  const isLote2=modal.dataset.lote==='true';
+  const data=document.getElementById('prog-data').value;
+  const resp=document.getElementById('prog-responsavel').value.trim();
+  const obs=document.getElementById('prog-obs').value.trim();
+  if(!data){toast('Informe a data!','warning');return;}
+  const btn=document.getElementById('btn-salvar-prog');btn.disabled=true;btn.innerHTML='<span class="spin"></span>';
+  try{
+    if(isLote2){
+      const hoje2=new Date().toISOString().split('T')[0];
+      for(const sel of _selComps){
+        const tb2=sel.tabela==='linhas'?'equipamentos_linhas':'equipamentos_gerais';
+        const lista2=sel.tabela==='linhas'?_eqLinhas:_eqGerais;
+        const equip2=lista2.find(e=>e.id===sel.equipId);if(!equip2)continue;
+        const comps2=JSON.parse(JSON.stringify(equip2.componentes||[]));
+        comps2[sel.compIdx]={...comps2[sel.compIdx],proxima_revisao_data:data,responsavel_programado:resp||null};
+        await _supabase.from(tb2).update({componentes:comps2,atualizado_em:new Date().toISOString()}).eq('id',sel.equipId);
+        equip2.componentes=comps2;
+        const maxN=_ordens.length?Math.max(..._ordens.map(o=>o.numero||0)):0;
+        await _supabase.from('manutencao').insert({equipamento:sel.equipNome,parte:sel.compNome,tipo:'preventiva',
+          prioridade:'normal',status:'aberta',tecnico:resp||null,data_abertura:hoje2,data_prevista:data,numero:maxN+1});
+      }
+      toast('📅 '+_selComps.length+' revisões programadas!','success');
+      closeModal('modal-programar');_selComps=[];atualizarToolbar();
+      const{data:novasOS2}=await _supabase.from('manutencao').select('*').order('data_abertura',{ascending:false}).limit(300);
+      _ordens=novasOS2||[];renderMonitor();
+      btn.disabled=false;btn.innerHTML='📅 Programar';return;
+    }
+    const tb=tabela==='linhas'?'equipamentos_linhas':'equipamentos_gerais';
+    const equip=tabela==='linhas'?_eqLinhas.find(e=>e.id===equipId):_eqGerais.find(e=>e.id===equipId);
+    const comps=JSON.parse(JSON.stringify(equip.componentes||[]));
+    comps[compIdx]={...comps[compIdx],proxima_revisao_data:data,responsavel_programado:resp||null,obs_programado:obs||null};
+    await _supabase.from(tb).update({componentes:comps,atualizado_em:new Date().toISOString()}).eq('id',equipId);
+    if(tabela==='linhas'){const e=_eqLinhas.find(x=>x.id===equipId);if(e)e.componentes=comps;}
+    else{const e=_eqGerais.find(x=>x.id===equipId);if(e)e.componentes=comps;}
+    // Criar OS de programação
+    const maxNum=_ordens.length?Math.max(..._ordens.map(o=>o.numero||0)):0;
+    await _supabase.from('manutencao').insert({equipamento:equipNome,parte:compNome,linha:equip?.linha||null,
+      tipo:'preventiva',prioridade:'normal',status:'aberta',tecnico:resp||null,
+      data_abertura:new Date().toISOString().split('T')[0],data_prevista:data,obs_servico:obs||'Revisão programada via Monitor',numero:maxNum+1});
+    toast('📅 Revisão programada! OS aberta.','success');
+    closeModal('modal-programar');
+    const{data:novasOS}=await _supabase.from('manutencao').select('*').order('data_abertura',{ascending:false}).limit(300);
+    _ordens=novasOS||[];
+    renderMonitor();
+  }catch(e){toast('Erro: '+e.message,'danger');}
+  btn.disabled=false;btn.innerHTML='📅 Programar';
+}
+
+function abrirOSComp(equipNome, compNome, linha){
+  openModalOS();
+  setTimeout(()=>{
+    document.getElementById('os-equip').value=equipNome;
+    document.getElementById('os-parte').value=compNome;
+    if(linha)document.getElementById('os-linha').value=linha;
+    document.getElementById('os-prior').value='urgente';
+  },100);
+}
+
+function executarRevisaoLote(){
+  if(!_selComps.length)return;
+  const nomes=_selComps.map(s=>s.equipNome+' → '+s.compNome).join('\n');
+  document.getElementById('rev-equip-nome').textContent=`${_selComps.length} componentes selecionados`;
+  document.getElementById('rev-horimetro-atual').textContent='Será aplicado a todos';
+  document.getElementById('rev-comp-ultimo').textContent='—';
+  document.getElementById('rev-novo-horimetro').value='';
+  document.getElementById('rev-responsavel').value='';
+  document.getElementById('rev-obs').value='';
+  document.getElementById('rev-tipo').value='preventiva';
+  document.getElementById('modal-revisao').dataset.lote='true';
+  document.getElementById('modal-revisao').classList.remove('hidden');
+}
+
+async function salvarRevisaoLoteExec(novoHorim, responsavel, obs, tipo){
+  const hoje=new Date().toISOString().split('T')[0];
+  for(const sel of _selComps){
+    const tb=sel.tabela==='linhas'?'equipamentos_linhas':'equipamentos_gerais';
+    const lista=sel.tabela==='linhas'?_eqLinhas:_eqGerais;
+    const equip=lista.find(e=>e.id===sel.equipId);
+    if(!equip)continue;
+    const comps=JSON.parse(JSON.stringify(equip.componentes||[]));
+    const maxNum=_ordens.length?Math.max(..._ordens.map(o=>o.numero||0)):0;
+    const{data:osData}=await _supabase.from('manutencao').insert({equipamento:sel.equipNome,parte:sel.compNome,
+      linha:equip?.linha||null,tipo,prioridade:'normal',status:'concluida',tecnico:responsavel,
+      data_abertura:hoje,data_conclusao:hoje,horimetro:novoHorim,
+      obs_servico:obs||'Revisão em lote via Monitor',numero:maxNum+1}).select().single();
+    const osNum=osData?.numero||maxNum+1;
+    comps[sel.compIdx]={...comps[sel.compIdx],horimetro_componente:novoHorim,
+      ultima_revisao:hoje,ultimo_responsavel:responsavel,ultima_os:String(osNum).padStart(4,'0')};
+    await _supabase.from(tb).update({componentes:comps,atualizado_em:new Date().toISOString()}).eq('id',sel.equipId);
+    equip.componentes=comps;
+  }
+}
+
+function programarRevisaoLote(){
+  if(!_selComps.length)return;
+  document.getElementById('prog-equip-nome').textContent=`${_selComps.length} componentes selecionados`;
+  document.getElementById('prog-data').value='';
+  document.getElementById('prog-obs').value='';
+  document.getElementById('prog-responsavel').value='';
+  document.getElementById('modal-programar').dataset.lote='true';
+  document.getElementById('modal-programar').classList.remove('hidden');
+}
+
+// ═══════════════════════════════════════════
+// CADASTRO FROTA
+// ═══════════════════════════════════════════
+// CADASTRO FROTA
+// ═══════════════════════════════════════════
+function renderFrotaCad(){
+  const hoje=new Date().toISOString().split('T')[0];
+  const grid=document.getElementById('frota-cad-grid');
+  const empty=document.getElementById('frota-cad-empty');
+  if(!_frotaCad.length){grid.innerHTML='';empty.classList.remove('hidden');return;}
+  empty.classList.add('hidden');
+  grid.innerHTML=_frotaCad.map(v=>{
+    const vencido=v.tipo_revisao==='data'?(v.proxima_revisao&&v.proxima_revisao<=hoje):(v.revisao_horas>0&&v.horimetro_atual>=v.revisao_horas);
+    const ic={empilhadeira:'🏗️',carregadeira:'🚜',caminhao:'🚛',pipa:'🚒',outro:'🚗'}[v.tipo]||'🚜';
+    const rev=v.tipo_revisao==='data'?`📅 Próxima: ${v.proxima_revisao||'—'}`:
+      `⏱️ ${v.horimetro_atual||0}h / ${v.revisao_horas||0}h`;
+    return`<div style="background:#fff;border-radius:12px;border:1.5px solid ${vencido?'#fca5a5':'#e2e8f0'};overflow:hidden;">
+      <div style="background:${vencido?'#fee2e2':'#f8fafc'};padding:12px 16px;border-bottom:1.5px solid ${vencido?'#fca5a5':'#e2e8f0'};display:flex;justify-content:space-between;align-items:center;">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="font-size:22px;">${ic}</span>
+          <div><div style="font-weight:800;color:var(--primary);">${v.nome}</div><div style="font-size:10px;color:#94a3b8;">${v.placa||'Sem placa'}</div></div>
+        </div>
+        <span style="font-size:11px;font-weight:700;color:${vencido?'#dc2626':'#16a34a'};">${vencido?'⚠️ VENCIDA':'✅ OK'}</span>
+      </div>
+      <div style="padding:12px 16px;font-size:12px;display:flex;flex-direction:column;gap:5px;">
+        <div><span style="color:#94a3b8;">Marca/Modelo:</span> <strong>${v.marca||'—'} ${v.modelo||''}</strong></div>
+        <div><span style="color:#94a3b8;">Ano:</span> <strong>${v.ano||'—'}</strong></div>
+        <div><span style="color:#94a3b8;">Revisão:</span> <strong style="color:${vencido?'#dc2626':'var(--primary)'};">${rev}</strong></div>
+        ${v.obs?'<div><span style="color:#94a3b8;">Obs:</span> '+v.obs+'</div>':''}
+      </div>
+      <div style="padding:8px 16px;border-top:1px solid #f1f5f9;display:flex;gap:6px;">
+        <button class="btn btn-secondary btn-sm" style="flex:1;" onclick="editFrotaCad('${v.id}')">✏️ Editar</button>
+        <button class="btn btn-secondary btn-sm" style="flex:1;" onclick="abrirOSFrota('${v.nome}')">🔧 OS</button>
+        <button class="btn btn-danger btn-sm" onclick="delFrotaCad('${v.id}','${v.nome}')">🗑️</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function openModalFrotaCad(id){
+  _eFrotaCad=id||null;
+  const v=id?_frotaCad.find(x=>x.id===id):null;
+  document.getElementById('fc-nome').value=v?.nome||'';
+  document.getElementById('fc-tipo').value=v?.tipo||'empilhadeira';
+  document.getElementById('fc-placa').value=v?.placa||'';
+  document.getElementById('fc-marca').value=v?.marca||'';
+  document.getElementById('fc-modelo').value=v?.modelo||'';
+  document.getElementById('fc-ano').value=v?.ano||'';
+  document.getElementById('fc-tipo-rev').value=v?.tipo_revisao||'horas';
+  document.getElementById('fc-rev-horas').value=v?.revisao_horas||'';
+  document.getElementById('fc-horimetro').value=v?.horimetro_atual||'';
+  document.getElementById('fc-proxima-rev').value=v?.proxima_revisao||'';
+  document.getElementById('fc-obs').value=v?.obs||'';
+  toggleTipoRev();
+  document.getElementById('modal-frota-cad').classList.remove('hidden');
+}
+
+function toggleTipoRev(){
+  const t=document.getElementById('fc-tipo-rev').value;
+  document.getElementById('fc-rev-horas-box').style.display=t==='horas'?'grid':'none';
+  document.getElementById('fc-rev-data-box').style.display=t==='data'?'block':'none';
+}
+
+async function salvarFrotaCad(){
+  const nome=document.getElementById('fc-nome').value.trim();
+  if(!nome){toast('Nome obrigatório!','warning');return;}
+  const dados={
+    nome,tipo:document.getElementById('fc-tipo').value,
+    placa:document.getElementById('fc-placa').value.trim()||null,
+    marca:document.getElementById('fc-marca').value.trim()||null,
+    modelo:document.getElementById('fc-modelo').value.trim()||null,
+    ano:parseInt(document.getElementById('fc-ano').value)||null,
+    tipo_revisao:document.getElementById('fc-tipo-rev').value,
+    revisao_horas:parseFloat(document.getElementById('fc-rev-horas').value)||null,
+    horimetro_atual:parseFloat(document.getElementById('fc-horimetro').value)||0,
+    proxima_revisao:document.getElementById('fc-proxima-rev').value||null,
+    obs:document.getElementById('fc-obs').value.trim()||null,
+    atualizado_em:new Date().toISOString()
+  };
+  const btn=document.getElementById('btn-salvar-fc');btn.disabled=true;btn.innerHTML='<span class="spin"></span>';
+  try{
+    if(_eFrotaCad){await _supabase.from('frota_veiculos').update(dados).eq('id',_eFrotaCad);toast('Veículo atualizado!','success');}
+    else{await _supabase.from('frota_veiculos').insert(dados);toast('Veículo cadastrado!','success');}
+    closeModal('modal-frota-cad');
+    const{data}=await _supabase.from('frota_veiculos').select('*').order('nome');
+    _frotaCad=data||[];renderFrotaCad();renderMonitor();
+  }catch(e){toast('Erro: '+e.message,'danger');}
+  btn.disabled=false;btn.innerHTML='💾 Salvar';
+}
+
+function editFrotaCad(id){openModalFrotaCad(id);}
+function abrirOSFrota(nome){openModalOS();setTimeout(()=>{document.getElementById('os-equip').value=nome;},100);}
+async function delFrotaCad(id,nome){
+  document.getElementById('confirm-msg').innerHTML=`Excluir <strong>${nome}</strong> da frota?`;
+  document.getElementById('confirm-ok-btn').onclick=async()=>{
+    await _supabase.from('frota_veiculos').delete().eq('id',id);
+    toast('Excluído.','warning');closeModal('modal-confirm');
+    const{data}=await _supabase.from('frota_veiculos').select('*').order('nome');
+    _frotaCad=data||[];renderFrotaCad();renderMonitor();
+  };
+  document.getElementById('modal-confirm').classList.remove('hidden');
+}
+
+// ═══════════════════════════════════════════
+// DOCUMENTAÇÃO TÉCNICA
+// ═══════════════════════════════════════════
+function renderDocs(){
+  const cat=document.getElementById('docs-categoria').value;
+  const tipo=document.getElementById('docs-tipo').value;
+  const busca=(document.getElementById('docs-busca').value||'').toLowerCase();
+  const lista=_docs.filter(d=>
+    (!cat||d.categoria===cat)&&(!tipo||d.tipo===tipo)&&
+    (!busca||d.nome.toLowerCase().includes(busca)||d.equipamento.toLowerCase().includes(busca))
+  );
+  const empty=document.getElementById('docs-empty');
+  const grid=document.getElementById('docs-grid');
+  if(!lista.length){grid.innerHTML='';empty.classList.remove('hidden');return;}
+  empty.classList.add('hidden');
+  const tipoIc={manual:'📖',desenho:'📐',esquema:'⚡',ficha:'📋',outro:'📎'};
+  const catNm={linha:'⚙️ Linha',geral:'🏭 Geral',frota:'🚜 Frota'};
+  grid.innerHTML=lista.map(d=>`
+    <div style="background:#fff;border-radius:12px;border:1.5px solid #e2e8f0;overflow:hidden;">
+      <div style="background:#f8fafc;padding:12px 14px;border-bottom:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:flex-start;">
+        <div style="display:flex;gap:8px;align-items:flex-start;">
+          <span style="font-size:22px;">${tipoIc[d.tipo]||'📎'}</span>
+          <div>
+            <div style="font-weight:700;font-size:13px;color:var(--primary);line-height:1.3;">${d.nome}</div>
+            <div style="font-size:10px;color:#94a3b8;">${catNm[d.categoria]||d.categoria} — ${d.equipamento}</div>
+          </div>
+        </div>
+        <span style="font-size:10px;background:#e0f2fe;color:#0369a1;padding:2px 7px;border-radius:8px;font-weight:700;white-space:nowrap;">${d.tipo}</span>
+      </div>
+      <div style="padding:10px 14px;font-size:12px;color:#64748b;">
+        ${d.descricao?'<div style="margin-bottom:6px;">'+d.descricao+'</div>':''}
+        <div style="font-size:10px;color:#94a3b8;">Adicionado: ${d.created_at?new Date(d.created_at).toLocaleDateString('pt-BR'):'—'}</div>
+      </div>
+      <div style="padding:8px 14px;border-top:1px solid #f1f5f9;display:flex;gap:6px;">
+        ${d.url?'<a href="'+d.url+'" target="_blank" class="btn btn-primary btn-sm" style="flex:1;text-align:center;text-decoration:none;">👁️ Abrir</a>':''}
+        <button class="btn btn-secondary btn-sm" onclick="editDoc('${d.id}')">✏️</button>
+        <button class="btn btn-danger btn-sm" onclick="delDoc('${d.id}','${d.nome}')">🗑️</button>
+      </div>
+    </div>`).join('');
+}
+
+function openModalDoc(id){
+  _eDoc=id||null;
+  const d=id?_docs.find(x=>x.id===id):null;
+  document.getElementById('doc-nome').value=d?.nome||'';
+  document.getElementById('doc-equipamento').value=d?.equipamento||'';
+  document.getElementById('doc-categoria').value=d?.categoria||'linha';
+  document.getElementById('doc-tipo').value=d?.tipo||'manual';
+  document.getElementById('doc-descricao').value=d?.descricao||'';
+  document.getElementById('doc-url').value=d?.url||'';
+  // Popular select de equipamentos
+  const selEq=document.getElementById('doc-equipamento');
+  selEq.innerHTML='<option value="">Selecione o equipamento...</option>'+
+    _eqLinhas.map(e=>`<option value="${e.nome}" ${d?.equipamento===e.nome?'selected':''}>${e.nome} (Linha ${e.linha||'—'})</option>`).join('')+
+    _eqGerais.map(e=>`<option value="${e.nome}" ${d?.equipamento===e.nome?'selected':''}>${e.nome} (Geral)</option>`).join('')+
+    _frotaCad.map(v=>`<option value="${v.nome}" ${d?.equipamento===v.nome?'selected':''}>${v.nome} (Frota)</option>`).join('');
+  document.getElementById('modal-doc').classList.remove('hidden');
+}
+
+function editDoc(id){openModalDoc(id);}
+
+async function salvarDoc(){
+  const nome=document.getElementById('doc-nome').value.trim();
+  const equipamento=document.getElementById('doc-equipamento').value;
+  if(!nome||!equipamento){toast('Nome e equipamento obrigatórios!','warning');return;}
+  const dados={
+    nome,equipamento,
+    categoria:document.getElementById('doc-categoria').value,
+    tipo:document.getElementById('doc-tipo').value,
+    descricao:document.getElementById('doc-descricao').value.trim()||null,
+    url:document.getElementById('doc-url').value.trim()||null,
+  };
+  const btn=document.getElementById('btn-salvar-doc');btn.disabled=true;btn.innerHTML='<span class="spin"></span>';
+  try{
+    if(_eDoc){await _supabase.from('manutencao_docs').update(dados).eq('id',_eDoc);toast('Atualizado!','success');}
+    else{await _supabase.from('manutencao_docs').insert(dados);toast('Documento adicionado!','success');}
+    closeModal('modal-doc');
+    const{data}=await _supabase.from('manutencao_docs').select('*').order('created_at',{ascending:false});
+    _docs=data||[];renderDocs();
+  }catch(e){toast('Erro: '+e.message,'danger');}
+  btn.disabled=false;btn.innerHTML='💾 Salvar';
+}
+
+async function delDoc(id,nome){
+  document.getElementById('confirm-msg').innerHTML=`Excluir documento <strong>${nome}</strong>?`;
+  document.getElementById('confirm-ok-btn').onclick=async()=>{
+    await _supabase.from('manutencao_docs').delete().eq('id',id);
+    toast('Excluído.','warning');closeModal('modal-confirm');
+    const{data}=await _supabase.from('manutencao_docs').select('*').order('created_at',{ascending:false});
+    _docs=data||[];renderDocs();
+  };
+  document.getElementById('modal-confirm').classList.remove('hidden');
+}
+
+
+async function init(){
+  const hoje=new Date().toISOString().split('T')[0];
+  document.getElementById('kpi-mes').value=hoje.slice(0,7);
+  document.getElementById('cron-mes').value=hoje.slice(0,7);
+
+  const safe=async q=>{try{const r=await q;return r.data||[];}catch(e){return[];}};
+
+  const[or,co,fi,fr,cr,eqL,eqG,frotaCad,docsDB,linhasDB]=await Promise.all([
+    safe(_supabase.from('manutencao').select('*').order('data_abertura',{ascending:false}).limit(300)),
+    safe(_supabase.from('manutencao_componentes').select('*').order('data',{ascending:false}).limit(500)),
+    safe(_supabase.from('manutencao_filtros').select('*').order('data_troca',{ascending:false}).limit(200)),
+    safe(_supabase.from('manutencao_frota').select('*').order('data',{ascending:false}).limit(300)),
+    safe(_supabase.from('manutencao_cronograma').select('*').order('data_ini',{ascending:false}).limit(200)),
+    safe(_supabase.from('equipamentos_linhas').select('id,nome,linha,horimetro,status,componentes').order('linha').order('nome')),
+    safe(_supabase.from('equipamentos_gerais').select('id,nome,horimetro,status,componentes').order('nome')),
+    safe(_supabase.from('frota_veiculos').select('*').order('nome')),
+    safe(_supabase.from('linhas_producao').select('id,nome,horimetro,status').eq('status','ativo').order('nome')),
+    safe(_supabase.from('manutencao_docs').select('*').order('created_at',{ascending:false}).limit(200)),
+  ]);
+  _ordens=or; _componentes=co; _filtros=fi; _frota=fr; _cronograma=cr;
+  _eqLinhas=eqL; _eqGerais=eqG; _frotaCad=frotaCad; _docs=docsDB; _linhasProd=linhasDB;
+
+  // popular select frota
+  const selF=document.getElementById('f-frota-equip');
+  if(selF&&selF.options.length<=1) EQUIPOS_FROTA.forEach(e=>{const o=document.createElement('option');o.value=e;o.textContent=e;selF.appendChild(o);});
+
+  renderAlertas(); renderOS(); renderMecanica(); renderEletrica(); renderFiltros(); renderFrota(); renderCronograma(); renderKPIs(); renderMonitor(); renderFrotaCad(); renderDocs();
+}
+
+function renderAlertas(){
+  const alertas=[];
+  const urgentes=_ordens.filter(o=>o.prioridade==='urgente'&&['aberta','em_andamento'].includes(o.status));
+  if(urgentes.length>0) alertas.push(`<div class="alert alert-danger">🔴 <strong>${urgentes.length} OS urgente(s):</strong> ${urgentes.map(o=>o.equipamento).slice(0,3).join(', ')}</div>`);
+  const atrasadas=_ordens.filter(o=>o.data_prevista&&o.data_prevista<new Date().toISOString().split('T')[0]&&['aberta','em_andamento'].includes(o.status));
+  if(atrasadas.length>0) alertas.push(`<div class="alert alert-warning">⚠️ <strong>${atrasadas.length} OS atrasada(s)</strong> — prazo vencido</div>`);
+  document.getElementById('alertas-manut').innerHTML=alertas.join('');
+}
+
+function renderOS(){
+  const fs=document.getElementById('f-os-status').value, ft=document.getElementById('f-os-tipo').value, fp=document.getElementById('f-os-prior').value;
+  const lista=_ordens.filter(o=>(!fs||o.status===fs)&&(!ft||o.tipo===ft)&&(!fp||o.prioridade===fp));
+  // Resumo
+  const ab=_ordens.filter(o=>o.status==='aberta').length, and=_ordens.filter(o=>o.status==='em_andamento').length;
+  const urg=_ordens.filter(o=>o.prioridade==='urgente'&&['aberta','em_andamento'].includes(o.status)).length, conc=_ordens.filter(o=>o.status==='concluida').length;
+  document.getElementById('os-resumo').innerHTML=`
+    <div class="card" style="padding:12px;text-align:center;border-left:4px solid #ef4444;"><div style="font-size:22px;font-weight:800;color:#ef4444;">${ab}</div><div style="font-size:11px;color:#64748b;">Abertas</div></div>
+    <div class="card" style="padding:12px;text-align:center;border-left:4px solid #f59e0b;"><div style="font-size:22px;font-weight:800;color:#f59e0b;">${and}</div><div style="font-size:11px;color:#64748b;">Em Andamento</div></div>
+    <div class="card" style="padding:12px;text-align:center;border-left:4px solid #dc2626;"><div style="font-size:22px;font-weight:800;color:#dc2626;">${urg}</div><div style="font-size:11px;color:#64748b;">🔴 Urgentes</div></div>
+    <div class="card" style="padding:12px;text-align:center;border-left:4px solid #22c55e;"><div style="font-size:22px;font-weight:800;color:#22c55e;">${conc}</div><div style="font-size:11px;color:#64748b;">Concluídas</div></div>`;
+  const tbody=document.getElementById('tbody-os'), empty=document.getElementById('os-empty');
+  tbody.innerHTML=''; if(!lista.length){empty.classList.remove('hidden');return;} empty.classList.add('hidden');
+  const stC={aberta:{cls:'badge-danger',t:'📋 Aberta'},em_andamento:{cls:'badge-warning',t:'🔄 Andamento'},concluida:{cls:'badge-success',t:'✅ Concluída'},cancelada:{cls:'badge-gray',t:'❌ Cancelada'}};
+  const prC={urgente:'#dc2626',alta:'#ea580c',normal:'#b45309',baixa:'#16a34a'};
+  const hoje=new Date().toISOString().split('T')[0];
+  lista.forEach(o=>{
+    const sc=stC[o.status]||stC.aberta;
+    const atrasado=o.data_prevista&&o.data_prevista<hoje&&['aberta','em_andamento'].includes(o.status);
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td><strong style="color:var(--primary);">OS-${String(o.numero||0).padStart(4,'0')}</strong>${atrasado?'<span class="badge badge-danger" style="font-size:10px;margin-left:4px;">Atrasada</span>':''}</td>
+      <td style="text-transform:capitalize;font-size:12px;">${o.tipo}</td>
+      <td><span style="font-weight:700;font-size:12px;color:${prC[o.prioridade]||'#64748b'};">${o.prioridade}</span></td>
+      <td><strong>${o.equipamento}</strong>${o.parte?'<div style="font-size:10px;color:#94a3b8;">'+o.parte+'</div>':''}</td>
+      <td style="font-size:12px;">${o.linha||'—'}</td>
+      <td style="font-size:12px;">${o.data_abertura||'—'}</td>
+      <td><span class="badge ${sc.cls}">${sc.t}</span></td>
+      <td style="font-size:12px;">${o.tecnico||o.terceiro||'—'}</td>
+      <td style="font-size:12px;">${o.horas_gastas>0?o.horas_gastas+'h':'—'}</td>
+      <td style="font-size:12px;">${o.custo_manutencao?'R$ '+parseFloat(o.custo_manutencao).toLocaleString('pt-BR',{minimumFractionDigits:2}):'—'}</td>
+      <td><div class="table-actions">
+        <button class="btn btn-secondary btn-sm" onclick="editarOS('${o.id}')">✏️</button>
+        <button class="btn btn-danger btn-sm" onclick="delOS('${o.id}')">🗑️</button>
+      </div></td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+function renderMecanica(){
+  const fLinha=document.getElementById('f-mec-linha')?.value||'';
+  const cont=document.getElementById('mec-container');
+  if(!cont)return;
+  // Popular select de linhas se ainda vazio
+  const sel=document.getElementById('f-mec-linha');
+  if(sel&&sel.options.length<=1){
+    LINHAS_PROD.forEach(l=>{const o=document.createElement('option');o.value=l;o.textContent=l;sel.appendChild(o);});
+  }
+  cont.innerHTML='';
+  const linhas=fLinha?[fLinha]:LINHAS_PROD;
+  linhas.forEach(linha=>{
+    const div=document.createElement('div'); div.className='equip-section';
+    div.innerHTML=`<div class="equip-title"><span>⚙️ ${linha}</span></div>`;
+    EQUIPOS_MECANICA.forEach(equip=>{
+      const ediv=document.createElement('div'); ediv.style.cssText='border-top:1px solid #f1f5f9;';
+      ediv.innerHTML=`<div style="background:#f8fafc;padding:8px 14px;font-size:12px;font-weight:700;color:#475569;">${equip}</div>
+        <div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr 1fr;gap:0;font-size:11px;background:#f1f5f9;padding:5px 14px;color:#64748b;font-weight:700;">
+          <span>Componente</span><span>Intervalo(h)</span><span>Última Revisão</span><span>Horímetro</span><span>Status</span>
+        </div>`;
+      COMPS_MECANICA.forEach(comp=>{
+        const rev=_componentes.filter(c=>c.linha===linha&&c.equipamento===equip&&c.componente===comp).sort((a,b)=>(b.data||'').localeCompare(a.data||''))[0];
+        const status=rev?'✅ REVISÃO EXECUTADA':'⚠️ SEM REGISTRO';
+        const stCls=rev?'status-ok':'status-rev';
+        ediv.innerHTML+=`<div class="comp-row">
+          <span style="font-weight:600;color:var(--primary);">${comp}</span>
+          <span style="color:#64748b;">${rev?.intervalo_horas?rev.intervalo_horas+'h':'—'}</span>
+          <span style="font-size:11px;">${rev?.data||'—'}</span>
+          <span style="font-size:11px;">${rev?.horimetro?rev.horimetro+'h':'—'}</span>
+          <span class="${stCls}">${status}</span>
+        </div>`;
+      });
+      div.appendChild(ediv);
+    });
+    cont.appendChild(div);
+  });
+  if(!cont.innerHTML) cont.innerHTML='<p style="color:#94a3b8;text-align:center;padding:32px;">Nenhuma revisão registrada</p>';
+}
+
+function renderEletrica(){
+  const cont=document.getElementById('ele-container');
+  const eleComps=_componentes.filter(c=>c.tipo_manut==='eletrica'||c.especialidade==='eletrica');
+  if(!eleComps.length){cont.innerHTML='<div class="card"><p style="color:#94a3b8;text-align:center;padding:32px;">Nenhuma revisão elétrica registrada. Clique em "+ Registrar Revisão".</p></div>';return;}
+  cont.innerHTML='<div class="card"><div class="table-wrap"><table><thead><tr><th>Linha</th><th>Motor / Equip.</th><th>Componente</th><th>Data Revisão</th><th>Horímetro</th><th>Próx. Revisão (h)</th><th>Responsável</th><th>Status</th></tr></thead><tbody>'+
+    eleComps.map(c=>'<tr><td>'+(c.linha||'—')+'</td><td><strong>'+(c.equipamento||'—')+'</strong></td><td>'+(c.componente||'—')+'</td><td style="font-size:12px;">'+(c.data||'—')+'</td><td style="font-size:12px;">'+(c.horimetro?c.horimetro+'h':'—')+'</td><td style="font-size:12px;">'+(c.proxima_revisao_horas?c.proxima_revisao_horas+'h':'—')+'</td><td style="font-size:12px;">'+(c.responsavel||'—')+'</td><td><span class="badge badge-success">✅ OK</span></td></tr>').join('')+
+    '</tbody></table></div></div>';
+}
+
+function renderFiltros(){
+  const tbody=document.getElementById('tbody-filtros'), empty=document.getElementById('filtros-empty');
+  tbody.innerHTML=''; if(!_filtros.length){empty.classList.remove('hidden');return;} empty.classList.add('hidden');
+  _filtros.forEach(f=>{
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td><strong style="color:var(--primary);">${f.linha}</strong></td>
+      <td style="font-size:12px;">${f.medida||'—'}</td><td>${f.quantidade||1}</td>
+      <td style="font-size:12px;">${f.data_troca||'—'}</td>
+      <td style="font-size:12px;">${f.intervalo_horas?f.intervalo_horas+'h':'—'}</td>
+      <td style="font-size:12px;">${f.horimetro?f.horimetro+'h':'—'}</td>
+      <td><span class="badge badge-success">✅ Trocado</span></td>
+      <td>'+( f.teste_chamine?'<span class="badge '+(f.teste_chamine==='OK'?'badge-success':'badge-danger')+'">'+ f.teste_chamine+'</span>':'—')+'</td>
+      <td style="font-size:12px;">${f.responsavel||'—'}</td>
+      <td><div class="table-actions"><button class="btn btn-danger btn-sm" onclick="delFiltro('${f.id}')">🗑️</button></div></td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+function renderFrota(){
+  const fEquip=document.getElementById('f-frota-equip').value;
+  const cont=document.getElementById('frota-container'); cont.innerHTML='';
+  const equips=fEquip?[fEquip]:EQUIPOS_FROTA;
+  equips.forEach(equip=>{
+    const revs=_frota.filter(f=>f.equipamento===equip);
+    const div=document.createElement('div'); div.className='equip-section';
+    div.innerHTML=`<div class="equip-title"><span>🚜 ${equip}</span><button class="btn btn-primary btn-sm" onclick="openModalFrota('${equip}')">+ Revisão</button></div>`;
+    if(!revs.length){div.innerHTML+=`<p style="color:#94a3b8;font-size:12px;padding:12px 16px;">Nenhuma revisão registrada.</p>`;}
+    else{
+      div.innerHTML+=`<div class="table-wrap"><table style="font-size:12px;"><thead><tr style="background:var(--primary);color:#fff;"><th style="padding:7px 12px;">Tipo</th><th>Material</th><th>Data</th><th>Intervalo</th><th>Responsável</th><th>Status</th></tr></thead><tbody>
+      '+revs.map(r=>'<tr><td style="padding:7px 12px;font-weight:600;">'+(r.tipo_revisao||'—')+'</td><td>'+(r.material||'—')+'</td><td>'+(r.data||'—')+'</td><td>'+(r.intervalo||'—')+'</td><td>'+(r.responsavel||'—')+'</td><td><span class="badge badge-success">✅ OK</span></td></tr>').join('')+'
+      </tbody></table></div>`;
+    }
+    cont.appendChild(div);
+  });
+}
+
+function renderCronograma(){
+  const mes=document.getElementById('cron-mes').value; if(!mes){return;}
+  const ini=mes+'-01', fim=mes+'-31';
+  const tarefas=_cronograma.filter(t=>t.data_ini>=ini&&t.data_ini<=fim);
+  const cont=document.getElementById('cron-container');
+  if(!tarefas.length){cont.innerHTML='<p style="color:#94a3b8;text-align:center;padding:32px;">Nenhuma tarefa para este mês.</p>';return;}
+  cont.innerHTML=`<div class="table-wrap"><table style="font-size:12px;"><thead><tr style="background:var(--primary);color:#fff;"><th style="padding:8px 12px;">Equipamento</th><th>Descrição</th><th>Equipe</th><th>Início</th><th>Fim</th><th>Status</th><th>Ações</th></tr></thead><tbody>
+  '+tarefas.map(t=>'<tr><td style="padding:8px 12px;font-weight:600;color:var(--primary);">'+(t.equipamento||'—')+'</td><td style="max-width:200px;">'+(t.descricao||'—')+'</td><td>'+(t.equipe||'—')+'</td><td>'+(t.data_ini||'—')+'</td><td>'+(t.data_fim||'—')+'</td><td><span class="badge '+(t.status==='REALIZADO'?'badge-success':'badge-info')+'">'+(t.status||'—')+'</span></td><td><button class="btn btn-danger btn-sm" onclick="delCron(\''+t.id+'\')" >🗑️</button></td></tr>').join('')+'
+  </tbody></table></div>`;
+}
+
+function renderKPIs(){
+  const mes=document.getElementById('kpi-mes').value; if(!mes)return;
+  const ini=mes+'-01', fim=mes+'-31';
+  const orMes=_ordens.filter(o=>o.data_abertura>=ini&&o.data_abertura<=fim);
+  const prev=orMes.filter(o=>o.tipo==='preventiva').length, corr=orMes.filter(o=>o.tipo==='corretiva').length;
+  const totalH=orMes.reduce((s,o)=>s+(o.horas_gastas||0),0);
+  const totalCusto=orMes.reduce((s,o)=>s+(o.custo_manutencao||0),0);
+  const concl=orMes.filter(o=>o.status==='concluida');
+  const mttr=concl.length>0?(concl.reduce((s,o)=>s+(o.horas_gastas||0),0)/concl.length).toFixed(1):0;
+  const pctPrev=orMes.length>0?Math.round(prev/orMes.length*100):0;
+  document.getElementById('kpis-manut').innerHTML=`
+    <div class="kpi-manut"><div style="font-size:28px;font-weight:800;color:var(--primary);">${orMes.length}</div><div style="font-size:12px;color:#64748b;margin-top:4px;">OS no Mês</div></div>
+    <div class="kpi-manut"><div style="font-size:28px;font-weight:800;color:#22c55e;">${prev}</div><div style="font-size:12px;color:#64748b;margin-top:4px;">Preventivas</div></div>
+    <div class="kpi-manut"><div style="font-size:28px;font-weight:800;color:#ef4444;">${corr}</div><div style="font-size:12px;color:#64748b;margin-top:4px;">Corretivas</div></div>
+    <div class="kpi-manut"><div style="font-size:28px;font-weight:800;color:#2563eb;">${pctPrev}%</div><div style="font-size:12px;color:#64748b;margin-top:4px;">% Preventiva</div></div>
+    <div class="kpi-manut"><div style="font-size:28px;font-weight:800;color:#f59e0b;">${totalH.toFixed(1)}h</div><div style="font-size:12px;color:#64748b;margin-top:4px;">Horas Gastas</div></div>
+    <div class="kpi-manut"><div style="font-size:28px;font-weight:800;color:#7c3aed;">${mttr}h</div><div style="font-size:12px;color:#64748b;margin-top:4px;">MTTR Médio</div></div>
+    <div class="kpi-manut"><div style="font-size:22px;font-weight:800;color:var(--primary);">R$ ${totalCusto.toLocaleString('pt-BR',{minimumFractionDigits:2})}</div><div style="font-size:12px;color:#64748b;margin-top:4px;">Custo Total</div></div>`;
+  // Top 5
+  const por={};orMes.forEach(o=>{const k=o.equipamento;if(!por[k])por[k]=0;por[k]++;});
+  const top5=Object.entries(por).sort((a,b)=>b[1]-a[1]).slice(0,5);
+  document.getElementById('top5-equip').innerHTML=top5.map(([equip,qtd],i)=>`
+    <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid #f1f5f9;">
+      <div style="width:28px;height:28px;background:var(--primary);color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;flex-shrink:0;">${i+1}</div>
+      <div style="flex:1;font-size:13px;font-weight:600;color:var(--primary);">${equip}</div>
+      <div style="font-size:20px;font-weight:800;color:#ef4444;">${qtd}</div>
+      <div style="font-size:11px;color:#64748b;">OS</div>
+    </div>`).join('')||'<p style="color:#94a3b8;font-size:13px;padding:16px 0;">Sem dados</p>';
+}
+
+// MODAIS OS
+function openModalOS(){ _eOSId=null; document.getElementById('os-title').textContent='Nova OS';
+  ['os-equip','os-parte','os-tecnico','os-terceiro','os-desc','os-servico','os-pecas','os-horimetro','os-custo','os-h-ini','os-h-fin','os-dt-prev'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('os-tipo').value='corretiva'; document.getElementById('os-prior').value='normal';
+  document.getElementById('os-status').value='aberta'; document.getElementById('os-espec').value='';
+  document.getElementById('os-linha').value=''; document.getElementById('os-htotal-d').textContent='—';
+  document.getElementById('os-dt-abert').value=new Date().toISOString().split('T')[0];
+  document.getElementById('os-error').classList.add('hidden'); document.getElementById('modal-os').classList.remove('hidden');
+}
+
+function editarOS(id){ const o=_ordens.find(x=>x.id===id); if(!o)return; openModalOS(); _eOSId=id;
+  document.getElementById('os-title').textContent=`Editar OS-${String(o.numero||0).padStart(4,'0')}`;
+  document.getElementById('os-tipo').value=o.tipo||'corretiva'; document.getElementById('os-prior').value=o.prioridade||'normal';
+  document.getElementById('os-equip').value=o.equipamento||''; document.getElementById('os-linha').value=o.linha||'';
+  document.getElementById('os-parte').value=o.parte||''; document.getElementById('os-espec').value=o.especialidade||'';
+  document.getElementById('os-desc').value=o.descricao||''; document.getElementById('os-tecnico').value=o.tecnico||'';
+  document.getElementById('os-terceiro').value=o.terceiro||''; document.getElementById('os-dt-abert').value=o.data_abertura||'';
+  document.getElementById('os-dt-prev').value=o.data_prevista||''; document.getElementById('os-h-ini').value=o.hora_ini||'';
+  document.getElementById('os-h-fin').value=o.hora_fin||''; document.getElementById('os-horimetro').value=o.horimetro||'';
+  document.getElementById('os-custo').value=o.custo_manutencao||''; document.getElementById('os-pecas').value=o.pecas_trocadas||'';
+  document.getElementById('os-servico').value=o.servico_realizado||''; document.getElementById('os-status').value=o.status||'aberta';
+  if(o.horas_gastas>0) document.getElementById('os-htotal-d').textContent=o.horas_gastas+'h';
+}
+
+function calcHorasOS(){ const hi=document.getElementById('os-h-ini').value, hf=document.getElementById('os-h-fin').value; if(hi&&hf){const[hh,hm]=hi.split(':').map(Number);const[fh,fm]=hf.split(':').map(Number);const h=((fh*60+fm)-(hh*60+hm))/60;document.getElementById('os-htotal-d').textContent=h>0?h.toFixed(2)+'h':'—';}}
+
+async function salvarOS(){ const equip=document.getElementById('os-equip').value.trim(), desc=document.getElementById('os-desc').value.trim();
+  const errEl=document.getElementById('os-error'), btn=document.getElementById('btn-salvar-os');
+  if(!equip||!desc){errEl.textContent='Equipamento e Descrição são obrigatórios!'; errEl.classList.remove('hidden'); return;}
+  const hi=document.getElementById('os-h-ini').value, hf=document.getElementById('os-h-fin').value;
+  let horas=parseFloat(document.getElementById('os-htotal-d').textContent)||0;
+  if(hi&&hf){const[hh,hm]=hi.split(':').map(Number);const[fh,fm]=hf.split(':').map(Number);horas=((fh*60+fm)-(hh*60+hm))/60;}
+  const d={tipo:document.getElementById('os-tipo').value,prioridade:document.getElementById('os-prior').value,equipamento:equip,linha:document.getElementById('os-linha').value||null,parte:document.getElementById('os-parte').value||null,especialidade:document.getElementById('os-espec').value||null,descricao:desc,tecnico:document.getElementById('os-tecnico').value||null,terceiro:document.getElementById('os-terceiro').value||null,data_abertura:document.getElementById('os-dt-abert').value||null,data_prevista:document.getElementById('os-dt-prev').value||null,hora_ini:hi||null,hora_fin:hf||null,horas_gastas:horas||null,horimetro:parseFloat(document.getElementById('os-horimetro').value)||null,custo_manutencao:parseFloat(document.getElementById('os-custo').value)||null,pecas_trocadas:document.getElementById('os-pecas').value||null,servico_realizado:document.getElementById('os-servico').value||null,status:document.getElementById('os-status').value,atualizado_em:new Date().toISOString()};
+  btn.innerHTML='<span class="spin"></span>'; btn.disabled=true;
+  try{ if(_eOSId){await _supabase.from('manutencao').update(d).eq('id',_eOSId); toast('OS atualizada!','success');}
+    else{const num=(_ordens.length>0?Math.max(..._ordens.map(o=>o.numero||0)):0)+1; d.numero=num; await _supabase.from('manutencao').insert(d); toast('OS criada!','success');}
+    await addLog(_eOSId?'UPDATE':'CREATE','MANUTENCAO',_eOSId||equip,`OS: ${equip}`);
+    closeModal('modal-os'); const{data:or}=await _supabase.from('manutencao').select('*').order('data_abertura',{ascending:false}).limit(300);_ordens=or||[];renderAlertas();renderOS();renderKPIs();
+  }catch(e){errEl.textContent='Erro: '+e.message; errEl.classList.remove('hidden');}
+  btn.innerHTML='💾 Salvar OS'; btn.disabled=false;
+}
+
+function delOS(id){ document.getElementById('confirm-msg').innerHTML='Excluir esta OS?';
+  document.getElementById('confirm-ok-btn').onclick=async()=>{await _supabase.from('manutencao').delete().eq('id',id);toast('OS excluída.','warning');closeModal('modal-confirm');const{data:or}=await _supabase.from('manutencao').select('*').order('data_abertura',{ascending:false}).limit(300);_ordens=or||[];renderOS();renderKPIs();};
+  document.getElementById('modal-confirm').classList.remove('hidden');
+}
+
+// COMPONENTE
+function openModalComponente(tipo){ _eCompId=null;
+  document.getElementById('comp-title').textContent=tipo==='eletrica'?'Registrar Revisão Elétrica':tipo==='compressor'?'Registrar Revisão Compressor':'Registrar Revisão Mecânica';
+  ['comp-horim','comp-prox','comp-resp','comp-obs'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('comp-linha').value=''; document.getElementById('comp-equip').value=''; document.getElementById('comp-componente').value='';
+  document.getElementById('comp-data').value=new Date().toISOString().split('T')[0];
+  document.getElementById('comp-tipo').value=tipo==='compressor'?'preventiva':'preventiva';
+  document.getElementById('comp-error').classList.add('hidden'); document.getElementById('modal-comp').classList.remove('hidden');
+}
+
+async function salvarComponente(){ const linha=document.getElementById('comp-linha').value, equip=document.getElementById('comp-equip').value, comp=document.getElementById('comp-componente').value;
+  const errEl=document.getElementById('comp-error'), btn=document.getElementById('btn-salvar-comp');
+  if(!linha||!equip||!comp){errEl.textContent='Preencha Linha, Equipamento e Componente!'; errEl.classList.remove('hidden'); return;}
+  const d={linha,equipamento:equip,componente:comp,tipo_manut:document.getElementById('comp-tipo').value,data:document.getElementById('comp-data').value,horimetro:parseFloat(document.getElementById('comp-horim').value)||null,proxima_revisao_horas:parseFloat(document.getElementById('comp-prox').value)||null,responsavel:document.getElementById('comp-resp').value||null,obs:document.getElementById('comp-obs').value||null};
+  btn.innerHTML='<span class="spin"></span>'; btn.disabled=true;
+  try{ await _supabase.from('manutencao_componentes').insert(d); toast('Revisão registrada!','success'); closeModal('modal-comp');
+    const{data:co}=await _supabase.from('manutencao_componentes').select('*').order('data',{ascending:false}).limit(500);_componentes=co||[];renderMecanica();renderEletrica();
+  }catch(e){errEl.textContent='Erro: '+e.message; errEl.classList.remove('hidden');}
+  btn.innerHTML='💾 Salvar Revisão'; btn.disabled=false;
+}
+
+// FILTRO
+function openModalFiltro(id){ _eFiltroId=id||null;
+  ['fm-medida','fm-resp','fm-obs'].forEach(i=>document.getElementById(i).value='');
+  document.getElementById('fm-qtd').value='1'; document.getElementById('fm-interv').value=''; document.getElementById('fm-horim').value='';
+  document.getElementById('fm-linha').value=''; document.getElementById('fm-chamine').value='';
+  document.getElementById('fm-data').value=new Date().toISOString().split('T')[0];
+  document.getElementById('fm-error').classList.add('hidden'); document.getElementById('modal-filtro').classList.remove('hidden');
+}
+
+async function salvarFiltro(){ const linha=document.getElementById('fm-linha').value, medida=document.getElementById('fm-medida').value.trim();
+  const errEl=document.getElementById('fm-error'), btn=document.getElementById('btn-salvar-fm');
+  if(!linha||!medida){errEl.textContent='Linha e Medida são obrigatórios!'; errEl.classList.remove('hidden'); return;}
+  const d={linha,medida,quantidade:parseInt(document.getElementById('fm-qtd').value)||1,data_troca:document.getElementById('fm-data').value||null,intervalo_horas:parseFloat(document.getElementById('fm-interv').value)||null,horimetro:parseFloat(document.getElementById('fm-horim').value)||null,responsavel:document.getElementById('fm-resp').value||null,teste_chamine:document.getElementById('fm-chamine').value||null,obs:document.getElementById('fm-obs').value||null};
+  btn.innerHTML='<span class="spin"></span>'; btn.disabled=true;
+  try{ await _supabase.from('manutencao_filtros').insert(d); toast('Filtro registrado!','success'); closeModal('modal-filtro');
+    const{data:fi}=await _supabase.from('manutencao_filtros').select('*').order('data_troca',{ascending:false}).limit(200);_filtros=fi||[];renderFiltros();
+  }catch(e){errEl.textContent='Erro: '+e.message; errEl.classList.remove('hidden');}
+  btn.innerHTML='💾 Salvar'; btn.disabled=false;
+}
+
+function delFiltro(id){ document.getElementById('confirm-msg').textContent='Excluir este registro de filtro?';
+  document.getElementById('confirm-ok-btn').onclick=async()=>{await _supabase.from('manutencao_filtros').delete().eq('id',id);toast('Excluído.','warning');closeModal('modal-confirm');const{data:fi}=await _supabase.from('manutencao_filtros').select('*').order('data_troca',{ascending:false}).limit(200);_filtros=fi||[];renderFiltros();};
+  document.getElementById('modal-confirm').classList.remove('hidden');
+}
+
+// FROTA
+function openModalFrota(equip){ const d={equipamento:equip||'',tipo_revisao:'',material:'',intervalo:'',data:new Date().toISOString().split('T')[0],responsavel:''};
+  // Reutiliza modal-comp simplificado para frota
+  document.getElementById('comp-title').textContent='Revisão de Frota — '+(equip||'');
+  document.getElementById('comp-linha').innerHTML='<option value="">Frota</option><option value="Frota">Frota</option>'; document.getElementById('comp-linha').value='Frota';
+  document.getElementById('comp-equip').innerHTML=EQUIPOS_FROTA.map(e=>`<option value="${e}">${e}</option>`).join(''); if(equip)document.getElementById('comp-equip').value=equip;
+  document.getElementById('comp-componente').innerHTML='<option>Troca de Óleo</option><option>Filtro de Ar</option><option>Filtro de Óleo</option><option>Pneus</option><option>Limpeza</option><option>Conferência Geral</option><option>Outro</option>';
+  document.getElementById('comp-data').value=d.data; ['comp-horim','comp-prox','comp-resp','comp-obs'].forEach(i=>document.getElementById(i).value='');
+  document.getElementById('comp-tipo').value='preventiva'; document.getElementById('comp-error').classList.add('hidden');
+  document.getElementById('modal-comp').classList.remove('hidden');
+}
+
+// CRONOGRAMA
+async function salvarCron(){ const equip=document.getElementById('cron-equip').value.trim(), desc=document.getElementById('cron-desc').value.trim(), dtIni=document.getElementById('cron-dt-ini').value;
+  if(!equip||!desc||!dtIni){toast('Preencha equipamento, descrição e data!','warning');return;}
+  await _supabase.from('manutencao_cronograma').insert({equipamento:equip,descricao:desc,equipe:document.getElementById('cron-equipe').value||null,status:document.getElementById('cron-status').value,data_ini:dtIni,data_fim:document.getElementById('cron-dt-fim').value||null});
+  toast('Tarefa adicionada!','success'); closeModal('modal-cron'); const{data:cr}=await _supabase.from('manutencao_cronograma').select('*').order('data_ini',{ascending:false}).limit(200);_cronograma=cr||[];renderCronograma();
+}
+
+async function delCron(id){document.getElementById('confirm-msg').textContent='Excluir esta tarefa?';document.getElementById('confirm-ok-btn').onclick=async()=>{await _supabase.from('manutencao_cronograma').delete().eq('id',id);toast('Excluído.','warning');closeModal('modal-confirm');const{data:cr}=await _supabase.from('manutencao_cronograma').select('*').order('data_ini',{ascending:false}).limit(200);_cronograma=cr||[];renderCronograma();};document.getElementById('modal-confirm').classList.remove('hidden');}
+
+function exportarCronograma(){ exportarCSV(['Equipamento','Descrição','Equipe','Início','Fim','Status'],_cronograma.map(t=>[t.equipamento,t.descricao,t.equipe||'—',t.data_ini||'—',t.data_fim||'—',t.status]),'cronograma_manutencao'); }
+
+function showTab(t){
+  ['monitor','historico','mecanica','eletrica','compressores','filtros','frota','frota-cad','docs','cronograma','kpis'].forEach(x=>{
+    const el=document.getElementById('tab-'+x);if(el)el.style.display=x===t?'block':'none';
+    const btn=document.getElementById('tbtn-'+x);if(btn)btn.classList.toggle('active',x===t);
+  });
+  if(t==='monitor')renderMonitor();
+  if(t==='frota-cad')renderFrotaCad();
+  if(t==='docs')renderDocs();
+}
+</script>
+</body>
+</html>
