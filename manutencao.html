@@ -811,8 +811,10 @@ function renderComponentes(equip, comps, tabela){
     } else if(ultimaRev){
       const dataFmt=ultimaRev?new Date(ultimaRev+'T00:00:00').toLocaleDateString('pt-BR'):'';
       statusBadge=`<div style="background:#dcfce7;border:1px solid #86efac;color:#15803d;font-size:12px;font-weight:600;padding:6px 10px;border-radius:8px;line-height:1.5;">
-        ✅ <strong>Revisão executada</strong><br>
-        📅 ${dataFmt}${ultimaOS?' &nbsp;|&nbsp; OS-'+ultimaOS:''}${ultimaResp?'<br>👷 '+ultimaResp:''}
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+          <div>✅ <strong>Revisão executada</strong><br>📅 ${dataFmt}${ultimaOS?' &nbsp;|&nbsp; OS-'+ultimaOS:''}${ultimaResp?'<br>👷 '+ultimaResp:''}</div>
+          <button class="btn-excluir-rev" data-equip-id="${equip.id}" data-comp-idx="${idx}" data-tabela="${tabela}" style="background:none;border:none;color:#dc2626;cursor:pointer;font-size:16px;padding:0 0 0 8px;line-height:1;" title="Excluir revisão">✕</button>
+        </div>
       </div>`;
     }
     html+=`<div id="comp-card-${equip.id}-${idx}" style="background:${bg};border-radius:8px;padding:10px 12px;border:1.5px solid ${isSelected?'#2563eb':st.vencido?'#fca5a5':st.proximo?'#fde68a':'#e2e8f0'};${isSelected?'box-shadow:0 0 0 2px #bfdbfe;':''}">
@@ -825,7 +827,7 @@ function renderComponentes(equip, comps, tabela){
             <div style="font-size:10px;color:#94a3b8;">${comp.fabricante||''} ${comp.codigo?'| '+comp.codigo:''} ${comp.qtd?'| '+comp.qtd+' '+(comp.unidade||'un'):''}</div>
           </div>
         </div>
-        <span style="font-size:11px;font-weight:700;color:${cor};">${st.vencido?'🔴 VENC.':st.proximo?'⚡ PRÓX.':'✅ OK'}</span>
+        <span class="status-label" style="font-size:11px;font-weight:700;color:${cor};">${st.vencido?'🔴 VENC.':st.proximo?'⚡ PRÓX.':'✅ OK'}</span>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;font-size:11px;color:#64748b;margin-bottom:6px;">
         <div>Último horímetro:<br><strong>${st.compH>0?st.compH+'h':'—'}</strong></div>
@@ -845,6 +847,10 @@ function renderComponentes(equip, comps, tabela){
         ${st.vencido?`<button class="btn btn-sm btn-os-urg" style="background:#dc2626;color:#fff;border:none;font-size:11px;"
           data-equip-nome="${(equip.nome||'').replace(/"/g,'')}" data-comp-nome="${(comp.nome||'').replace(/"/g,'')}"
           data-linha="${equip.linha||''}">🚨 OS Urgente</button>`:''}
+        <button class="btn btn-sm btn-docs-comp" style="background:#7c3aed;color:#fff;border:none;font-size:11px;"
+          data-equip-nome="${(equip.nome||'').replace(/"/g,'')}"
+          data-comp-nome="${(comp.nome||'').replace(/"/g,'')}"
+          data-categoria="${tabela==='linhas'?'linha':'geral'}">📁 Docs</button>
       </div>
     </div>`;
   });
@@ -1269,7 +1275,7 @@ async function salvarFrotaCad(){
     horimetro_atual:parseFloat(document.getElementById('fc-horimetro').value)||0,
     proxima_revisao:document.getElementById('fc-proxima-rev').value||null,
     obs:document.getElementById('fc-obs').value.trim()||null,
-    foto:document.getElementById('fc-foto-data').value||null,
+    foto:document.getElementById('fc-foto-data')?.value||null,
     componentes:getCompsFrota(),
     atualizado_em:new Date().toISOString()
   };
@@ -1868,19 +1874,71 @@ function atualizarCardComp(equipId, compIdx, tabela){
   const comp=(equip.componentes||[])[compIdx];
   if(!comp)return;
   const cardEl=document.getElementById('comp-card-'+equipId+'-'+compIdx);
-  if(!cardEl)return;
-  // Gerar HTML apenas deste card (renderComponentes retorna lista, pegar só o idx)
-  const tmpEquip={...equip,componentes:[comp]};
-  const htmlLista=renderComponentes(tmpEquip,[comp],tabela);
-  const tmp=document.createElement('div');tmp.innerHTML=htmlLista;
-  // renderComponentes gera os cards dentro de um div flex — pegar o comp-card
-  const novoCard=tmp.querySelector('[id^="comp-card-"]');
-  if(novoCard){
-    // Corrigir o id para o idx real
-    novoCard.id='comp-card-'+equipId+'-'+compIdx;
-    cardEl.replaceWith(novoCard);
+  if(!cardEl){renderMonitorKpis();return;}
+  // Recalcular status
+  const horimetro=parseFloat(equip.horimetro)||0;
+  const st=calcStatus(comp,horimetro);
+  const cor=st.vencido?'#dc2626':st.proximo?'#b45309':'#16a34a';
+  const bg=st.vencido?'#fff5f5':st.proximo?'#fffbeb':'#f8fafc';
+  const pct=st.intv>0?Math.min(100,st.hTrab/st.intv*100):0;
+  const isSelected=_selComps.some(s=>s.equipId===equipId&&s.compIdx===compIdx);
+  // Badge
+  let badgeHtml='';
+  const ultimaRev=comp.ultima_revisao||null;
+  const progData=comp.proxima_revisao_data||null;
+  const progResp=comp.responsavel_programado||null;
+  if(progData&&!ultimaRev){
+    const pf=progData?new Date(progData+'T00:00:00').toLocaleDateString('pt-BR'):'';
+    badgeHtml=`<div style="background:#dbeafe;border:1px solid #93c5fd;color:#1d4ed8;font-size:12px;font-weight:600;padding:6px 10px;border-radius:8px;line-height:1.5;margin-bottom:8px;">
+      📅 <strong>Revisão programada</strong><br>Data: ${pf}${progResp?'<br>👷 '+progResp:''}</div>`;
+  } else if(ultimaRev){
+    const rf=new Date(ultimaRev+'T00:00:00').toLocaleDateString('pt-BR');
+    const ultimaOS=comp.ultima_os||null; const ultimaResp=comp.ultimo_responsavel||null;
+    badgeHtml=`<div style="background:#dcfce7;border:1px solid #86efac;color:#15803d;font-size:12px;font-weight:600;padding:6px 10px;border-radius:8px;line-height:1.5;margin-bottom:8px;">
+      ✅ <strong>Revisão executada</strong><br>📅 ${rf}${ultimaOS?' &nbsp;|&nbsp; OS-'+ultimaOS:''}${ultimaResp?'<br>👷 '+ultimaResp:''}
+      &nbsp;<button onclick="excluirRevisao('${equipId}',${compIdx},'${tabela}')" style="background:none;border:none;color:#dc2626;cursor:pointer;font-size:12px;float:right;" title="Excluir revisão">✕</button>
+      </div>`;
   }
+  // Atualizar partes do card sem recriar tudo
+  // Barra de progresso
+  const barraEl=cardEl.querySelector('.barra-prog');
+  if(barraEl)barraEl.style.width=pct.toFixed(0)+'%';
+  // Badge
+  const badgeEl=cardEl.querySelector('.badge-status');
+  if(badgeEl)badgeEl.innerHTML=badgeHtml;
+  // Status label
+  const stEl=cardEl.querySelector('.status-label');
+  if(stEl){stEl.textContent=st.vencido?'🔴 VENC.':st.proximo?'⚡ PRÓX.':'✅ OK';stEl.style.color=cor;}
+  // Border
+  cardEl.style.border=isSelected?'1.5px solid #2563eb':(st.vencido?'1.5px solid #fca5a5':st.proximo?'1.5px solid #fde68a':'1.5px solid #e2e8f0');
+  cardEl.style.background=bg;
+  // Próx troca
+  const proxEl=cardEl.querySelector('.prox-troca');
+  if(proxEl){proxEl.textContent=st.prox!==null?st.prox.toFixed(0)+'h (cada '+st.intv+'h)':'—';proxEl.style.color=cor;}
+  // Último horímetro
+  const hmEl=cardEl.querySelector('.ult-horim');
+  if(hmEl)hmEl.textContent=st.compH>0?st.compH+'h':'—';
   renderMonitorKpis();
+}
+
+
+async function excluirRevisao(equipId, compIdx, tabela){
+  if(!confirm('Excluir esta revisão e restaurar horímetro do componente?'))return;
+  const lista=tabela==='linhas'?_eqLinhas:_eqGerais;
+  const equip=lista.find(e=>e.id===equipId);
+  if(!equip)return;
+  const tb=tabela==='linhas'?'equipamentos_linhas':'equipamentos_gerais';
+  const comps=JSON.parse(JSON.stringify(equip.componentes||[]));
+  // Restaurar horimetro_componente para 0 (volta ao padrão)
+  comps[compIdx]={...comps[compIdx],horimetro_componente:null,
+    ultima_revisao:null,ultimo_responsavel:null,ultima_os:null,ultima_obs:null};
+  try{
+    const{error}=await _supabase.from(tb).update({componentes:comps,atualizado_em:new Date().toISOString()}).eq('id',equipId);
+    if(error)throw error;
+    equip.componentes=comps;
+    atualizarCardComp(equipId,parseInt(compIdx),tabela);
+    toast('Revisão excluída.','warning');
+  }catch(e){toast('Erro: '+e.message,'danger');}
 }
 
 
@@ -1939,6 +1997,20 @@ document.addEventListener('click', function(e){
   const btnFrotaOS = e.target.closest('.btn-frota-os');
   if(btnFrotaOS){
     abrirOSFrota(btnFrotaOS.dataset.nome);
+    return;
+  }
+  // Docs por componente
+  const btnDocsComp = e.target.closest('.btn-docs-comp');
+  if(btnDocsComp){
+    const d=btnDocsComp.dataset;
+    openDocEquip(d.equipNome, d.categoria, d.compNome);
+    return;
+  }
+  // Excluir revisão
+  const btnExcRev = e.target.closest('.btn-excluir-rev');
+  if(btnExcRev){
+    const d=btnExcRev.dataset;
+    excluirRevisao(d.equipId, parseInt(d.compIdx), d.tabela);
     return;
   }
 });
