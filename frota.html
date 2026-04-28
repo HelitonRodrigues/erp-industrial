@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Frota — ERP Industrial</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/supabase.js"></script>
+<script src="js/utils.js"></script>
+<style>
+.tab-btn{padding:10px 16px;border:none;background:none;cursor:pointer;font-size:13px;color:#64748b;border-bottom:2px solid transparent;white-space:nowrap;}
+.tab-btn.active{border-bottom-color:var(--accent);color:var(--primary);font-weight:700;}
+.sign-cv{display:block;width:100%;height:88px;border:1.5px solid #e2e8f0;border-radius:8px;background:#fff;cursor:crosshair;touch-action:none;}
+.frota-card{background:#fff;border-radius:12px;border:1.5px solid #e2e8f0;overflow:hidden;transition:.15s;}
+.frota-card:hover{box-shadow:0 4px 16px rgba(4,45,77,.1);border-color:var(--primary);}
+</style>
+</head>
+<body>
+<div class="topbar" id="topbar">
+  <button class="topbar-open-sidebar" onclick="toggleSidebar()">☰</button>
+  <div class="topbar-title" id="topbar-title">Frota</div>
+  <div class="topbar-user" id="topbar-user"></div>
+</div>
+<div id="sidebar-container"></div>
+<div id="toast-container" style="position:fixed;top:16px;right:16px;z-index:99999;display:flex;flex-direction:column;gap:8px;"></div>
+
+<main class="main-content" id="main-content">
+<div>
+
+  <div class="page-header">
+    <div class="page-header-left"><h1>FROTA</h1></div>
+    <div style="display:flex;gap:8px;">
+      <button class="btn btn-secondary" onclick="showTab('os')">📋 Ordens de Serviço</button>
+      <button class="btn btn-primary" onclick="abrirNovoVeiculo()">+ Novo Veículo</button>
+    </div>
+  </div>
+
+  <!-- TABS -->
+  <div style="display:flex;border-bottom:1.5px solid #e2e8f0;margin-bottom:18px;overflow-x:auto;">
+    <button class="tab-btn active" id="tbtn-cadastro" onclick="showTab('cadastro')">🚜 Cadastro Frota</button>
+    <button class="tab-btn" id="tbtn-os" onclick="showTab('os')">📋 Ordens de Serviço</button>
+  </div>
+
+  <!-- CADASTRO -->
+  <div id="tab-cadastro">
+    <div id="frota-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px;"></div>
+    <div id="frota-empty" class="hidden" style="text-align:center;padding:48px;color:#94a3b8;">
+      <div style="font-size:48px;margin-bottom:12px;">🚜</div>
+      <div style="font-size:16px;font-weight:700;">Nenhum veículo cadastrado</div>
+      <button class="btn btn-primary" style="margin-top:16px;" onclick="abrirNovoVeiculo()">+ Cadastrar Veículo</button>
+    </div>
+  </div>
+
+  <!-- OS -->
+  <div id="tab-os" style="display:none;">
+    <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
+      <select id="f-frota-equip" class="form-input" style="width:200px;" onchange="renderOS()">
+        <option value="">Todos os veículos</option>
+      </select>
+      <select id="f-frota-status" class="form-input" style="width:150px;" onchange="renderOS()">
+        <option value="">Todos os status</option>
+        <option value="aberta">Aberta</option>
+        <option value="concluida">Concluída</option>
+      </select>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>OS</th><th>Data</th><th>Veículo</th><th>Tipo</th><th>Horímetro</th>
+          <th>Técnico</th><th>Status</th><th>Fotos</th><th>Ações</th>
+        </tr></thead>
+        <tbody id="tbody-frota-os"></tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+</main>
+
+<!-- MODAL VEÍCULO -->
+<div id="m-veiculo" class="modal-overlay hidden" onclick="if(event.target===this)closeModal('m-veiculo')">
+  <div class="modal modal-lg" style="max-height:90vh;overflow-y:auto;">
+    <div class="modal-header">
+      <div class="modal-title" id="m-veiculo-tit">Novo Veículo</div>
+      <button class="modal-close" onclick="closeModal('m-veiculo')">✕</button>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+      <div class="form-group"><label class="form-label">Nome *</label><input id="v-nome" type="text" class="form-input"></div>
+      <div class="form-group"><label class="form-label">Tipo</label>
+        <select id="v-tipo" class="form-input">
+          <option value="veiculo">Veículo</option><option value="maquina">Máquina</option>
+          <option value="empilhadeira">Empilhadeira</option><option value="trator">Trator</option><option value="outro">Outro</option>
+        </select>
+      </div>
+      <div class="form-group"><label class="form-label">Placa</label><input id="v-placa" type="text" class="form-input"></div>
+      <div class="form-group"><label class="form-label">Marca</label><input id="v-marca" type="text" class="form-input"></div>
+      <div class="form-group"><label class="form-label">Modelo</label><input id="v-modelo" type="text" class="form-input"></div>
+      <div class="form-group"><label class="form-label">Ano</label><input id="v-ano" type="number" class="form-input" min="1990" max="2030"></div>
+      <div class="form-group"><label class="form-label">Horímetro Atual</label><input id="v-horimetro" type="number" class="form-input" step="0.01"></div>
+      <div class="form-group"><label class="form-label">Intervalo Revisão (h)</label><input id="v-rev-horas" type="number" class="form-input" placeholder="Ex: 250"></div>
+      <div class="form-group"><label class="form-label">Próxima Revisão (h)</label><input id="v-prox-rev" type="number" class="form-input"></div>
+      <div class="form-group"><label class="form-label">Data Próxima Revisão</label><input id="v-prox-data" type="date" class="form-input"></div>
+      <div class="form-group" style="grid-column:1/-1"><label class="form-label">Observações</label><textarea id="v-obs" class="form-input" rows="2"></textarea></div>
+      <!-- Foto -->
+      <div class="form-group" style="grid-column:1/-1">
+        <label class="form-label">Foto</label>
+        <div style="display:flex;gap:12px;align-items:center;">
+          <div id="v-foto-prev" style="width:80px;height:80px;border-radius:10px;background:#f1f5f9;border:1.5px solid #e2e8f0;display:flex;align-items:center;justify-content:center;font-size:36px;cursor:pointer;overflow:hidden;" onclick="document.getElementById('v-foto-inp').click()">🚜</div>
+          <div>
+            <input type="file" id="v-foto-inp" accept="image/*" style="display:none;" onchange="uploadFotoVeiculo(this)">
+            <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('v-foto-inp').click()">📷 Foto</button>
+          </div>
+        </div>
+        <input type="hidden" id="v-foto-data" value="">
+      </div>
+      <!-- Componentes -->
+      <div class="form-group" style="grid-column:1/-1">
+        <label class="form-label">Componentes com Revisão Programada</label>
+        <div id="v-comps-list" style="display:flex;flex-direction:column;gap:8px;margin-bottom:8px;"></div>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="addCompVeiculo()">+ Componente</button>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('m-veiculo')">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarVeiculo()">💾 Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL OS FROTA -->
+<div id="m-os-frota" class="modal-overlay hidden" onclick="if(event.target===this)closeModal('m-os-frota')">
+  <div class="modal modal-lg" style="max-height:90vh;overflow-y:auto;">
+    <div class="modal-header">
+      <div class="modal-title" id="m-os-frota-tit">OS de Frota</div>
+      <button class="modal-close" onclick="closeModal('m-os-frota')">✕</button>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+      <div class="form-group"><label class="form-label">Tipo</label>
+        <select id="osf-tipo" class="form-input"><option value="preventiva">Preventiva</option><option value="corretiva">Corretiva</option></select>
+      </div>
+      <div class="form-group"><label class="form-label">Data *</label><input id="osf-data" type="date" class="form-input"></div>
+      <div class="form-group"><label class="form-label">Técnico</label>
+        <select id="osf-tec" class="form-input"><option value="">Selecione...</option></select>
+      </div>
+      <div class="form-group"><label class="form-label">Horímetro</label><input id="osf-horim" type="number" class="form-input" step="0.01"></div>
+      <div class="form-group" style="grid-column:1/-1"><label class="form-label">Serviço Realizado</label><textarea id="osf-serv" class="form-input" rows="2"></textarea></div>
+      <div class="form-group"><label class="form-label">Custo (R$)</label><input id="osf-custo" type="number" class="form-input" min="0" step="0.01"></div>
+      <div class="form-group"><label class="form-label">Status</label>
+        <select id="osf-status" class="form-input">
+          <option value="aberta">Aberta</option><option value="concluida">Concluída</option>
+        </select>
+      </div>
+      <div class="form-group" style="grid-column:1/-1">
+        <label class="form-label">✍️ Assinatura</label>
+        <canvas id="osf-assin-cv" class="sign-cv" width="600" height="88"></canvas>
+        <input type="hidden" id="osf-assin-data" value="">
+        <button type="button" class="btn btn-ghost btn-sm" style="font-size:11px;margin-top:4px;" onclick="limparOsfAssin()">🗑️ Limpar</button>
+      </div>
+      <div class="form-group" style="grid-column:1/-1">
+        <label class="form-label">📷 Fotos</label>
+        <div id="osf-foto-prev" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px;"></div>
+        <input type="file" id="osf-foto-inp" accept="image/*" multiple style="display:none;" onchange="addFotosOSF(this)">
+        <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('osf-foto-inp').click()">📷 Fotos</button>
+        <input type="hidden" id="osf-fotos-data" value="[]">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('m-os-frota')">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarOSFrota()">💾 Salvar OS</button>
+    </div>
+  </div>
+</div>
+
+<!-- LIGHTBOX -->
+<div id="m-lb" class="modal-overlay hidden" style="z-index:20000;background:rgba(0,0,0,.92);" onclick="this.classList.add('hidden')">
+  <div style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;padding:16px;">
+    <img id="lb-img" src="" style="max-width:100%;max-height:90vh;border-radius:8px;object-fit:contain;">
+    <button onclick="document.getElementById('m-lb').classList.add('hidden')" style="position:fixed;top:16px;right:16px;background:#fff;border:none;border-radius:50%;width:36px;height:36px;font-size:18px;cursor:pointer;z-index:20001;">✕</button>
+  </div>
+</div>
+
+<!-- CONFIRM -->
+<div id="m-confirm" class="modal-overlay hidden" onclick="if(event.target===this)closeModal('m-confirm')">
+  <div class="modal" style="max-width:340px;">
+    <div class="modal-header"><div class="modal-title">Confirmar</div><button class="modal-close" onclick="closeModal('m-confirm')">✕</button></div>
+    <p id="confirm-msg" style="padding:16px;color:#475569;"></p>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('m-confirm')">Cancelar</button>
+      <button class="btn btn-danger" id="confirm-ok">Confirmar</button>
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+let _frota=[], _ordens=[], _funcs=[], _emp={};
+let _eVeiculoId=null, _eOSFId=null, _veiculoAtualId=null;
+let _osfFotos=[], _osfAssinOk=false;
+
+const lb=(s)=>{document.getElementById('lb-img').src=s;document.getElementById('m-lb').classList.remove('hidden');};
+
+async function init(){
+  fetch('partials/sidebar.html').then(r=>r.text()).then(html=>{
+    document.getElementById('sidebar-container').innerHTML=html;
+    document.querySelector('[href="frota.html"]')?.classList.add('active');
+  openGroup('operacoes');
+initSidebar('frota.html');
+  }).catch(()=>{});
+  const safe=async(q,n)=>{try{const r=await q;return r.data||[];}catch(e){return[];}};
+  try{const{data:e}=await _supabase.from('empresa_config').select('nome_fantasia,logo').single();if(e)_emp=e;}catch(e){}
+  const[frota,funcs]=await Promise.all([
+    safe(_supabase.from('frota_veiculos').select('*').order('nome'),'frota'),
+    safe(_supabase.from('funcionarios').select('id,nome,funcao').eq('status','ativo').order('nome'),'funcs'),
+  ]);
+  _frota=frota; _funcs=funcs;
+  popularSelects();
+  renderCadastro();
+  const{data:or}=await _supabase.from('manutencao').select('id,numero,tipo,equipamento,linha,descricao,tecnico,data_abertura,horimetro,custo_manutencao,servico_realizado,status,assinatura,fotos_servico,created_at').order('data_abertura',{ascending:false}).limit(300);
+  _ordens=(or||[]).filter(o=>_frota.find(v=>v.nome===o.equipamento));
+  renderOS();
+}
+
+function showTab(t){
+  ['cadastro','os'].forEach(x=>{
+    const el=document.getElementById('tab-'+x);if(el)el.style.display=x===t?'block':'none';
+    const btn=document.getElementById('tbtn-'+x);if(btn)btn.classList.toggle('active',x===t);
+  });
+  if(t==='os')renderOS();
+  if(t==='cadastro')renderCadastro();
+}
+
+function popularSelects(){
+  const st=document.getElementById('osf-tec');
+  if(st)st.innerHTML='<option value="">Selecione...</option>'+_funcs.map(f=>`<option value="${f.nome}">${f.nome}${f.funcao?' — '+f.funcao:''}</option>`).join('')+'<option value="Terceiro">Terceiro</option>';
+  const sf=document.getElementById('f-frota-equip');
+  if(sf)sf.innerHTML='<option value="">Todos os veículos</option>'+_frota.map(v=>`<option value="${v.nome}">${v.nome}</option>`).join('');
+}
+
+// ═══ CADASTRO ═══
+function renderCadastro(){
+  const grid=document.getElementById('frota-grid');
+  const empty=document.getElementById('frota-empty');
+  if(!_frota.length){grid.innerHTML='';empty.classList.remove('hidden');return;}
+  empty.classList.add('hidden');
+  grid.innerHTML=_frota.map(v=>{
+    const h=parseFloat(v.horimetro_atual)||0;
+    const prox=parseFloat(v.proxima_revisao)||0;
+    const status=prox>0&&h>=prox?'VENC':'OK';
+    const comps=v.componentes||[];
+    return`<div class="frota-card">
+      <div style="height:140px;background:#f1f5f9;display:flex;align-items:center;justify-content:center;overflow:hidden;position:relative;">
+        ${v.foto?`<img src="${v.foto}" style="width:100%;height:100%;object-fit:cover;cursor:pointer;" onclick="lb('${v.foto}')">`:'<div style="font-size:52px;">🚜</div>'}
+        <span style="position:absolute;top:8px;right:8px;font-size:11px;font-weight:700;padding:3px 8px;border-radius:8px;background:${status==='VENC'?'#fee2e2':'#dcfce7'};color:${status==='VENC'?'#dc2626':'#16a34a'};">${status==='VENC'?'⚠️ VENC':'✅ OK'}</span>
+      </div>
+      <div style="padding:14px;">
+        <div style="font-weight:800;font-size:15px;color:var(--primary);">${v.nome}</div>
+        <div style="font-size:11px;color:#64748b;margin-top:2px;">${v.tipo||'—'} ${v.placa?'| '+v.placa:''} ${v.marca?'| '+v.marca:''} ${v.ano?'| '+v.ano:''}</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px;font-size:12px;">
+          <div style="background:#f8fafc;border-radius:6px;padding:6px;"><div style="color:#94a3b8;font-size:10px;">Horímetro</div><div style="font-weight:700;">${h}h</div></div>
+          <div style="background:#f8fafc;border-radius:6px;padding:6px;"><div style="color:#94a3b8;font-size:10px;">Próx. Revisão</div><div style="font-weight:700;">${prox>0?prox+'h':'—'}</div></div>
+        </div>
+        ${comps.length?`<div style="margin-top:8px;font-size:11px;color:#64748b;">${comps.length} componente(s): ${comps.slice(0,2).map(c=>c.nome).join(', ')}${comps.length>2?'...':''}</div>`:''}
+        <div style="display:flex;gap:6px;margin-top:12px;flex-wrap:wrap;">
+          <button class="btn btn-primary btn-sm" style="flex:1;" onclick="abrirOSFrota('${v.id}')">🔧 Nova OS</button>
+          <button class="btn btn-secondary btn-sm" onclick="editarVeiculo('${v.id}')">✏️</button>
+          <button class="btn btn-danger btn-sm" onclick="delVeiculo('${v.id}')">🗑️</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ═══ VEÍCULO CRUD ═══
+function abrirNovoVeiculo(){
+  _eVeiculoId=null;
+  document.getElementById('m-veiculo-tit').textContent='Novo Veículo';
+  ['v-nome','v-placa','v-marca','v-modelo','v-obs'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
+  ['v-ano','v-rev-horas','v-horimetro','v-prox-rev'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
+  document.getElementById('v-prox-data').value='';
+  document.getElementById('v-tipo').value='veiculo';
+  document.getElementById('v-foto-data').value='';
+  document.getElementById('v-foto-prev').innerHTML='🚜';
+  document.getElementById('v-comps-list').innerHTML='';
+  document.getElementById('m-veiculo').classList.remove('hidden');
+}
+
+function editarVeiculo(id){
+  const v=_frota.find(x=>x.id===id);if(!v)return;
+  _eVeiculoId=id;
+  document.getElementById('m-veiculo-tit').textContent='Editar Veículo';
+  document.getElementById('v-nome').value=v.nome||'';
+  document.getElementById('v-tipo').value=v.tipo||'veiculo';
+  document.getElementById('v-placa').value=v.placa||'';
+  document.getElementById('v-marca').value=v.marca||'';
+  document.getElementById('v-modelo').value=v.modelo||'';
+  document.getElementById('v-ano').value=v.ano||'';
+  document.getElementById('v-rev-horas').value=v.revisao_horas||'';
+  document.getElementById('v-horimetro').value=v.horimetro_atual||'';
+  document.getElementById('v-prox-rev').value=v.proxima_revisao||'';
+  document.getElementById('v-prox-data').value=v.proxima_revisao_data||'';
+  document.getElementById('v-obs').value=v.obs||'';
+  document.getElementById('v-foto-data').value=v.foto||'';
+  const prev=document.getElementById('v-foto-prev');
+  prev.innerHTML=v.foto?`<img src="${v.foto}" style="width:100%;height:100%;object-fit:cover;" onclick="lb('${v.foto}')">`:'🚜';
+  const list=document.getElementById('v-comps-list');list.innerHTML='';
+  (v.componentes||[]).forEach(c=>addCompVeiculo(c));
+  document.getElementById('m-veiculo').classList.remove('hidden');
+}
+
+function addCompVeiculo(comp){
+  comp=comp||{};
+  const id='vc-'+Date.now()+'-'+Math.random().toString(36).slice(2,6);
+  const fpid='fp-'+id;
+  const div=document.createElement('div');
+  div.id=id;div.style.cssText='border:1px solid #e2e8f0;border-radius:8px;padding:10px;';
+  div.innerHTML=`
+    <div style="display:grid;grid-template-columns:2fr 1fr 1fr auto;gap:6px;align-items:center;margin-bottom:8px;">
+      <input type="text" class="form-input" placeholder="Nome do componente" value="${comp.nome||''}" data-cf="nome" style="font-size:12px;padding:5px 8px;">
+      <input type="number" class="form-input" placeholder="Intervalo (h)" value="${comp.intervalo_revisao||''}" data-cf="intervalo_revisao" style="font-size:12px;padding:5px 8px;">
+      <input type="number" class="form-input" placeholder="Último horímetro" value="${comp.horimetro_componente||''}" data-cf="horimetro_componente" style="font-size:12px;padding:5px 8px;">
+      <button onclick="document.getElementById('${id}').remove()" style="background:none;border:none;font-size:18px;cursor:pointer;color:#ef4444;">✕</button>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;">
+      <div id="${fpid}" style="width:44px;height:44px;border-radius:6px;border:1px solid #e2e8f0;overflow:hidden;background:#f8fafc;display:flex;align-items:center;justify-content:center;font-size:20px;cursor:pointer;" onclick="${comp.foto_componente?`lb('${comp.foto_componente}')`:''}">${comp.foto_componente?`<img src="${comp.foto_componente}" style="width:100%;height:100%;object-fit:cover;">`:'📷'}</div>
+      <div>
+        <input type="file" id="fi-${id}" accept="image/*" style="display:none;" onchange="uploadFotoComp(this,'${id}','${fpid}')">
+        <button type="button" class="btn btn-secondary btn-sm" style="font-size:10px;" onclick="document.getElementById('fi-${id}').click()">📷 Foto</button>
+      </div>
+      <input type="hidden" data-cf="foto_componente" value="${comp.foto_componente||''}">
+    </div>`;
+  document.getElementById('v-comps-list').appendChild(div);
+}
+
+function uploadFotoVeiculo(input){
+  const file=input.files[0];if(!file||!file.type.startsWith('image/'))return;
+  const reader=new FileReader();
+  reader.onload=ev=>{
+    const img=new Image();img.onload=()=>{
+      const maxD=1000;let w=img.width,h=img.height;
+      if(w>maxD||h>maxD){if(w>h){h=Math.round(h*maxD/w);w=maxD;}else{w=Math.round(w*maxD/h);h=maxD;}}
+      const cv=document.createElement('canvas');cv.width=w;cv.height=h;cv.getContext('2d').drawImage(img,0,0,w,h);
+      const data=cv.toDataURL('image/jpeg',0.8);
+      document.getElementById('v-foto-data').value=data;
+      document.getElementById('v-foto-prev').innerHTML=`<img src="${data}" style="width:100%;height:100%;object-fit:cover;" onclick="lb('${data}')">`;
+    };img.src=ev.target.result;
+  };reader.readAsDataURL(file);input.value='';
+}
+
+function uploadFotoComp(input,divId,prevId){
+  const file=input.files[0];if(!file||!file.type.startsWith('image/'))return;
+  const reader=new FileReader();
+  reader.onload=ev=>{
+    const img=new Image();img.onload=()=>{
+      const maxD=800;let w=img.width,h=img.height;
+      if(w>maxD||h>maxD){if(w>h){h=Math.round(h*maxD/w);w=maxD;}else{w=Math.round(w*maxD/h);h=maxD;}}
+      const cv=document.createElement('canvas');cv.width=w;cv.height=h;cv.getContext('2d').drawImage(img,0,0,w,h);
+      const data=cv.toDataURL('image/jpeg',0.75);
+      const row=document.getElementById(divId);
+      if(row){const hid=row.querySelector('[data-cf="foto_componente"]');if(hid)hid.value=data;}
+      const prev=document.getElementById(prevId);
+      if(prev)prev.innerHTML=`<img src="${data}" style="width:100%;height:100%;object-fit:cover;" onclick="lb('${data}')">`;
+    };img.src=ev.target.result;
+  };reader.readAsDataURL(file);input.value='';
+}
+
+async function salvarVeiculo(){
+  const nome=document.getElementById('v-nome').value.trim();
+  if(!nome){toast('Nome obrigatório!','warning');return;}
+  const comps=[];
+  document.querySelectorAll('#v-comps-list > [id^="vc-"]').forEach(div=>{
+    const get=k=>div.querySelector(`[data-cf="${k}"]`)?.value||'';
+    if(get('nome'))comps.push({nome:get('nome'),intervalo_revisao:parseFloat(get('intervalo_revisao'))||0,horimetro_componente:parseFloat(get('horimetro_componente'))||0,foto_componente:get('foto_componente')||null});
+  });
+  const dados={nome,tipo:document.getElementById('v-tipo').value,placa:document.getElementById('v-placa').value||null,marca:document.getElementById('v-marca').value||null,modelo:document.getElementById('v-modelo').value||null,ano:parseInt(document.getElementById('v-ano').value)||null,revisao_horas:parseFloat(document.getElementById('v-rev-horas').value)||null,horimetro_atual:parseFloat(document.getElementById('v-horimetro').value)||0,proxima_revisao:parseFloat(document.getElementById('v-prox-rev').value)||null,proxima_revisao_data:document.getElementById('v-prox-data').value||null,obs:document.getElementById('v-obs').value||null,foto:document.getElementById('v-foto-data').value||null,componentes:comps,status:'ativo'};
+  if(_eVeiculoId){await _supabase.from('frota_veiculos').update(dados).eq('id',_eVeiculoId);}
+  else{await _supabase.from('frota_veiculos').insert(dados);}
+  const{data}=await _supabase.from('frota_veiculos').select('*').order('nome');
+  _frota=data||[];
+  popularSelects();closeModal('m-veiculo');toast('Veículo salvo!','success');renderCadastro();
+}
+
+async function delVeiculo(id){
+  document.getElementById('confirm-msg').textContent='Excluir este veículo?';
+  document.getElementById('confirm-ok').onclick=async()=>{
+    await _supabase.from('frota_veiculos').delete().eq('id',id);
+    closeModal('m-confirm');_frota=_frota.filter(v=>v.id!==id);renderCadastro();toast('Excluído.','warning');
+  };
+  document.getElementById('m-confirm').classList.remove('hidden');
+}
+
+// ═══ OS FROTA ═══
+function abrirOSFrota(veiculoId){
+  const v=_frota.find(x=>x.id===veiculoId);if(!v)return;
+  _eOSFId=null;_veiculoAtualId=veiculoId;
+  document.getElementById('m-os-frota-tit').textContent='Nova OS — '+v.nome;
+  document.getElementById('osf-tipo').value='preventiva';
+  document.getElementById('osf-data').value=new Date().toISOString().slice(0,10);
+  document.getElementById('osf-tec').value='';
+  document.getElementById('osf-horim').value=v.horimetro_atual||'';
+  document.getElementById('osf-serv').value='';
+  document.getElementById('osf-custo').value='';
+  document.getElementById('osf-status').value='aberta';
+  _osfFotos=[];
+  document.getElementById('osf-fotos-data').value='[]';
+  document.getElementById('osf-foto-prev').innerHTML='';
+  _osfAssinOk=false;
+  const cv=document.getElementById('osf-assin-cv');
+  if(cv){cv.getContext('2d').clearRect(0,0,cv.width,cv.height);}
+  document.getElementById('osf-assin-data').value='';
+  setTimeout(()=>iniOsfAssin(),150);
+  document.getElementById('m-os-frota').classList.remove('hidden');
+}
+
+function iniOsfAssin(){
+  if(_osfAssinOk)return;
+  const cv=document.getElementById('osf-assin-cv');if(!cv)return;
+  _osfAssinOk=true;let drawing=false;
+  const ctx=cv.getContext('2d');
+  const xy=e=>{const r=cv.getBoundingClientRect();const s=e.touches?e.touches[0]:e;return{x:(s.clientX-r.left)*(cv.width/r.width),y:(s.clientY-r.top)*(cv.height/r.height)};};
+  const start=e=>{e.preventDefault();drawing=true;ctx.beginPath();const p=xy(e);ctx.moveTo(p.x,p.y);};
+  const move=e=>{e.preventDefault();if(!drawing)return;const p=xy(e);ctx.lineTo(p.x,p.y);ctx.strokeStyle='#042D4D';ctx.lineWidth=2;ctx.lineCap='round';ctx.stroke();};
+  const end=()=>{drawing=false;document.getElementById('osf-assin-data').value=cv.toDataURL('image/png');};
+  cv.addEventListener('mousedown',start);cv.addEventListener('mousemove',move);cv.addEventListener('mouseup',end);
+  cv.addEventListener('touchstart',start,{passive:false});cv.addEventListener('touchmove',move,{passive:false});cv.addEventListener('touchend',end);
+}
+
+function limparOsfAssin(){const cv=document.getElementById('osf-assin-cv');if(cv)cv.getContext('2d').clearRect(0,0,cv.width,cv.height);document.getElementById('osf-assin-data').value='';}
+
+function addFotosOSF(input){
+  Array.from(input.files||[]).forEach(file=>{
+    if(!file.type.startsWith('image/'))return;
+    const reader=new FileReader();
+    reader.onload=ev=>{
+      const img=new Image();img.onload=()=>{
+        const maxD=1200;let w=img.width,h=img.height;
+        if(w>maxD||h>maxD){if(w>h){h=Math.round(h*maxD/w);w=maxD;}else{w=Math.round(w*maxD/h);h=maxD;}}
+        const cv=document.createElement('canvas');cv.width=w;cv.height=h;cv.getContext('2d').drawImage(img,0,0,w,h);
+        const data=cv.toDataURL('image/jpeg',0.75);
+        _osfFotos.push(data);
+        document.getElementById('osf-fotos-data').value=JSON.stringify(_osfFotos);
+        const prev=document.getElementById('osf-foto-prev');
+        const d=document.createElement('div');d.style.cssText='position:relative;display:inline-block;';
+        const i=_osfFotos.length-1;
+        d.innerHTML=`<img src="${data}" style="width:50px;height:50px;object-fit:cover;border-radius:4px;cursor:pointer;" onclick="lb('${data}')"><button onclick="_osfFotos[${i}]=null;this.parentElement.remove();document.getElementById('osf-fotos-data').value=JSON.stringify(_osfFotos)" style="position:absolute;top:-4px;right:-4px;background:#dc2626;color:#fff;border:none;border-radius:50%;width:15px;height:15px;font-size:10px;cursor:pointer;padding:0;">✕</button>`;
+        prev.appendChild(d);
+      };img.src=ev.target.result;
+    };reader.readAsDataURL(file);
+  });input.value='';
+}
+
+async function salvarOSFrota(){
+  const data=document.getElementById('osf-data').value;if(!data){toast('Informe a data!','warning');return;}
+  const v=_frota.find(x=>x.id===_veiculoAtualId);if(!v)return;
+  const horim=parseFloat(document.getElementById('osf-horim').value)||null;
+  const d={tipo:document.getElementById('osf-tipo').value,equipamento:v.nome,linha:'Frota',descricao:document.getElementById('osf-serv').value||'Manutenção de frota',tecnico:document.getElementById('osf-tec').value||null,data_abertura:data,horimetro:horim,custo_manutencao:parseFloat(document.getElementById('osf-custo').value)||null,servico_realizado:document.getElementById('osf-serv').value||null,status:document.getElementById('osf-status').value,assinatura:document.getElementById('osf-assin-data').value||null,fotos_servico:JSON.parse(document.getElementById('osf-fotos-data').value||'[]').filter(Boolean),atualizado_em:new Date().toISOString()};
+  const{data:mx}=await _supabase.from('manutencao').select('numero').order('numero',{ascending:false}).limit(1);
+  d.numero=(mx?.[0]?.numero||0)+1;
+  await _supabase.from('manutencao').insert(d);
+  // Atualizar horímetro do veículo se concluída
+  if(d.status==='concluida'&&horim){
+    await _supabase.from('frota_veiculos').update({horimetro_atual:horim,atualizado_em:new Date().toISOString()}).eq('id',_veiculoAtualId);
+    v.horimetro_atual=horim;
+  }
+  const{data:or}=await _supabase.from('manutencao').select('id,numero,tipo,equipamento,linha,descricao,tecnico,data_abertura,horimetro,custo_manutencao,servico_realizado,status,assinatura,fotos_servico,created_at').order('data_abertura',{ascending:false}).limit(300);
+  _ordens=(or||[]).filter(o=>_frota.find(vv=>vv.nome===o.equipamento));
+  closeModal('m-os-frota');toast('OS salva!','success');renderOS();renderCadastro();
+}
+
+// ═══ RENDER OS ═══
+function renderOS(){
+  const filtroEquip=document.getElementById('f-frota-equip')?.value||'';
+  const filtroStatus=document.getElementById('f-frota-status')?.value||'';
+  const lista=_ordens.filter(o=>(!filtroEquip||o.equipamento===filtroEquip)&&(!filtroStatus||o.status===filtroStatus));
+  const tbody=document.getElementById('tbody-frota-os');if(!tbody)return;
+  const stC={aberta:'#b45309',em_andamento:'#2563eb',concluida:'#16a34a',cancelada:'#94a3b8'};
+  const stL={aberta:'📋 Aberta',em_andamento:'🔄 Em And.',concluida:'✅ Concluída',cancelada:'❌ Cancelada'};
+  tbody.innerHTML=lista.length?lista.map(o=>{
+    const dt=o.data_abertura?new Date(o.data_abertura+'T00:00:00').toLocaleDateString('pt-BR'):'—';
+    const fotos=(o.fotos_servico||[]).filter(Boolean);
+    const fH=fotos.slice(0,3).map(f=>`<img src="${f}" style="width:28px;height:28px;object-fit:cover;border-radius:3px;cursor:pointer;" onclick="lb('${f}')">`).join('');
+    return`<tr>
+      <td style="font-family:monospace;font-weight:700;font-size:12px;">OS-${String(o.numero||0).padStart(4,'0')}</td>
+      <td style="font-size:12px;white-space:nowrap;">${dt}</td>
+      <td style="font-weight:600;">${o.equipamento||'—'}</td>
+      <td><span style="font-size:11px;background:#f1f5f9;padding:2px 5px;border-radius:4px;">${o.tipo||'—'}</span></td>
+      <td style="font-size:12px;">${o.horimetro||'—'}h</td>
+      <td style="font-size:12px;">${o.tecnico||'—'}</td>
+      <td><span style="font-size:11px;font-weight:700;color:${stC[o.status]||'#64748b'};">${stL[o.status]||o.status}</span></td>
+      <td style="display:flex;gap:2px;flex-wrap:wrap;">${fH}</td>
+      <td><div class="table-actions">
+        <button class="btn btn-secondary btn-sm" onclick="imprimirOS('${o.id}')">🖨️</button>
+        <button class="btn btn-danger btn-sm" onclick="delOS('${o.id}')">🗑️</button>
+      </div></td>
+    </tr>`;
+  }).join(''):`<tr><td colspan="9" style="text-align:center;padding:24px;color:#94a3b8;">Nenhuma OS de frota.</td></tr>`;
+}
+
+function imprimirOS(id){
+  const o=_ordens.find(x=>x.id===id);if(!o)return;
+  const ne=_emp.nome_fantasia||'ERP Industrial';
+  const dt=o.data_abertura?new Date(o.data_abertura+'T00:00:00').toLocaleDateString('pt-BR'):'—';
+  const fotos=(o.fotos_servico||[]).filter(Boolean);
+  const fH=fotos.map(f=>`<img src="${f}" style="width:110px;height:110px;object-fit:cover;border-radius:6px;">`).join('');
+  const aH=o.assinatura?`<div style="text-align:center;min-width:160px;"><div style="font-size:11px;font-weight:700;margin-bottom:4px;">${o.tecnico||'Técnico'}</div><img src="${o.assinatura}" style="height:70px;max-width:200px;border:1px solid #e2e8f0;border-radius:4px;display:block;margin:0 auto;"></div>`:'<div style="min-width:160px;"><div style="border-bottom:1.5px solid #1e3a5f;height:70px;margin-bottom:4px;"></div><div style="font-size:11px;color:#64748b;">Técnico</div></div>';
+  const logo=_emp.logo?`<img src="${_emp.logo}" style="height:44px;">`:`<div style="width:44px;height:44px;background:#1e3a5f;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#C9FF64;font-weight:900;">${ne.charAt(0)}</div>`;
+  const w=window.open('','_blank','width=900,height=700');
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>OS Frota</title><style>body{font-family:Arial,sans-serif;padding:24px;font-size:13px;}.hd{display:flex;align-items:center;gap:14px;border-bottom:3px solid #1e3a5f;padding-bottom:12px;margin-bottom:16px;}.gd{display:grid;grid-template-columns:1fr 1fr;gap:8px;}.f{background:#f8fafc;border-left:3px solid #cbd5e1;padding:8px;border-radius:0 6px 6px 0;margin-bottom:8px;}.fc{grid-column:1/-1;}.lb{font-size:10px;color:#94a3b8;text-transform:uppercase;font-weight:700;}.vl{font-size:13px;font-weight:600;margin-top:2px;}.sa{display:flex;gap:24px;flex-wrap:wrap;margin-top:20px;}@media print{@page{margin:1cm;}}</style></head><body>
+  <div class="hd">${logo}<div style="flex:1;font-size:16px;font-weight:900;color:#1e3a5f;">${ne} — Manutenção de Frota</div><div style="text-align:right;"><div style="font-size:18px;font-weight:900;color:#1e3a5f;">OS-${String(o.numero||0).padStart(4,'0')}</div><div style="font-size:11px;color:#64748b;">${dt}</div></div></div>
+  <div class="gd">
+    <div class="f"><div class="lb">Veículo</div><div class="vl">${o.equipamento||'—'}</div></div>
+    <div class="f"><div class="lb">Tipo</div><div class="vl">${o.tipo||'—'}</div></div>
+    <div class="f"><div class="lb">Técnico</div><div class="vl">${o.tecnico||'—'}</div></div>
+    <div class="f"><div class="lb">Horímetro</div><div class="vl">${o.horimetro||'—'}h</div></div>
+    <div class="f"><div class="lb">Custo</div><div class="vl">${o.custo_manutencao?'R$ '+parseFloat(o.custo_manutencao).toFixed(2):'—'}</div></div>
+    <div class="f"><div class="lb">Status</div><div class="vl">${o.status||'—'}</div></div>
+    ${o.servico_realizado?`<div class="f fc"><div class="lb">Serviço</div><div class="vl">${o.servico_realizado}</div></div>`:''}
+  </div>
+  ${fH?`<div style="margin:12px 0;font-size:11px;font-weight:700;color:#475569;text-transform:uppercase;">Fotos</div><div style="display:flex;gap:8px;flex-wrap:wrap;">${fH}</div>`:''}
+  <div style="margin:16px 0 8px;font-size:11px;font-weight:700;color:#475569;text-transform:uppercase;border-top:1px solid #e2e8f0;padding-top:12px;">Assinaturas</div>
+  <div class="sa">${aH}<div style="min-width:160px;"><div style="border-bottom:1.5px solid #1e3a5f;height:70px;margin-bottom:4px;"></div><div style="font-size:11px;color:#64748b;">Aprovação</div></div></div>
+  </body></html>`);
+  w.document.close();setTimeout(()=>w.print(),500);
+}
+
+async function delOS(id){
+  document.getElementById('confirm-msg').textContent='Excluir esta OS?';
+  document.getElementById('confirm-ok').onclick=async()=>{
+    await _supabase.from('manutencao').delete().eq('id',id);
+    closeModal('m-confirm');_ordens=_ordens.filter(o=>o.id!==id);renderOS();toast('OS excluída.','warning');
+  };
+  document.getElementById('m-confirm').classList.remove('hidden');
+}
+
+init();
+</script>
+</body>
+</html>
