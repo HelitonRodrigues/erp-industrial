@@ -1,0 +1,1510 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Frota — ERP Industrial</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/supabase.js"></script>
+<script src="js/utils.js"></script>
+<style>
+.tab-btn{padding:10px 16px;background:none;border:none;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;color:#64748b;border-bottom:3px solid transparent;margin-bottom:-2px;transition:all .15s;white-space:nowrap;}
+.tab-btn.active{color:var(--primary);border-bottom-color:var(--primary);}
+.frota-card{background:#fff;border-radius:14px;border:1.5px solid #e2e8f0;overflow:hidden;transition:.15s;display:flex;flex-direction:column;}
+.frota-card:hover{box-shadow:0 4px 20px rgba(4,45,77,.12);border-color:var(--primary);}
+.comp-item{background:#f8fafc;border:1.5px solid #e2e8f0;border-radius:10px;padding:12px;margin-bottom:8px;}
+.comp-item.vencido{border-color:#fca5a5;background:#fff5f5;}
+.comp-item.ok{border-color:#86efac;background:#f0fdf4;}
+.comp-item.proximo{border-color:#fcd34d;background:#fffbeb;}
+.sign-cv{display:block;width:100%;height:100px;border:1.5px solid #e2e8f0;border-radius:8px;background:#fff;cursor:crosshair;touch-action:none;}
+.hist-item{border-left:3px solid #e2e8f0;padding:8px 12px;margin-bottom:6px;background:#f8fafc;border-radius:0 8px 8px 0;}
+.hist-item.preventiva{border-left-color:#22c55e;}
+.hist-item.corretiva{border-left-color:#ef4444;}
+.kpi-frota{background:#fff;border-radius:12px;padding:14px;border:1.5px solid #e2e8f0;text-align:center;}
+</style>
+</head>
+<body>
+<div id="sidebar-container"></div>
+<header class="topbar" id="topbar">
+  <button class="topbar-open-sidebar" onclick="toggleSidebar()">☰</button>
+  <div class="topbar-title">Frota</div>
+  <div class="topbar-right">
+    <div class="topbar-user">
+      <div class="user-avatar" style="width:32px;height:32px;font-size:12px;" id="top-avatar">SA</div>
+      <div><div class="topbar-user-name" id="top-user-name">Super Admin</div><div class="topbar-user-profile" id="top-user-perfil">SADM</div></div>
+    </div>
+    <button class="btn btn-ghost btn-sm" onclick="doLogout()" style="color:#64748b;">Sair</button>
+  </div>
+</header>
+<div id="toast-container" style="position:fixed;top:16px;right:16px;z-index:99999;display:flex;flex-direction:column;gap:8px;pointer-events:none;"></div>
+<main class="main-content" id="main-content">
+  <div class="page-header">
+    <div class="page-header-left"><h1>FROTA</h1><p style="color:#64748b;font-size:13px;margin-top:2px;">Gestão de equipamentos, veículos e manutenção</p></div>
+    <div style="display:flex;gap:8px;">
+      <button class="btn btn-secondary btn-sm" onclick="showTab('os')">📋 Ordens de Serviço</button>
+      <button class="btn btn-primary" onclick="abrirNovoVeiculo()">+ Novo Equipamento</button>
+    </div>
+  </div>
+  <div id="frota-kpis" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px;margin-bottom:18px;"></div>
+  <div style="display:flex;border-bottom:2px solid #e2e8f0;margin-bottom:18px;overflow-x:auto;gap:0;">
+    <button class="tab-btn active" id="tbtn-cadastro" onclick="showTab('cadastro')">🚜 Equipamentos</button>
+    <button class="tab-btn" id="tbtn-empresas" onclick="showTab('empresas')">🏢 Empresas / Mecânicos</button>
+    <button class="tab-btn" id="tbtn-os" onclick="showTab('os')">📋 Ordens de Serviço</button>
+  </div>
+  <!-- CADASTRO -->
+  <div id="tab-cadastro">
+    <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;align-items:center;">
+      <input id="f-busca" type="text" class="form-input" style="width:190px;" placeholder="🔍 Buscar..." oninput="renderCadastro()">
+      <select id="f-tipo" class="form-input" style="width:150px;" onchange="renderCadastro()">
+        <option value="">Todos os tipos</option>
+        <option value="veiculo">🚗 Veículo</option><option value="maquina">⚙️ Máquina</option>
+        <option value="empilhadeira">🏭 Empilhadeira</option><option value="trator">🚜 Trator</option>
+        <option value="caminhao">🚛 Caminhão</option><option value="carregadeira">🏗️ Carregadeira</option>
+        <option value="outro">📦 Outro</option>
+      </select>
+      <select id="f-status-eq" class="form-input" style="width:150px;" onchange="renderCadastro()">
+        <option value="">Todos os status</option>
+        <option value="ok">✅ Em dia</option><option value="proximo">🟡 Próximo</option><option value="vencido">🔴 Vencido</option>
+      </select>
+    </div>
+    <div id="frota-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:16px;"></div>
+    <div id="frota-empty" class="hidden" style="text-align:center;padding:64px;color:#94a3b8;">
+      <div style="font-size:56px;margin-bottom:12px;">🚜</div>
+      <div style="font-size:16px;font-weight:700;color:#475569;">Nenhum equipamento cadastrado</div>
+      <p style="font-size:13px;margin-top:6px;">Cadastre veículos, máquinas, empilhadeiras, caminhões e equipamentos</p>
+      <button class="btn btn-primary" style="margin-top:16px;" onclick="abrirNovoVeiculo()">+ Cadastrar Equipamento</button>
+    </div>
+  </div>
+  <!-- EMPRESAS / MECÂNICOS -->
+  <div id="tab-empresas" style="display:none;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px;">
+      <div style="font-size:13px;color:#64748b;">Cadastre empresas terceirizadas e mecânicos responsáveis pelas manutenções</div>
+      <button class="btn btn-primary" onclick="abrirNovaEmpresa()">+ Nova Empresa / Mecânico</button>
+    </div>
+    <div id="empresas-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px;"></div>
+    <div id="empresas-empty" class="hidden" style="text-align:center;padding:48px;color:#94a3b8;">
+      <div style="font-size:48px;margin-bottom:12px;">🏢</div>
+      <div style="font-size:15px;font-weight:700;color:#475569;">Nenhuma empresa cadastrada</div>
+      <p style="font-size:13px;">Cadastre empresas terceirizadas e mecânicos para usar nas Ordens de Serviço</p>
+      <button class="btn btn-primary" style="margin-top:12px;" onclick="abrirNovaEmpresa()">+ Cadastrar</button>
+    </div>
+  </div>
+
+  <!-- OS -->
+  <div id="tab-os" style="display:none;">
+    <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;">
+      <select id="f-os-equip" class="form-input" style="width:200px;" onchange="renderOS()"><option value="">Todos os equipamentos</option></select>
+      <select id="f-os-status" class="form-input" style="width:150px;" onchange="renderOS()">
+        <option value="">Todos os status</option><option value="aberta">Aberta</option>
+        <option value="em_andamento">Em Andamento</option><option value="concluida">Concluída</option><option value="cancelada">Cancelada</option>
+      </select>
+      <select id="f-os-tipo" class="form-input" style="width:150px;" onchange="renderOS()">
+        <option value="">Todos os tipos</option><option value="preventiva">Preventiva</option><option value="corretiva">Corretiva</option>
+      </select>
+    </div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>OS#</th><th>Data</th><th>Equipamento</th><th>Tipo</th><th>Componente</th><th>Responsável</th><th>Horímetro</th><th>Custo</th><th>Status</th><th>Ações</th></tr></thead>
+      <tbody id="tbody-os"></tbody>
+    </table></div>
+  </div>
+</main>
+
+<!-- MODAL EQUIPAMENTO -->
+<div id="m-veiculo" class="modal-overlay hidden" onclick="if(event.target===this)fecharModal('m-veiculo')">
+  <div class="modal modal-lg" style="max-height:92vh;overflow-y:auto;max-width:820px;">
+    <div class="modal-header"><div class="modal-title" id="m-veiculo-tit">Novo Equipamento</div><button class="modal-close" onclick="fecharModal('m-veiculo')">✕</button></div>
+
+    <!-- Sub-tabs internas -->
+    <div style="display:flex;border-bottom:1.5px solid #e2e8f0;margin-bottom:16px;gap:0;overflow-x:auto;">
+      <button class="tab-btn active" id="vtab-dados" onclick="showVTab('dados')">📋 Dados Gerais</button>
+      <button class="tab-btn" id="vtab-comps" onclick="showVTab('comps')">⚙️ Componentes</button>
+      <button class="tab-btn" id="vtab-docs" onclick="showVTab('docs')">📁 Documentos</button>
+    </div>
+
+    <!-- TAB: Dados Gerais -->
+    <div id="vtab-dados-corpo">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
+        <div class="form-group"><label class="form-label">Nome / Identificação *</label><input id="v-nome" type="text" class="form-input" placeholder="Ex: Empilhadeira Clark 55C"></div>
+        <div class="form-group"><label class="form-label">Tipo</label>
+          <select id="v-tipo" class="form-input">
+            <option value="veiculo">🚗 Veículo</option><option value="maquina">⚙️ Máquina</option>
+            <option value="empilhadeira">🏭 Empilhadeira</option><option value="trator">🚜 Trator</option>
+            <option value="caminhao">🚛 Caminhão</option><option value="carregadeira">🏗️ Carregadeira</option>
+            <option value="outro">📦 Outro</option>
+          </select>
+        </div>
+        <div class="form-group"><label class="form-label">Código / Patrimônio</label><input id="v-placa" type="text" class="form-input" placeholder="PAT-001 ou ABC-1234"></div>
+        <div class="form-group"><label class="form-label">Marca</label><input id="v-marca" type="text" class="form-input" placeholder="Ex: Clark, Toyota, Volvo"></div>
+        <div class="form-group"><label class="form-label">Modelo</label><input id="v-modelo" type="text" class="form-input" placeholder="Ex: 55C, 8FD25"></div>
+        <div class="form-group"><label class="form-label">Ano</label><input id="v-ano" type="number" class="form-input" min="1970" max="2030" placeholder="Ex: 2020"></div>
+        <div class="form-group"><label class="form-label">⏱️ Horímetro Atual (h)</label><input id="v-horimetro" type="number" class="form-input" step="0.1" placeholder="Ex: 5000"></div>
+        <div class="form-group"><label class="form-label">📅 Data da Próxima Revisão Geral</label><input id="v-prox-data" type="date" class="form-input"></div>
+        <div class="form-group" style="grid-column:1/-1"><label class="form-label">Observações</label><textarea id="v-obs" class="form-input" rows="2" placeholder="Informações adicionais sobre o equipamento..."></textarea></div>
+      </div>
+      <!-- Foto -->
+      <div style="margin-bottom:4px;">
+        <div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;margin-bottom:10px;padding-bottom:6px;border-bottom:1.5px solid #f1f5f9;">📷 Foto do Equipamento</div>
+        <div style="display:flex;gap:16px;align-items:center;">
+          <div id="v-foto-prev" onclick="document.getElementById('v-foto-inp').click()" style="width:90px;height:90px;border-radius:10px;background:#f1f5f9;border:2px dashed #cbd5e1;display:flex;align-items:center;justify-content:center;font-size:36px;cursor:pointer;overflow:hidden;flex-shrink:0;">🚜</div>
+          <div><input type="file" id="v-foto-inp" accept="image/*" style="display:none;" onchange="uploadFotoVeiculo(this)">
+            <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('v-foto-inp').click()">📷 Alterar Foto</button>
+            <p style="font-size:11px;color:#94a3b8;margin-top:4px;">Clique na imagem ou no botão</p>
+          </div>
+        </div>
+        <input type="hidden" id="v-foto-data" value="">
+      </div>
+    </div>
+
+    <!-- TAB: Componentes -->
+    <div id="vtab-comps-corpo" style="display:none;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+        <div>
+          <div style="font-weight:700;color:#1e3a5f;font-size:14px;">⚙️ Conjunto de Componentes</div>
+          <div style="font-size:12px;color:#64748b;margin-top:2px;">Cada componente tem código, quantidade, intervalo de revisão e status calculado automaticamente pelo horímetro</div>
+        </div>
+        <button type="button" class="btn btn-primary btn-sm" onclick="addCompVeiculo()">+ Componente</button>
+      </div>
+      <!-- Cabeçalho da tabela de componentes -->
+      <div style="display:grid;grid-template-columns:2fr 1fr 0.8fr 1fr 0.8fr auto;gap:6px;padding:6px 8px;background:#f1f5f9;border-radius:8px;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;margin-bottom:6px;">
+        <div>Nome do Componente</div><div>Código/Ref.</div><div>Qtd</div><div>Intervalo (h)</div><div>Ú. Horímetro</div><div></div>
+      </div>
+      <div id="v-comps-list" style="display:flex;flex-direction:column;gap:6px;"></div>
+      <div style="margin-top:10px;padding:10px;background:#f8fafc;border-radius:8px;font-size:11px;color:#64748b;">
+        💡 <strong>Status automático:</strong> Vencido quando horímetro atual ≥ último horímetro + intervalo. Próximo quando faltam ≤ 50h.
+      </div>
+    </div>
+
+    <!-- TAB: Documentos -->
+    <div id="vtab-docs-corpo" style="display:none;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+        <div>
+          <div style="font-weight:700;color:#1e3a5f;font-size:14px;">📁 Documentos do Equipamento</div>
+          <div style="font-size:12px;color:#64748b;margin-top:2px;">Manual, certificados, garantias, laudos, notas fiscais...</div>
+        </div>
+        <button type="button" class="btn btn-primary btn-sm" onclick="addDocVeiculo()">+ Documento</button>
+      </div>
+      <div id="v-docs-list" style="display:flex;flex-direction:column;gap:8px;"></div>
+      <input type="file" id="v-doc-inp" accept=".pdf,image/*,.doc,.docx,.xls,.xlsx" style="display:none;" onchange="uploadDocVeiculo(this)">
+      <input type="hidden" id="v-docs-data" value="[]">
+    </div>
+
+    <div id="v-error" class="hidden" style="background:#fef2f2;border:1.5px solid #fca5a5;border-radius:8px;padding:10px;color:#dc2626;font-size:13px;margin-top:12px;"></div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="fecharModal('m-veiculo')">Cancelar</button>
+      <button class="btn btn-primary" id="btn-salvar-veiculo" onclick="salvarVeiculo()">💾 Salvar Equipamento</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL DETALHE -->
+<div id="m-detalhe" class="modal-overlay hidden" onclick="if(event.target===this)fecharModal('m-detalhe')">
+  <div class="modal modal-lg" style="max-height:92vh;overflow-y:auto;max-width:840px;">
+    <div class="modal-header"><div class="modal-title" id="m-detalhe-tit">Detalhes</div><button class="modal-close" onclick="fecharModal('m-detalhe')">✕</button></div>
+    <div id="m-detalhe-corpo"></div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="fecharModal('m-detalhe')">Fechar</button>
+      <button class="btn btn-secondary" id="btn-editar-det">✏️ Editar</button>
+      <button class="btn btn-primary" id="btn-os-det">🔧 Nova OS</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL OS -->
+<div id="m-os" class="modal-overlay hidden" onclick="if(event.target===this)fecharModal('m-os')">
+  <div class="modal modal-lg" style="max-height:92vh;overflow-y:auto;max-width:740px;">
+    <div class="modal-header"><div class="modal-title" id="m-os-tit">Nova Ordem de Serviço</div><button class="modal-close" onclick="fecharModal('m-os')">✕</button></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+      <div class="form-group"><label class="form-label">Equipamento *</label>
+        <select id="os-equip" class="form-input" onchange="onOSEquipChange()"><option value="">Selecione...</option></select></div>
+      <div class="form-group" style="grid-column:1/-1">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+          <label class="form-label" style="margin:0;">Componente(s) / Parte(s)</label>
+          <button type="button" class="btn btn-secondary btn-sm" onclick="addCompOS()">+ Componente</button>
+        </div>
+        <div id="os-comps-list" style="display:flex;flex-direction:column;gap:6px;">
+          <!-- Primeiro componente -->
+          <div class="os-comp-row" style="display:flex;gap:6px;align-items:center;">
+            <select class="form-input os-comp-sel" style="flex:1;" onchange="onCompSelChange(this)">
+              <option value="">Geral / Sem componente</option>
+            </select>
+            <input type="text" class="form-input os-comp-txt" style="flex:1;display:none;" placeholder="Digite o nome do componente...">
+            <button type="button" onclick="this.closest('.os-comp-row').remove()" style="background:none;border:none;font-size:18px;cursor:pointer;color:#ef4444;flex-shrink:0;display:none;">✕</button>
+          </div>
+        </div>
+      </div>
+      <div class="form-group"><label class="form-label">Tipo</label>
+        <select id="os-tipo" class="form-input"><option value="preventiva">✅ Preventiva</option><option value="corretiva">🔧 Corretiva</option></select></div>
+      <div class="form-group"><label class="form-label">Data *</label><input id="os-data" type="date" class="form-input"></div>
+      <div class="form-group"><label class="form-label">🏢 Empresa Responsável</label><input id="os-resp" type="text" class="form-input" placeholder="Empresa prestadora" list="os-resp-dl"><datalist id="os-resp-dl"></datalist></div>
+      <div class="form-group"><label class="form-label">Técnico</label>
+        <select id="os-tec" class="form-input"><option value="">Selecione...</option></select></div>
+      <div class="form-group" id="grp-os-horim"><label class="form-label">Horímetro no momento</label><input id="os-horim" type="number" class="form-input" step="0.1" placeholder="Ex: 5132"></div>
+      <div class="form-group"><label class="form-label">Próxima Revisão (data)</label><input id="os-prox-data" type="date" class="form-input"></div>
+      <div class="form-group"><label class="form-label">Custo Total (R$)</label><input id="os-custo" type="number" class="form-input" min="0" step="0.01"></div>
+      <div class="form-group"><label class="form-label">Status</label>
+        <select id="os-status" class="form-input">
+          <option value="aberta">📋 Aberta</option><option value="em_andamento">🔄 Em Andamento</option>
+          <option value="concluida">✅ Concluída</option><option value="cancelada">❌ Cancelada</option>
+        </select></div>
+      <div class="form-group" style="grid-column:1/-1"><label class="form-label">Serviço Realizado / Descrição</label><textarea id="os-serv" class="form-input" rows="3" placeholder="Descreva o serviço realizado ou problema..."></textarea></div>
+      <div class="form-group" style="grid-column:1/-1"><label class="form-label">Peças / Materiais Utilizados</label><textarea id="os-pecas" class="form-input" rows="2" placeholder="Liste peças, quantidades e especificações..."></textarea></div>
+      <div class="form-group" style="grid-column:1/-1">
+        <label class="form-label">✍️ Assinatura do Responsável</label>
+        <canvas id="os-assin-cv" class="sign-cv" width="640" height="100"></canvas>
+        <input type="hidden" id="os-assin-data" value="">
+        <button type="button" class="btn btn-ghost btn-sm" style="font-size:11px;margin-top:4px;" onclick="limparAssinOS()">🗑️ Limpar</button>
+      </div>
+      <div class="form-group" style="grid-column:1/-1">
+        <label class="form-label">📷 Fotos do Serviço</label>
+        <div id="os-foto-prev" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;"></div>
+        <input type="file" id="os-foto-inp" accept="image/*" multiple style="display:none;" onchange="addFotosOS(this)">
+        <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('os-foto-inp').click()">📷 Adicionar Fotos</button>
+        <input type="hidden" id="os-fotos-data" value="[]">
+      </div>
+    </div>
+    <div id="os-error" class="hidden" style="background:#fef2f2;border:1.5px solid #fca5a5;border-radius:8px;padding:10px;color:#dc2626;font-size:13px;margin-top:8px;"></div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="fecharModal('m-os')">Cancelar</button>
+      <button class="btn btn-primary" id="btn-salvar-os" onclick="salvarOS()">💾 Salvar OS</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL CONCLUIR OS -->
+<div id="m-concluir" class="modal-overlay hidden" onclick="if(event.target===this)fecharModal('m-concluir')">
+  <div class="modal modal-lg" style="max-height:92vh;overflow-y:auto;max-width:680px;">
+    <div class="modal-header">
+      <div class="modal-title" id="m-concluir-tit">✅ Concluir Ordem de Serviço</div>
+      <button class="modal-close" onclick="fecharModal('m-concluir')">✕</button>
+    </div>
+    <div id="m-concluir-info" style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:10px;padding:12px;margin-bottom:16px;font-size:13px;color:#166534;"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+      <div class="form-group"><label class="form-label">Data de Conclusão *</label><input id="conc-data" type="date" class="form-input"></div>
+      <div class="form-group"><label class="form-label">Técnico / Responsável</label>
+        <select id="conc-tec" class="form-input"><option value="">Selecione...</option></select></div>
+      <div class="form-group" id="grp-conc-horim"><label class="form-label">Horímetro na Conclusão</label><input id="conc-horim" type="number" class="form-input" step="0.1" placeholder="Horímetro atual do equipamento"></div>
+      <div class="form-group"><label class="form-label">Próxima Revisão (data)</label><input id="conc-prox-data" type="date" class="form-input"></div>
+      <div class="form-group"><label class="form-label">Custo Total (R$)</label><input id="conc-custo" type="number" class="form-input" min="0" step="0.01"></div>
+      <div class="form-group"><label class="form-label">Empresa / Prestador</label><input id="conc-resp" type="text" class="form-input" placeholder="Empresa que executou"></div>
+      <div class="form-group" style="grid-column:1/-1"><label class="form-label">Serviço Realizado *</label><textarea id="conc-serv" class="form-input" rows="3" placeholder="Descreva detalhadamente o serviço executado..."></textarea></div>
+      <div class="form-group" style="grid-column:1/-1"><label class="form-label">Peças / Materiais Utilizados</label><textarea id="conc-pecas" class="form-input" rows="2" placeholder="Liste peças trocadas, quantidades..."></textarea></div>
+      <div class="form-group" style="grid-column:1/-1">
+        <label class="form-label">✍️ Assinatura do Técnico</label>
+        <canvas id="conc-assin-cv" class="sign-cv" width="600" height="100"></canvas>
+        <input type="hidden" id="conc-assin-data" value="">
+        <button type="button" class="btn btn-ghost btn-sm" style="font-size:11px;margin-top:4px;" onclick="limparAssinConc()">🗑️ Limpar</button>
+      </div>
+      <div class="form-group" style="grid-column:1/-1">
+        <label class="form-label">📷 Fotos do Serviço</label>
+        <div id="conc-foto-prev" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;"></div>
+        <input type="file" id="conc-foto-inp" accept="image/*" multiple style="display:none;" onchange="addFotosConc(this)">
+        <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('conc-foto-inp').click()">📷 Adicionar Fotos</button>
+        <input type="hidden" id="conc-fotos-data" value="[]">
+      </div>
+    </div>
+    <div id="conc-error" class="hidden" style="background:#fef2f2;border:1.5px solid #fca5a5;border-radius:8px;padding:10px;color:#dc2626;font-size:13px;margin-top:8px;"></div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="fecharModal('m-concluir')">Cancelar</button>
+      <button class="btn btn-primary" id="btn-concluir" onclick="salvarConclusaoOS()" style="background:#16a34a;border-color:#16a34a;">✅ Confirmar Conclusão</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL EMPRESA -->
+<div id="m-empresa" class="modal-overlay hidden" onclick="if(event.target===this)fecharModal('m-empresa')">
+  <div class="modal" style="max-width:560px;">
+    <div class="modal-header"><div class="modal-title" id="m-empresa-tit">Nova Empresa / Mecânico</div><button class="modal-close" onclick="fecharModal('m-empresa')">✕</button></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+      <div class="form-group" style="grid-column:1/-1"><label class="form-label">Nome *</label><input id="emp-nome" type="text" class="form-input" placeholder="Ex: Mecânica do João ou João Silva"></div>
+      <div class="form-group"><label class="form-label">Tipo</label>
+        <select id="emp-tipo" class="form-input">
+          <option value="empresa">🏢 Empresa Terceirizada</option>
+          <option value="mecanico">🔧 Mecânico Autônomo</option>
+          <option value="interno">👷 Técnico Interno</option>
+        </select>
+      </div>
+      <div class="form-group"><label class="form-label">Especialidade</label><input id="emp-espec" type="text" class="form-input" placeholder="Ex: Hidráulica, Elétrica, Geral"></div>
+      <div class="form-group"><label class="form-label">Telefone / WhatsApp</label><input id="emp-fone" type="text" class="form-input" placeholder="(00) 00000-0000"></div>
+      <div class="form-group"><label class="form-label">CNPJ / CPF</label><input id="emp-doc" type="text" class="form-input" placeholder="00.000.000/0001-00"></div>
+      <div class="form-group"><label class="form-label">E-mail</label><input id="emp-email" type="email" class="form-input" placeholder="email@empresa.com"></div>
+      <div class="form-group"><label class="form-label">Responsável (contato)</label><input id="emp-contato" type="text" class="form-input" placeholder="Nome do responsável"></div>
+      <div class="form-group" style="grid-column:1/-1"><label class="form-label">Observações</label><textarea id="emp-obs" class="form-input" rows="2" placeholder="Contratos, especialidades, observações..."></textarea></div>
+    </div>
+    <div id="emp-error" class="hidden" style="background:#fef2f2;border:1.5px solid #fca5a5;border-radius:8px;padding:10px;color:#dc2626;font-size:13px;margin-top:8px;"></div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="fecharModal('m-empresa')">Cancelar</button>
+      <button class="btn btn-primary" id="btn-salvar-empresa" onclick="salvarEmpresa()">💾 Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- LIGHTBOX -->
+<div id="m-lb" class="modal-overlay hidden" style="z-index:20000;background:rgba(0,0,0,.92);" onclick="this.classList.add('hidden')">
+  <div style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;padding:16px;">
+    <img id="lb-img" src="" style="max-width:100%;max-height:90vh;border-radius:8px;object-fit:contain;">
+    <button onclick="document.getElementById('m-lb').classList.add('hidden')" style="position:fixed;top:16px;right:16px;background:#fff;border:none;border-radius:50%;width:36px;height:36px;font-size:18px;cursor:pointer;z-index:20001;">✕</button>
+  </div>
+</div>
+
+<!-- CONFIRM -->
+<div id="m-confirm" class="modal-overlay hidden" onclick="if(event.target===this)fecharModal('m-confirm')">
+  <div class="modal" style="max-width:380px;">
+    <div class="modal-header"><div class="modal-title">Confirmar</div><button class="modal-close" onclick="fecharModal('m-confirm')">✕</button></div>
+    <p id="confirm-msg" style="padding:16px 20px;color:#475569;"></p>
+    <div class="modal-footer"><button class="btn btn-secondary" onclick="fecharModal('m-confirm')">Cancelar</button><button class="btn btn-danger" id="confirm-ok">Confirmar</button></div>
+  </div>
+</div>
+
+<script>
+'use strict';
+let _frota=[],_ordens=[],_funcs=[],_emp={};
+let _eVeiculoId=null,_eOSId=null,_veiculoAtualId=null;
+let _osFotos=[],_osAssinOk=false;
+
+/* ── UTILS LOCAIS ────────────────────────────────────────────────── */
+function toast(msg,tipo='info'){
+  const c=document.getElementById('toast-container');if(!c)return;
+  const cores={success:'#16a34a',danger:'#dc2626',warning:'#b45309',info:'#2563eb'};
+  const d=document.createElement('div');
+  d.style.cssText=`background:${cores[tipo]||cores.info};color:#fff;padding:12px 18px;border-radius:10px;font-size:13px;font-weight:600;box-shadow:0 4px 16px rgba(0,0,0,.2);max-width:360px;pointer-events:all;`;
+  d.textContent=msg;c.appendChild(d);setTimeout(()=>d.remove(),4000);
+}
+const lb=(s)=>{document.getElementById('lb-img').src=s;document.getElementById('m-lb').classList.remove('hidden');};
+function fecharModal(id){const el=document.getElementById(id);if(el)el.classList.add('hidden');}
+
+/* ── INIT ────────────────────────────────────────────────────────── */
+async function init(){
+  fetch('partials/sidebar.html').then(r=>r.text()).then(html=>{
+    document.getElementById('sidebar-container').innerHTML=html;
+    document.querySelector('[href="frota.html"]')?.classList.add('active');
+    if(typeof openGroup==='function')openGroup('operacoes');
+    if(typeof initSidebar==='function')initSidebar('frota.html');
+  }).catch(()=>{});
+  try{
+    const{data:{session}}=await _supabase.auth.getSession();
+    if(session){
+      const{data:usr}=await _supabase.from('usuarios').select('nome,perfil').eq('auth_id',session.user.id).maybeSingle();
+      if(usr){
+        const n=usr.nome||session.user.email||'Usuário';
+        const ini=n.split(' ').slice(0,2).map(p=>p[0]).join('').toUpperCase();
+        const av=document.getElementById('top-avatar');if(av)av.textContent=ini;
+        const un=document.getElementById('top-user-name');if(un)un.textContent=n;
+        const up=document.getElementById('top-user-perfil');if(up)up.textContent=usr.perfil||'';
+      }
+    }
+  }catch(e){console.warn('auth:',e.message);}
+  const safe=async(q,n)=>{try{const r=await q;if(r.error){console.warn(n,r.error.message);return[];}return r.data||[];}catch(e){console.warn(n,e.message);return[];}};
+  try{const{data:ea}=await _supabase.from('empresa_config').select('*').limit(1);const em=Array.isArray(ea)?ea[0]:ea;if(em)_emp=em;}catch(e){}
+  const[frota,funcs,emps]=await Promise.all([
+    safe(_supabase.from('frota_veiculos').select('*').order('nome'),'frota'),
+    safe(_supabase.from('funcionarios').select('id,nome,funcao').eq('status','ativo').order('nome'),'funcs'),
+    safe(_supabase.from('frota_empresas').select('*').order('nome'),'empresas'),
+  ]);
+  // Verificar se tabela existe (se retornou erro de tabela inexistente)
+  if(frota.length===0){
+    // Checar se é erro de tabela inexistente tentando um select simples
+    try{
+      const{error:tErr}=await _supabase.from('frota_veiculos').select('id').limit(1);
+      if(tErr&&(tErr.message.includes('does not exist')||tErr.message.includes('relation')||tErr.code==='42P01')){
+        // Tabela não existe — mostrar instruções
+        document.getElementById('frota-grid').innerHTML='';
+        document.getElementById('frota-empty').classList.add('hidden');
+        document.getElementById('frota-kpis').innerHTML='';
+        document.getElementById('tab-cadastro').insertAdjacentHTML('afterbegin',`
+          <div style="background:#fef9c3;border:1.5px solid #fcd34d;border-radius:12px;padding:20px;margin-bottom:16px;">
+            <div style="font-size:15px;font-weight:800;color:#92400e;margin-bottom:8px;">⚠️ Tabela não encontrada no Supabase</div>
+            <p style="color:#78350f;font-size:13px;margin-bottom:12px;">A tabela <code>frota_veiculos</code> precisa ser criada no seu Supabase. Execute o SQL abaixo no <strong>SQL Editor</strong> do Supabase:</p>
+            <textarea onclick="this.select()" readonly style="width:100%;height:220px;font-family:monospace;font-size:11px;padding:10px;border-radius:8px;border:1px solid #fcd34d;background:#fff;color:#1e293b;resize:vertical;">CREATE TABLE IF NOT EXISTS frota_veiculos (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  nome text NOT NULL,
+  tipo text DEFAULT 'outro',
+  tipo_revisao text DEFAULT 'horimetro',
+  placa text,
+  marca text,
+  modelo text,
+  ano integer,
+  empresa_resp text,
+  revisao_horas numeric,
+  revisao_dias integer,
+  horimetro_atual numeric DEFAULT 0,
+  proxima_revisao numeric,
+  proxima_revisao_data date,
+  obs text,
+  foto text,
+  componentes jsonb DEFAULT '[]',
+  status text DEFAULT 'ativo',
+  created_at timestamptz DEFAULT now(),
+  atualizado_em timestamptz DEFAULT now()
+);
+
+-- Permissões (RLS desabilitado para acesso total)
+ALTER TABLE frota_veiculos DISABLE ROW LEVEL SECURITY;
+
+-- Colunas extras na tabela manutencao (se ainda não existirem)
+ALTER TABLE manutencao ADD COLUMN IF NOT EXISTS fotos_servico jsonb DEFAULT '[]';
+ALTER TABLE manutencao ADD COLUMN IF NOT EXISTS assinaturas_servico jsonb DEFAULT '[]';
+ALTER TABLE manutencao ADD COLUMN IF NOT EXISTS solicitante text;</textarea>
+            <button class="btn btn-primary" style="margin-top:10px;" onclick="location.reload()">🔄 Recarregar após criar a tabela</button>
+          </div>`);
+      }
+    }catch(e){}
+  }
+  _frota=frota;_funcs=funcs;_empresas=emps||[];
+  popularSelects();popularSelectResponsavel();renderKPIs();renderCadastro();
+  await recarregarOS();
+  renderOS();
+}
+
+async function recarregarOS(){
+  try{
+    const{data:orBase}=await _supabase.from('manutencao').select('id,numero,tipo,equipamento,linha,parte,descricao,tecnico,terceiro,data_abertura,data_prevista,horimetro,custo_manutencao,servico_realizado,pecas_trocadas,status,assinatura,created_at').eq('linha','Frota').order('data_abertura',{ascending:false}).limit(500);
+    let or=orBase||[];
+    try{const{data:ex}=await _supabase.from('manutencao').select('id,fotos_servico').eq('linha','Frota').order('data_abertura',{ascending:false}).limit(500);if(ex)ex.forEach(e=>{const o=or.find(x=>x.id===e.id);if(o)o.fotos_servico=e.fotos_servico||[];});}catch(e){}
+    _ordens=or;
+  }catch(e){console.warn('recarregarOS:',e.message);}
+}
+
+/* ── TABS ────────────────────────────────────────────────────────── */
+function showTab(t){
+  ['cadastro','empresas','os'].forEach(x=>{
+    const el=document.getElementById('tab-'+x);if(el)el.style.display=x===t?'block':'none';
+    const btn=document.getElementById('tbtn-'+x);if(btn)btn.classList.toggle('active',x===t);
+  });
+  if(t==='empresas')renderEmpresas();
+}
+
+/* ── SELECTS ─────────────────────────────────────────────────────── */
+function popularSelects(){
+  const st=document.getElementById('os-tec');
+  if(st)st.innerHTML='<option value="">Selecione...</option>'+_funcs.map(f=>`<option value="${f.nome}">${f.nome}${f.funcao?' — '+f.funcao:''}</option>`).join('')+'<option value="Empresa Terceirizada">Empresa Terceirizada</option>';
+  const dl=document.getElementById('os-resp-dl');
+  if(dl)dl.innerHTML=_frota.filter(v=>v.empresa_resp).map(v=>`<option value="${v.empresa_resp}">`).join('')+_funcs.map(f=>`<option value="${f.nome}">`).join('');
+  const sf=document.getElementById('f-os-equip');
+  if(sf)sf.innerHTML='<option value="">Todos os equipamentos</option>'+_frota.map(v=>`<option value="${v.nome}">${v.nome}</option>`).join('');
+  const se=document.getElementById('os-equip');
+  if(se)se.innerHTML='<option value="">Selecione o equipamento...</option>'+_frota.map(v=>`<option value="${v.id}">${v.nome}${v.placa?' ('+v.placa+')':''}</option>`).join('');
+}
+
+/* ── STATUS ──────────────────────────────────────────────────────── */
+function calcStatusVeiculo(v){
+  const hoje=new Date();const hojeStr=hoje.toISOString().split('T')[0];
+  const h=parseFloat(v.horimetro_atual)||0;
+  // Calcular próxima revisão em horas: campo direto OU horimetro_atual + intervalo
+  let prox=parseFloat(v.proxima_revisao)||0;
+  if(!prox&&h>0&&v.revisao_horas>0)prox=h+parseFloat(v.revisao_horas);
+  const proxData=v.proxima_revisao_data||'',tipo=v.tipo_revisao||'horimetro';
+  if(tipo==='data'||tipo==='ambos'){
+    if(proxData){if(proxData<hojeStr)return 'vencido';if((new Date(proxData)-hoje)/86400000<=30)return 'proximo';}
+  }
+  if(tipo==='horimetro'||tipo==='ambos'){
+    if(prox>0){if(h>=prox)return 'vencido';if(prox-h<=50)return 'proximo';}
+  }
+  for(const c of v.componentes||[]){const cs=calcStatusComp(c,v);if(cs==='vencido')return 'vencido';if(cs==='proximo')return 'proximo';}
+  return 'ok';
+}
+
+function calcStatusComp(c,v){
+  const hoje=new Date();const hojeStr=hoje.toISOString().split('T')[0];
+  const h=parseFloat(v?.horimetro_atual)||0;
+  const hComp=parseFloat(c.horimetro_componente)||parseFloat(c.horimetro_inicial)||0;
+  const intH=parseFloat(c.intervalo_revisao)||0,proxData=c.proxima_revisao_data||'';
+  const tipo=c.tipo_revisao||v?.tipo_revisao||'horimetro';
+  if((tipo==='data'||tipo==='ambos')&&proxData){if(proxData<hojeStr)return 'vencido';if((new Date(proxData)-hoje)/86400000<=30)return 'proximo';}
+  if((tipo==='horimetro'||tipo==='ambos')&&intH>0&&hComp>0){
+    const proxH=hComp+intH;
+    if(h>=proxH)return 'vencido';
+    if(proxH-h<=50)return 'proximo';
+  }
+  return 'ok';
+}
+
+/* ── KPIs ────────────────────────────────────────────────────────── */
+function renderKPIs(){
+  let total=_frota.length,vencidos=0,proximos=0,emDia=0;
+  _frota.forEach(v=>{const st=calcStatusVeiculo(v);if(st==='vencido')vencidos++;else if(st==='proximo')proximos++;else emDia++;});
+  const osAbertas=_ordens.filter(o=>o.status==='aberta'||o.status==='em_andamento').length;
+  document.getElementById('frota-kpis').innerHTML=[
+    ['🚜 Total',total,'#475569'],['✅ Em Dia',emDia,'#16a34a'],
+    ['🟡 Próximos',proximos,'#b45309'],['🔴 Vencidos',vencidos,vencidos>0?'#dc2626':'#94a3b8'],
+    ['📋 OS Abertas',osAbertas,osAbertas>0?'#dc2626':'#16a34a'],
+  ].map(([t,v,cor])=>`<div class="kpi-frota"><div style="font-size:22px;font-weight:800;color:${cor};">${v}</div><div style="font-size:11px;color:#64748b;margin-top:2px;">${t}</div></div>`).join('');
+}
+
+/* ── RENDER CADASTRO ─────────────────────────────────────────────── */
+function renderCadastro(){
+  const busca=(document.getElementById('f-busca')?.value||'').toLowerCase();
+  const fTipo=document.getElementById('f-tipo')?.value||'';
+  const fSt=document.getElementById('f-status-eq')?.value||'';
+  const lista=_frota.filter(v=>{
+    if(busca&&!v.nome.toLowerCase().includes(busca)&&!(v.placa||'').toLowerCase().includes(busca)&&!(v.marca||'').toLowerCase().includes(busca))return false;
+    if(fTipo&&v.tipo!==fTipo)return false;
+    if(fSt){const st=calcStatusVeiculo(v);if(st!==fSt)return false;}
+    return true;
+  });
+  const grid=document.getElementById('frota-grid'),empty=document.getElementById('frota-empty');
+  if(!lista.length){grid.innerHTML='';empty.classList.remove('hidden');return;}
+  empty.classList.add('hidden');
+  const stI={ok:{cor:'#16a34a',bg:'#dcfce7',txt:'✅ Em Dia'},vencido:{cor:'#dc2626',bg:'#fee2e2',txt:'⚠️ Vencido'},proximo:{cor:'#b45309',bg:'#fef9c3',txt:'🟡 Próximo'}};
+  const tI={veiculo:'🚗',maquina:'⚙️',empilhadeira:'🏭',trator:'🚜',caminhao:'🚛',carregadeira:'🏗️',outro:'📦'};
+  grid.innerHTML=lista.map(v=>{
+    const st=calcStatusVeiculo(v),info=stI[st]||stI.ok;
+    const h=parseFloat(v.horimetro_atual)||0,prox=parseFloat(v.proxima_revisao)||0;
+    const comps=v.componentes||[];
+    const nOS=_ordens.filter(o=>o.equipamento===v.nome&&(o.status==='aberta'||o.status==='em_andamento')).length;
+    const icon=tI[v.tipo||'outro']||'🚜';
+    return`<div class="frota-card">
+      <div style="height:155px;background:linear-gradient(135deg,#f1f5f9,#e2e8f0);display:flex;align-items:center;justify-content:center;overflow:hidden;position:relative;cursor:pointer;" onclick="abrirDetalhe('${v.id}')">
+        ${v.foto?`<img src="${v.foto}" style="width:100%;height:100%;object-fit:cover;">`:`<div style="font-size:60px;">${icon}</div>`}
+        <span style="position:absolute;top:8px;left:8px;font-size:11px;font-weight:700;padding:3px 10px;border-radius:8px;background:${info.bg};color:${info.cor};">${info.txt}</span>
+        ${nOS>0?`<span style="position:absolute;top:8px;right:8px;font-size:11px;font-weight:700;padding:3px 8px;border-radius:8px;background:#fef3c7;color:#b45309;">📋 ${nOS} OS</span>`:''}
+      </div>
+      <div style="padding:14px;flex:1;display:flex;flex-direction:column;gap:6px;">
+        <div>
+          <div style="font-weight:800;font-size:15px;color:var(--primary);cursor:pointer;" onclick="abrirDetalhe('${v.id}')">${v.nome}</div>
+          <div style="font-size:11px;color:#64748b;margin-top:1px;">${icon} ${v.tipo||'—'}${v.marca?' · '+v.marca:''}${v.modelo?' · '+v.modelo:''}${v.ano?' ('+v.ano+')':''}</div>
+          ${v.placa?`<div style="font-size:11px;color:#94a3b8;">🪪 ${v.placa}</div>`:''}
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:12px;">
+          ${v.tipo_revisao!=='data'&&h>0?`<div style="background:#f8fafc;border-radius:6px;padding:5px 8px;"><div style="color:#94a3b8;font-size:10px;font-weight:700;text-transform:uppercase;">Horímetro</div><div style="font-weight:700;color:#1e3a5f;">${h}h</div></div>`:''}
+          ${prox>0&&v.tipo_revisao!=='data'?`<div style="background:#f8fafc;border-radius:6px;padding:5px 8px;"><div style="color:#94a3b8;font-size:10px;font-weight:700;text-transform:uppercase;">Próx.(h)</div><div style="font-weight:700;color:${info.cor};">${prox}h</div></div>`:''}
+          ${v.proxima_revisao_data?`<div style="background:#f8fafc;border-radius:6px;padding:5px 8px;"><div style="color:#94a3b8;font-size:10px;font-weight:700;text-transform:uppercase;">Próx.Data</div><div style="font-weight:700;color:${info.cor};font-size:11px;">${new Date(v.proxima_revisao_data+'T00:00:00').toLocaleDateString('pt-BR')}</div></div>`:''}
+        </div>
+        ${v.empresa_resp?`<div style="font-size:11px;color:#64748b;background:#f8fafc;border-radius:6px;padding:4px 8px;">🏢 ${v.empresa_resp}</div>`:''}
+        ${comps.length?`<div style="font-size:11px;color:#64748b;">⚙️ ${comps.length} comp.: ${comps.slice(0,2).map(c=>c.nome).join(', ')}${comps.length>2?'...':''}</div>`:''}
+        <div style="display:flex;gap:6px;margin-top:auto;padding-top:6px;flex-wrap:wrap;">
+          <button class="btn btn-primary btn-sm" style="flex:1;min-width:80px;" onclick="abrirNovaOS('${v.id}')">🔧 Nova OS</button>
+          <button class="btn btn-secondary btn-sm" onclick="abrirDetalhe('${v.id}')" title="Ver detalhes">👁️</button>
+          <button class="btn btn-secondary btn-sm" onclick="editarVeiculo('${v.id}')" title="Editar">✏️</button>
+          <button class="btn btn-danger btn-sm" onclick="delVeiculo('${v.id}')" title="Excluir">🗑️</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+/* ── DETALHE ─────────────────────────────────────────────────────── */
+function abrirDetalhe(id){
+  const v=_frota.find(x=>x.id===id);if(!v)return;
+  const st=calcStatusVeiculo(v);
+  const stI={ok:{cor:'#16a34a',bg:'#dcfce7',txt:'✅ Em Dia'},vencido:{cor:'#dc2626',bg:'#fee2e2',txt:'⚠️ Vencido'},proximo:{cor:'#b45309',bg:'#fef9c3',txt:'🟡 Próximo'}};
+  const info=stI[st]||stI.ok;
+  const osV=_ordens.filter(o=>o.equipamento===v.nome).sort((a,b)=>(b.data_abertura||'').localeCompare(a.data_abertura||''));
+  const comps=v.componentes||[];
+  const tI={veiculo:'🚗',maquina:'⚙️',empilhadeira:'🏭',trator:'🚜',caminhao:'🚛',carregadeira:'🏗️',outro:'📦'};
+  const compsHtml=comps.map(c=>{
+    const cs=calcStatusComp(c,v),csI=stI[cs]||stI.ok;
+    const hComp=parseFloat(c.horimetro_componente)||0,intH=parseFloat(c.intervalo_revisao)||0,proxH=hComp+intH,hAtual=parseFloat(v.horimetro_atual)||0;
+    return`<div class="comp-item ${cs}">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+        <div style="display:flex;gap:10px;align-items:center;">
+          ${c.foto_componente?`<img src="${c.foto_componente}" style="width:42px;height:42px;object-fit:cover;border-radius:8px;cursor:pointer;flex-shrink:0;" onclick="lb('${c.foto_componente}')">`:'<div style="width:42px;height:42px;background:#e2e8f0;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;">⚙️</div>'}
+          <div>
+            <div style="font-weight:700;color:#1e3a5f;font-size:14px;">${c.nome}</div>
+            <div style="font-size:11px;color:#64748b;">${intH>0?'Intervalo: '+intH+'h':''}${c.proxima_revisao_data?' · Data: '+new Date(c.proxima_revisao_data+'T00:00:00').toLocaleDateString('pt-BR'):''}</div>
+            ${c.ultima_revisao?`<div style="font-size:11px;color:#94a3b8;">Última: ${new Date(c.ultima_revisao+'T00:00:00').toLocaleDateString('pt-BR')}${c.ultimo_responsavel?' · '+c.ultimo_responsavel:''}</div>`:'<div style="font-size:11px;color:#94a3b8;">Sem revisão registrada</div>'}
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;flex-shrink:0;">
+          ${v.tipo_revisao!=='data'&&intH>0?`<div style="text-align:center;"><div style="font-size:9px;color:#94a3b8;font-weight:700;text-transform:uppercase;">H.Trab</div><div style="font-weight:700;font-size:12px;">${hAtual>hComp?(hAtual-hComp).toFixed(0)+'h':'—'}</div></div>`:''}
+          ${v.tipo_revisao!=='data'&&proxH>0?`<div style="text-align:center;"><div style="font-size:9px;color:#94a3b8;font-weight:700;text-transform:uppercase;">Próx.h</div><div style="font-weight:700;font-size:12px;color:${csI.cor};">${proxH}h</div></div>`:''}
+          <span style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:8px;background:${csI.bg};color:${csI.cor};">${csI.txt}</span>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+  const stC={aberta:'#b45309',em_andamento:'#2563eb',concluida:'#16a34a',cancelada:'#94a3b8'};
+  const stL={aberta:'📋 Aberta',em_andamento:'🔄 Em And.',concluida:'✅ Concluída',cancelada:'❌ Cancelada'};
+  const osHtml=osV.slice(0,15).map(o=>`<div class="hist-item ${o.tipo||''}">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:4px;">
+      <div><span style="font-family:monospace;font-size:11px;font-weight:700;color:#475569;">OS-${String(o.numero||0).padStart(4,'0')}</span> <span style="font-size:11px;color:#94a3b8;">${o.data_abertura?new Date(o.data_abertura+'T00:00:00').toLocaleDateString('pt-BR'):'—'}</span>${o.parte?` <span style="font-size:11px;color:#64748b;">· ${o.parte}</span>`:''}</div>
+      <span style="font-size:11px;font-weight:700;color:${stC[o.status]||'#64748b'};">${stL[o.status]||o.status}</span>
+    </div>
+    ${o.servico_realizado?`<div style="font-size:12px;color:#475569;margin-top:4px;">${o.servico_realizado.substring(0,120)}${o.servico_realizado.length>120?'...':''}</div>`:''}
+    <div style="display:flex;gap:12px;margin-top:4px;flex-wrap:wrap;">
+      ${o.terceiro||o.tecnico?`<span style="font-size:11px;color:#94a3b8;">👷 ${o.terceiro||o.tecnico}</span>`:''}
+      ${o.horimetro?`<span style="font-size:11px;color:#94a3b8;">⏱️ ${o.horimetro}h</span>`:''}
+      ${o.custo_manutencao?`<span style="font-size:11px;color:#94a3b8;">💰 R$${parseFloat(o.custo_manutencao).toFixed(2)}</span>`:''}
+    </div>
+  </div>`).join('');
+  document.getElementById('m-detalhe-tit').textContent=(tI[v.tipo||'outro']||'🚜')+' '+v.nome;
+  document.getElementById('m-detalhe-corpo').innerHTML=`
+    <div style="display:flex;gap:16px;margin-bottom:20px;flex-wrap:wrap;align-items:flex-start;">
+      ${v.foto?`<img src="${v.foto}" style="width:110px;height:110px;object-fit:cover;border-radius:12px;cursor:pointer;flex-shrink:0;" onclick="lb('${v.foto}')">`:`<div style="width:110px;height:110px;background:#f1f5f9;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:48px;flex-shrink:0;">${tI[v.tipo||'outro']||'🚜'}</div>`}
+      <div style="flex:1;min-width:200px;">
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
+          <span style="font-size:16px;font-weight:800;color:var(--primary);">${v.nome}</span>
+          <span style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:8px;background:${info.bg};color:${info.cor};">${info.txt}</span>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:12px;color:#475569;">
+          <div><span style="color:#94a3b8;">Tipo:</span> <strong>${v.tipo||'—'}</strong></div>
+          ${v.placa?`<div><span style="color:#94a3b8;">Placa/Pat.:</span> <strong>${v.placa}</strong></div>`:''}
+          ${v.marca?`<div><span style="color:#94a3b8;">Marca:</span> <strong>${v.marca}</strong></div>`:''}
+          ${v.modelo?`<div><span style="color:#94a3b8;">Modelo:</span> <strong>${v.modelo}</strong></div>`:''}
+          ${v.ano?`<div><span style="color:#94a3b8;">Ano:</span> <strong>${v.ano}</strong></div>`:''}
+          ${v.tipo_revisao?`<div><span style="color:#94a3b8;">Revisão:</span> <strong>${v.tipo_revisao==='data'?'Por Data':v.tipo_revisao==='ambos'?'Data+Horímetro':'Por Horímetro'}</strong></div>`:''}
+          ${v.horimetro_atual>0?`<div><span style="color:#94a3b8;">Horímetro:</span> <strong>${v.horimetro_atual}h</strong></div>`:''}
+          ${v.proxima_revisao>0?`<div><span style="color:#94a3b8;">Próx.Rev(h):</span> <strong style="color:${info.cor};">${v.proxima_revisao}h</strong></div>`:''}
+          ${v.proxima_revisao_data?`<div><span style="color:#94a3b8;">Próx.Data:</span> <strong style="color:${info.cor};">${new Date(v.proxima_revisao_data+'T00:00:00').toLocaleDateString('pt-BR')}</strong></div>`:''}
+          ${v.empresa_resp?`<div style="grid-column:1/-1"><span style="color:#94a3b8;">Empresa Resp.:</span> <strong>🏢 ${v.empresa_resp}</strong></div>`:''}
+        </div>
+        ${v.obs?`<div style="margin-top:8px;font-size:12px;color:#64748b;background:#f8fafc;border-radius:8px;padding:8px;">${v.obs}</div>`:''}
+      </div>
+    </div>
+    ${comps.length?`<div style="margin-bottom:20px;"><div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;margin-bottom:10px;padding-bottom:6px;border-bottom:1.5px solid #f1f5f9;">⚙️ Componentes (${comps.length})</div>${compsHtml}</div>`:''}
+    <div><div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;margin-bottom:10px;padding-bottom:6px;border-bottom:1.5px solid #f1f5f9;">📋 Histórico de OS${osV.length?' ('+osV.length+')':''}</div>
+    ${osHtml||'<div style="text-align:center;padding:16px;color:#94a3b8;font-size:13px;">Nenhuma OS registrada para este equipamento.</div>'}
+    ${osV.length>15?`<div style="text-align:center;font-size:12px;color:#94a3b8;padding:8px;">+ ${osV.length-15} registros anteriores</div>`:''}</div>`;
+  document.getElementById('btn-editar-det').onclick=()=>{fecharModal('m-detalhe');editarVeiculo(id);};
+  document.getElementById('btn-os-det').onclick=()=>{fecharModal('m-detalhe');abrirNovaOS(id);};
+  document.getElementById('m-detalhe').classList.remove('hidden');
+}
+
+/* ── CRUD VEÍCULO ────────────────────────────────────────────────── */
+function toggleTipoRevisao(){
+  const tipo=document.getElementById('v-tipo-revisao')?.value||'horimetro';
+  const temH=tipo==='horimetro'||tipo==='ambos',temD=tipo==='data'||tipo==='ambos';
+  document.getElementById('grp-horimetro-atual').style.display=temH?'':'none';
+  document.getElementById('grp-intervalo-h').style.display=temH?'':'none';
+  document.getElementById('grp-prox-rev-h').style.display=temH?'':'none';
+  document.getElementById('grp-prox-data').style.display='';
+  document.getElementById('grp-intervalo-dias').style.display=temD?'':'none';
+}
+
+function abrirNovoVeiculo(){
+  _eVeiculoId=null;
+  document.getElementById('m-veiculo-tit').textContent='Novo Equipamento';
+  ['v-nome','v-placa','v-marca','v-modelo','v-obs','v-empresa-resp'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
+  ['v-ano','v-rev-horas','v-rev-dias','v-horimetro','v-prox-rev'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
+  document.getElementById('v-prox-data').value='';
+  document.getElementById('v-tipo').value='empilhadeira';
+  document.getElementById('v-tipo-revisao').value='horimetro';
+  document.getElementById('v-foto-data').value='';
+  document.getElementById('v-foto-prev').innerHTML='🚜';
+  document.getElementById('v-comps-list').innerHTML='';
+  document.getElementById('v-docs-data').value='[]';
+  renderDocsVeiculo([]);
+  document.getElementById('v-error').classList.add('hidden');
+  showVTab('dados');
+  document.getElementById('m-veiculo').classList.remove('hidden');
+}
+
+function editarVeiculo(id){
+  const v=_frota.find(x=>x.id===id);if(!v)return;
+  _eVeiculoId=id;
+  document.getElementById('m-veiculo-tit').textContent='Editar — '+v.nome;
+  document.getElementById('v-nome').value=v.nome||'';
+  document.getElementById('v-tipo').value=v.tipo||'outro';
+  document.getElementById('v-tipo-revisao').value=v.tipo_revisao||'horimetro';
+  document.getElementById('v-placa').value=v.placa||'';
+  document.getElementById('v-marca').value=v.marca||'';
+  document.getElementById('v-modelo').value=v.modelo||'';
+  document.getElementById('v-ano').value=v.ano||'';
+  document.getElementById('v-empresa-resp').value=v.empresa_resp||'';
+  document.getElementById('v-rev-horas').value=v.revisao_horas||'';
+  document.getElementById('v-rev-dias').value=v.revisao_dias||'';
+  document.getElementById('v-horimetro').value=v.horimetro_atual||'';
+  document.getElementById('v-prox-rev').value=v.proxima_revisao||'';
+  document.getElementById('v-prox-data').value=v.proxima_revisao_data||'';
+  document.getElementById('v-obs').value=v.obs||'';
+  document.getElementById('v-foto-data').value=v.foto||'';
+  const prev=document.getElementById('v-foto-prev');
+  prev.innerHTML=v.foto?`<img src="${v.foto}" style="width:100%;height:100%;object-fit:cover;border-radius:10px;" onclick="lb('${v.foto}')">`:'🚜';
+  document.getElementById('v-comps-list').innerHTML='';
+  (v.componentes||[]).forEach(c=>addCompVeiculo(c));
+  // Carregar documentos
+  const docs=v.documentos||[];
+  document.getElementById('v-docs-data').value=JSON.stringify(docs);
+  renderDocsVeiculo(docs);
+  document.getElementById('v-error').classList.add('hidden');
+  showVTab('dados');
+  document.getElementById('m-veiculo').classList.remove('hidden');
+}
+
+function showVTab(t){
+  ['dados','comps','docs'].forEach(x=>{
+    document.getElementById('vtab-'+x+'-corpo').style.display=x===t?'':'none';
+    document.getElementById('vtab-'+x)?.classList.toggle('active',x===t);
+  });
+}
+
+function addCompVeiculo(comp){
+  comp=comp||{};
+  const id='vc-'+Date.now()+'-'+Math.random().toString(36).slice(2,5);
+  const fpid='fp-'+id;
+  const div=document.createElement('div');
+  div.id=id;
+  div.style.cssText='border:1.5px solid #e2e8f0;border-radius:8px;padding:10px;background:#fafafa;';
+  // Calcular status do componente
+  div.innerHTML=`
+    <div style="display:grid;grid-template-columns:2fr 1fr 0.6fr 1fr 1fr auto;gap:6px;align-items:center;margin-bottom:8px;">
+      <input type="text" class="form-input" placeholder="Nome do componente *" value="${comp.nome||''}" data-cf="nome" style="font-size:12px;">
+      <input type="text" class="form-input" placeholder="Código/Ref." value="${comp.codigo||''}" data-cf="codigo" style="font-size:12px;" title="Código ou referência do componente">
+      <input type="number" class="form-input" placeholder="Qtd" value="${comp.quantidade||1}" data-cf="quantidade" min="1" style="font-size:12px;" title="Quantidade instalada">
+      <input type="number" class="form-input" placeholder="Intervalo (h)" value="${comp.intervalo_revisao||''}" data-cf="intervalo_revisao" style="font-size:12px;" title="Intervalo de revisão em horas" oninput="atualizarStatusComp('${id}')">
+      <input type="number" class="form-input" placeholder="Ú. Horímetro" value="${comp.horimetro_componente||''}" data-cf="horimetro_componente" style="font-size:12px;" title="Horímetro no último serviço" oninput="atualizarStatusComp('${id}')">
+      <button onclick="document.getElementById('${id}').remove()" style="background:none;border:none;font-size:18px;cursor:pointer;color:#ef4444;padding:2px;">✕</button>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+      <div id="${fpid}" style="width:36px;height:36px;border-radius:6px;border:1.5px solid #e2e8f0;overflow:hidden;background:#f8fafc;display:flex;align-items:center;justify-content:center;font-size:16px;cursor:pointer;" onclick="${comp.foto_componente?`lb('${comp.foto_componente}')`:''}">${comp.foto_componente?`<img src="${comp.foto_componente}" style="width:100%;height:100%;object-fit:cover;">`:'📷'}</div>
+      <div><input type="file" id="fi-${id}" accept="image/*" style="display:none;" onchange="uploadFotoComp(this,'${id}','${fpid}')">
+        <button type="button" class="btn btn-ghost btn-sm" style="font-size:11px;" onclick="document.getElementById('fi-${id}').click()">📷</button></div>
+      <input type="hidden" data-cf="foto_componente" value="${comp.foto_componente||''}">
+      <div id="status-${id}" style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px;background:#f1f5f9;color:#64748b;">—</div>
+      ${comp.ultima_revisao?`<span style="font-size:11px;color:#94a3b8;">Última: ${new Date(comp.ultima_revisao+'T00:00:00').toLocaleDateString('pt-BR')}${comp.ultimo_responsavel?' · '+comp.ultimo_responsavel:''}</span>`:''}
+    </div>`;
+  document.getElementById('v-comps-list').appendChild(div);
+  // Calcular status inicial se já tem dados
+  if(comp.intervalo_revisao)setTimeout(()=>atualizarStatusComp(id),50);
+}
+
+function atualizarStatusComp(divId){
+  const div=document.getElementById(divId);if(!div)return;
+  const intH=parseFloat(div.querySelector('[data-cf="intervalo_revisao"]')?.value)||0;
+  const hComp=parseFloat(div.querySelector('[data-cf="horimetro_componente"]')?.value)||0;
+  // Pegar horímetro atual do equipamento
+  const hAtual=parseFloat(document.getElementById('v-horimetro')?.value)||0;
+  const statusEl=document.getElementById('status-'+divId);if(!statusEl)return;
+  if(!intH||!hComp){statusEl.textContent='—';statusEl.style.background='#f1f5f9';statusEl.style.color='#64748b';return;}
+  const proxH=hComp+intH;
+  const diff=proxH-hAtual;
+  if(hAtual>=proxH){statusEl.textContent='⚠️ VENCIDO';statusEl.style.background='#fee2e2';statusEl.style.color='#dc2626';}
+  else if(diff<=50){statusEl.textContent='🟡 PRÓXIMO ('+diff.toFixed(0)+'h)';statusEl.style.background='#fef9c3';statusEl.style.color='#92400e';}
+  else{statusEl.textContent='✅ OK (faltam '+diff.toFixed(0)+'h)';statusEl.style.background='#dcfce7';statusEl.style.color='#16a34a';}
+}
+
+function uploadFotoVeiculo(input){
+  const file=input.files[0];if(!file||!file.type.startsWith('image/'))return;
+  const reader=new FileReader();
+  reader.onload=ev=>{const img=new Image();img.onload=()=>{
+    const maxD=1000;let w=img.width,h=img.height;
+    if(w>maxD||h>maxD){if(w>h){h=Math.round(h*maxD/w);w=maxD;}else{w=Math.round(w*maxD/h);h=maxD;}}
+    const cv=document.createElement('canvas');cv.width=w;cv.height=h;cv.getContext('2d').drawImage(img,0,0,w,h);
+    const data=cv.toDataURL('image/jpeg',0.82);
+    document.getElementById('v-foto-data').value=data;
+    document.getElementById('v-foto-prev').innerHTML=`<img src="${data}" style="width:100%;height:100%;object-fit:cover;border-radius:10px;" onclick="lb('${data}')">`;
+  };img.src=ev.target.result;};reader.readAsDataURL(file);input.value='';
+}
+
+function uploadFotoComp(input,divId,prevId){
+  const file=input.files[0];if(!file||!file.type.startsWith('image/'))return;
+  const reader=new FileReader();
+  reader.onload=ev=>{const img=new Image();img.onload=()=>{
+    const maxD=800;let w=img.width,h=img.height;
+    if(w>maxD||h>maxD){if(w>h){h=Math.round(h*maxD/w);w=maxD;}else{w=Math.round(w*maxD/h);h=maxD;}}
+    const cv=document.createElement('canvas');cv.width=w;cv.height=h;cv.getContext('2d').drawImage(img,0,0,w,h);
+    const data=cv.toDataURL('image/jpeg',0.75);
+    const row=document.getElementById(divId);if(row){const hid=row.querySelector('[data-cf="foto_componente"]');if(hid)hid.value=data;}
+    const prev=document.getElementById(prevId);if(prev)prev.innerHTML=`<img src="${data}" style="width:100%;height:100%;object-fit:cover;" onclick="lb('${data}')">`;
+  };img.src=ev.target.result;};reader.readAsDataURL(file);input.value='';
+}
+
+async function salvarVeiculo(){
+  const nome=document.getElementById('v-nome').value.trim();
+  const errEl=document.getElementById('v-error');
+  if(!nome){errEl.textContent='Nome/Identificação é obrigatório!';errEl.classList.remove('hidden');return;}
+  const btn=document.getElementById('btn-salvar-veiculo');
+  btn.disabled=true;btn.textContent='⏳ Salvando...';errEl.classList.add('hidden');
+  const comps=[];
+  document.querySelectorAll('#v-comps-list>[id^="vc-"]').forEach(div=>{
+    const get=k=>div.querySelector(`[data-cf="${k}"]`)?.value.trim()||'';
+    if(get('nome'))comps.push({nome:get('nome'),codigo:get('codigo')||null,quantidade:parseInt(get('quantidade'))||1,intervalo_revisao:parseFloat(get('intervalo_revisao'))||0,horimetro_componente:parseFloat(get('horimetro_componente'))||0,horimetro_inicial:parseFloat(get('horimetro_componente'))||0,foto_componente:get('foto_componente')||null});
+  });
+  // Campos base (certamente existem na tabela criada)
+  const dadosBase={
+    nome,
+    tipo:document.getElementById('v-tipo').value,
+    status:'ativo',
+    atualizado_em:new Date().toISOString(),
+  };
+  // Campos extras (adicionados pelo ALTER TABLE — podem não estar no cache ainda)
+  const dadosExtras={
+    placa:document.getElementById('v-placa').value.trim()||null,
+    marca:document.getElementById('v-marca').value.trim()||null,
+    modelo:document.getElementById('v-modelo').value.trim()||null,
+    ano:parseInt(document.getElementById('v-ano').value)||null,
+    horimetro_atual:parseFloat(document.getElementById('v-horimetro').value)||0,
+    proxima_revisao_data:document.getElementById('v-prox-data').value||null,
+    obs:document.getElementById('v-obs').value.trim()||null,
+    foto:document.getElementById('v-foto-data').value||null,
+    componentes:comps,
+    documentos:JSON.parse(document.getElementById('v-docs-data').value||'[]'),
+  };
+  try{
+    let savedId=_eVeiculoId;
+    // Tentar salvar tudo de uma vez
+    let error;
+    if(_eVeiculoId){
+      ({error}=await _supabase.from('frota_veiculos').update({...dadosBase,...dadosExtras}).eq('id',_eVeiculoId));
+      if(error){
+        // Fallback: salvar só base + update extras um a um
+        ({error}=await _supabase.from('frota_veiculos').update(dadosBase).eq('id',_eVeiculoId));
+        if(!error){
+          for(const[k,v] of Object.entries(dadosExtras)){
+            try{await _supabase.from('frota_veiculos').update({[k]:v}).eq('id',_eVeiculoId);}catch(e){}
+          }
+          error=null;
+        }
+      }
+    } else {
+      const{data:ins,error:e1}=await _supabase.from('frota_veiculos').insert({...dadosBase,...dadosExtras}).select('id').single();
+      if(e1){
+        // Fallback: inserir só base, depois atualizar extras
+        const{data:ins2,error:e2}=await _supabase.from('frota_veiculos').insert(dadosBase).select('id').single();
+        if(e2)throw e2;
+        savedId=ins2.id;
+        for(const[k,v] of Object.entries(dadosExtras)){
+          try{await _supabase.from('frota_veiculos').update({[k]:v}).eq('id',savedId);}catch(e){}
+        }
+      } else {
+        savedId=ins?.id;
+      }
+      error=null;
+    }
+    if(error)throw error;
+    const{data:lista,error:e2}=await _supabase.from('frota_veiculos').select('*').order('nome');
+    if(e2)throw e2;
+    _frota=lista||[];popularSelects();
+    fecharModal('m-veiculo');
+    toast(_eVeiculoId?'✅ Equipamento atualizado!':'✅ Equipamento cadastrado!','success');
+    renderKPIs();renderCadastro();
+  }catch(e){
+    console.error('salvarVeiculo:',e);
+    const msg=e.message||JSON.stringify(e);
+    errEl.innerHTML=`<strong>❌ Erro ao salvar:</strong><br>${msg}<br><small style="color:#ef4444;opacity:.8;">Verifique o console do navegador (F12) para mais detalhes.</small>`;
+    errEl.classList.remove('hidden');
+    errEl.scrollIntoView({behavior:'smooth',block:'center'});
+  }finally{btn.disabled=false;btn.textContent='💾 Salvar Equipamento';}
+}
+
+async function delVeiculo(id){
+  const v=_frota.find(x=>x.id===id);
+  document.getElementById('confirm-msg').innerHTML=`Excluir <strong>${v?.nome||'este equipamento'}</strong>?<br><small style="color:#94a3b8;">As OS vinculadas não serão excluídas.</small>`;
+  document.getElementById('confirm-ok').onclick=async()=>{
+    try{
+      const{error}=await _supabase.from('frota_veiculos').delete().eq('id',id);
+      if(error)throw error;
+      fecharModal('m-confirm');_frota=_frota.filter(x=>x.id!==id);
+      popularSelects();renderKPIs();renderCadastro();toast('Equipamento excluído.','warning');
+    }catch(e){toast('Erro: '+e.message,'danger');}
+  };
+  document.getElementById('m-confirm').classList.remove('hidden');
+}
+
+/* ── OS ──────────────────────────────────────────────────────────── */
+function onOSEquipChange(){
+  const id=document.getElementById('os-equip').value;
+  const v=_frota.find(x=>x.id===id);
+  // Rebuild first comp row options
+  _populateCompRows(v);
+  document.getElementById('grp-os-horim').style.display='';
+  if(v){
+    if(v.horimetro_atual)document.getElementById('os-horim').value=v.horimetro_atual;
+    if(v.tipo_revisao==='data')document.getElementById('grp-os-horim').style.display='none';
+    if(v.empresa_resp)document.getElementById('os-resp').value=v.empresa_resp;
+  }
+}
+
+function _populateCompRows(v){
+  const opts='<option value="">Geral / Sem componente</option>'+
+    (v?.componentes||[]).map(c=>`<option value="${c.nome}">${c.nome}</option>`).join('')+
+    '<option value="__novo__">➕ Digitar componente...</option>';
+  document.querySelectorAll('#os-comps-list .os-comp-sel').forEach(sel=>{
+    const cur=sel.value;sel.innerHTML=opts;sel.value=cur;
+  });
+}
+
+function addCompOS(){
+  const id=document.getElementById('os-equip').value;
+  const v=_frota.find(x=>x.id===id);
+  const opts='<option value="">Geral / Sem componente</option>'+
+    (v?.componentes||[]).map(c=>`<option value="${c.nome}">${c.nome}</option>`).join('')+
+    '<option value="__novo__">➕ Digitar componente...</option>';
+  const list=document.getElementById('os-comps-list');
+  const row=document.createElement('div');
+  row.className='os-comp-row';row.style.cssText='display:flex;gap:6px;align-items:center;';
+  row.innerHTML=`<select class="form-input os-comp-sel" style="flex:1;" onchange="onCompSelChange(this)">${opts}</select>
+    <input type="text" class="form-input os-comp-txt" style="flex:1;display:none;" placeholder="Nome do componente...">
+    <button type="button" onclick="this.closest('.os-comp-row').remove()" style="background:none;border:none;font-size:18px;cursor:pointer;color:#ef4444;flex-shrink:0;">✕</button>`;
+  // Mostrar botão remover também na primeira linha
+  list.querySelectorAll('.os-comp-row button').forEach(b=>b.style.display='');
+  list.appendChild(row);
+}
+
+function onCompSelChange(sel){
+  const row=sel.closest('.os-comp-row');
+  const txt=row.querySelector('.os-comp-txt');
+  if(sel.value==='__novo__'){
+    txt.style.display='';sel.style.display='none';txt.focus();
+  } else {
+    txt.style.display='none';sel.style.display='';
+  }
+}
+
+function getCompsOS(){
+  // Retorna array de nomes dos componentes selecionados
+  const comps=[];
+  document.querySelectorAll('#os-comps-list .os-comp-row').forEach(row=>{
+    const sel=row.querySelector('.os-comp-sel');
+    const txt=row.querySelector('.os-comp-txt');
+    if(txt&&txt.style.display!=='none'&&txt.value.trim()){
+      comps.push(txt.value.trim());
+    } else if(sel&&sel.value&&sel.value!=='__novo__'){
+      comps.push(sel.value);
+    }
+  });
+  return comps.filter(Boolean);
+}
+
+function abrirNovaOS(veiculoId){
+  _eOSId=null;_veiculoAtualId=veiculoId||null;
+  document.getElementById('m-os-tit').textContent='Nova Ordem de Serviço';
+  ['os-serv','os-pecas','os-resp'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
+  ['os-custo','os-horim'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
+  document.getElementById('os-equip').value=veiculoId||'';
+  // Resetar lista de componentes (manter só a primeira linha)
+  const compList=document.getElementById('os-comps-list');
+  compList.innerHTML=`<div class="os-comp-row" style="display:flex;gap:6px;align-items:center;">
+    <select class="form-input os-comp-sel" style="flex:1;" onchange="onCompSelChange(this)"><option value="">Geral / Sem componente</option></select>
+    <input type="text" class="form-input os-comp-txt" style="flex:1;display:none;" placeholder="Digite o nome do componente...">
+    <button type="button" onclick="this.closest('.os-comp-row').remove()" style="background:none;border:none;font-size:18px;cursor:pointer;color:#ef4444;flex-shrink:0;display:none;">✕</button>
+  </div>`;
+  document.getElementById('os-status').value='aberta';
+  document.getElementById('os-tec').value='';
+  document.getElementById('os-data').value=new Date().toISOString().slice(0,10);
+  onOSEquipChange();
+  // os-prox-data pode não ter sido resetado ainda
+  const proxDataEl=document.getElementById('os-prox-data');if(proxDataEl)proxDataEl.value='';
+  const tipoEl=document.getElementById('os-tipo');if(tipoEl)tipoEl.value='preventiva';
+  _osFotos=[];document.getElementById('os-fotos-data').value='[]';
+  document.getElementById('os-foto-prev').innerHTML='';
+  _osAssinOk=false;
+  const cv=document.getElementById('os-assin-cv');
+  if(cv){cv.getContext('2d').clearRect(0,0,cv.width,cv.height);cv.dataset.desenhado='0';}
+  document.getElementById('os-assin-data').value='';
+  document.getElementById('os-error').classList.add('hidden');
+  setTimeout(()=>iniAssinOS(),150);
+  document.getElementById('m-os').classList.remove('hidden');
+}
+
+function iniAssinOS(){
+  if(_osAssinOk)return;_osAssinOk=true;
+  const cv=document.getElementById('os-assin-cv');if(!cv)return;
+  const ctx=cv.getContext('2d');ctx.strokeStyle='#042D4D';ctx.lineWidth=2;ctx.lineCap='round';
+  let draw=false,lx=0,ly=0;
+  const xy=e=>{const r=cv.getBoundingClientRect();const s=e.touches?e.touches[0]:e;return{x:(s.clientX-r.left)*(cv.width/r.width),y:(s.clientY-r.top)*(cv.height/r.height)};};
+  const start=e=>{e.preventDefault();draw=true;const p=xy(e);ctx.beginPath();ctx.moveTo(p.x,p.y);lx=p.x;ly=p.y;};
+  const move=e=>{e.preventDefault();if(!draw)return;const p=xy(e);ctx.lineTo(p.x,p.y);ctx.stroke();lx=p.x;ly=p.y;cv.dataset.desenhado='1';};
+  const end=()=>{draw=false;};
+  cv.addEventListener('mousedown',start);cv.addEventListener('mousemove',move);cv.addEventListener('mouseup',end);
+  cv.addEventListener('touchstart',start,{passive:false});cv.addEventListener('touchmove',move,{passive:false});cv.addEventListener('touchend',end);
+}
+
+function limparAssinOS(){
+  const cv=document.getElementById('os-assin-cv');
+  if(cv){cv.getContext('2d').clearRect(0,0,cv.width,cv.height);cv.dataset.desenhado='0';}
+  document.getElementById('os-assin-data').value='';
+}
+
+function addFotosOS(input){
+  Array.from(input.files||[]).forEach(file=>{
+    if(!file.type.startsWith('image/'))return;
+    const reader=new FileReader();
+    reader.onload=ev=>{const img=new Image();img.onload=()=>{
+      const maxD=1200;let w=img.width,h=img.height;
+      if(w>maxD||h>maxD){if(w>h){h=Math.round(h*maxD/w);w=maxD;}else{w=Math.round(w*maxD/h);h=maxD;}}
+      const cv=document.createElement('canvas');cv.width=w;cv.height=h;cv.getContext('2d').drawImage(img,0,0,w,h);
+      const data=cv.toDataURL('image/jpeg',0.78);_osFotos.push(data);
+      document.getElementById('os-fotos-data').value=JSON.stringify(_osFotos);
+      const prev=document.getElementById('os-foto-prev');
+      const d=document.createElement('div');d.style.cssText='position:relative;display:inline-block;';
+      const i=_osFotos.length-1;
+      d.innerHTML=`<img src="${data}" style="width:56px;height:56px;object-fit:cover;border-radius:6px;cursor:pointer;" onclick="lb('${data}')"><button onclick="_osFotos[${i}]=null;this.parentElement.remove();document.getElementById('os-fotos-data').value=JSON.stringify(_osFotos)" style="position:absolute;top:-4px;right:-4px;background:#dc2626;color:#fff;border:none;border-radius:50%;width:16px;height:16px;font-size:10px;cursor:pointer;padding:0;">✕</button>`;
+      prev.appendChild(d);
+    };img.src=ev.target.result;};reader.readAsDataURL(file);
+  });input.value='';
+}
+
+async function salvarOS(){
+  const equipId=document.getElementById('os-equip').value,data=document.getElementById('os-data').value;
+  const errEl=document.getElementById('os-error');
+  if(!equipId||!data){errEl.textContent='Equipamento e Data são obrigatórios!';errEl.classList.remove('hidden');return;}
+  const v=_frota.find(x=>x.id===equipId);if(!v){errEl.textContent='Equipamento não encontrado!';errEl.classList.remove('hidden');return;}
+  const btn=document.getElementById('btn-salvar-os');
+  btn.disabled=true;btn.textContent='⏳ Salvando...';errEl.classList.add('hidden');
+  try{
+    const horim=parseFloat(document.getElementById('os-horim').value)||null;
+    const fotos=JSON.parse(document.getElementById('os-fotos-data').value||'[]').filter(Boolean);
+    const cv=document.getElementById('os-assin-cv');
+    const assin=(cv&&cv.dataset.desenhado==='1')?cv.toDataURL('image/png'):null;
+    const compsOS=getCompsOS();
+    const compNome=compsOS.length>0?compsOS.join(', '):null;
+    const proxData=document.getElementById('os-prox-data').value||null;
+    const{data:mx}=await _supabase.from('manutencao').select('numero').order('numero',{ascending:false}).limit(1);
+    const numero=_eOSId?(_ordens.find(x=>x.id===_eOSId)?.numero||0):(mx?.[0]?.numero||0)+1;
+    const dBase={
+      numero,tipo:document.getElementById('os-tipo').value,equipamento:v.nome,linha:'Frota',
+      parte:compNome,descricao:document.getElementById('os-serv').value.trim()||'Manutenção de frota',
+      servico_realizado:document.getElementById('os-serv').value.trim()||null,
+      pecas_trocadas:document.getElementById('os-pecas').value.trim()||null,
+      tecnico:document.getElementById('os-tec').value||null,terceiro:document.getElementById('os-resp').value.trim()||null,
+      data_abertura:data,data_prevista:proxData,horimetro:horim,
+      custo_manutencao:parseFloat(document.getElementById('os-custo').value)||null,
+      status:document.getElementById('os-status').value,assinatura:assin,
+      atualizado_em:new Date().toISOString(),
+    };
+    // Insert ou Update
+    let errIns;
+    if(_eOSId){
+      ({error:errIns}=await _supabase.from('manutencao').update({...dBase,fotos_servico:fotos}).eq('id',_eOSId));
+      if(errIns)({error:errIns}=await _supabase.from('manutencao').update(dBase).eq('id',_eOSId));
+      if(errIns)throw errIns;
+    } else {
+      ({error:errIns}=await _supabase.from('manutencao').insert({...dBase,fotos_servico:fotos}));
+      if(errIns){const{error:e2}=await _supabase.from('manutencao').insert(dBase);if(e2)throw e2;}
+    }
+    // Atualizar veículo se concluída
+    if(dBase.status==='concluida'){
+      const upd={atualizado_em:new Date().toISOString()};
+      if(horim&&v.tipo_revisao!=='data')upd.horimetro_atual=horim;
+      if(proxData)upd.proxima_revisao_data=proxData;
+      if(horim&&v.revisao_horas&&v.tipo_revisao!=='data')upd.proxima_revisao=horim+v.revisao_horas;
+      if(compNome){
+        const comps=JSON.parse(JSON.stringify(v.componentes||[]));
+        const ci=comps.findIndex(c=>c.nome===compNome);
+        if(ci>=0){
+          if(horim)comps[ci].horimetro_componente=horim;
+          comps[ci].ultima_revisao=data;
+          comps[ci].ultimo_responsavel=dBase.terceiro||dBase.tecnico||null;
+          if(proxData)comps[ci].proxima_revisao_data=proxData;
+          upd.componentes=comps;
+        }
+      }
+      if(Object.keys(upd).length>1){
+        await _supabase.from('frota_veiculos').update(upd).eq('id',equipId);
+        const vL=_frota.find(x=>x.id===equipId);if(vL)Object.assign(vL,upd);
+      }
+    }
+    await recarregarOS();
+    fecharModal('m-os');
+    toast('✅ OS-'+String(numero).padStart(4,'0')+' salva!','success');
+    renderKPIs();renderCadastro();renderOS();
+  }catch(e){
+    console.error('salvarOS:',e);
+    errEl.textContent='Erro: '+(e.message||JSON.stringify(e));
+    errEl.classList.remove('hidden');
+  }finally{btn.disabled=false;btn.textContent='💾 Salvar OS';}
+}
+
+/* ── RENDER OS ───────────────────────────────────────────────────── */
+function renderOS(){
+  const fE=document.getElementById('f-os-equip')?.value||'',fS=document.getElementById('f-os-status')?.value||'',fT=document.getElementById('f-os-tipo')?.value||'';
+  const lista=_ordens.filter(o=>(!fE||o.equipamento===fE)&&(!fS||o.status===fS)&&(!fT||o.tipo===fT));
+  const tbody=document.getElementById('tbody-os');if(!tbody)return;
+  const stC={aberta:'#b45309',em_andamento:'#2563eb',concluida:'#16a34a',cancelada:'#94a3b8'};
+  const stL={aberta:'📋 Aberta',em_andamento:'🔄 Em And.',concluida:'✅ Concluída',cancelada:'❌ Cancelada'};
+  tbody.innerHTML=lista.length?lista.map(o=>{
+    const dt=o.data_abertura?new Date(o.data_abertura+'T00:00:00').toLocaleDateString('pt-BR'):'—';
+    const fotos=(o.fotos_servico||[]).filter(Boolean);
+    const fH=fotos.slice(0,2).map(f=>`<img src="${f}" style="width:28px;height:28px;object-fit:cover;border-radius:3px;cursor:pointer;" onclick="lb('${f}')">`).join('');
+    return`<tr>
+      <td style="font-family:monospace;font-weight:700;font-size:11px;color:#475569;">OS-${String(o.numero||0).padStart(4,'0')}</td>
+      <td style="font-size:12px;white-space:nowrap;">${dt}</td>
+      <td style="font-weight:600;font-size:13px;">${o.equipamento||'—'}</td>
+      <td><span style="font-size:11px;padding:2px 6px;border-radius:5px;background:${o.tipo==='corretiva'?'#fee2e2':'#dcfce7'};color:${o.tipo==='corretiva'?'#dc2626':'#16a34a'};">${o.tipo||'—'}</span></td>
+      <td style="font-size:12px;color:#64748b;">${o.parte||'Geral'}</td>
+      <td style="font-size:12px;">${o.terceiro||o.tecnico||'—'}</td>
+      <td style="font-size:12px;">${o.horimetro?o.horimetro+'h':'—'}</td>
+      <td style="font-size:12px;">${o.custo_manutencao?'R$ '+parseFloat(o.custo_manutencao).toFixed(2):'—'}</td>
+      <td><span style="font-size:11px;font-weight:700;color:${stC[o.status]||'#64748b'};">${stL[o.status]||o.status}</span></td>
+      <td><div class="table-actions">${fH?`<div style="display:flex;gap:2px;margin-right:4px;">${fH}</div>`:''}
+        ${['aberta','em_andamento'].includes(o.status)?`<button class="btn btn-sm" style="background:#16a34a;color:#fff;border:none;font-size:11px;padding:4px 8px;" onclick="abrirConcluirOS('${o.id}')" title="Concluir OS">✅</button>`:''}
+        <button class="btn btn-secondary btn-sm" onclick="editarOS('${o.id}')" title="Editar">✏️</button>
+        <button class="btn btn-secondary btn-sm" onclick="imprimirOS('${o.id}')" title="Imprimir">🖨️</button>
+        <button class="btn btn-danger btn-sm" onclick="delOS('${o.id}')" title="Excluir">🗑️</button>
+      </div></td>
+    </tr>`;
+  }).join(''):`<tr><td colspan="10" style="text-align:center;padding:32px;color:#94a3b8;">Nenhuma OS de frota encontrada.</td></tr>`;
+}
+
+/* ── DOCUMENTOS DO EQUIPAMENTO ───────────────────────────────────── */
+let _docUploadCallback=null;
+
+function addDocVeiculo(){
+  document.getElementById('v-doc-inp').click();
+}
+
+function uploadDocVeiculo(input){
+  const file=input.files[0];if(!file)return;
+  const reader=new FileReader();
+  reader.onload=ev=>{
+    const docs=JSON.parse(document.getElementById('v-docs-data').value||'[]');
+    const ext=file.name.split('.').pop().toLowerCase();
+    const isImg=['jpg','jpeg','png','gif','webp'].includes(ext);
+    docs.push({nome:file.name,tipo:ext,tamanho:file.size,data:ev.target.result,isImg,adicionado:new Date().toISOString()});
+    document.getElementById('v-docs-data').value=JSON.stringify(docs);
+    renderDocsVeiculo(docs);
+    toast('📄 '+file.name+' adicionado','success');
+  };
+  reader.readAsDataURL(file);
+  input.value='';
+}
+
+function renderDocsVeiculo(docs){
+  const list=document.getElementById('v-docs-list');
+  if(!list)return;
+  if(!docs||!docs.length){list.innerHTML='<div style="text-align:center;padding:24px;color:#94a3b8;font-size:13px;">Nenhum documento adicionado</div>';return;}
+  const tipoIcon={pdf:'📄',jpg:'🖼️',jpeg:'🖼️',png:'🖼️',doc:'📝',docx:'📝',xls:'📊',xlsx:'📊'};
+  list.innerHTML=docs.map((d,i)=>`
+    <div style="display:flex;align-items:center;gap:10px;padding:10px;background:#f8fafc;border:1.5px solid #e2e8f0;border-radius:8px;">
+      <div style="font-size:24px;flex-shrink:0;">${tipoIcon[d.tipo]||'📎'}</div>
+      <div style="flex:1;min-width:0;">
+        <div style="font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${d.nome}</div>
+        <div style="font-size:11px;color:#94a3b8;">${d.tipo?.toUpperCase()||'—'} · ${d.tamanho?Math.round(d.tamanho/1024)+'KB':''}</div>
+      </div>
+      <div style="display:flex;gap:6px;flex-shrink:0;">
+        ${d.isImg?`<button class="btn btn-secondary btn-sm" onclick="lb('${d.data}')" title="Visualizar">👁️</button>`:''}
+        <a href="${d.data}" download="${d.nome}" class="btn btn-secondary btn-sm" title="Baixar">⬇️</a>
+        <button class="btn btn-danger btn-sm" onclick="removerDocVeiculo(${i})" title="Remover">🗑️</button>
+      </div>
+    </div>`).join('');
+}
+
+function removerDocVeiculo(idx){
+  const docs=JSON.parse(document.getElementById('v-docs-data').value||'[]');
+  docs.splice(idx,1);
+  document.getElementById('v-docs-data').value=JSON.stringify(docs);
+  renderDocsVeiculo(docs);
+}
+
+/* ── EMPRESAS / MECÂNICOS ────────────────────────────────────────── */
+let _empresas=[],_eEmpresaId=null;
+
+function renderEmpresas(){
+  const grid=document.getElementById('empresas-grid');
+  const empty=document.getElementById('empresas-empty');
+  if(!grid)return;
+  if(!_empresas.length){grid.innerHTML='';empty?.classList.remove('hidden');return;}
+  empty?.classList.add('hidden');
+  const tI={empresa:'🏢',mecanico:'🔧',interno:'👷'};
+  grid.innerHTML=_empresas.map(e=>`
+    <div style="background:#fff;border:1.5px solid #e2e8f0;border-radius:12px;padding:16px;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
+        <div>
+          <div style="font-size:15px;font-weight:800;color:var(--primary);">${tI[e.tipo]||'🏢'} ${e.nome}</div>
+          ${e.especialidade?`<div style="font-size:11px;color:#64748b;margin-top:2px;">⚙️ ${e.especialidade}</div>`:''}
+        </div>
+        <div style="display:flex;gap:6px;">
+          <button class="btn btn-secondary btn-sm" onclick="editarEmpresa('${e.id}')">✏️</button>
+          <button class="btn btn-danger btn-sm" onclick="delEmpresa('${e.id}')">🗑️</button>
+        </div>
+      </div>
+      ${e.contato?`<div style="font-size:12px;color:#475569;">👤 ${e.contato}</div>`:''}
+      ${e.fone?`<div style="font-size:12px;color:#475569;">📱 ${e.fone}</div>`:''}
+      ${e.email?`<div style="font-size:12px;color:#475569;">✉️ ${e.email}</div>`:''}
+      ${e.doc?`<div style="font-size:11px;color:#94a3b8;">${e.doc}</div>`:''}
+      ${e.obs?`<div style="font-size:11px;color:#64748b;margin-top:6px;background:#f8fafc;border-radius:6px;padding:5px 8px;">${e.obs}</div>`:''}
+    </div>`).join('');
+}
+
+function popularSelectResponsavel(){
+  // Popular selects de responsável na OS e na conclusão com empresas cadastradas
+  const opts='<option value="">Selecione...</option>'+
+    _empresas.map(e=>`<option value="${e.nome}">${e.tipo==='empresa'?'🏢':e.tipo==='mecanico'?'🔧':'👷'} ${e.nome}${e.especialidade?' · '+e.especialidade:''}</option>`).join('');
+  ['os-resp','conc-resp'].forEach(id=>{
+    const el=document.getElementById(id);
+    // os-resp é input text com datalist, então atualiza o datalist
+    if(id==='os-resp'){
+      const dl=document.getElementById('os-resp-dl');
+      if(dl)dl.innerHTML=_empresas.map(e=>`<option value="${e.nome}">`).join('');
+    }
+  });
+  // Atualizar select de técnico na OS com técnicos internos
+  const tecOpts='<option value="">Selecione...</option>'+
+    _funcs.map(f=>`<option value="${f.nome}">${f.nome}${f.funcao?' — '+f.funcao:''}</option>`).join('')+
+    _empresas.map(e=>`<option value="${e.nome}">${e.tipo==='empresa'?'🏢':e.tipo==='mecanico'?'🔧':'👷'} ${e.nome}</option>`).join('');
+  ['os-tec','conc-tec'].forEach(id=>{const el=document.getElementById(id);if(el)el.innerHTML=tecOpts;});
+}
+
+function abrirNovaEmpresa(){
+  _eEmpresaId=null;
+  document.getElementById('m-empresa-tit').textContent='Nova Empresa / Mecânico';
+  ['emp-nome','emp-espec','emp-fone','emp-doc','emp-email','emp-contato','emp-obs'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
+  document.getElementById('emp-tipo').value='empresa';
+  document.getElementById('emp-error').classList.add('hidden');
+  document.getElementById('m-empresa').classList.remove('hidden');
+}
+
+function editarEmpresa(id){
+  const e=_empresas.find(x=>x.id===id);if(!e)return;
+  _eEmpresaId=id;
+  document.getElementById('m-empresa-tit').textContent='Editar — '+e.nome;
+  document.getElementById('emp-nome').value=e.nome||'';
+  document.getElementById('emp-tipo').value=e.tipo||'empresa';
+  document.getElementById('emp-espec').value=e.especialidade||'';
+  document.getElementById('emp-fone').value=e.fone||'';
+  document.getElementById('emp-doc').value=e.doc||'';
+  document.getElementById('emp-email').value=e.email||'';
+  document.getElementById('emp-contato').value=e.contato||'';
+  document.getElementById('emp-obs').value=e.obs||'';
+  document.getElementById('emp-error').classList.add('hidden');
+  document.getElementById('m-empresa').classList.remove('hidden');
+}
+
+async function salvarEmpresa(){
+  const nome=document.getElementById('emp-nome').value.trim();
+  const errEl=document.getElementById('emp-error');
+  if(!nome){errEl.textContent='Nome é obrigatório!';errEl.classList.remove('hidden');return;}
+  const btn=document.getElementById('btn-salvar-empresa');
+  btn.disabled=true;btn.textContent='⏳ Salvando...';errEl.classList.add('hidden');
+  const dados={nome,tipo:document.getElementById('emp-tipo').value,especialidade:document.getElementById('emp-espec').value.trim()||null,fone:document.getElementById('emp-fone').value.trim()||null,doc:document.getElementById('emp-doc').value.trim()||null,email:document.getElementById('emp-email').value.trim()||null,contato:document.getElementById('emp-contato').value.trim()||null,obs:document.getElementById('emp-obs').value.trim()||null,atualizado_em:new Date().toISOString()};
+  try{
+    let error;
+    if(_eEmpresaId){({error}=await _supabase.from('frota_empresas').update(dados).eq('id',_eEmpresaId));}
+    else{({error}=await _supabase.from('frota_empresas').insert(dados));}
+    if(error)throw error;
+    const{data:lista}=await _supabase.from('frota_empresas').select('*').order('nome');
+    _empresas=lista||[];
+    popularSelectResponsavel();
+    fecharModal('m-empresa');
+    renderEmpresas();
+    toast('✅ Salvo!','success');
+  }catch(e){errEl.innerHTML='Erro: '+e.message;errEl.classList.remove('hidden');}
+  finally{btn.disabled=false;btn.textContent='💾 Salvar';}
+}
+
+async function delEmpresa(id){
+  const e=_empresas.find(x=>x.id===id);
+  document.getElementById('confirm-msg').innerHTML=`Excluir <strong>${e?.nome}</strong>?`;
+  document.getElementById('confirm-ok').onclick=async()=>{
+    await _supabase.from('frota_empresas').delete().eq('id',id);
+    fecharModal('m-confirm');_empresas=_empresas.filter(x=>x.id!==id);
+    popularSelectResponsavel();renderEmpresas();toast('Excluído.','warning');
+  };
+  document.getElementById('m-confirm').classList.remove('hidden');
+}
+function editarOS(id){
+  const o=_ordens.find(x=>x.id===id);if(!o)return;
+  const v=_frota.find(x=>x.nome===o.equipamento);
+  abrirNovaOS(v?.id||null);
+  _eOSId=id;
+  document.getElementById('m-os-tit').textContent='Editar OS-'+String(o.numero||0).padStart(4,'0');
+  document.getElementById('os-equip').value=v?.id||'';
+  onOSEquipChange();
+  // Preencher componentes
+  const compList=document.getElementById('os-comps-list');
+  const partes=(o.parte||'').split(',').map(s=>s.trim()).filter(Boolean);
+  if(partes.length>0){
+    compList.innerHTML='';
+    partes.forEach((p,i)=>{
+      const row=document.createElement('div');
+      row.className='os-comp-row';row.style.cssText='display:flex;gap:6px;align-items:center;';
+      const opts='<option value="">Geral</option>'+(v?.componentes||[]).map(c=>`<option value="${c.nome}">${c.nome}</option>`).join('')+'<option value="__novo__">➕ Digitar...</option>';
+      const hasOpt=(v?.componentes||[]).find(c=>c.nome===p);
+      row.innerHTML=`<select class="form-input os-comp-sel" style="flex:1;" onchange="onCompSelChange(this)">${opts}</select>
+        <input type="text" class="form-input os-comp-txt" style="flex:1;display:none;" placeholder="Componente...">
+        <button type="button" onclick="this.closest('.os-comp-row').remove()" style="background:none;border:none;font-size:18px;cursor:pointer;color:#ef4444;flex-shrink:0;">✕</button>`;
+      compList.appendChild(row);
+      const sel=row.querySelector('.os-comp-sel'),txt=row.querySelector('.os-comp-txt');
+      if(hasOpt){sel.value=p;}else{sel.style.display='none';txt.style.display='';txt.value=p;}
+    });
+  }
+  document.getElementById('os-tipo').value=o.tipo||'preventiva';
+  document.getElementById('os-data').value=o.data_abertura||'';
+  document.getElementById('os-resp').value=o.terceiro||'';
+  document.getElementById('os-tec').value=o.tecnico||'';
+  document.getElementById('os-horim').value=o.horimetro||'';
+  document.getElementById('os-prox-data').value=o.data_prevista||'';
+  document.getElementById('os-custo').value=o.custo_manutencao||'';
+  document.getElementById('os-status').value=o.status||'aberta';
+  document.getElementById('os-serv').value=o.servico_realizado||o.descricao||'';
+  document.getElementById('os-pecas').value=o.pecas_trocadas||'';
+  document.getElementById('m-os').classList.remove('hidden');
+}
+
+/* ── CONCLUIR OS ─────────────────────────────────────────────────── */
+let _concluirOSId=null,_concFotos=[],_concAssinOk=false;
+
+function abrirConcluirOS(id){
+  const o=_ordens.find(x=>x.id===id);if(!o)return;
+  _concluirOSId=id;_concFotos=[];_concAssinOk=false;
+  const v=_frota.find(x=>x.nome===o.equipamento);
+  document.getElementById('m-concluir-tit').textContent='✅ Concluir OS-'+String(o.numero||0).padStart(4,'0');
+  document.getElementById('m-concluir-info').innerHTML=
+    `<strong>OS-${String(o.numero||0).padStart(4,'0')}</strong> · ${o.equipamento||'—'}${o.parte?' · '+o.parte:''}<br>
+     <span style="font-size:12px;">Aberta em ${o.data_abertura?new Date(o.data_abertura+'T00:00:00').toLocaleDateString('pt-BR'):'—'} · Tipo: ${o.tipo||'—'}</span>`;
+  document.getElementById('conc-data').value=new Date().toISOString().slice(0,10);
+  document.getElementById('conc-tec').innerHTML='<option value="">Selecione...</option>'+
+    _funcs.map(f=>`<option value="${f.nome}">${f.nome}${f.funcao?' — '+f.funcao:''}</option>`).join('');
+  document.getElementById('conc-tec').value=o.tecnico||'';
+  document.getElementById('conc-resp').value=o.terceiro||v?.empresa_resp||'';
+  document.getElementById('conc-horim').value=o.horimetro||v?.horimetro_atual||'';
+  document.getElementById('conc-prox-data').value='';
+  document.getElementById('conc-custo').value=o.custo_manutencao||'';
+  document.getElementById('conc-serv').value=o.servico_realizado||'';
+  document.getElementById('conc-pecas').value=o.pecas_trocadas||'';
+  document.getElementById('conc-fotos-data').value='[]';
+  document.getElementById('conc-foto-prev').innerHTML='';
+  document.getElementById('grp-conc-horim').style.display=v?.tipo_revisao==='data'?'none':'';
+  const cv=document.getElementById('conc-assin-cv');
+  if(cv){cv.getContext('2d').clearRect(0,0,cv.width,cv.height);cv.dataset.desenhado='0';}
+  document.getElementById('conc-assin-data').value='';
+  document.getElementById('conc-error').classList.add('hidden');
+  setTimeout(()=>iniAssinConc(),150);
+  document.getElementById('m-concluir').classList.remove('hidden');
+}
+
+function iniAssinConc(){
+  if(_concAssinOk)return;_concAssinOk=true;
+  const cv=document.getElementById('conc-assin-cv');if(!cv)return;
+  const ctx=cv.getContext('2d');ctx.strokeStyle='#042D4D';ctx.lineWidth=2;ctx.lineCap='round';
+  let draw=false;
+  const xy=e=>{const r=cv.getBoundingClientRect();const s=e.touches?e.touches[0]:e;return{x:(s.clientX-r.left)*(cv.width/r.width),y:(s.clientY-r.top)*(cv.height/r.height)};};
+  const start=e=>{e.preventDefault();draw=true;const p=xy(e);ctx.beginPath();ctx.moveTo(p.x,p.y);};
+  const move=e=>{e.preventDefault();if(!draw)return;const p=xy(e);ctx.lineTo(p.x,p.y);ctx.stroke();cv.dataset.desenhado='1';};
+  const end=()=>{draw=false;};
+  cv.addEventListener('mousedown',start);cv.addEventListener('mousemove',move);cv.addEventListener('mouseup',end);
+  cv.addEventListener('touchstart',start,{passive:false});cv.addEventListener('touchmove',move,{passive:false});cv.addEventListener('touchend',end);
+}
+
+function limparAssinConc(){
+  const cv=document.getElementById('conc-assin-cv');
+  if(cv){cv.getContext('2d').clearRect(0,0,cv.width,cv.height);cv.dataset.desenhado='0';}
+  document.getElementById('conc-assin-data').value='';
+}
+
+function addFotosConc(input){
+  Array.from(input.files||[]).forEach(file=>{
+    if(!file.type.startsWith('image/'))return;
+    const reader=new FileReader();
+    reader.onload=ev=>{const img=new Image();img.onload=()=>{
+      const maxD=1200;let w=img.width,h=img.height;
+      if(w>maxD||h>maxD){if(w>h){h=Math.round(h*maxD/w);w=maxD;}else{w=Math.round(w*maxD/h);h=maxD;}}
+      const cv2=document.createElement('canvas');cv2.width=w;cv2.height=h;cv2.getContext('2d').drawImage(img,0,0,w,h);
+      const data=cv2.toDataURL('image/jpeg',0.78);_concFotos.push(data);
+      document.getElementById('conc-fotos-data').value=JSON.stringify(_concFotos);
+      const prev=document.getElementById('conc-foto-prev');
+      const d=document.createElement('div');d.style.cssText='position:relative;display:inline-block;';
+      const i=_concFotos.length-1;
+      d.innerHTML=`<img src="${data}" style="width:56px;height:56px;object-fit:cover;border-radius:6px;cursor:pointer;" onclick="lb('${data}')">
+        <button onclick="_concFotos[${i}]=null;this.parentElement.remove();document.getElementById('conc-fotos-data').value=JSON.stringify(_concFotos)" style="position:absolute;top:-4px;right:-4px;background:#dc2626;color:#fff;border:none;border-radius:50%;width:16px;height:16px;font-size:10px;cursor:pointer;padding:0;">✕</button>`;
+      prev.appendChild(d);
+    };img.src=ev.target.result;};reader.readAsDataURL(file);
+  });input.value='';
+}
+
+async function salvarConclusaoOS(){
+  const data=document.getElementById('conc-data').value;
+  const serv=document.getElementById('conc-serv').value.trim();
+  const errEl=document.getElementById('conc-error');
+  if(!data||!serv){errEl.textContent='Data de conclusão e Serviço Realizado são obrigatórios!';errEl.classList.remove('hidden');return;}
+  const btn=document.getElementById('btn-concluir');
+  btn.disabled=true;btn.textContent='⏳ Salvando...';errEl.classList.add('hidden');
+  try{
+    const o=_ordens.find(x=>x.id===_concluirOSId);if(!o)throw new Error('OS não encontrada');
+    const v=_frota.find(x=>x.nome===o.equipamento);
+    const horim=parseFloat(document.getElementById('conc-horim').value)||null;
+    const fotos=JSON.parse(document.getElementById('conc-fotos-data').value||'[]').filter(Boolean);
+    const cv=document.getElementById('conc-assin-cv');
+    const assin=(cv&&cv.dataset.desenhado==='1')?cv.toDataURL('image/png'):null;
+    const proxData=document.getElementById('conc-prox-data').value||null;
+    const upd={
+      status:'concluida',
+      data_prevista:data,
+      tecnico:document.getElementById('conc-tec').value||o.tecnico||null,
+      terceiro:document.getElementById('conc-resp').value.trim()||o.terceiro||null,
+      horimetro:horim||o.horimetro,
+      custo_manutencao:parseFloat(document.getElementById('conc-custo').value)||o.custo_manutencao||null,
+      servico_realizado:serv,
+      pecas_trocadas:document.getElementById('conc-pecas').value.trim()||o.pecas_trocadas||null,
+      assinatura:assin||o.assinatura||null,
+      atualizado_em:new Date().toISOString(),
+    };
+    // Tentar incluir fotos
+    let errU;
+    ({error:errU}=await _supabase.from('manutencao').update({...upd,fotos_servico:fotos}).eq('id',_concluirOSId));
+    if(errU)({error:errU}=await _supabase.from('manutencao').update(upd).eq('id',_concluirOSId));
+    if(errU)throw errU;
+    // Atualizar equipamento
+    if(v){
+      const vUpd={atualizado_em:new Date().toISOString()};
+      if(horim&&v.tipo_revisao!=='data')vUpd.horimetro_atual=horim;
+      if(proxData)vUpd.proxima_revisao_data=proxData;
+      if(horim&&v.revisao_horas&&v.tipo_revisao!=='data')vUpd.proxima_revisao=horim+v.revisao_horas;
+      if(o.parte){
+        const comps=JSON.parse(JSON.stringify(v.componentes||[]));
+        // Atualizar todos os componentes mencionados na OS
+        const partes=(o.parte||'').split(',').map(s=>s.trim());
+        partes.forEach(p=>{const ci=comps.findIndex(c=>c.nome===p);if(ci>=0){if(horim)comps[ci].horimetro_componente=horim;comps[ci].ultima_revisao=data;comps[ci].ultimo_responsavel=upd.terceiro||upd.tecnico||null;if(proxData)comps[ci].proxima_revisao_data=proxData;}});
+        vUpd.componentes=comps;
+      }
+      await _supabase.from('frota_veiculos').update(vUpd).eq('id',v.id);
+      Object.assign(v,vUpd);
+    }
+    await recarregarOS();
+    fecharModal('m-concluir');
+    toast('✅ OS concluída com sucesso!','success');
+    renderKPIs();renderCadastro();renderOS();
+  }catch(e){
+    errEl.textContent='Erro: '+(e.message||JSON.stringify(e));
+    errEl.classList.remove('hidden');
+  }finally{btn.disabled=false;btn.textContent='✅ Confirmar Conclusão';}
+}
+
+/* ── IMPRIMIR OS ─────────────────────────────────────────────────── */
+async function imprimirOS(id){
+  let o=_ordens.find(x=>x.id===id);if(!o)return;
+  try{const{data:oF}=await _supabase.from('manutencao').select('*').eq('id',id).single();if(oF)o={...o,...oF};}catch(e){}
+  const ne=_emp.nome_fantasia||'ERP Industrial',razao=_emp.razao_social||'',cnpj=_emp.cnpj||'';
+  const end=[_emp.rua||_emp.logradouro||'',_emp.numero?'nº '+_emp.numero:'',_emp.bairro||'',_emp.cidade||'',_emp.estado||_emp.uf||'',_emp.cep?'CEP '+_emp.cep:''].filter(Boolean).join(', ');
+  const dt=o.data_abertura?new Date(o.data_abertura+'T00:00:00').toLocaleDateString('pt-BR'):'—';
+  const fotos=(o.fotos_servico||[]).filter(Boolean);
+  const logo=_emp.logo?`<img src="${_emp.logo}" style="height:48px;border-radius:6px;">`:`<div style="width:48px;height:48px;background:#1e3a5f;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#C9FF64;font-weight:900;font-size:20px;">${ne.charAt(0)}</div>`;
+  const w=window.open('','_blank','width=950,height=780');
+  if(!w){toast('Permita pop-ups para imprimir','warning');return;}
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>OS Frota</title><style>*{box-sizing:border-box;}body{font-family:Arial,sans-serif;padding:24px;font-size:13px;color:#1e293b;}.hd{display:flex;align-items:flex-start;gap:16px;border-bottom:3px solid #1e3a5f;padding-bottom:14px;margin-bottom:18px;}.gd{display:grid;grid-template-columns:1fr 1fr;gap:8px 16px;margin-bottom:16px;}.f{background:#f8fafc;border-left:3px solid #cbd5e1;padding:8px 10px;border-radius:0 6px 6px 0;}.fc{grid-column:1/-1;}.lb{font-size:9px;color:#94a3b8;text-transform:uppercase;font-weight:700;letter-spacing:.05em;}.vl{font-size:13px;font-weight:600;margin-top:2px;}.sa{display:flex;gap:24px;flex-wrap:wrap;margin-top:16px;border-top:1px solid #e2e8f0;padding-top:16px;}.sb{min-width:160px;text-align:center;}.sbl{height:60px;border-bottom:1.5px solid #1e3a5f;margin-bottom:6px;}@media print{@page{margin:1.2cm;}}</style></head><body>
+  <div class="hd">${logo}<div style="flex:1;"><div style="font-size:18px;font-weight:900;color:#1e3a5f;">${ne}</div>${razao?`<div style="font-size:11px;color:#64748b;">${razao}</div>`:''}${cnpj?`<div style="font-size:11px;color:#64748b;">CNPJ: ${cnpj}</div>`:''}${end?`<div style="font-size:11px;color:#64748b;">${end}</div>`:''}</div><div style="text-align:right;"><div style="font-size:22px;font-weight:900;color:#1e3a5f;">OS-${String(o.numero||0).padStart(4,'0')}</div><div style="font-size:12px;color:#64748b;">${dt} — Frota ${o.tipo||''}</div></div></div>
+  <div class="gd">
+    <div class="f"><div class="lb">Equipamento</div><div class="vl">${o.equipamento||'—'}</div></div>
+    <div class="f"><div class="lb">Componente / Parte</div><div class="vl">${o.parte||'Geral'}</div></div>
+    <div class="f"><div class="lb">Empresa / Responsável</div><div class="vl">${o.terceiro||'—'}</div></div>
+    <div class="f"><div class="lb">Técnico</div><div class="vl">${o.tecnico||'—'}</div></div>
+    <div class="f"><div class="lb">Horímetro</div><div class="vl">${o.horimetro?o.horimetro+'h':'—'}</div></div>
+    <div class="f"><div class="lb">Custo Total</div><div class="vl">${o.custo_manutencao?'R$ '+parseFloat(o.custo_manutencao).toFixed(2):'—'}</div></div>
+    <div class="f"><div class="lb">Data</div><div class="vl">${dt}</div></div>
+    <div class="f"><div class="lb">Status</div><div class="vl">${o.status||'—'}</div></div>
+    ${o.servico_realizado?`<div class="f fc"><div class="lb">Serviço Realizado</div><div class="vl">${o.servico_realizado}</div></div>`:''}
+    ${o.pecas_trocadas?`<div class="f fc"><div class="lb">Peças / Materiais</div><div class="vl">${o.pecas_trocadas}</div></div>`:''}
+  </div>
+  ${fotos.length?`<div style="margin-bottom:16px;"><div style="font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;margin-bottom:8px;">Fotos do Serviço</div><div style="display:flex;gap:8px;flex-wrap:wrap;">${fotos.map(f=>`<img src="${f}" style="width:110px;height:110px;object-fit:cover;border-radius:8px;">`).join('')}</div></div>`:''}
+  <div style="font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;margin-bottom:6px;">Assinaturas</div>
+  <div class="sa">
+    <div class="sb">${o.assinatura?`<img src="${o.assinatura}" style="height:60px;max-width:180px;border:1px solid #e2e8f0;border-radius:4px;display:block;margin:0 auto 4px;">`:'<div class="sbl"></div>'}<div style="font-size:11px;color:#64748b;">${o.terceiro||o.tecnico||'Responsável'}</div></div>
+    <div class="sb"><div class="sbl"></div><div style="font-size:11px;color:#64748b;">Aprovação / Gestor</div></div>
+    <div class="sb"><div class="sbl"></div><div style="font-size:11px;color:#64748b;">Data: ____/____/________</div></div>
+  </div>
+  <div style="margin-top:24px;font-size:10px;color:#94a3b8;border-top:1px solid #e2e8f0;padding-top:8px;text-align:center;">Emitido em ${new Date().toLocaleString('pt-BR')} | ${ne} | Módulo Frota</div>
+  </body></html>`);
+  w.document.close();setTimeout(()=>w.print(),600);
+}
+
+/* ── DEL OS ──────────────────────────────────────────────────────── */
+async function delOS(id){
+  const o=_ordens.find(x=>x.id===id);
+  document.getElementById('confirm-msg').innerHTML=`Excluir OS-${String(o?.numero||0).padStart(4,'0')}?<br><small style="color:#94a3b8;">Esta ação não pode ser desfeita.</small>`;
+  document.getElementById('confirm-ok').onclick=async()=>{
+    try{
+      const{error}=await _supabase.from('manutencao').delete().eq('id',id);
+      if(error)throw error;
+      fecharModal('m-confirm');_ordens=_ordens.filter(x=>x.id!==id);
+      renderKPIs();renderOS();toast('OS excluída.','warning');
+    }catch(e){toast('Erro: '+e.message,'danger');}
+  };
+  document.getElementById('m-confirm').classList.remove('hidden');
+}
+
+init();
+</script>
+</body>
+</html>
