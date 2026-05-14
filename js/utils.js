@@ -18,14 +18,30 @@ function toggleGroup(grupo) {
   const items = document.getElementById('group-' + grupo);
   if (!label || !items) return;
   const isOpen = items.classList.contains('open');
-  document.querySelectorAll('.nav-group-items').forEach(el => el.classList.remove('open'));
-  document.querySelectorAll('.nav-group-label').forEach(el => el.classList.remove('open'));
-  if (!isOpen) { items.classList.add('open'); label.classList.add('open'); }
+
+  // Se está aberto e contém o item ativo, não recolhe
+  if (isOpen && items.querySelector('.nav-item.active')) return;
+
+  // Fecha todos os outros grupos que não contenham item ativo
+  document.querySelectorAll('.nav-group-items').forEach(el => {
+    if (el.id !== 'group-' + grupo && !el.querySelector('.nav-item.active')) {
+      el.classList.remove('open');
+    }
+  });
+  document.querySelectorAll('.nav-group-label').forEach(el => {
+    const g = el.getAttribute('data-group');
+    const groupItems = document.getElementById('group-' + g);
+    if (g !== grupo && groupItems && !groupItems.querySelector('.nav-item.active')) {
+      el.classList.remove('open');
+    }
+  });
+
+  // Abre ou fecha o grupo clicado
+  items.classList.toggle('open', !isOpen);
+  label.classList.toggle('open', !isOpen);
 }
 
 function openGroup(grupo) {
-  document.querySelectorAll('.nav-group-items').forEach(el => el.classList.remove('open'));
-  document.querySelectorAll('.nav-group-label').forEach(el => el.classList.remove('open'));
   const items = document.getElementById('group-' + grupo);
   const label = document.querySelector(`[data-group="${grupo}"]`);
   if (items) items.classList.add('open');
@@ -120,10 +136,21 @@ async function initSidebar(paginaAtiva) {
     }
   } catch (e) { /* silencioso */ }
 
-  // Marcar item ativo na sidebar
+  // Marcar item ativo na sidebar e abrir o grupo correspondente
   if (paginaAtiva) {
     document.querySelectorAll('.nav-item').forEach(el => {
-      el.classList.toggle('active', el.getAttribute('href') === paginaAtiva);
+      const isActive = el.getAttribute('href') === paginaAtiva;
+      el.classList.toggle('active', isActive);
+      if (isActive) {
+        // Abre o grupo pai do item ativo
+        const groupItems = el.closest('.nav-group-items');
+        if (groupItems) {
+          const groupId = groupItems.id.replace('group-', '');
+          const groupLabel = document.querySelector(`[data-group="${groupId}"]`);
+          groupItems.classList.add('open');
+          if (groupLabel) groupLabel.classList.add('open');
+        }
+      }
     });
   }
 }
