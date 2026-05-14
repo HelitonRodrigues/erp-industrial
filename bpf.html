@@ -1,0 +1,1197 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ERP Industrial — BPF</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/supabase.js"></script>
+<script src="js/utils.js"></script>
+<style>
+/* ── BPF LAYOUT ─────────────────────────────────────────── */
+.bpf-layout{display:grid;grid-template-columns:280px 1fr;gap:0;min-height:calc(100vh - var(--topbar-h) - 56px);margin:-28px;overflow:hidden;border-radius:16px;border:1.5px solid #e2e8f0;background:#fff;}
+.bpf-nav{background:#f8fafc;border-right:1.5px solid #e2e8f0;display:flex;flex-direction:column;overflow:hidden;}
+.bpf-nav-header{padding:18px 16px 12px;border-bottom:1.5px solid #e2e8f0;background:#fff;}
+.bpf-nav-title{font-size:11px;font-weight:800;color:var(--primary);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;}
+.bpf-search{position:relative;}
+.bpf-search input{width:100%;padding:8px 10px 8px 32px;border:1.2px solid #e2e8f0;border-radius:8px;font-family:inherit;font-size:12px;background:#f8fafc;outline:none;transition:border .15s;}
+.bpf-search input:focus{border-color:var(--primary);background:#fff;}
+.bpf-search-icon{position:absolute;left:10px;top:50%;transform:translateY(-50%);color:#94a3b8;font-size:13px;}
+.bpf-nav-body{flex:1;overflow-y:auto;padding:8px 0;}
+.bpf-nav-body::-webkit-scrollbar{width:3px;}
+.bpf-nav-body::-webkit-scrollbar-thumb{background:rgba(4,45,77,.15);border-radius:3px;}
+.bpf-nav-section{padding:10px 16px 4px;font-size:10px;font-weight:800;color:#94a3b8;text-transform:uppercase;letter-spacing:1px;}
+.bpf-nav-item{display:flex;align-items:center;gap:10px;padding:9px 16px;cursor:pointer;font-size:12.5px;font-weight:500;color:#475569;transition:all .15s;border-left:3px solid transparent;position:relative;}
+.bpf-nav-item:hover{background:#eff6ff;color:var(--primary);}
+.bpf-nav-item.active{background:#e0f2fe;color:var(--primary);font-weight:700;border-left-color:var(--primary);}
+.bpf-nav-item .item-code{font-size:10px;font-weight:800;color:#94a3b8;font-family:monospace;}
+.bpf-nav-item.active .item-code{color:var(--primary);}
+.bpf-nav-item .item-badge{margin-left:auto;font-size:9px;font-weight:800;padding:2px 6px;border-radius:10px;}
+.badge-vigente{background:#dcfce7;color:#16a34a;}
+.badge-revisao{background:#fef9c3;color:#b45309;}
+.badge-obsoleto{background:#f1f5f9;color:#64748b;}
+.bpf-main{display:flex;flex-direction:column;overflow:hidden;}
+.bpf-main-header{padding:20px 24px 16px;border-bottom:1.5px solid #e2e8f0;display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;background:#fff;}
+.bpf-main-body{flex:1;overflow-y:auto;padding:24px;}
+.bpf-main-body::-webkit-scrollbar{width:5px;}
+.bpf-main-body::-webkit-scrollbar-thumb{background:rgba(4,45,77,.12);border-radius:3px;}
+
+/* ── DASHBOARD CARDS ────────────────────────────────────── */
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;margin-bottom:20px;}
+.kpi-card{background:#fff;border-radius:12px;padding:16px;border:1.5px solid #e2e8f0;text-align:center;transition:all .15s;}
+.kpi-card:hover{border-color:var(--primary);box-shadow:0 4px 16px rgba(4,45,77,.1);}
+.kpi-icon{font-size:26px;margin-bottom:6px;}
+.kpi-val{font-size:24px;font-weight:800;color:var(--primary);}
+.kpi-lbl{font-size:11px;color:#64748b;font-weight:600;margin-top:2px;}
+
+/* ── DOC HEADER ─────────────────────────────────────────── */
+.doc-meta-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;background:#f8fafc;border-radius:12px;padding:16px;border:1.5px solid #e2e8f0;margin-bottom:20px;}
+.doc-meta-item label{font-size:10px;font-weight:800;color:#94a3b8;text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:3px;}
+.doc-meta-item span{font-size:13px;font-weight:600;color:var(--primary);}
+
+/* ── PROCEDURE SECTIONS ─────────────────────────────────── */
+.proc-section{background:#fff;border-radius:12px;border:1.5px solid #e2e8f0;margin-bottom:14px;overflow:hidden;}
+.proc-section-hdr{padding:12px 16px;background:#f8fafc;border-bottom:1.5px solid #e2e8f0;display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none;}
+.proc-section-hdr:hover{background:#eff6ff;}
+.proc-section-title{font-size:13px;font-weight:800;color:var(--primary);display:flex;align-items:center;gap:8px;}
+.proc-section-arrow{color:#94a3b8;font-size:12px;transition:transform .2s;}
+.proc-section-hdr.open .proc-section-arrow{transform:rotate(90deg);}
+.proc-section-body{padding:16px;display:none;}
+.proc-section-body.open{display:block;}
+.proc-text{font-size:13px;color:#475569;line-height:1.7;}
+
+/* ── CHECKLIST ──────────────────────────────────────────── */
+.checklist-item{display:flex;align-items:flex-start;gap:10px;padding:8px 10px;border-radius:8px;border:1px solid #e2e8f0;margin-bottom:6px;transition:background .12s;}
+.checklist-item:hover{background:#f8fafc;}
+.checklist-item input[type=checkbox]{width:16px;height:16px;accent-color:var(--primary);flex-shrink:0;margin-top:1px;cursor:pointer;}
+.checklist-item label{font-size:13px;color:#374151;cursor:pointer;flex:1;}
+.checklist-item.checked{background:#f0fdf4;border-color:#86efac;}
+.checklist-item.checked label{color:#166534;text-decoration:line-through;}
+
+/* ── INTEGRATION CARDS ──────────────────────────────────── */
+.integ-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;}
+.integ-card{background:#f8fafc;border-radius:10px;padding:14px;border:1.5px solid #e2e8f0;transition:all .15s;}
+.integ-card:hover{border-color:var(--primary);background:#eff6ff;}
+.integ-card-title{font-size:12px;font-weight:800;color:var(--primary);margin-bottom:8px;display:flex;align-items:center;gap:6px;}
+.integ-card-val{font-size:20px;font-weight:800;color:var(--text);}
+.integ-card-sub{font-size:11px;color:#64748b;margin-top:2px;}
+.integ-loading{color:#94a3b8;font-size:12px;font-style:italic;}
+
+/* ── TIMELINE ───────────────────────────────────────────── */
+.timeline{position:relative;padding-left:24px;}
+.timeline::before{content:'';position:absolute;left:7px;top:0;bottom:0;width:2px;background:#e2e8f0;}
+.tl-item{position:relative;margin-bottom:14px;}
+.tl-dot{position:absolute;left:-24px;width:16px;height:16px;border-radius:50%;background:var(--primary);border:3px solid #fff;box-shadow:0 0 0 2px var(--primary);}
+.tl-dot.rev{background:#f59e0b;box-shadow:0 0 0 2px #f59e0b;}
+.tl-content{background:#f8fafc;border-radius:8px;padding:10px 12px;border:1px solid #e2e8f0;font-size:12px;}
+.tl-date{font-size:10px;color:#94a3b8;margin-bottom:3px;font-weight:700;}
+.tl-text{color:#374151;}
+
+/* ── TABS INTERNAL ──────────────────────────────────────── */
+.itabs{display:flex;border-bottom:2px solid #e2e8f0;margin-bottom:20px;overflow-x:auto;gap:0;}
+.itab-btn{padding:9px 16px;background:none;border:none;font-family:inherit;font-size:12.5px;font-weight:600;cursor:pointer;color:#64748b;border-bottom:2.5px solid transparent;margin-bottom:-2px;transition:all .15s;white-space:nowrap;}
+.itab-btn.active{color:var(--primary);border-bottom-color:var(--primary);}
+
+/* ── SIGN AREA ──────────────────────────────────────────── */
+.sign-box{border:1.5px dashed #e2e8f0;border-radius:10px;padding:16px;text-align:center;cursor:pointer;transition:all .15s;}
+.sign-box:hover{border-color:var(--primary);background:#f8fafc;}
+
+/* ── NC / AUDIT ROWS ────────────────────────────────────── */
+.list-row{display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:8px;border:1px solid #e2e8f0;margin-bottom:6px;font-size:12.5px;transition:background .12s;}
+.list-row:hover{background:#f8fafc;}
+.list-row-title{flex:1;font-weight:600;color:var(--primary);}
+.list-row-sub{font-size:11px;color:#64748b;}
+
+/* ── RESPONSIVE ─────────────────────────────────────────── */
+@media(max-width:768px){
+  .bpf-layout{grid-template-columns:1fr;margin:-16px;}
+  .bpf-nav{display:none;}
+  .bpf-nav.mob-open{display:flex;position:fixed;inset:0;z-index:200;width:300px;}
+  .doc-meta-grid{grid-template-columns:1fr 1fr;}
+  .kpi-grid{grid-template-columns:repeat(2,1fr);}
+  .integ-grid{grid-template-columns:1fr 1fr;}
+  .bpf-mob-btn{display:flex!important;}
+}
+.bpf-mob-btn{display:none;background:var(--primary);color:#fff;border:none;border-radius:8px;padding:8px 14px;font-size:13px;cursor:pointer;align-items:center;gap:6px;}
+</style>
+</head>
+<body>
+<div id="sidebar-container"></div>
+<header class="topbar" id="topbar">
+  <button class="topbar-open-sidebar" onclick="toggleSidebar()">☰</button>
+  <div class="topbar-title">BPF — Boas Práticas de Fabricação</div>
+  <div class="topbar-right">
+    <div class="topbar-user">
+      <div class="user-avatar" style="width:32px;height:32px;font-size:12px;" id="top-avatar">SA</div>
+      <div><div class="topbar-user-name" id="top-user-name">Super Admin</div><div class="topbar-user-profile" id="top-user-perfil">SADM</div></div>
+    </div>
+    <button class="btn btn-ghost btn-sm" onclick="doLogout()" style="color:#64748b;">Sair</button>
+  </div>
+</header>
+
+<main class="main-content" id="main-content">
+  <div class="page-header" style="margin-bottom:16px;">
+    <div class="page-header-left">
+      <h1>BPF — Boas Práticas de Fabricação</h1>
+      <p>Linha 2 · Longa Vida &nbsp;|&nbsp; Documentação, POP/PAC, Auditorias e Não Conformidades</p>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;">
+      <button class="bpf-mob-btn" onclick="toggleNavMobile()">☰ Procedimentos</button>
+      <button class="btn btn-secondary btn-sm" id="btn-nav-dash" onclick="showMainSection('dashboard')">📊 Dashboard</button>
+      <button class="btn btn-secondary btn-sm" id="btn-nav-nc" onclick="showMainSection('nc')">⚠️ NCs</button>
+      <button class="btn btn-secondary btn-sm" id="btn-nav-audit" onclick="showMainSection('auditoria')">🔍 Auditorias</button>
+      <button class="btn btn-secondary btn-sm" id="btn-nav-trein" onclick="showMainSection('treinamentos')">🎓 Treinamentos</button>
+      <button class="btn btn-secondary btn-sm" id="btn-nav-reg" onclick="showMainSection('registros')">📋 Registros</button>
+    </div>
+  </div>
+
+  <!-- BPF LAYOUT -->
+  <div class="bpf-layout" id="bpf-layout">
+
+    <!-- LEFT NAV -->
+    <div class="bpf-nav" id="bpf-nav">
+      <div class="bpf-nav-header">
+        <div class="bpf-nav-title">📁 POP / PAC</div>
+        <div class="bpf-search">
+          <span class="bpf-search-icon">🔍</span>
+          <input type="text" id="bpf-search" placeholder="Buscar procedimento..." oninput="filterProc(this.value)">
+        </div>
+      </div>
+      <div class="bpf-nav-body" id="bpf-nav-body">
+        <!-- Items rendered by JS -->
+      </div>
+    </div>
+
+    <!-- RIGHT MAIN -->
+    <div class="bpf-main">
+      <div class="bpf-main-header" id="bpf-main-hdr">
+        <div>
+          <div style="font-size:11px;color:#94a3b8;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;" id="bpf-crumb">BPF</div>
+          <div style="font-size:18px;font-weight:800;color:var(--primary);" id="bpf-main-title">Dashboard BPF</div>
+        </div>
+        <div id="bpf-main-actions" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
+      </div>
+      <div class="bpf-main-body" id="bpf-main-body">
+        <!-- Dynamic content -->
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<!-- MODAL NC -->
+<div class="modal-overlay hidden" id="modal-nc">
+  <div class="modal modal-lg">
+    <div class="modal-header">
+      <div class="modal-title">⚠️ Nova Não Conformidade</div>
+      <button class="modal-close" onclick="closeModal('modal-nc')">✕</button>
+    </div>
+    <div class="form-grid-2" style="gap:14px;">
+      <div class="form-group"><label class="form-label">Procedimento<span class="req">*</span></label><select id="nc-proc" class="form-input"><option value="">Selecione...</option></select></div>
+      <div class="form-group"><label class="form-label">Data<span class="req">*</span></label><input type="date" id="nc-data" class="form-input"></div>
+      <div class="form-group"><label class="form-label">Linha</label><select id="nc-linha" class="form-input"><option value="">Todas</option><option>Linha 2</option><option>Longa Vida</option></select></div>
+      <div class="form-group"><label class="form-label">Gravidade</label><select id="nc-grav" class="form-input"><option value="baixa">Baixa</option><option value="media">Média</option><option value="alta">Alta</option><option value="critica">Crítica</option></select></div>
+      <div class="form-group" style="grid-column:1/-1"><label class="form-label">Descrição<span class="req">*</span></label><textarea id="nc-desc" class="form-input" rows="3" placeholder="Descreva a não conformidade..."></textarea></div>
+      <div class="form-group" style="grid-column:1/-1"><label class="form-label">Ação Corretiva</label><textarea id="nc-acao" class="form-input" rows="2" placeholder="Ação corretiva prevista..."></textarea></div>
+      <div class="form-group"><label class="form-label">Responsável</label><select id="nc-resp" class="form-input"><option value="">Selecione...</option></select></div>
+      <div class="form-group"><label class="form-label">Prazo</label><input type="date" id="nc-prazo" class="form-input"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-nc')">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarNC()">Salvar NC</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL AUDITORIA -->
+<div class="modal-overlay hidden" id="modal-audit">
+  <div class="modal modal-lg">
+    <div class="modal-header">
+      <div class="modal-title">🔍 Nova Auditoria</div>
+      <button class="modal-close" onclick="closeModal('modal-audit')">✕</button>
+    </div>
+    <div class="form-grid-2" style="gap:14px;">
+      <div class="form-group"><label class="form-label">Tipo</label><select id="aud-tipo" class="form-input"><option>Interna</option><option>Externa</option><option>Vigilância Sanitária</option></select></div>
+      <div class="form-group"><label class="form-label">Data<span class="req">*</span></label><input type="date" id="aud-data" class="form-input"></div>
+      <div class="form-group"><label class="form-label">Auditor</label><input type="text" id="aud-auditor" class="form-input" placeholder="Nome do auditor"></div>
+      <div class="form-group"><label class="form-label">Linha</label><select id="aud-linha" class="form-input"><option value="">Todas</option><option>Linha 2</option><option>Longa Vida</option></select></div>
+      <div class="form-group" style="grid-column:1/-1"><label class="form-label">Escopo / Observações</label><textarea id="aud-obs" class="form-input" rows="3"></textarea></div>
+      <div class="form-group"><label class="form-label">Resultado</label><select id="aud-result" class="form-input"><option value="aprovado">Aprovado</option><option value="aprovado_ressalvas">Aprovado c/ Ressalvas</option><option value="reprovado">Reprovado</option><option value="agendada">Agendada</option></select></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-audit')">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarAuditoria()">Salvar Auditoria</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL TREINAMENTO -->
+<div class="modal-overlay hidden" id="modal-trein">
+  <div class="modal modal-lg">
+    <div class="modal-header">
+      <div class="modal-title">🎓 Novo Treinamento</div>
+      <button class="modal-close" onclick="closeModal('modal-trein')">✕</button>
+    </div>
+    <div class="form-grid-2" style="gap:14px;">
+      <div class="form-group"><label class="form-label">Procedimento Vinculado</label><select id="trein-proc" class="form-input"><option value="">Geral</option></select></div>
+      <div class="form-group"><label class="form-label">Data<span class="req">*</span></label><input type="date" id="trein-data" class="form-input"></div>
+      <div class="form-group"><label class="form-label">Instrutor</label><select id="trein-instr" class="form-input"><option value="">Selecione...</option></select></div>
+      <div class="form-group"><label class="form-label">Carga Horária (h)</label><input type="number" id="trein-ch" class="form-input" value="2" min="1"></div>
+      <div class="form-group" style="grid-column:1/-1"><label class="form-label">Participantes</label><select id="trein-parts" class="form-input" multiple style="height:90px;"></select><div style="font-size:11px;color:#94a3b8;margin-top:3px;">Ctrl+clique para selecionar múltiplos</div></div>
+      <div class="form-group" style="grid-column:1/-1"><label class="form-label">Conteúdo / Observações</label><textarea id="trein-obs" class="form-input" rows="3"></textarea></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-trein')">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarTreinamento()">Salvar Treinamento</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+
+<script>
+// ═══════════════════════════════════════════════════════════
+// BPF — Dados e Estado
+// ═══════════════════════════════════════════════════════════
+const LINHAS_BPF = ['Linha 2', 'Longa Vida'];
+
+const PROCEDIMENTOS = [
+  { cod:'SIL001', nome:'Controle da matéria prima',               rev:'02', setor:'Qualidade',    integ:['almoxarifado','producao'], status:'vigente' },
+  { cod:'SIL002', nome:'Controle das embalagens',                  rev:'02', setor:'Qualidade',    integ:['almoxarifado','logistica'], status:'vigente' },
+  { cod:'SIL003', nome:'Limpeza da área de produção e estocagem',  rev:'01', setor:'Produção',     integ:['producao','manutencao'], status:'vigente' },
+  { cod:'SIL004', nome:'Uso do uniforme e EPIs',                   rev:'03', setor:'Segurança',    integ:['epi','rh'], status:'vigente' },
+  { cod:'SIL005', nome:'Critérios para higiene pessoal e hábitos higiênicos', rev:'01', setor:'RH', integ:['rh'], status:'vigente' },
+  { cod:'SIL006', nome:'Limpeza da caixa d\'água',                 rev:'01', setor:'Manutenção',  integ:['manutencao'], status:'vigente' },
+  { cod:'SIL007', nome:'Bloqueio de contaminação cruzada',         rev:'02', setor:'Qualidade',   integ:['producao','laboratorio'], status:'vigente' },
+  { cod:'SIL008', nome:'Controle integrado de pragas',             rev:'01', setor:'Qualidade',   integ:['manutencao'], status:'vigente' },
+  { cod:'SIL009', nome:'Controle de resíduos',                     rev:'01', setor:'Produção',    integ:['producao'], status:'vigente' },
+  { cod:'SIL010', nome:'Programação da produção e formação dos lotes', rev:'03', setor:'Produção', integ:['producao','almoxarifado','custos'], status:'vigente' },
+  { cod:'SIL011', nome:'Recolhimento de lotes por recall',         rev:'02', setor:'Qualidade',   integ:['logistica','producao','laboratorio'], status:'vigente' },
+  { cod:'SIL012', nome:'Amostragem dos produtos',                  rev:'01', setor:'Laboratório', integ:['laboratorio'], status:'vigente' },
+  { cod:'SIL013', nome:'Controle de Qualidade do Produto',         rev:'02', setor:'Laboratório', integ:['laboratorio','producao'], status:'vigente' },
+  { cod:'SIL014', nome:'Qualificação de fornecedores de embalagens', rev:'01', setor:'Qualidade', integ:['almoxarifado'], status:'vigente' },
+  { cod:'SIL015', nome:'Aferição da ensacadeira',                  rev:'01', setor:'Manutenção', integ:['manutencao','laboratorio'], status:'vigente' },
+  { cod:'SIL016', nome:'Potabilidade da água',                     rev:'02', setor:'Qualidade',  integ:['laboratorio'], status:'revisao' },
+  { cod:'SIL017', nome:'Inspeção e limpeza de Big Bags para reutilização', rev:'01', setor:'Produção', integ:['almoxarifado','producao'], status:'vigente' },
+  { cod:'SIL018', nome:'Padrão para manutenção',                   rev:'02', setor:'Manutenção', integ:['manutencao'], status:'vigente' },
+  { cod:'SIL019', nome:'Registro e tratamento de reclamações de clientes', rev:'01', setor:'Qualidade', integ:['logistica','custos'], status:'vigente' },
+  { cod:'SIL020', nome:'Lacração/rotulagem de Big Bags',           rev:'01', setor:'Produção',   integ:['producao','logistica'], status:'vigente' },
+  { cod:'SIL021', nome:'Elaboração do cronograma de treinamentos, auditorias e registros', rev:'01', setor:'Qualidade', integ:['rh'], status:'vigente' },
+];
+
+// Conteúdo detalhado de cada procedimento
+const PROC_CONTENT = {
+  SIL001: {
+    objetivo: 'Estabelecer critérios para recebimento, inspeção, armazenamento e rastreabilidade de matérias-primas utilizadas nas linhas Linha 2 e Longa Vida, garantindo conformidade com os requisitos de BPF e segurança dos alimentos.',
+    responsabilidades: 'Responsável de Qualidade: supervisionar inspeções de recebimento.\nAlmoxarife: registrar entradas e verificar documentação fiscal.\nLaboratório: realizar análises físico-químicas e microbiológicas quando aplicável.',
+    frequencia: 'A cada recebimento de matéria-prima. Revisão mensal dos registros acumulados.',
+    procedimento: '1. Verificar nota fiscal e certificado de análise do fornecedor.\n2. Inspecionar embalagem e condições de transporte.\n3. Coletar amostra para análise laboratorial (quando exigido por protocolo).\n4. Registrar lote, data de validade e fornecedor no sistema.\n5. Definir área de quarentena até liberação pelo laboratório.\n6. Após aprovação, liberar para estoque e vincular ao lote de produção.',
+    checklist: [
+      'Nota fiscal confere com pedido de compra',
+      'Certificado de análise do fornecedor recebido',
+      'Embalagem íntegra, sem sinais de avaria ou contaminação',
+      'Temperatura de transporte dentro do padrão (quando aplicável)',
+      'Lote e validade registrados no sistema (Almoxarifado)',
+      'Amostra enviada ao laboratório (quando protocolo exigir)',
+      'Material alocado em área de quarentena até liberação',
+      'Liberação registrada com assinatura do responsável'
+    ]
+  },
+  SIL002: {
+    objetivo: 'Definir critérios de recebimento, inspeção visual, armazenamento e rastreabilidade das embalagens utilizadas nas linhas Linha 2 e Longa Vida.',
+    responsabilidades: 'Almoxarife: inspeção e registro de entrada.\nQualidade: definição dos critérios de aprovação/reprovação.\nProdução: notificar não conformidades durante uso.',
+    frequencia: 'A cada recebimento e antes de cada início de linha.',
+    procedimento: '1. Verificar especificações técnicas da embalagem (gramatura, dimensões, impressão).\n2. Inspecionar lote recebido: amostragem de 10% das unidades.\n3. Registrar no sistema Almoxarifado: código, lote, fornecedor, quantidade.\n4. Armazenar em local seco, limpo e identificado.\n5. Rastrear consumo vinculado ao lote de produto acabado.',
+    checklist: [
+      'Especificação técnica confere com pedido',
+      'Amostragem visual realizada (10% do lote)',
+      'Ausência de defeitos: rasgos, manchas, impressão incorreta',
+      'Registro no sistema Almoxarifado com número de lote',
+      'Armazenamento correto: paletizado, identificado, sem contato com o piso',
+      'Vinculação do lote de embalagem ao lote de produção'
+    ]
+  },
+  SIL010: {
+    objetivo: 'Padronizar a programação da produção das linhas Linha 2 e Longa Vida, garantindo rastreabilidade completa dos lotes produzidos desde a matéria-prima até a expedição.',
+    responsabilidades: 'Supervisor de Produção: elaborar e validar a programação.\nQualidade: confirmar disponibilidade de insumos aprovados.\nLogística: informar demanda e agenda de expedição.',
+    frequencia: 'Programação: semanal. Formação de lote: a cada início de produção.',
+    procedimento: '1. Verificar estoque de matérias-primas e embalagens aprovados.\n2. Lançar Ordem de Produção no sistema (módulo Produção).\n3. Gerar número de lote: ANO+MÊS+DIA+LINHA+SEQUENCIAL (ex: 250514L2001).\n4. Registrar início e fim da produção com horário, turno e responsável.\n5. Registrar quantidades produzidas, refugo e retrabalho.\n6. Emitir etiqueta de identificação do lote.\n7. Vincular lote ao pedido de venda para rastreabilidade completa.',
+    checklist: [
+      'Ordem de Produção aberta no sistema',
+      'Matérias-primas liberadas pelo laboratório',
+      'Número de lote gerado e registrado',
+      'Equipamentos calibrados e limpos',
+      'Início e fim de produção registrados',
+      'Quantidade produzida e refugo lançados',
+      'Etiqueta de lote aplicada',
+      'Vinculação lote × pedido realizada'
+    ]
+  }
+};
+
+// Estado da aplicação
+let _currentProc = null;
+let _currentSection = 'dashboard';
+let _funcs = [], _ncs = [], _auditorias = [], _treinamentos = [], _registros = [];
+let _integData = {};
+
+// ═══════════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════════
+fetch('partials/sidebar.html').then(r=>r.text()).then(html=>{
+  document.getElementById('sidebar-container').innerHTML=html;
+  document.querySelector('[href="bpf.html"]')?.classList.add('active');
+  openGroup('qualidade');
+});
+initSidebar('bpf.html');
+
+async function init() {
+  renderProcNav();
+  await loadData();
+  showMainSection('dashboard');
+}
+
+async function loadData() {
+  try {
+    const [{ data: fn }, { data: nc }, { data: aud }, { data: trein }, { data: reg }] = await Promise.all([
+      _supabase.from('funcionarios').select('id,nome').eq('ativo', true).order('nome'),
+      _supabase.from('bpf_ncs').select('*').order('created_at', { ascending: false }),
+      _supabase.from('bpf_auditorias').select('*').order('data', { ascending: false }),
+      _supabase.from('bpf_treinamentos').select('*').order('data', { ascending: false }),
+      _supabase.from('bpf_registros').select('*').order('created_at', { ascending: false }),
+    ]);
+    _funcs = fn || [];
+    _ncs = nc || [];
+    _auditorias = aud || [];
+    _treinamentos = trein || [];
+    _registros = reg || [];
+    populateSelects();
+  } catch(e) {
+    // Tabelas podem não existir ainda — silencioso, usa arrays vazios
+    _funcs = []; _ncs = []; _auditorias = []; _treinamentos = []; _registros = [];
+  }
+
+  // Dados de integração com outros módulos
+  await loadIntegData();
+}
+
+async function loadIntegData() {
+  try {
+    const linhaFilter = LINHAS_BPF;
+    const [
+      { data: prods }, { data: os }, { data: mov }, { data: analises },
+      { data: epis }, { data: exped }
+    ] = await Promise.all([
+      _supabase.from('producao').select('id,linha,lote,status,created_at').in('linha', linhaFilter).order('created_at',{ascending:false}).limit(50),
+      _supabase.from('ordens_servico').select('id,linha,tipo,status,created_at').in('linha', linhaFilter).order('created_at',{ascending:false}).limit(30),
+      _supabase.from('movimentacoes').select('id,tipo,produto,quantidade,created_at').order('created_at',{ascending:false}).limit(30),
+      _supabase.from('analises').select('id,linha,status,created_at').in('linha', linhaFilter).order('created_at',{ascending:false}).limit(30),
+      _supabase.from('epi_registros').select('id,created_at').order('created_at',{ascending:false}).limit(20),
+      _supabase.from('expedicao').select('id,status,created_at').order('created_at',{ascending:false}).limit(20),
+    ]);
+    _integData = {
+      producao: prods||[], os: os||[], movs: mov||[],
+      analises: analises||[], epis: epis||[], exped: exped||[]
+    };
+  } catch(e) {
+    _integData = { producao:[], os:[], movs:[], analises:[], epis:[], exped:[] };
+  }
+}
+
+function populateSelects() {
+  const opts = _funcs.map(f=>`<option value="${f.id}">${f.nome}</option>`).join('');
+  ['nc-resp','trein-instr'].forEach(id=>{
+    const el=document.getElementById(id);
+    if(el) el.innerHTML = '<option value="">Selecione...</option>' + opts;
+  });
+  const parts = document.getElementById('trein-parts');
+  if(parts) parts.innerHTML = opts;
+
+  const procOpts = PROCEDIMENTOS.map(p=>`<option value="${p.cod}">${p.cod} — ${p.nome}</option>`).join('');
+  ['nc-proc','trein-proc'].forEach(id=>{
+    const el=document.getElementById(id);
+    if(el) el.innerHTML = (id==='trein-proc'?'<option value="">Geral</option>':'<option value="">Selecione...</option>') + procOpts;
+  });
+}
+
+// ═══════════════════════════════════════════════════════════
+// NAV — Procedimentos
+// ═══════════════════════════════════════════════════════════
+function renderProcNav(filter='') {
+  const body = document.getElementById('bpf-nav-body');
+  const filtered = filter
+    ? PROCEDIMENTOS.filter(p => p.cod.toLowerCase().includes(filter.toLowerCase()) || p.nome.toLowerCase().includes(filter.toLowerCase()))
+    : PROCEDIMENTOS;
+
+  body.innerHTML = `
+    <div class="bpf-nav-section">Procedimentos (${filtered.length})</div>
+    ${filtered.map(p => `
+      <div class="bpf-nav-item ${_currentProc===p.cod?'active':''}" onclick="showProc('${p.cod}')" id="navitem-${p.cod}">
+        <div style="flex:1;min-width:0;">
+          <div class="item-code">${p.cod}</div>
+          <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;">${p.nome}</div>
+        </div>
+        <span class="item-badge badge-${p.status}">${p.status==='vigente'?'V':p.status==='revisao'?'R':'O'}</span>
+      </div>
+    `).join('')}
+  `;
+}
+
+function filterProc(val) {
+  renderProcNav(val);
+}
+
+function toggleNavMobile() {
+  document.getElementById('bpf-nav').classList.toggle('mob-open');
+}
+
+// ═══════════════════════════════════════════════════════════
+// SEÇÕES PRINCIPAIS
+// ═══════════════════════════════════════════════════════════
+function showMainSection(section) {
+  _currentSection = section;
+  _currentProc = null;
+  renderProcNav();
+
+  // Reset header buttons style
+  ['btn-nav-dash','btn-nav-nc','btn-nav-audit','btn-nav-trein','btn-nav-reg'].forEach(id=>{
+    const el=document.getElementById(id);
+    if(el){el.className='btn btn-secondary btn-sm';}
+  });
+  const map={dashboard:'btn-nav-dash',nc:'btn-nav-nc',auditoria:'btn-nav-audit',treinamentos:'btn-nav-trein',registros:'btn-nav-reg'};
+  if(map[section]){const el=document.getElementById(map[section]);if(el)el.className='btn btn-primary btn-sm';}
+
+  if(section==='dashboard') renderDashboard();
+  else if(section==='nc') renderNC();
+  else if(section==='auditoria') renderAuditoria();
+  else if(section==='treinamentos') renderTreinamentos();
+  else if(section==='registros') renderRegistros();
+}
+
+// ═══════════════════════════════════════════════════════════
+// DASHBOARD
+// ═══════════════════════════════════════════════════════════
+function renderDashboard() {
+  document.getElementById('bpf-crumb').textContent = 'BPF';
+  document.getElementById('bpf-main-title').textContent = 'Dashboard BPF';
+  document.getElementById('bpf-main-actions').innerHTML = '';
+
+  const vigentes = PROCEDIMENTOS.filter(p=>p.status==='vigente').length;
+  const revisao  = PROCEDIMENTOS.filter(p=>p.status==='revisao').length;
+  const ncsAbert = _ncs.filter(n=>n.status!=='encerrado').length;
+  const audTotal = _auditorias.length;
+  const treinMes = _treinamentos.filter(t=>t.data&&t.data.slice(0,7)===new Date().toISOString().slice(0,7)).length;
+
+  document.getElementById('bpf-main-body').innerHTML = `
+    <div class="kpi-grid">
+      <div class="kpi-card"><div class="kpi-icon">📄</div><div class="kpi-val">${PROCEDIMENTOS.length}</div><div class="kpi-lbl">Total POP/PAC</div></div>
+      <div class="kpi-card"><div class="kpi-icon">✅</div><div class="kpi-val" style="color:#16a34a;">${vigentes}</div><div class="kpi-lbl">Vigentes</div></div>
+      <div class="kpi-card" style="${revisao>0?'border-color:#f59e0b;':''}" ><div class="kpi-icon">🔄</div><div class="kpi-val" style="color:${revisao>0?'#b45309':'#64748b'};">${revisao}</div><div class="kpi-lbl">Em Revisão</div></div>
+      <div class="kpi-card" style="${ncsAbert>0?'border-color:#ef4444;':''}"><div class="kpi-icon">⚠️</div><div class="kpi-val" style="color:${ncsAbert>0?'#dc2626':'#64748b'};">${ncsAbert}</div><div class="kpi-lbl">NCs Abertas</div></div>
+      <div class="kpi-card"><div class="kpi-icon">🔍</div><div class="kpi-val">${audTotal}</div><div class="kpi-lbl">Auditorias</div></div>
+      <div class="kpi-card"><div class="kpi-icon">🎓</div><div class="kpi-val">${treinMes}</div><div class="kpi-lbl">Treinamentos (mês)</div></div>
+    </div>
+
+    ${revisao > 0 ? `<div class="alert alert-warning" style="margin-bottom:16px;">🔄 <strong>${revisao} procedimento(s) em revisão</strong> — verificar prazo de atualização.</div>` : ''}
+    ${ncsAbert > 0 ? `<div class="alert alert-danger" style="margin-bottom:16px;">⚠️ <strong>${ncsAbert} não conformidade(s) em aberto</strong> — acompanhar ações corretivas.</div>` : ''}
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px;">
+      <div class="proc-section" style="margin-bottom:0;">
+        <div class="proc-section-hdr open" onclick="toggleSection(this)">
+          <div class="proc-section-title">📋 Últimas NCs</div>
+          <span class="proc-section-arrow">▶</span>
+        </div>
+        <div class="proc-section-body open">
+          ${_ncs.slice(0,5).map(n=>`
+            <div class="list-row">
+              <div style="flex:1">
+                <div class="list-row-title">${n.procedimento_cod||'—'} — ${n.descricao?.slice(0,50)||''}...</div>
+                <div class="list-row-sub">${n.data||''} · ${n.gravidade||''}</div>
+              </div>
+              <span class="badge badge-${n.status==='encerrado'?'success':'danger'}">${n.status||'aberta'}</span>
+            </div>
+          `).join('') || '<div class="empty-state" style="padding:20px;"><div class="empty-icon" style="font-size:28px;">✅</div><p style="font-size:12px;">Nenhuma NC registrada</p></div>'}
+        </div>
+      </div>
+      <div class="proc-section" style="margin-bottom:0;">
+        <div class="proc-section-hdr open" onclick="toggleSection(this)">
+          <div class="proc-section-title">🔍 Últimas Auditorias</div>
+          <span class="proc-section-arrow">▶</span>
+        </div>
+        <div class="proc-section-body open">
+          ${_auditorias.slice(0,5).map(a=>`
+            <div class="list-row">
+              <div style="flex:1">
+                <div class="list-row-title">${a.tipo||'Interna'} — ${a.auditor||'—'}</div>
+                <div class="list-row-sub">${a.data||''} · ${a.linha||'Todas as linhas'}</div>
+              </div>
+              <span class="badge badge-${a.resultado==='aprovado'?'success':a.resultado==='reprovado'?'danger':'warning'}">${a.resultado||'agendada'}</span>
+            </div>
+          `).join('') || '<div class="empty-state" style="padding:20px;"><div class="empty-icon" style="font-size:28px;">📅</div><p style="font-size:12px;">Nenhuma auditoria registrada</p></div>'}
+        </div>
+      </div>
+    </div>
+
+    <!-- Integração com módulos -->
+    <div style="font-size:12px;font-weight:800;color:var(--primary);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px;">🔗 Dados automáticos dos módulos (Linha 2 · Longa Vida)</div>
+    <div class="integ-grid" id="integ-cards">
+      <div class="integ-card"><div class="integ-card-title">⚙️ Produção</div><div class="integ-card-val integ-loading">Carregando...</div></div>
+      <div class="integ-card"><div class="integ-card-title">🔧 Manutenção</div><div class="integ-card-val integ-loading">Carregando...</div></div>
+      <div class="integ-card"><div class="integ-card-title">📦 Almoxarifado</div><div class="integ-card-val integ-loading">Carregando...</div></div>
+      <div class="integ-card"><div class="integ-card-title">🧪 Laboratório</div><div class="integ-card-val integ-loading">Carregando...</div></div>
+      <div class="integ-card"><div class="integ-card-title">🦺 EPIs</div><div class="integ-card-val integ-loading">Carregando...</div></div>
+      <div class="integ-card"><div class="integ-card-title">🚛 Expedições</div><div class="integ-card-val integ-loading">Carregando...</div></div>
+    </div>
+  `;
+  renderIntegCards();
+}
+
+function renderIntegCards() {
+  const container = document.getElementById('integ-cards');
+  if(!container) return;
+  container.innerHTML = `
+    <div class="integ-card">
+      <div class="integ-card-title">⚙️ Produção</div>
+      <div class="integ-card-val">${_integData.producao?.length||0}</div>
+      <div class="integ-card-sub">lotes (Linha 2 + Longa Vida)</div>
+    </div>
+    <div class="integ-card">
+      <div class="integ-card-title">🔧 Manutenção</div>
+      <div class="integ-card-val">${_integData.os?.length||0}</div>
+      <div class="integ-card-sub">ordens de serviço recentes</div>
+    </div>
+    <div class="integ-card">
+      <div class="integ-card-title">📦 Almoxarifado</div>
+      <div class="integ-card-val">${_integData.movs?.length||0}</div>
+      <div class="integ-card-sub">movimentações recentes</div>
+    </div>
+    <div class="integ-card">
+      <div class="integ-card-title">🧪 Laboratório</div>
+      <div class="integ-card-val">${_integData.analises?.length||0}</div>
+      <div class="integ-card-sub">análises realizadas</div>
+    </div>
+    <div class="integ-card">
+      <div class="integ-card-title">🦺 EPIs</div>
+      <div class="integ-card-val">${_integData.epis?.length||0}</div>
+      <div class="integ-card-sub">registros de entrega/uso</div>
+    </div>
+    <div class="integ-card">
+      <div class="integ-card-title">🚛 Expedições</div>
+      <div class="integ-card-val">${_integData.exped?.length||0}</div>
+      <div class="integ-card-sub">expedições recentes</div>
+    </div>
+  `;
+}
+
+// ═══════════════════════════════════════════════════════════
+// PROCEDIMENTO INDIVIDUAL
+// ═══════════════════════════════════════════════════════════
+function showProc(cod) {
+  _currentProc = cod;
+  _currentSection = 'proc';
+  renderProcNav();
+  // Remove active highlight from top buttons
+  ['btn-nav-dash','btn-nav-nc','btn-nav-audit','btn-nav-trein','btn-nav-reg'].forEach(id=>{
+    const el=document.getElementById(id);
+    if(el) el.className='btn btn-secondary btn-sm';
+  });
+
+  const proc = PROCEDIMENTOS.find(p=>p.cod===cod);
+  if(!proc) return;
+
+  document.getElementById('bpf-crumb').textContent = 'BPF › POP/PAC';
+  document.getElementById('bpf-main-title').textContent = `${proc.cod} — ${proc.nome}`;
+  document.getElementById('bpf-main-actions').innerHTML = `
+    <button class="btn btn-secondary btn-sm" onclick="exportarPDF('${proc.cod} — ${proc.nome}',['Código','Nome','Revisão','Status','Setor','Responsável'],[['${proc.cod}','${proc.nome}','Rev. ${proc.rev}','${proc.status}','${proc.setor}','—']])">📄 PDF</button>
+    <button class="btn btn-primary btn-sm" onclick="openModalNC('${proc.cod}')">+ NC</button>
+  `;
+
+  const content = PROC_CONTENT[cod] || {};
+  const ncsProc = _ncs.filter(n=>n.procedimento_cod===cod);
+  const treinProc = _treinamentos.filter(t=>t.procedimento_cod===cod);
+
+  const integLabels = {
+    producao:'⚙️ Produção', almoxarifado:'📦 Almoxarifado', laboratorio:'🧪 Laboratório',
+    manutencao:'🔧 Manutenção', rh:'👥 RH', epi:'🦺 EPI', logistica:'🚛 Logística', custos:'💰 Custos'
+  };
+
+  const checklist = content.checklist || [
+    'Verificar condições iniciais', 'Executar procedimento conforme descrito',
+    'Registrar no sistema', 'Assinar ficha de controle'
+  ];
+
+  document.getElementById('bpf-main-body').innerHTML = `
+    <!-- Meta info -->
+    <div class="doc-meta-grid">
+      <div class="doc-meta-item"><label>Código</label><span>${proc.cod}</span></div>
+      <div class="doc-meta-item"><label>Revisão</label><span>Rev. ${proc.rev}</span></div>
+      <div class="doc-meta-item"><label>Status</label><span><span class="badge badge-${proc.status==='vigente'?'success':proc.status==='revisao'?'warning':'gray'}">${proc.status}</span></span></div>
+      <div class="doc-meta-item"><label>Setor</label><span>${proc.setor}</span></div>
+      <div class="doc-meta-item"><label>Linhas</label><span>Linha 2 · Longa Vida</span></div>
+      <div class="doc-meta-item"><label>Responsável</label><span>Gestor de Qualidade</span></div>
+    </div>
+
+    <!-- Abas internas -->
+    <div class="itabs">
+      <button class="itab-btn active" id="itab-proc" onclick="showITab('proc',this)">📋 Procedimento</button>
+      <button class="itab-btn" id="itab-check" onclick="showITab('check',this)">✅ Checklist</button>
+      <button class="itab-btn" id="itab-integ" onclick="showITab('integ',this)">🔗 Integrações</button>
+      <button class="itab-btn" id="itab-nc-proc" onclick="showITab('nc-proc',this)">⚠️ NCs (${ncsProc.length})</button>
+      <button class="itab-btn" id="itab-trein-proc" onclick="showITab('trein-proc',this)">🎓 Treinamentos (${treinProc.length})</button>
+      <button class="itab-btn" id="itab-hist" onclick="showITab('hist',this)">📅 Histórico</button>
+    </div>
+
+    <!-- Tab: Procedimento -->
+    <div id="itab-body-proc">
+      ${buildSection('1. Objetivo', '🎯', content.objetivo || 'Conteúdo em elaboração.')}
+      ${buildSection('2. Responsabilidades', '👤', (content.responsabilidades||'Conteúdo em elaboração.').replace(/\n/g,'<br>'))}
+      ${buildSection('3. Frequência', '🕐', content.frequencia || 'Conforme necessidade operacional.')}
+      ${buildSection('4. Procedimento Operacional', '📋', (content.procedimento||'Conteúdo em elaboração.').replace(/\n/g,'<br>'), true)}
+      ${buildSectionAnexo()}
+      ${buildSectionAssinatura()}
+    </div>
+
+    <!-- Tab: Checklist -->
+    <div id="itab-body-check" class="hidden">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+        <div style="font-size:13px;color:#64748b;">Marque os itens conforme execução. Progresso salvo localmente.</div>
+        <button class="btn btn-secondary btn-sm" onclick="resetChecklist('${cod}')">🔄 Resetar</button>
+      </div>
+      <div id="checklist-body-${cod}">
+        ${checklist.map((item,i)=>`
+          <div class="checklist-item" id="ci-${cod}-${i}">
+            <input type="checkbox" id="chk-${cod}-${i}" ${getCheckState(cod,i)?'checked':''} onchange="saveCheck('${cod}',${i},this.checked)">
+            <label for="chk-${cod}-${i}">${item}</label>
+          </div>
+        `).join('')}
+      </div>
+      <div style="margin-top:14px;padding:12px 16px;background:#f8fafc;border-radius:10px;border:1.2px solid #e2e8f0;">
+        <div style="font-size:12px;color:#64748b;margin-bottom:6px;font-weight:700;">Progresso</div>
+        <div style="background:#e2e8f0;border-radius:10px;height:8px;overflow:hidden;">
+          <div id="check-progress-${cod}" style="background:#22c55e;height:100%;border-radius:10px;transition:width .3s;width:${calcProgress(cod, checklist.length)}%;"></div>
+        </div>
+        <div id="check-progress-txt-${cod}" style="font-size:11px;color:#64748b;margin-top:4px;">${countChecked(cod, checklist.length)} de ${checklist.length} itens concluídos</div>
+      </div>
+    </div>
+
+    <!-- Tab: Integrações -->
+    <div id="itab-body-integ" class="hidden">
+      <div style="font-size:12px;color:#64748b;margin-bottom:14px;">Dados buscados automaticamente dos módulos vinculados a este procedimento. Linhas: Linha 2 · Longa Vida.</div>
+      <div class="integ-grid">
+        ${(proc.integ||[]).map(mod=>`
+          <div class="integ-card">
+            <div class="integ-card-title">${integLabels[mod]||mod}</div>
+            ${renderIntegBlock(mod)}
+          </div>
+        `).join('')}
+      </div>
+    </div>
+
+    <!-- Tab: NCs do procedimento -->
+    <div id="itab-body-nc-proc" class="hidden">
+      <div style="display:flex;justify-content:flex-end;margin-bottom:14px;">
+        <button class="btn btn-primary btn-sm" onclick="openModalNC('${proc.cod}')">+ Nova NC</button>
+      </div>
+      ${ncsProc.length === 0
+        ? '<div class="empty-state"><div class="empty-icon">✅</div><h3>Nenhuma NC para este procedimento</h3></div>'
+        : ncsProc.map(n=>`
+          <div class="list-row">
+            <div style="flex:1;">
+              <div class="list-row-title">${n.descricao?.slice(0,80)||'—'}</div>
+              <div class="list-row-sub">${n.data||''} · Gravidade: ${n.gravidade||'—'} · Resp: ${n.responsavel_nome||'—'}</div>
+              ${n.acao_corretiva?`<div style="font-size:11px;color:#475569;margin-top:3px;">↳ Ação: ${n.acao_corretiva}</div>`:''}
+            </div>
+            <span class="badge badge-${n.status==='encerrado'?'success':n.gravidade==='critica'?'danger':'warning'}">${n.status||'aberta'}</span>
+          </div>
+        `).join('')
+      }
+    </div>
+
+    <!-- Tab: Treinamentos do procedimento -->
+    <div id="itab-body-trein-proc" class="hidden">
+      <div style="display:flex;justify-content:flex-end;margin-bottom:14px;">
+        <button class="btn btn-primary btn-sm" onclick="openModalTrein('${proc.cod}')">+ Novo Treinamento</button>
+      </div>
+      ${treinProc.length === 0
+        ? '<div class="empty-state"><div class="empty-icon">🎓</div><h3>Nenhum treinamento vinculado</h3></div>'
+        : treinProc.map(t=>`
+          <div class="list-row">
+            <div style="flex:1;">
+              <div class="list-row-title">${t.conteudo?.slice(0,70)||'Treinamento'}</div>
+              <div class="list-row-sub">${t.data||''} · Instrutor: ${t.instrutor_nome||'—'} · CH: ${t.carga_horaria||'—'}h</div>
+            </div>
+            <span class="badge badge-info">${t.num_participantes||0} part.</span>
+          </div>
+        `).join('')
+      }
+    </div>
+
+    <!-- Tab: Histórico de revisões -->
+    <div id="itab-body-hist" class="hidden">
+      <div class="timeline">
+        <div class="tl-item">
+          <div class="tl-dot"></div>
+          <div class="tl-content">
+            <div class="tl-date">Revisão atual — Rev. ${proc.rev}</div>
+            <div class="tl-text">Documento vigente. Responsável: Gestor de Qualidade.</div>
+          </div>
+        </div>
+        ${parseInt(proc.rev)>=2?`
+        <div class="tl-item">
+          <div class="tl-dot rev"></div>
+          <div class="tl-content">
+            <div class="tl-date">Revisão anterior — Rev. 01</div>
+            <div class="tl-text">Atualização de critérios e adequação às normas vigentes de BPF.</div>
+          </div>
+        </div>`:''}
+        <div class="tl-item">
+          <div class="tl-dot rev"></div>
+          <div class="tl-content">
+            <div class="tl-date">Criação — Rev. 00</div>
+            <div class="tl-text">Documento criado e aprovado pela equipe de Qualidade.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+  // init section states
+  document.querySelectorAll('.proc-section-hdr').forEach(h=>{
+    if(h.classList.contains('open')) {
+      h.nextElementSibling?.classList.add('open');
+    }
+  });
+}
+
+function buildSection(title, icon, content, open=false) {
+  return `
+    <div class="proc-section">
+      <div class="proc-section-hdr ${open?'open':''}" onclick="toggleSection(this)">
+        <div class="proc-section-title">${icon} ${title}</div>
+        <span class="proc-section-arrow">▶</span>
+      </div>
+      <div class="proc-section-body ${open?'open':''}">
+        <p class="proc-text">${content}</p>
+      </div>
+    </div>
+  `;
+}
+
+function buildSectionAnexo() {
+  return `
+    <div class="proc-section">
+      <div class="proc-section-hdr" onclick="toggleSection(this)">
+        <div class="proc-section-title">📎 Anexos</div>
+        <span class="proc-section-arrow">▶</span>
+      </div>
+      <div class="proc-section-body">
+        <div class="upload-area" onclick="document.getElementById('upload-anexo').click()">
+          <div style="font-size:28px;margin-bottom:8px;">📎</div>
+          <div style="font-size:13px;font-weight:600;color:#64748b;">Clique para anexar PDF ou imagem</div>
+          <div style="font-size:11px;color:#94a3b8;margin-top:4px;">PDF, JPG, PNG até 10MB</div>
+        </div>
+        <input type="file" id="upload-anexo" class="hidden" accept=".pdf,.jpg,.jpeg,.png" onchange="handleAnexo(this)">
+        <div id="anexos-list" style="margin-top:10px;"></div>
+      </div>
+    </div>
+  `;
+}
+
+function buildSectionAssinatura() {
+  return `
+    <div class="proc-section">
+      <div class="proc-section-hdr" onclick="toggleSection(this)">
+        <div class="proc-section-title">✍️ Assinaturas</div>
+        <span class="proc-section-arrow">▶</span>
+      </div>
+      <div class="proc-section-body">
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;">
+          ${['Elaborado por','Revisado por','Aprovado por'].map(label=>`
+            <div>
+              <div style="font-size:11px;color:#94a3b8;font-weight:700;margin-bottom:6px;">${label}</div>
+              <div class="sign-box" title="Clique para assinar">
+                <div style="font-size:11px;color:#94a3b8;">Assinatura digital</div>
+                <div style="font-size:10px;color:#cbd5e1;margin-top:4px;">${new Date().toLocaleDateString('pt-BR')}</div>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderIntegBlock(mod) {
+  const data = {
+    producao: `<div class="integ-card-val">${_integData.producao?.length||0}</div><div class="integ-card-sub">lotes (Linha 2 + Longa Vida)</div>`,
+    almoxarifado: `<div class="integ-card-val">${_integData.movs?.length||0}</div><div class="integ-card-sub">movimentações recentes</div>`,
+    laboratorio: `<div class="integ-card-val">${_integData.analises?.length||0}</div><div class="integ-card-sub">análises realizadas</div>`,
+    manutencao: `<div class="integ-card-val">${_integData.os?.length||0}</div><div class="integ-card-sub">OS registradas</div>`,
+    rh: `<div class="integ-card-val">${_funcs?.length||0}</div><div class="integ-card-sub">funcionários ativos</div>`,
+    epi: `<div class="integ-card-val">${_integData.epis?.length||0}</div><div class="integ-card-sub">registros de EPI</div>`,
+    logistica: `<div class="integ-card-val">${_integData.exped?.length||0}</div><div class="integ-card-sub">expedições</div>`,
+    custos: `<div class="integ-card-val">—</div><div class="integ-card-sub">via módulo Custos</div>`,
+  };
+  return data[mod] || `<div class="integ-card-sub">Integração disponível</div>`;
+}
+
+function showITab(tab, btn) {
+  document.querySelectorAll('.itab-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  const tabs = ['proc','check','integ','nc-proc','trein-proc','hist'];
+  tabs.forEach(t=>{
+    const el = document.getElementById(`itab-body-${t}`);
+    if(el) el.classList.toggle('hidden', t!==tab);
+  });
+}
+
+function toggleSection(hdr) {
+  hdr.classList.toggle('open');
+  const body = hdr.nextElementSibling;
+  if(body) body.classList.toggle('open');
+}
+
+// ═══════════════════════════════════════════════════════════
+// CHECKLIST STATE (localStorage)
+// ═══════════════════════════════════════════════════════════
+function getCheckState(cod, idx) {
+  try { return JSON.parse(localStorage.getItem(`bpf_check_${cod}`)||'[]')[idx]||false; } catch{return false;}
+}
+function saveCheck(cod, idx, val) {
+  try {
+    const arr = JSON.parse(localStorage.getItem(`bpf_check_${cod}`)||'[]');
+    arr[idx] = val;
+    localStorage.setItem(`bpf_check_${cod}`, JSON.stringify(arr));
+    const proc = PROCEDIMENTOS.find(p=>p.cod===cod);
+    const len = (PROC_CONTENT[cod]?.checklist||[]).length || 4;
+    const ci = document.getElementById(`ci-${cod}-${idx}`);
+    if(ci) ci.classList.toggle('checked', val);
+    const prog = document.getElementById(`check-progress-${cod}`);
+    if(prog) prog.style.width = calcProgress(cod, len) + '%';
+    const txt = document.getElementById(`check-progress-txt-${cod}`);
+    if(txt) txt.textContent = `${countChecked(cod, len)} de ${len} itens concluídos`;
+  } catch(e){}
+}
+function calcProgress(cod, total) {
+  if(!total) return 0;
+  try {
+    const arr = JSON.parse(localStorage.getItem(`bpf_check_${cod}`)||'[]');
+    return Math.round((arr.filter(Boolean).length / total) * 100);
+  } catch{return 0;}
+}
+function countChecked(cod, total) {
+  try { return JSON.parse(localStorage.getItem(`bpf_check_${cod}`)||'[]').filter(Boolean).length; } catch{return 0;}
+}
+function resetChecklist(cod) {
+  if(!confirm('Resetar checklist?')) return;
+  localStorage.removeItem(`bpf_check_${cod}`);
+  showProc(cod);
+}
+
+// ═══════════════════════════════════════════════════════════
+// NÃO CONFORMIDADES
+// ═══════════════════════════════════════════════════════════
+function renderNC() {
+  document.getElementById('bpf-crumb').textContent = 'BPF';
+  document.getElementById('bpf-main-title').textContent = '⚠️ Não Conformidades';
+  document.getElementById('bpf-main-actions').innerHTML = `<button class="btn btn-primary" onclick="openModalNC()">+ Nova NC</button>`;
+
+  document.getElementById('bpf-main-body').innerHTML = `
+    <div class="search-bar">
+      <div class="search-input-wrap">
+        <span class="search-icon">🔍</span>
+        <input type="text" class="form-input" id="nc-filter" placeholder="Filtrar NCs..." oninput="filterTable('nc-filter','nc-tbody','nc-row')" style="padding-left:36px;">
+      </div>
+      <select class="form-input" style="width:140px;" id="nc-status-filter" onchange="filterNCTable()">
+        <option value="">Todos</option><option value="aberta">Abertas</option><option value="encerrado">Encerradas</option>
+      </select>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>Data</th><th>Procedimento</th><th>Descrição</th><th>Gravidade</th>
+          <th>Linha</th><th>Responsável</th><th>Prazo</th><th>Status</th>
+        </tr></thead>
+        <tbody id="nc-tbody">
+          ${_ncs.map(n=>`
+            <tr class="nc-row">
+              <td>${n.data||'—'}</td>
+              <td><strong>${n.procedimento_cod||'—'}</strong></td>
+              <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${n.descricao||'—'}</td>
+              <td><span class="badge badge-${n.gravidade==='critica'||n.gravidade==='alta'?'danger':n.gravidade==='media'?'warning':'gray'}">${n.gravidade||'—'}</span></td>
+              <td>${n.linha||'—'}</td>
+              <td>${n.responsavel_nome||'—'}</td>
+              <td>${n.prazo||'—'}</td>
+              <td><span class="badge badge-${n.status==='encerrado'?'success':'danger'}">${n.status||'aberta'}</span></td>
+            </tr>
+          `).join('') || '<tr><td colspan="8" style="text-align:center;padding:40px;color:#94a3b8;">Nenhuma NC registrada</td></tr>'}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function openModalNC(procCod='') {
+  document.getElementById('nc-data').value = new Date().toISOString().split('T')[0];
+  if(procCod) document.getElementById('nc-proc').value = procCod;
+  document.getElementById('modal-nc').classList.remove('hidden');
+}
+
+async function salvarNC() {
+  const desc = document.getElementById('nc-desc').value.trim();
+  const proc = document.getElementById('nc-proc').value;
+  if(!desc) { toast('Informe a descrição da NC','warning'); return; }
+
+  const respId = document.getElementById('nc-resp').value;
+  const respNome = _funcs.find(f=>f.id==respId)?.nome || '';
+
+  try {
+    const { error } = await _supabase.from('bpf_ncs').insert({
+      procedimento_cod: proc,
+      data: document.getElementById('nc-data').value,
+      linha: document.getElementById('nc-linha').value,
+      gravidade: document.getElementById('nc-grav').value,
+      descricao: desc,
+      acao_corretiva: document.getElementById('nc-acao').value,
+      responsavel_id: respId||null,
+      responsavel_nome: respNome,
+      prazo: document.getElementById('nc-prazo').value||null,
+      status: 'aberta'
+    });
+    if(error) throw error;
+    toast('NC registrada com sucesso','success');
+    closeModal('modal-nc');
+    await loadData();
+    renderNC();
+  } catch(e) {
+    toast('Erro ao salvar NC: ' + e.message,'danger');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// AUDITORIAS
+// ═══════════════════════════════════════════════════════════
+function renderAuditoria() {
+  document.getElementById('bpf-crumb').textContent = 'BPF';
+  document.getElementById('bpf-main-title').textContent = '🔍 Auditorias';
+  document.getElementById('bpf-main-actions').innerHTML = `<button class="btn btn-primary" onclick="document.getElementById('modal-audit').classList.remove('hidden');document.getElementById('aud-data').value=new Date().toISOString().split('T')[0];">+ Nova Auditoria</button>`;
+
+  document.getElementById('bpf-main-body').innerHTML = `
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>Data</th><th>Tipo</th><th>Auditor</th><th>Linha</th><th>Escopo</th><th>Resultado</th>
+        </tr></thead>
+        <tbody>
+          ${_auditorias.map(a=>`
+            <tr>
+              <td>${a.data||'—'}</td>
+              <td>${a.tipo||'Interna'}</td>
+              <td>${a.auditor||'—'}</td>
+              <td>${a.linha||'Todas'}</td>
+              <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${a.escopo||a.obs||'—'}</td>
+              <td><span class="badge badge-${a.resultado==='aprovado'?'success':a.resultado==='reprovado'?'danger':a.resultado==='agendada'?'info':'warning'}">${a.resultado||'agendada'}</span></td>
+            </tr>
+          `).join('') || '<tr><td colspan="6" style="text-align:center;padding:40px;color:#94a3b8;">Nenhuma auditoria registrada</td></tr>'}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+async function salvarAuditoria() {
+  const data = document.getElementById('aud-data').value;
+  if(!data) { toast('Informe a data','warning'); return; }
+  try {
+    const { error } = await _supabase.from('bpf_auditorias').insert({
+      tipo: document.getElementById('aud-tipo').value,
+      data,
+      auditor: document.getElementById('aud-auditor').value,
+      linha: document.getElementById('aud-linha').value,
+      escopo: document.getElementById('aud-obs').value,
+      resultado: document.getElementById('aud-result').value,
+    });
+    if(error) throw error;
+    toast('Auditoria registrada','success');
+    closeModal('modal-audit');
+    await loadData();
+    renderAuditoria();
+  } catch(e) { toast('Erro: ' + e.message,'danger'); }
+}
+
+// ═══════════════════════════════════════════════════════════
+// TREINAMENTOS
+// ═══════════════════════════════════════════════════════════
+function renderTreinamentos() {
+  document.getElementById('bpf-crumb').textContent = 'BPF';
+  document.getElementById('bpf-main-title').textContent = '🎓 Treinamentos';
+  document.getElementById('bpf-main-actions').innerHTML = `<button class="btn btn-primary" onclick="document.getElementById('modal-trein').classList.remove('hidden');document.getElementById('trein-data').value=new Date().toISOString().split('T')[0];">+ Novo Treinamento</button>`;
+
+  document.getElementById('bpf-main-body').innerHTML = `
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>Data</th><th>Procedimento</th><th>Instrutor</th><th>CH</th><th>Participantes</th><th>Conteúdo</th>
+        </tr></thead>
+        <tbody>
+          ${_treinamentos.map(t=>`
+            <tr>
+              <td>${t.data||'—'}</td>
+              <td>${t.procedimento_cod||'Geral'}</td>
+              <td>${t.instrutor_nome||'—'}</td>
+              <td>${t.carga_horaria||'—'}h</td>
+              <td><span class="badge badge-info">${t.num_participantes||0} part.</span></td>
+              <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${t.conteudo||'—'}</td>
+            </tr>
+          `).join('') || '<tr><td colspan="6" style="text-align:center;padding:40px;color:#94a3b8;">Nenhum treinamento registrado</td></tr>'}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function openModalTrein(procCod='') {
+  document.getElementById('trein-data').value = new Date().toISOString().split('T')[0];
+  if(procCod) document.getElementById('trein-proc').value = procCod;
+  document.getElementById('modal-trein').classList.remove('hidden');
+}
+
+async function salvarTreinamento() {
+  const data = document.getElementById('trein-data').value;
+  if(!data) { toast('Informe a data','warning'); return; }
+
+  const instrId = document.getElementById('trein-instr').value;
+  const instrNome = _funcs.find(f=>f.id==instrId)?.nome||'';
+  const partsEl = document.getElementById('trein-parts');
+  const parts = Array.from(partsEl.selectedOptions).map(o=>o.value);
+
+  try {
+    const { error } = await _supabase.from('bpf_treinamentos').insert({
+      procedimento_cod: document.getElementById('trein-proc').value||null,
+      data,
+      instrutor_id: instrId||null,
+      instrutor_nome: instrNome,
+      carga_horaria: parseInt(document.getElementById('trein-ch').value)||2,
+      participantes_ids: parts,
+      num_participantes: parts.length,
+      conteudo: document.getElementById('trein-obs').value,
+    });
+    if(error) throw error;
+    toast('Treinamento registrado','success');
+    closeModal('modal-trein');
+    await loadData();
+    renderTreinamentos();
+  } catch(e) { toast('Erro: ' + e.message,'danger'); }
+}
+
+// ═══════════════════════════════════════════════════════════
+// REGISTROS AUTOMÁTICOS
+// ═══════════════════════════════════════════════════════════
+function renderRegistros() {
+  document.getElementById('bpf-crumb').textContent = 'BPF';
+  document.getElementById('bpf-main-title').textContent = '📋 Registros Automáticos';
+  document.getElementById('bpf-main-actions').innerHTML = `<button class="btn btn-secondary btn-sm" onclick="loadIntegData().then(renderRegistros)">🔄 Atualizar</button>`;
+
+  const allLotes = _integData.producao || [];
+  const allOS    = _integData.os || [];
+  const allAnal  = _integData.analises || [];
+
+  document.getElementById('bpf-main-body').innerHTML = `
+    <div style="font-size:12px;color:#64748b;margin-bottom:16px;">Registros gerados automaticamente a partir dos módulos integrados. Filtro: <strong>Linha 2 e Longa Vida</strong>.</div>
+    
+    <div class="itabs">
+      <button class="itab-btn active" id="reg-tab-prod" onclick="showRegTab('prod',this)">⚙️ Produção (${allLotes.length})</button>
+      <button class="itab-btn" id="reg-tab-os" onclick="showRegTab('os',this)">🔧 Manutenção (${allOS.length})</button>
+      <button class="itab-btn" id="reg-tab-anal" onclick="showRegTab('anal',this)">🧪 Laboratório (${allAnal.length})</button>
+    </div>
+
+    <div id="reg-body-prod">
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Lote</th><th>Linha</th><th>Status</th><th>Data</th></tr></thead>
+          <tbody>
+            ${allLotes.map(p=>`<tr>
+              <td><strong>${p.lote||'—'}</strong></td><td>${p.linha||'—'}</td>
+              <td><span class="badge badge-${p.status==='concluido'?'success':p.status==='em_andamento'?'info':'gray'}">${p.status||'—'}</span></td>
+              <td>${p.created_at?.slice(0,10)||'—'}</td>
+            </tr>`).join('') || '<tr><td colspan="4" style="text-align:center;padding:30px;color:#94a3b8;">Nenhum lote encontrado</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div id="reg-body-os" class="hidden">
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Tipo</th><th>Linha</th><th>Status</th><th>Data</th></tr></thead>
+          <tbody>
+            ${allOS.map(o=>`<tr>
+              <td>${o.tipo||'—'}</td><td>${o.linha||'—'}</td>
+              <td><span class="badge badge-${o.status==='concluida'?'success':o.status==='aberta'?'danger':'warning'}">${o.status||'—'}</span></td>
+              <td>${o.created_at?.slice(0,10)||'—'}</td>
+            </tr>`).join('') || '<tr><td colspan="4" style="text-align:center;padding:30px;color:#94a3b8;">Nenhuma OS encontrada</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div id="reg-body-anal" class="hidden">
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Linha</th><th>Status</th><th>Data</th></tr></thead>
+          <tbody>
+            ${allAnal.map(a=>`<tr>
+              <td>${a.linha||'—'}</td>
+              <td><span class="badge badge-${a.status==='aprovado'?'success':a.status==='reprovado'?'danger':'warning'}">${a.status||'—'}</span></td>
+              <td>${a.created_at?.slice(0,10)||'—'}</td>
+            </tr>`).join('') || '<tr><td colspan="3" style="text-align:center;padding:30px;color:#94a3b8;">Nenhuma análise encontrada</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+function showRegTab(tab, btn) {
+  document.querySelectorAll('#bpf-main-body .itab-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  ['prod','os','anal'].forEach(t=>{
+    const el=document.getElementById(`reg-body-${t}`);
+    if(el) el.classList.toggle('hidden', t!==tab);
+  });
+}
+
+// ═══════════════════════════════════════════════════════════
+// UTILS
+// ═══════════════════════════════════════════════════════════
+function handleAnexo(input) {
+  const file = input.files[0];
+  if(!file) return;
+  const list = document.getElementById('anexos-list');
+  if(list) {
+    list.innerHTML += `
+      <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;margin-top:6px;font-size:12px;">
+        <span>${file.type.includes('pdf')?'📄':'🖼️'}</span>
+        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${file.name}</span>
+        <span style="color:#94a3b8;">${(file.size/1024).toFixed(0)} KB</span>
+      </div>
+    `;
+  }
+  toast('Arquivo selecionado: ' + file.name, 'info');
+}
+
+function filterTable(inputId, tbodyId, rowClass) {
+  const q = document.getElementById(inputId)?.value.toLowerCase()||'';
+  document.querySelectorAll(`.${rowClass}`).forEach(row=>{
+    row.style.display = row.textContent.toLowerCase().includes(q) ? '' : 'none';
+  });
+}
+
+// ═══════════════════════════════════════════════════════════
+// START
+// ═══════════════════════════════════════════════════════════
+init();
+</script>
+</body>
+</html>
