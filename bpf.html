@@ -1,0 +1,1647 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ERP Industrial — BPF</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/supabase.js"></script>
+<script src="js/utils.js"></script>
+<style>
+.bpf-page-hdr{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;flex-wrap:wrap;gap:12px;}
+.bpf-page-hdr h1{font-size:20px;font-weight:800;color:var(--primary);line-height:1.2;}
+.bpf-page-hdr p{font-size:12px;color:#64748b;margin-top:4px;line-height:1.5;}
+.bpf-hdr-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;flex-shrink:0;}
+
+.bpf-layout{display:grid;grid-template-columns:272px 1fr;min-height:calc(100vh - var(--topbar-h) - 80px);border-radius:14px;border:1.5px solid #e2e8f0;background:#fff;overflow:hidden;}
+.bpf-nav{background:#f8fafc;border-right:1.5px solid #e2e8f0;display:flex;flex-direction:column;}
+.bpf-nav-top{padding:16px 14px 12px;border-bottom:1.5px solid #e2e8f0;background:#fff;}
+.bpf-nav-title{font-size:10px;font-weight:800;color:var(--primary);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;}
+.bpf-search{position:relative;}
+.bpf-search input{width:100%;padding:8px 10px 8px 30px;border:1.2px solid #e2e8f0;border-radius:8px;font-family:inherit;font-size:12px;background:#f8fafc;outline:none;transition:border .15s;}
+.bpf-search input:focus{border-color:var(--primary);background:#fff;}
+.bpf-search-icon{position:absolute;left:9px;top:50%;transform:translateY(-50%);font-size:12px;color:#94a3b8;}
+.bpf-nav-list{flex:1;overflow-y:auto;padding:6px 0;}
+.bpf-nav-list::-webkit-scrollbar{width:3px;}
+.bpf-nav-list::-webkit-scrollbar-thumb{background:rgba(4,45,77,.15);border-radius:3px;}
+.bpf-nav-sec{padding:8px 14px 3px;font-size:10px;font-weight:800;color:#94a3b8;text-transform:uppercase;letter-spacing:.8px;}
+.bpf-nav-item{display:flex;align-items:center;gap:8px;padding:8px 14px;cursor:pointer;font-size:12px;font-weight:500;color:#475569;border-left:3px solid transparent;transition:all .14s;}
+.bpf-nav-item:hover{background:#eff6ff;color:var(--primary);}
+.bpf-nav-item.active{background:#e0f2fe;color:var(--primary);font-weight:700;border-left-color:var(--primary);}
+.ni-code{font-size:10px;font-weight:800;color:#94a3b8;font-family:monospace;line-height:1;}
+.bpf-nav-item.active .ni-code{color:var(--primary);}
+.ni-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11.5px;}
+.ni-badge{font-size:9px;font-weight:800;padding:2px 5px;border-radius:8px;flex-shrink:0;}
+.nib-v{background:#dcfce7;color:#16a34a;}
+.nib-r{background:#fef9c3;color:#b45309;}
+.nib-o{background:#fee2e2;color:#be123c;}
+
+.bpf-main{display:flex;flex-direction:column;overflow:hidden;}
+.bpf-main-hdr{padding:18px 22px 14px;border-bottom:1.5px solid #e2e8f0;display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;}
+.bpf-main-body{flex:1;overflow-y:auto;padding:22px;}
+.bpf-main-body::-webkit-scrollbar{width:4px;}
+.bpf-main-body::-webkit-scrollbar-thumb{background:rgba(4,45,77,.1);border-radius:4px;}
+
+.doc-meta{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;background:#f8fafc;border-radius:10px;padding:14px;border:1.5px solid #e2e8f0;margin-bottom:18px;}
+.doc-meta-item label{font-size:10px;font-weight:800;color:#94a3b8;text-transform:uppercase;letter-spacing:.4px;display:block;margin-bottom:2px;}
+.doc-meta-item span{font-size:12.5px;font-weight:600;color:var(--primary);}
+
+.sign-tabs{display:flex;border-bottom:2px solid #e2e8f0;margin-bottom:20px;overflow-x:auto;gap:0;}
+.sign-tab-btn{padding:9px 18px;background:none;border:none;font-family:inherit;font-size:12.5px;font-weight:600;cursor:pointer;color:#64748b;border-bottom:2.5px solid transparent;margin-bottom:-2px;transition:all .15s;white-space:nowrap;display:flex;align-items:center;gap:6px;}
+.sign-tab-btn.active{color:var(--primary);border-bottom-color:var(--primary);}
+.sign-tab-body{display:none;}
+.sign-tab-body.active{display:block;}
+
+.bpf-table-wrap{overflow-x:auto;border-radius:10px;border:1px solid #e2e8f0;margin-bottom:16px;}
+
+/* Status */
+.st-pendente{background:#fef9c3;color:#b45309;}
+.st-parcial{background:#dbeafe;color:#1d4ed8;}
+.st-finalizado{background:#dcfce7;color:#16a34a;}
+.st-vencido{background:#ffe4e6;color:#be123c;}
+.st-aguardando{background:#f1f5f9;color:#475569;}
+
+/* Checklist */
+.chk-section{background:#f8fafc;border-radius:10px;padding:14px;border:1.5px solid #e2e8f0;margin-bottom:12px;}
+.chk-section-title{font-size:11px;font-weight:800;color:var(--primary);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;}
+.chk-row{display:flex;align-items:flex-start;gap:10px;padding:8px 10px;border-radius:8px;border:1px solid #e2e8f0;margin-bottom:6px;background:#fff;transition:background .12s;}
+.chk-row:last-child{margin-bottom:0;}
+.chk-label{flex:1;font-size:13px;color:#374151;line-height:1.4;}
+.chk-opts{display:flex;gap:8px;flex-shrink:0;}
+.chk-radio{display:flex;align-items:center;gap:4px;font-size:12px;font-weight:600;cursor:pointer;padding:3px 8px;border-radius:6px;border:1.2px solid #e2e8f0;transition:all .12s;}
+.chk-radio:hover{border-color:var(--primary);}
+.chk-radio input{width:14px;height:14px;accent-color:var(--primary);cursor:pointer;}
+.chk-radio.sim-sel{background:#dcfce7;border-color:#86efac;color:#166534;}
+.chk-radio.nao-sel{background:#ffe4e6;border-color:#fca5a5;color:#be123c;}
+
+.notas-fixas{background:#fef9c3;border:1.5px solid #fde047;border-radius:10px;padding:14px;margin-bottom:16px;}
+.notas-fixas-title{font-size:11px;font-weight:800;color:#854d0e;text-transform:uppercase;margin-bottom:8px;display:flex;align-items:center;gap:6px;}
+.notas-fixas ol{padding-left:18px;font-size:12.5px;color:#78350f;line-height:1.7;margin:0;}
+
+.sign-area{border:1.5px dashed #cbd5e1;border-radius:10px;background:#f8fafc;cursor:crosshair;touch-action:none;display:block;}
+.sign-area:hover{border-color:var(--primary);}
+.sign-preview{border-radius:8px;border:1.2px solid #e2e8f0;background:#f8fafc;max-width:100%;display:block;}
+.sign-placeholder{border:1.5px dashed #e2e8f0;border-radius:10px;padding:20px;text-align:center;cursor:pointer;transition:all .15s;background:#f8fafc;}
+.sign-placeholder:hover{border-color:var(--primary);background:#eff6ff;}
+
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;margin-bottom:18px;}
+.kpi-card{background:#fff;border-radius:10px;padding:14px;border:1.5px solid #e2e8f0;text-align:center;transition:all .15s;}
+.kpi-card:hover{border-color:var(--primary);box-shadow:0 3px 12px rgba(4,45,77,.1);}
+.kpi-icon{font-size:22px;margin-bottom:5px;}
+.kpi-val{font-size:22px;font-weight:800;color:var(--primary);}
+.kpi-lbl{font-size:11px;color:#64748b;font-weight:600;margin-top:2px;}
+
+/* Upload area */
+.upload-drop{border:2px dashed #cbd5e1;border-radius:10px;padding:28px;text-align:center;cursor:pointer;transition:all .15s;background:#f8fafc;}
+.upload-drop:hover{border-color:var(--primary);background:#eff6ff;}
+.upload-item{display:flex;align-items:center;gap:10px;padding:9px 12px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;margin-top:8px;font-size:12px;}
+.upload-item-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+
+@media(max-width:768px){
+  .bpf-layout{grid-template-columns:1fr;}
+  .bpf-nav{display:none;position:fixed;inset:0;z-index:200;width:290px;border-radius:0;}
+  .bpf-nav.mob-open{display:flex;}
+  .bpf-page-hdr h1{font-size:16px;}
+  .doc-meta{grid-template-columns:1fr 1fr;}
+  .kpi-grid{grid-template-columns:repeat(2,1fr);}
+  .bpf-mob-toggle{display:flex!important;}
+}
+.bpf-mob-toggle{display:none;background:var(--primary);color:#fff;border:none;border-radius:8px;padding:8px 12px;font-size:12px;cursor:pointer;align-items:center;gap:5px;font-family:inherit;font-weight:700;}
+</style>
+</head>
+<body>
+<div id="sidebar-container"></div>
+<header class="topbar" id="topbar">
+  <button class="topbar-open-sidebar" onclick="toggleSidebar()">☰</button>
+  <div class="topbar-title">BPF</div>
+  <div class="topbar-right">
+    <div class="topbar-user">
+      <div class="user-avatar" style="width:32px;height:32px;font-size:12px;" id="top-avatar">SA</div>
+      <div><div class="topbar-user-name" id="top-user-name">Super Admin</div><div class="topbar-user-profile" id="top-user-perfil">SADM</div></div>
+    </div>
+    <button class="btn btn-ghost btn-sm" onclick="doLogout()" style="color:#64748b;">Sair</button>
+  </div>
+</header>
+
+<main class="main-content" id="main-content">
+  <div class="bpf-page-hdr">
+    <div>
+      <h1>BPF — Boas Práticas de Fabricação</h1>
+      <p>Linha 2 · Longa Vida &nbsp;|&nbsp; Documentação, POP/PAC, Auditorias e Não Conformidades</p>
+    </div>
+    <div class="bpf-hdr-actions">
+      <button class="bpf-mob-toggle" onclick="document.getElementById('bpf-nav').classList.toggle('mob-open')">☰ POPs</button>
+      <button class="btn btn-secondary btn-sm" id="hbtn-dash"  onclick="showSection('dashboard')">📊 Dashboard</button>
+      <button class="btn btn-secondary btn-sm" id="hbtn-nc"    onclick="showSection('nc')">⚠️ NCs</button>
+      <button class="btn btn-secondary btn-sm" id="hbtn-aud"   onclick="showSection('auditoria')">🔍 Auditorias</button>
+      <button class="btn btn-secondary btn-sm" id="hbtn-trein" onclick="showSection('treinamentos')">🎓 Treinamentos</button>
+      <button class="btn btn-secondary btn-sm" id="hbtn-docs"  onclick="showSection('documentos')">📎 Documentos</button>
+    </div>
+  </div>
+
+  <div class="bpf-layout">
+    <div class="bpf-nav" id="bpf-nav">
+      <div class="bpf-nav-top">
+        <div class="bpf-nav-title">📁 POP / PAC — SIL</div>
+        <div class="bpf-search">
+          <span class="bpf-search-icon">🔍</span>
+          <input type="text" id="bpf-srch" placeholder="Buscar procedimento..." oninput="filterNav(this.value)">
+        </div>
+      </div>
+      <div class="bpf-nav-list" id="bpf-nav-list"></div>
+    </div>
+
+    <div class="bpf-main">
+      <div class="bpf-main-hdr">
+        <div>
+          <div style="font-size:10px;color:#94a3b8;font-weight:800;text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px;" id="bpf-crumb">BPF</div>
+          <div style="font-size:17px;font-weight:800;color:var(--primary);" id="bpf-title">Dashboard BPF</div>
+        </div>
+        <div id="bpf-actions" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
+      </div>
+      <div class="bpf-main-body" id="bpf-body"></div>
+    </div>
+  </div>
+</main>
+
+<!-- ═══ MODAL: CHECKLIST SIL002 (dados vêm do almoxarifado) ══ -->
+<div class="modal-overlay hidden" id="modal-sil002" onclick="if(event.target===this)closeModal('modal-sil002')">
+  <div class="modal modal-lg" style="max-width:680px;">
+    <div class="modal-header">
+      <div class="modal-title" id="modal-sil002-title">📋 SIL002 — Checklist de Recebimento</div>
+      <button class="modal-close" onclick="closeModal('modal-sil002')">✕</button>
+    </div>
+    <div id="modal-sil002-body"></div>
+  </div>
+</div>
+
+<!-- ═══ MODAL: ASSINATURA DIGITAL ═══════════════════════════ -->
+<div class="modal-overlay hidden" id="modal-sign" onclick="if(event.target===this)fecharModalSign()">
+  <div class="modal" style="max-width:480px;">
+    <div class="modal-header">
+      <div class="modal-title" id="sign-modal-title">✍️ Assinatura Digital</div>
+      <button class="modal-close" onclick="fecharModalSign()">✕</button>
+    </div>
+    <div id="sign-modal-extra"></div>
+    <div style="font-size:12px;color:#64748b;margin-bottom:10px;">Assine no espaço abaixo usando o mouse ou toque.</div>
+    <canvas id="sign-canvas" class="sign-area" width="420" height="160" style="width:100%;"></canvas>
+    <div style="display:flex;gap:8px;margin-top:10px;">
+      <button class="btn btn-secondary btn-sm" onclick="limparCanvas()">🗑️ Limpar</button>
+      <button class="btn btn-primary" style="margin-left:auto;" onclick="confirmarAssinatura()">✅ Confirmar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ MODAL: NC ════════════════════════════════════════════ -->
+<div class="modal-overlay hidden" id="modal-nc" onclick="if(event.target===this)closeModal('modal-nc')">
+  <div class="modal modal-lg">
+    <div class="modal-header"><div class="modal-title">⚠️ Nova Não Conformidade</div><button class="modal-close" onclick="closeModal('modal-nc')">✕</button></div>
+    <div class="form-grid-2" style="gap:14px;">
+      <div class="form-group"><label class="form-label">Procedimento</label><select id="nc-proc" class="form-input"></select></div>
+      <div class="form-group"><label class="form-label">Data<span class="req">*</span></label><input type="date" id="nc-data" class="form-input"></div>
+      <div class="form-group"><label class="form-label">Linha</label><select id="nc-linha" class="form-input"><option value="">Todas</option><option>Linha 2</option><option>Longa Vida</option></select></div>
+      <div class="form-group"><label class="form-label">Gravidade</label><select id="nc-grav" class="form-input"><option value="baixa">Baixa</option><option value="media">Média</option><option value="alta">Alta</option><option value="critica">Crítica</option></select></div>
+      <div class="form-group" style="grid-column:1/-1"><label class="form-label">Descrição<span class="req">*</span></label><textarea id="nc-desc" class="form-input" rows="3"></textarea></div>
+      <div class="form-group" style="grid-column:1/-1"><label class="form-label">Ação Corretiva</label><textarea id="nc-acao" class="form-input" rows="2"></textarea></div>
+      <div class="form-group"><label class="form-label">Responsável</label><select id="nc-resp" class="form-input"></select></div>
+      <div class="form-group"><label class="form-label">Prazo</label><input type="date" id="nc-prazo" class="form-input"></div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('modal-nc')">Cancelar</button><button class="btn btn-primary" onclick="salvarNC()">Salvar NC</button></div>
+  </div>
+</div>
+
+<!-- ═══ MODAL: AUDITORIA ═════════════════════════════════════ -->
+<div class="modal-overlay hidden" id="modal-aud" onclick="if(event.target===this)closeModal('modal-aud')">
+  <div class="modal modal-lg">
+    <div class="modal-header"><div class="modal-title">🔍 Nova Auditoria</div><button class="modal-close" onclick="closeModal('modal-aud')">✕</button></div>
+    <div class="form-grid-2" style="gap:14px;">
+      <div class="form-group"><label class="form-label">Tipo</label><select id="aud-tipo" class="form-input"><option>Interna</option><option>Externa</option><option>Vigilância Sanitária</option></select></div>
+      <div class="form-group"><label class="form-label">Data<span class="req">*</span></label><input type="date" id="aud-data" class="form-input"></div>
+      <div class="form-group"><label class="form-label">Auditor</label><input type="text" id="aud-auditor" class="form-input"></div>
+      <div class="form-group"><label class="form-label">Linha</label><select id="aud-linha" class="form-input"><option value="">Todas</option><option>Linha 2</option><option>Longa Vida</option></select></div>
+      <div class="form-group" style="grid-column:1/-1"><label class="form-label">Escopo / Observações</label><textarea id="aud-obs" class="form-input" rows="3"></textarea></div>
+      <div class="form-group"><label class="form-label">Resultado</label><select id="aud-result" class="form-input"><option value="aprovado">Aprovado</option><option value="aprovado_ressalvas">Aprovado c/ Ressalvas</option><option value="reprovado">Reprovado</option><option value="agendada">Agendada</option></select></div>
+      <div class="form-group"><label class="form-label">Vincular Registro SIL002</label><select id="aud-reg002" class="form-input"><option value="">Nenhum</option></select></div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('modal-aud')">Cancelar</button><button class="btn btn-primary" onclick="salvarAuditoria()">Salvar</button></div>
+  </div>
+</div>
+
+<!-- ═══ MODAL: TREINAMENTO ═══════════════════════════════════ -->
+<div class="modal-overlay hidden" id="modal-trein" onclick="if(event.target===this)closeModal('modal-trein')">
+  <div class="modal modal-lg">
+    <div class="modal-header"><div class="modal-title">🎓 Novo Treinamento</div><button class="modal-close" onclick="closeModal('modal-trein')">✕</button></div>
+    <div class="form-grid-2" style="gap:14px;">
+      <div class="form-group"><label class="form-label">Procedimento</label><select id="trein-proc" class="form-input"></select></div>
+      <div class="form-group"><label class="form-label">Data<span class="req">*</span></label><input type="date" id="trein-data" class="form-input"></div>
+      <div class="form-group"><label class="form-label">Instrutor</label><select id="trein-instr" class="form-input"></select></div>
+      <div class="form-group"><label class="form-label">Carga Horária (h)</label><input type="number" id="trein-ch" class="form-input" value="2" min="1"></div>
+      <div class="form-group" style="grid-column:1/-1"><label class="form-label">Participantes (Ctrl+clique)</label><select id="trein-parts" class="form-input" multiple style="height:80px;"></select></div>
+      <div class="form-group" style="grid-column:1/-1"><label class="form-label">Conteúdo</label><textarea id="trein-obs" class="form-input" rows="2"></textarea></div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('modal-trein')">Cancelar</button><button class="btn btn-primary" onclick="salvarTreinamento()">Salvar</button></div>
+  </div>
+</div>
+
+<!-- ═══ MODAL: STATUS PROCEDIMENTO ══════════════════════════ -->
+<div class="modal-overlay hidden" id="modal-proc-status" onclick="if(event.target===this)closeModal('modal-proc-status')">
+  <div class="modal" style="max-width:400px;">
+    <div class="modal-header"><div class="modal-title">⚙️ Alterar Status do Procedimento</div><button class="modal-close" onclick="closeModal('modal-proc-status')">✕</button></div>
+    <input type="hidden" id="ps-cod">
+    <div class="form-group" style="margin-bottom:16px;">
+      <label class="form-label">Procedimento</label>
+      <div id="ps-nome" style="font-size:13px;font-weight:700;color:var(--primary);padding:8px 0;"></div>
+    </div>
+    <div class="form-group" style="margin-bottom:16px;">
+      <label class="form-label">Status</label>
+      <select id="ps-status" class="form-input">
+        <option value="vigente">✅ Vigente</option>
+        <option value="revisao">🔄 Em Revisão</option>
+        <option value="nao_vigente">🚫 Não Vigente</option>
+        <option value="obsoleto">⬛ Obsoleto</option>
+      </select>
+    </div>
+    <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('modal-proc-status')">Cancelar</button><button class="btn btn-primary" onclick="salvarStatusProc()">Salvar</button></div>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+// ESTADO GLOBAL
+// ═══════════════════════════════════════════════════════════════
+const LINHAS_BPF = ['Linha 2', 'Longa Vida'];
+const EMBALAGENS_BPF = ['Embalagem Caulim 25kg', 'Big Bag'];
+
+let _empresa = { nome_fantasia:'ERP Industrial', razao_social:'', logo:null };
+let _funcs = [], _ncs = [], _auditorias = [], _treinamentos = [], _documentos = [];
+let _movEmbal = [], _itensAlmox = [], _registros002 = [];
+let _currentProc = null;
+let _editingId = null;
+let _signTarget = null;
+let _signCanvas, _signCtx, _signDrawing = false;
+
+// Status dos procedimentos (persistido via localStorage)
+function loadProcStatus() {
+  try { return JSON.parse(localStorage.getItem('bpf_proc_status') || '{}'); } catch { return {}; }
+}
+function saveProcStatus(cod, status) {
+  const s = loadProcStatus(); s[cod] = status;
+  localStorage.setItem('bpf_proc_status', JSON.stringify(s));
+}
+function getProcStatus(cod, defaultSt) {
+  return loadProcStatus()[cod] || defaultSt;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// PROCEDIMENTOS
+// ═══════════════════════════════════════════════════════════════
+const PROCS_BASE = [
+  { cod:'SIL001', nome:'Controle da matéria prima',                              rev:'02', setor:'Qualidade',    status:'vigente' },
+  { cod:'SIL002', nome:'Controle das embalagens',                                rev:'02', setor:'Qualidade',    status:'vigente', impl:true },
+  { cod:'SIL003', nome:'Limpeza da área de produção e estocagem',                rev:'01', setor:'Produção',     status:'vigente' },
+  { cod:'SIL004', nome:'Uso do uniforme e EPIs',                                 rev:'03', setor:'Segurança',    status:'vigente' },
+  { cod:'SIL005', nome:'Critérios para higiene pessoal e hábitos higiênicos',    rev:'01', setor:'RH',           status:'vigente' },
+  { cod:'SIL006', nome:'Limpeza da caixa d\'água',                               rev:'01', setor:'Manutenção',   status:'vigente' },
+  { cod:'SIL007', nome:'Bloqueio de contaminação cruzada',                       rev:'02', setor:'Qualidade',    status:'vigente' },
+  { cod:'SIL008', nome:'Controle integrado de pragas',                           rev:'01', setor:'Qualidade',    status:'vigente' },
+  { cod:'SIL009', nome:'Controle de resíduos',                                   rev:'01', setor:'Produção',     status:'vigente' },
+  { cod:'SIL010', nome:'Programação da produção e formação dos lotes',           rev:'03', setor:'Produção',     status:'vigente' },
+  { cod:'SIL011', nome:'Recolhimento de lotes por recall',                       rev:'02', setor:'Qualidade',    status:'vigente' },
+  { cod:'SIL012', nome:'Amostragem dos produtos',                                rev:'01', setor:'Laboratório',  status:'vigente' },
+  { cod:'SIL013', nome:'Controle de Qualidade do Produto',                       rev:'02', setor:'Laboratório',  status:'vigente' },
+  { cod:'SIL014', nome:'Qualificação de fornecedores de embalagens',             rev:'01', setor:'Qualidade',    status:'vigente' },
+  { cod:'SIL015', nome:'Aferição da ensacadeira',                                rev:'01', setor:'Manutenção',   status:'vigente' },
+  { cod:'SIL016', nome:'Potabilidade da água',                                   rev:'02', setor:'Qualidade',    status:'revisao'  },
+  { cod:'SIL017', nome:'Inspeção e limpeza de Big Bags para reutilização',       rev:'01', setor:'Produção',     status:'vigente' },
+  { cod:'SIL018', nome:'Padrão para manutenção',                                 rev:'02', setor:'Manutenção',   status:'vigente' },
+  { cod:'SIL019', nome:'Registro e tratamento de reclamações de clientes',       rev:'01', setor:'Qualidade',    status:'vigente' },
+  { cod:'SIL020', nome:'Lacração/rotulagem de Big Bags',                         rev:'01', setor:'Produção',     status:'vigente' },
+  { cod:'SIL021', nome:'Elaboração do cronograma de treinamentos e auditorias',  rev:'01', setor:'Qualidade',    status:'vigente' },
+];
+
+function getProcs() {
+  const saved = loadProcStatus();
+  return PROCS_BASE.map(p => ({ ...p, status: saved[p.cod] || p.status }));
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SIDEBAR + INIT
+// ═══════════════════════════════════════════════════════════════
+fetch('partials/sidebar.html').then(r=>r.text()).then(html=>{
+  document.getElementById('sidebar-container').innerHTML = html;
+  document.querySelector('[href="bpf.html"]')?.classList.add('active');
+  openGroup('qualidade');
+});
+initSidebar('bpf.html');
+
+async function init() {
+  renderNavList();
+  await loadData();
+  showSection('dashboard');
+}
+
+async function loadData() {
+  const safe = async q => { try { const r = await q; return r.data || []; } catch { return []; } };
+
+  const [fn, nc, aud, trein, itens, movs, docs] = await Promise.all([
+    safe(_supabase.from('funcionarios').select('id,nome,funcao').eq('status','ativo').order('nome')),
+    safe(_supabase.from('bpf_ncs').select('*').order('created_at',{ascending:false})),
+    safe(_supabase.from('bpf_auditorias').select('*').order('data',{ascending:false})),
+    safe(_supabase.from('bpf_treinamentos').select('*').order('data',{ascending:false})),
+    safe(_supabase.from('almoxarifado').select('*').order('nome')),
+    safe(_supabase.from('almoxarifado_movimentos').select('*').eq('tipo','entrada').order('data',{ascending:false}).limit(1000)),
+    safe(_supabase.from('bpf_documentos').select('*').order('created_at',{ascending:false})),
+  ]);
+
+  _funcs = fn; _ncs = nc; _auditorias = aud; _treinamentos = trein;
+  _itensAlmox = itens; _documentos = docs;
+
+  const empR = await _supabase.from('empresa_config').select('*').limit(1).maybeSingle();
+  if (empR.data) _empresa = empR.data;
+
+  // Filtrar movimentos de entrada das embalagens BPF
+  const idsEmbal = itens
+    .filter(i => EMBALAGENS_BPF.some(e => (i.nome||'').toLowerCase().includes(e.toLowerCase().split(' ')[0])))
+    .map(i => i.id);
+  _movEmbal = movs.filter(m => idsEmbal.includes(m.insumo_id));
+
+  // Sincronizar: garantir que cada movimento do almoxarifado existe em bpf_sil002_registros
+  await syncRegistros002();
+
+  // Recarregar registros após sync
+  _registros002 = await safe(
+    _supabase.from('bpf_sil002_registros').select('*').order('data',{ascending:false}).order('hora',{ascending:false})
+  );
+
+  populateSelectsGlobais();
+}
+
+// Sincroniza automaticamente movimentos do almoxarifado → bpf_sil002_registros
+async function syncRegistros002() {
+  if (!_movEmbal.length) return;
+  try {
+    // Buscar IDs de movimentos já sincronizados
+    const { data: existentes } = await _supabase
+      .from('bpf_sil002_registros')
+      .select('almoxarifado_movimento_id')
+      .not('almoxarifado_movimento_id', 'is', null);
+
+    const jaSync = new Set((existentes||[]).map(r => r.almoxarifado_movimento_id));
+
+    // Inserir apenas os novos
+    const novos = _movEmbal.filter(m => !jaSync.has(m.id)).map(m => {
+      const item = _itensAlmox.find(i => i.id === m.insumo_id);
+      return {
+        almoxarifado_movimento_id: m.id,
+        data:      m.data || new Date().toISOString().split('T')[0],
+        hora:      m.hora || null,
+        embalagem: item?.nome || null,
+        lote:      m.lote || null,
+        danfe:     m.nota_fiscal || null,
+        quantidade: m.quantidade || null,
+        fornecedor: m.fornecedor_destino || null,
+        responsavel_almox: m.responsavel || null,
+        status:    'pendente',
+      };
+    });
+
+    if (novos.length) {
+      await _supabase.from('bpf_sil002_registros').insert(novos);
+    }
+  } catch(e) {
+    console.warn('Sync SIL002:', e.message);
+  }
+}
+
+function populateSelectsGlobais() {
+  const fOpts = _funcs.map(f=>`<option value="${f.id}" data-funcao="${f.funcao||''}">${f.nome}${f.funcao?' — '+f.funcao:''}</option>`).join('');
+  const pOpts = getProcs().map(p=>`<option value="${p.cod}">${p.cod} — ${p.nome}</option>`).join('');
+  const rOpts = _registros002.map(r=>`<option value="${r.id}">${r.embalagem||'—'} · ${fmtDH(r.data,r.hora)} · ${r.executante_nome||'—'}</option>`).join('');
+
+  setOpts('nc-resp','<option value="">Selecione...</option>'+fOpts);
+  setOpts('trein-instr','<option value="">Selecione...</option>'+fOpts);
+  setOpts('trein-parts', fOpts);
+  setOpts('nc-proc','<option value="">Selecione...</option>'+pOpts);
+  setOpts('trein-proc','<option value="">Geral</option>'+pOpts);
+  setOpts('aud-reg002','<option value="">Nenhum</option>'+rOpts);
+}
+
+function setOpts(id, html) { const el=document.getElementById(id); if(el) el.innerHTML=html; }
+
+// ═══════════════════════════════════════════════════════════════
+// NAV
+// ═══════════════════════════════════════════════════════════════
+function renderNavList(filter='') {
+  const procs = getProcs();
+  const filtered = filter
+    ? procs.filter(p=>p.cod.toLowerCase().includes(filter.toLowerCase())||p.nome.toLowerCase().includes(filter.toLowerCase()))
+    : procs;
+
+  const stIcon = { vigente:'nib-v', revisao:'nib-r', nao_vigente:'nib-o', obsoleto:'nib-o' };
+  const stLbl  = { vigente:'V', revisao:'R', nao_vigente:'NV', obsoleto:'OB' };
+
+  document.getElementById('bpf-nav-list').innerHTML =
+    `<div class="bpf-nav-sec">Procedimentos (${filtered.length})</div>` +
+    filtered.map(p=>`
+      <div class="bpf-nav-item ${_currentProc===p.cod?'active':''}" id="ni-${p.cod}" onclick="showProc('${p.cod}')">
+        <div style="flex:1;min-width:0;">
+          <div class="ni-code">${p.cod}${p.impl?' ✦':''}</div>
+          <div class="ni-name">${p.nome}</div>
+        </div>
+        <span class="ni-badge ${stIcon[p.status]||'nib-v'}">${stLbl[p.status]||'V'}</span>
+      </div>`).join('');
+}
+
+function filterNav(val) { renderNavList(val); }
+
+// ═══════════════════════════════════════════════════════════════
+// SEÇÕES GLOBAIS
+// ═══════════════════════════════════════════════════════════════
+function showSection(sec) {
+  _currentProc = null;
+  renderNavList();
+  ['hbtn-dash','hbtn-nc','hbtn-aud','hbtn-trein','hbtn-docs'].forEach(id=>{
+    const el=document.getElementById(id); if(el) el.className='btn btn-secondary btn-sm';
+  });
+  const map={dashboard:'hbtn-dash',nc:'hbtn-nc',auditoria:'hbtn-aud',treinamentos:'hbtn-trein',documentos:'hbtn-docs'};
+  if(map[sec]) document.getElementById(map[sec]).className='btn btn-primary btn-sm';
+
+  if(sec==='dashboard')    renderDashboard();
+  else if(sec==='nc')      renderNC();
+  else if(sec==='auditoria') renderAuditoria();
+  else if(sec==='treinamentos') renderTreinamentos();
+  else if(sec==='documentos')   renderDocumentos();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// DASHBOARD
+// ═══════════════════════════════════════════════════════════════
+function renderDashboard() {
+  setHdr('BPF','Dashboard BPF','');
+  const procs = getProcs();
+  const vigentes = procs.filter(p=>p.status==='vigente').length;
+  const revisao  = procs.filter(p=>p.status==='revisao').length;
+  const naoVig   = procs.filter(p=>p.status==='nao_vigente'||p.status==='obsoleto').length;
+  const ncsAb    = _ncs.filter(n=>n.status!=='encerrado').length;
+  const mesAtual = new Date().toISOString().slice(0,7);
+  const treinMes = _treinamentos.filter(t=>t.data?.slice(0,7)===mesAtual).length;
+  const pendReg  = _registros002.filter(r=>!r.assinatura_executante).length;
+
+  setBdy(`
+    <div class="kpi-grid">
+      <div class="kpi-card"><div class="kpi-icon">📄</div><div class="kpi-val">${PROCS_BASE.length}</div><div class="kpi-lbl">Total POP/PAC</div></div>
+      <div class="kpi-card"><div class="kpi-icon">✅</div><div class="kpi-val" style="color:#16a34a;">${vigentes}</div><div class="kpi-lbl">Vigentes</div></div>
+      <div class="kpi-card" style="${revisao?'border-color:#f59e0b;':''}"><div class="kpi-icon">🔄</div><div class="kpi-val" style="color:${revisao?'#b45309':'#64748b'};">${revisao}</div><div class="kpi-lbl">Em Revisão</div></div>
+      <div class="kpi-card" style="${naoVig?'border-color:#ef4444;':''}"><div class="kpi-icon">🚫</div><div class="kpi-val" style="color:${naoVig?'#be123c':'#64748b'};">${naoVig}</div><div class="kpi-lbl">Não Vigentes</div></div>
+      <div class="kpi-card" style="${ncsAb?'border-color:#ef4444;':''}"><div class="kpi-icon">⚠️</div><div class="kpi-val" style="color:${ncsAb?'#dc2626':'#64748b'};">${ncsAb}</div><div class="kpi-lbl">NCs Abertas</div></div>
+      <div class="kpi-card" style="${pendReg?'border-color:#f59e0b;':''}"><div class="kpi-icon">✍️</div><div class="kpi-val" style="color:${pendReg?'#b45309':'#64748b'};">${pendReg}</div><div class="kpi-lbl">SIL002 Pendentes</div></div>
+      <div class="kpi-card"><div class="kpi-icon">🎓</div><div class="kpi-val">${treinMes}</div><div class="kpi-lbl">Treinamentos (mês)</div></div>
+    </div>
+    ${revisao?`<div class="alert alert-warning">🔄 <strong>${revisao} procedimento(s) em revisão</strong></div>`:''}
+    ${ncsAb  ?`<div class="alert alert-danger">⚠️ <strong>${ncsAb} NC(s) em aberto</strong></div>`:''}
+    ${pendReg?`<div class="alert alert-warning">✍️ <strong>${pendReg} registro(s) SIL002 sem assinatura do executante</strong> — <a href="#" onclick="showProc('SIL002')" style="color:#b45309;text-decoration:underline;">abrir SIL002</a></div>`:''}
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:4px;">
+      <div class="card" style="padding:16px;">
+        <div style="font-size:11px;font-weight:800;color:var(--primary);text-transform:uppercase;margin-bottom:10px;">📋 Últimas NCs</div>
+        ${_ncs.slice(0,5).map(n=>`
+          <div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid #f1f5f9;font-size:12px;">
+            <div style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${n.procedimento_cod||'—'} — ${n.descricao?.slice(0,45)||'—'}</div>
+            <span class="badge badge-${n.status==='encerrado'?'success':'danger'}" style="font-size:10px;">${n.status||'aberta'}</span>
+          </div>`).join('')||'<div style="color:#94a3b8;font-size:12px;padding:10px 0;text-align:center;">Nenhuma NC</div>'}
+      </div>
+      <div class="card" style="padding:16px;">
+        <div style="font-size:11px;font-weight:800;color:var(--primary);text-transform:uppercase;margin-bottom:10px;">📦 Últimos recebimentos SIL002</div>
+        ${_registros002.slice(0,5).map(r=>`
+          <div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid #f1f5f9;font-size:12px;">
+            <div style="flex:1;">${r.embalagem||'—'} <span style="color:#94a3b8;font-size:11px;">${r.data||''}</span></div>
+            <span class="badge ${badgeSt(r.status)}" style="font-size:10px;">${stLabel(r.status)}</span>
+          </div>`).join('')||'<div style="color:#94a3b8;font-size:12px;padding:10px 0;text-align:center;">Nenhum registro</div>'}
+      </div>
+    </div>
+  `);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// PROC: showProc
+// ═══════════════════════════════════════════════════════════════
+function showProc(cod) {
+  _currentProc = cod;
+  renderNavList();
+  ['hbtn-dash','hbtn-nc','hbtn-aud','hbtn-trein','hbtn-docs'].forEach(id=>{
+    const el=document.getElementById(id); if(el) el.className='btn btn-secondary btn-sm';
+  });
+  cod==='SIL002' ? renderSIL002() : renderProcGenerico(cod);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ALTERAR STATUS DO PROCEDIMENTO
+// ═══════════════════════════════════════════════════════════════
+function abrirModalStatus(cod) {
+  const proc = getProcs().find(p=>p.cod===cod);
+  document.getElementById('ps-cod').value = cod;
+  document.getElementById('ps-nome').textContent = `${proc.cod} — ${proc.nome}`;
+  document.getElementById('ps-status').value = proc.status;
+  document.getElementById('modal-proc-status').classList.remove('hidden');
+}
+
+function salvarStatusProc() {
+  const cod = document.getElementById('ps-cod').value;
+  const st  = document.getElementById('ps-status').value;
+  saveProcStatus(cod, st);
+  closeModal('modal-proc-status');
+  toast('Status atualizado','success');
+  renderNavList();
+  if (_currentProc === cod) showProc(cod);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SIL002
+// ═══════════════════════════════════════════════════════════════
+function renderSIL002() {
+  const proc = getProcs().find(p=>p.cod==='SIL002');
+  const stMap = { vigente:'badge-success', revisao:'badge-warning', nao_vigente:'badge-danger', obsoleto:'badge-gray' };
+  const stTxt = { vigente:'Vigente', revisao:'Em Revisão', nao_vigente:'Não Vigente', obsoleto:'Obsoleto' };
+
+  setHdr('BPF › POP/PAC','SIL002 — Controle das Embalagens',
+    `<button class="btn btn-secondary btn-sm" onclick="abrirModalStatus('SIL002')">⚙️ Status</button>`);
+
+  const tabs = [
+    { id:'regs',  label:'📋 Registros',              badge: _registros002.length },
+    { id:'exec',  label:'✍️ Executante',              badge: _registros002.filter(r=>r.assinatura_executante).length },
+    { id:'encar', label:'👷 Encarregado de Produção', badge: _registros002.filter(r=>r.assinatura_encarregado).length },
+    { id:'qual',  label:'🔬 Responsável Qualidade',   badge: _registros002.filter(r=>r.assinatura_qualidade).length },
+  ];
+
+  setBdy(`
+    <div class="doc-meta">
+      <div class="doc-meta-item"><label>Código</label><span>SIL002</span></div>
+      <div class="doc-meta-item"><label>Revisão</label><span>Rev. ${proc.rev}</span></div>
+      <div class="doc-meta-item"><label>Status</label><span><span class="badge ${stMap[proc.status]||'badge-success'}">${stTxt[proc.status]||'Vigente'}</span></span></div>
+      <div class="doc-meta-item"><label>Setor</label><span>${proc.setor}</span></div>
+      <div class="doc-meta-item"><label>Linhas</label><span>Linha 2 · Longa Vida</span></div>
+      <div class="doc-meta-item"><label>Freq. Executante</label><span>No recebimento</span></div>
+      <div class="doc-meta-item"><label>Freq. Encarregado</label><span>Semestral</span></div>
+      <div class="doc-meta-item"><label>Freq. Qualidade</label><span>Semestral</span></div>
+    </div>
+
+    <div class="sign-tabs">
+      ${tabs.map((t,i)=>`
+        <button class="sign-tab-btn ${i===0?'active':''}" id="stb-${t.id}" onclick="showSignTab('${t.id}')">
+          ${t.label} <span class="badge badge-info" style="font-size:10px;">${t.badge}</span>
+        </button>`).join('')}
+    </div>
+
+    <div id="stab-regs"  class="sign-tab-body active">${renderTabRegistros()}</div>
+    <div id="stab-exec"  class="sign-tab-body">${renderTabExec()}</div>
+    <div id="stab-encar" class="sign-tab-body">${renderTabSignTipo('encar')}</div>
+    <div id="stab-qual"  class="sign-tab-body">${renderTabSignTipo('qual')}</div>
+  `);
+}
+
+// ── ABA REGISTROS (KPIs + tabela) ───────────────────────────
+function renderTabRegistros() {
+  const total    = _registros002.length;
+  const pendente = _registros002.filter(r=>r.status==='pendente').length;
+  const aguard   = _registros002.filter(r=>r.status==='aguardando').length;
+  const parcial  = _registros002.filter(r=>r.status==='parcial').length;
+  const finaliz  = _registros002.filter(r=>r.status==='finalizado').length;
+
+  return `
+    <div class="kpi-grid" style="grid-template-columns:repeat(auto-fill,minmax(115px,1fr));">
+      <div class="kpi-card"><div class="kpi-icon">📋</div><div class="kpi-val">${total}</div><div class="kpi-lbl">Total</div></div>
+      <div class="kpi-card" style="${pendente?'border-color:#f59e0b;':''}"><div class="kpi-icon">⏳</div><div class="kpi-val" style="color:${pendente?'#b45309':'#64748b'};">${pendente}</div><div class="kpi-lbl">Pendentes</div></div>
+      <div class="kpi-card" style="${aguard?'border-color:#3b82f6;':''}"><div class="kpi-icon">✍️</div><div class="kpi-val" style="color:${aguard?'#1d4ed8':'#64748b'};">${aguard}</div><div class="kpi-lbl">Aguardando</div></div>
+      <div class="kpi-card" style="${parcial?'border-color:#8b5cf6;':''}"><div class="kpi-icon">🔀</div><div class="kpi-val" style="color:${parcial?'#7c3aed':'#64748b'};">${parcial}</div><div class="kpi-lbl">Parcial</div></div>
+      <div class="kpi-card" style="${finaliz?'border-color:#22c55e;':''}"><div class="kpi-icon">✅</div><div class="kpi-val" style="color:${finaliz?'#16a34a':'#64748b'};">${finaliz}</div><div class="kpi-lbl">Finalizados</div></div>
+    </div>
+
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;background:#eff6ff;border-radius:8px;padding:10px 14px;border:1px solid #bfdbfe;">
+      <span style="font-size:16px;">🔗</span>
+      <span style="font-size:12px;color:#1e40af;">Registros sincronizados automaticamente com o <strong>Almoxarifado</strong>. Cada entrada de embalagem gera um registro aqui para preenchimento do checklist.</span>
+      <button class="btn btn-secondary btn-sm" style="margin-left:auto;flex-shrink:0;" onclick="loadData().then(()=>{renderSIL002();showSignTab('regs');})">🔄 Sincronizar</button>
+    </div>
+
+    ${total===0
+      ? `<div class="empty-state"><div class="empty-icon">📦</div><h3>Nenhuma entrada de embalagem</h3><p>Os registros aparecem automaticamente quando entradas de <strong>Embalagem Caulim 25kg</strong> ou <strong>Big Bag</strong> forem lançadas no Almoxarifado.</p></div>`
+      : `<div class="bpf-table-wrap">
+          <table>
+            <thead><tr>
+              <th>Data</th><th>Embalagem</th><th>Lote</th><th>DANFE</th>
+              <th>Qtd</th><th>Fornecedor</th><th>Executante</th><th>Status</th><th style="width:100px;">Ações</th>
+            </tr></thead>
+            <tbody>
+              ${_registros002.map(r=>`
+                <tr>
+                  <td style="white-space:nowrap;">${fmtDH(r.data,r.hora)}</td>
+                  <td><strong>${r.embalagem||'—'}</strong></td>
+                  <td style="font-family:monospace;font-size:11px;">${r.lote||'—'}</td>
+                  <td style="font-family:monospace;font-size:11px;">${r.danfe||'—'}</td>
+                  <td>${r.quantidade||'—'}</td>
+                  <td style="font-size:11px;color:#64748b;">${r.fornecedor||'—'}</td>
+                  <td>${r.executante_nome||'<span style="color:#f59e0b;font-size:11px;">Pendente</span>'}</td>
+                  <td><span class="badge ${badgeSt(r.status)}">${stLabel(r.status)}</span></td>
+                  <td>
+                    <div class="table-actions">
+                      <button class="btn btn-primary btn-sm" title="Preencher checklist" onclick="abrirChecklist002('${r.id}')">📋</button>
+                      <button class="btn btn-secondary btn-sm" title="PDF" onclick="gerarPDF002('${r.id}')">📄</button>
+                      <button class="btn btn-danger btn-sm" title="Excluir registro" onclick="excluirReg002('${r.id}')">🗑️</button>
+                    </div>
+                  </td>
+                </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>`
+    }`;
+}
+
+// ── ABA EXECUTANTE ───────────────────────────────────────────
+function renderTabExec() {
+  const semSign = _registros002.filter(r=>!r.assinatura_executante);
+  const comSign = _registros002.filter(r=>r.assinatura_executante);
+  return `
+    <div style="font-size:12px;color:#64748b;margin-bottom:14px;">
+      Registros importados do Almoxarifado aguardando preenchimento do checklist e assinatura do executante.
+    </div>
+    ${semSign.length===0
+      ? `<div class="empty-state"><div class="empty-icon">✅</div><h3>Todos os registros assinados pelo executante</h3></div>`
+      : semSign.map(r=>`
+        <div class="card" style="padding:14px;margin-bottom:10px;border-left:3px solid #f59e0b;">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+            <div>
+              <div style="font-size:13px;font-weight:700;color:var(--primary);">${r.embalagem||'—'} — ${fmtDH(r.data,r.hora)}</div>
+              <div style="font-size:11px;color:#64748b;margin-top:2px;">Lote: ${r.lote||'—'} · DANFE: ${r.danfe||'—'} · Qtd: ${r.quantidade||'—'}</div>
+              <div style="font-size:11px;color:#64748b;">Fornecedor: ${r.fornecedor||'—'}</div>
+              <span class="badge st-pendente" style="margin-top:4px;display:inline-block;">${stLabel(r.status)}</span>
+            </div>
+            <button class="btn btn-primary btn-sm" onclick="abrirChecklist002('${r.id}')">📋 Preencher Checklist</button>
+          </div>
+        </div>`).join('')
+    }
+    ${comSign.length>0 ? `
+      <div style="font-size:12px;font-weight:700;color:#64748b;margin:16px 0 8px;">✅ Já assinados pelo executante (${comSign.length})</div>
+      ${comSign.map(r=>`
+        <div class="card" style="padding:12px;margin-bottom:8px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+          <div style="flex:1;min-width:0;">
+            <div style="font-size:12px;font-weight:700;color:var(--primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${r.embalagem||'—'} · ${fmtDH(r.data,r.hora)}</div>
+            <div style="font-size:11px;color:#64748b;">${r.executante_nome||'—'}</div>
+          </div>
+          <img src="${r.assinatura_executante}" class="sign-preview" style="height:40px;">
+          <span class="badge ${badgeSt(r.status)}" style="font-size:10px;">${stLabel(r.status)}</span>
+          <button class="btn btn-secondary btn-sm" title="Re-preencher" onclick="abrirChecklist002('${r.id}')">✏️</button>
+          <button class="btn btn-secondary btn-sm" title="PDF" onclick="gerarPDF002('${r.id}')">📄</button>
+        </div>`).join('')}` : ''}
+  `;
+}
+
+// ── ABA ENCARREGADO / QUALIDADE ──────────────────────────────
+function renderTabSignTipo(tipo) {
+  const field     = tipo==='encar' ? 'assinatura_encarregado' : 'assinatura_qualidade';
+  const nameField = tipo==='encar' ? 'encarregado_nome'       : 'qualidade_nome';
+  const label     = tipo==='encar' ? 'Encarregado de Produção' : 'Responsável da Qualidade';
+  const pendentes = _registros002.filter(r=>r.assinatura_executante && !r[field]);
+  const assinados = _registros002.filter(r=>r[field]);
+
+  return `
+    <div class="alert alert-info" style="background:#eff6ff;border-color:#bfdbfe;color:#1e40af;margin-bottom:16px;">
+      ℹ️ Frequência: <strong>Semestral</strong> — ${label} deve assinar nos registros acumulados.
+    </div>
+    ${pendentes.length===0
+      ? `<div class="empty-state" style="padding:30px;"><div class="empty-icon">✅</div><h3>Todos assinados</h3></div>`
+      : `<div style="font-size:12px;font-weight:700;color:var(--primary);margin-bottom:10px;">Pendentes de assinatura (${pendentes.length})</div>
+        ${pendentes.map(r=>`
+          <div class="card" style="padding:14px;margin-bottom:10px;">
+            <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+              <div>
+                <div style="font-size:13px;font-weight:700;color:var(--primary);">${r.embalagem||'—'} — ${fmtDH(r.data,r.hora)}</div>
+                <div style="font-size:11px;color:#64748b;margin-top:2px;">Lote: ${r.lote||'—'} · Executante: ${r.executante_nome||'—'}</div>
+                <span class="badge st-aguardando" style="margin-top:4px;display:inline-block;">${stLabel(r.status)}</span>
+              </div>
+              <button class="btn btn-primary btn-sm" onclick="abrirSignTipo('${r.id}','${tipo}')">✍️ Assinar</button>
+            </div>
+          </div>`).join('')}`
+    }
+    ${assinados.length>0 ? `
+      <div style="font-size:12px;font-weight:700;color:#64748b;margin:16px 0 8px;">✅ Já assinados (${assinados.length})</div>
+      ${assinados.map(r=>`
+        <div class="card" style="padding:12px;margin-bottom:8px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+          <div style="flex:1;min-width:0;">
+            <div style="font-size:12px;font-weight:700;color:var(--primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${r.embalagem||'—'} · ${fmtDH(r.data,r.hora)}</div>
+            <div style="font-size:11px;color:#64748b;">Assinado por: ${r[nameField]||'—'}</div>
+          </div>
+          <img src="${r[field]}" class="sign-preview" style="height:40px;">
+          <span class="badge ${badgeSt(r.status)}" style="font-size:10px;">${stLabel(r.status)}</span>
+          <button class="btn btn-secondary btn-sm" title="Re-assinar" onclick="abrirSignTipo('${r.id}','${tipo}')">✏️ Editar</button>
+          <button class="btn btn-secondary btn-sm" title="PDF" onclick="gerarPDF002('${r.id}')">📄</button>
+        </div>`).join('')}` : ''}
+  `;
+}
+
+function showSignTab(tabId) {
+  document.querySelectorAll('.sign-tab-btn').forEach(b=>b.classList.remove('active'));
+  document.querySelectorAll('.sign-tab-body').forEach(b=>b.classList.remove('active'));
+  const btn=document.getElementById('stb-'+tabId), body=document.getElementById('stab-'+tabId);
+  if(btn) btn.classList.add('active');
+  if(body) body.classList.add('active');
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+// CHECKLIST SIL002 — Abre sobre registro já criado pelo almoxarifado
+// ═══════════════════════════════════════════════════════════════
+function abrirChecklist002(id) {
+  _editingId = id;
+  const reg = _registros002.find(r => r.id === id);
+  if (!reg) return;
+
+  document.getElementById('modal-sil002-title').textContent = '📋 SIL002 — Checklist de Recebimento';
+
+  const funcOpts = _funcs.map(f =>
+    `<option value="${f.id}" data-funcao="${f.funcao||''}" ${reg.executante_id==f.id?'selected':''}>${f.nome}${f.funcao?' — '+f.funcao:''}</option>`
+  ).join('');
+
+  document.getElementById('modal-sil002-body').innerHTML = `
+    <div style="background:#f8fafc;border-radius:10px;padding:14px;border:1.5px solid #e2e8f0;margin-bottom:16px;">
+      <div style="font-size:10px;font-weight:800;color:#94a3b8;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">📦 Dados do Recebimento — Almoxarifado</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px;">
+        ${[['Data', fmtDH(reg.data, reg.hora)],['Embalagem', reg.embalagem||'—'],
+           ['Lote', reg.lote||'—'],['DANFE', reg.danfe||'—'],
+           ['Quantidade', reg.quantidade||'—'],['Fornecedor', reg.fornecedor||'—']]
+          .map(([l,v])=>`<div><div style="font-size:10px;font-weight:800;color:#94a3b8;text-transform:uppercase;">${l}</div><div style="font-size:13px;font-weight:700;color:var(--primary);">${v}</div></div>`)
+          .join('')}
+      </div>
+    </div>
+
+    <div class="form-grid-2" style="gap:12px;margin-bottom:16px;">
+      <div class="form-group" style="grid-column:1/-1;">
+        <label class="form-label">Executante<span class="req">*</span></label>
+        <select id="f002-exec" class="form-input" onchange="onExecChange(this)">
+          <option value="">Selecione...</option>${funcOpts}
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Função</label>
+        <div id="f002-funcao" class="form-input" style="background:#f5f7fa;color:#888;">${reg.executante_funcao||'—'}</div>
+      </div>
+    </div>
+
+    <hr style="border:none;border-top:1.5px solid #e2e8f0;margin:0 0 16px;">
+    <div style="font-size:12px;font-weight:800;color:var(--primary);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px;">✅ Checklist de Inspeção</div>
+    <div class="chk-section">
+      <div class="chk-section-title">Controle de Estoque</div>
+      ${bChkRow('c1','Estoque anterior?',reg.c1)}
+      ${bChkRow('c2','Estoque antigo removido P.E.P.S?',reg.c2)}
+    </div>
+    <div class="chk-section">
+      <div class="chk-section-title">Inspeção Visual</div>
+      ${bChkRow('c3','Embalagens em boas condições, sem sujidades ou avarias?',reg.c3)}
+      ${bChkRow('c4','Fornecedor aprovado conforme Formulário_Homologação_Forn_Embalagens?',reg.c4)}
+      <div class="chk-row" style="flex-direction:column;align-items:flex-start;gap:8px;">
+        <div class="chk-label">Se sacaria, qual o material da embalagem?</div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;">
+          ${['rafia:Ráfia','papel:Papel','na:N/A'].map(x=>{
+            const [val,lbl]=x.split(':');
+            return `<label style="display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer;padding:4px 10px;border-radius:6px;border:1.2px solid #e2e8f0;"><input type="radio" name="c5-mat" value="${val}" ${reg.c5===val?'checked':''}> ${lbl}</label>`;
+          }).join('')}
+        </div>
+      </div>
+      ${bChkRow('c6','Embalagem apresenta rótulo/informações/marca conforme relatório de aprovação?',reg.c6)}
+    </div>
+
+    <div class="form-group" style="margin-bottom:16px;">
+      <label class="form-label">Observações (opcional)</label>
+      <textarea id="f002-obs" class="form-input" rows="2">${reg.observacoes||''}</textarea>
+    </div>
+
+    <div class="notas-fixas">
+      <div class="notas-fixas-title">📌 Notas Importantes</div>
+      <ol>
+        <li>Check list somente para embalagens para alimentação animal.</li>
+        <li>Não receber embalagens novas avariadas ou sujas.</li>
+        <li>Em caso de dúvidas sobre homologação ou aprovação, entrar em contato com o responsável da qualidade.</li>
+      </ol>
+    </div>
+
+    <div style="font-size:12px;font-weight:800;color:var(--primary);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;">✍️ Assinatura do Executante</div>
+    <div id="sign-exec-preview">
+      ${reg.assinatura_executante
+        ? `<div style="display:flex;align-items:center;gap:10px;"><img src="${reg.assinatura_executante}" class="sign-preview" style="height:60px;"><button class="btn btn-secondary btn-sm" onclick="abrirSign('exec')">🔄 Re-assinar</button></div>`
+        : `<div class="sign-placeholder" onclick="abrirSign('exec')"><div style="font-size:22px;margin-bottom:4px;">✍️</div><div style="font-size:12px;font-weight:600;color:#64748b;">Clique para assinar</div></div>`}
+    </div>
+    <input type="hidden" id="f002-sign-exec" value="${reg.assinatura_executante||''}">
+
+    <div class="modal-footer" style="padding-top:16px;border-top:1px solid #e2e8f0;margin-top:16px;display:flex;justify-content:flex-end;gap:10px;">
+      <button class="btn btn-secondary" onclick="closeModal('modal-sil002')">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarChecklist002()">💾 Salvar</button>
+    </div>
+  `;
+  document.getElementById('modal-sil002').classList.remove('hidden');
+}
+
+function bChkRow(id, label, val) {
+  return `<div class="chk-row" id="chkrow-${id}">
+    <div class="chk-label">${label}</div>
+    <div class="chk-opts">
+      <label class="chk-radio ${val==='sim'?'sim-sel':''}"><input type="radio" name="${id}" value="sim" ${val==='sim'?'checked':''} onchange="onChkChange('${id}',this)"> Sim</label>
+      <label class="chk-radio ${val==='nao'?'nao-sel':''}"><input type="radio" name="${id}" value="nao" ${val==='nao'?'checked':''} onchange="onChkChange('${id}',this)"> Não</label>
+    </div>
+  </div>`;
+}
+
+function onChkChange(id, input) {
+  const row=document.getElementById('chkrow-'+id); if(!row) return;
+  row.querySelectorAll('.chk-radio').forEach(l=>l.classList.remove('sim-sel','nao-sel'));
+  input.closest('.chk-radio')?.classList.add(input.value==='sim'?'sim-sel':'nao-sel');
+}
+
+function onExecChange(sel) {
+  const opt=sel.options[sel.selectedIndex];
+  const el=document.getElementById('f002-funcao');
+  if(el) el.textContent=opt?.getAttribute('data-funcao')||'—';
+}
+
+async function salvarChecklist002() {
+  const execId=document.getElementById('f002-exec').value;
+  if(!execId){toast('Selecione o executante','warning');return;}
+
+  const execOpt=document.querySelector(`#f002-exec option[value="${execId}"]`);
+  const sign   =document.getElementById('f002-sign-exec').value;
+  const matSel =document.querySelector('input[name="c5-mat"]:checked');
+
+  const regAtual=_registros002.find(r=>r.id===_editingId)||{};
+  const novaSign=sign||regAtual.assinatura_executante;
+  const novaSt  =calcSt({
+    assinatura_executante:  novaSign,
+    assinatura_encarregado: regAtual.assinatura_encarregado,
+    assinatura_qualidade:   regAtual.assinatura_qualidade,
+  });
+
+  const payload={
+    executante_id:    execId,
+    executante_nome:  execOpt?.text.split(' — ')[0]||'',
+    executante_funcao:document.getElementById('f002-funcao').textContent,
+    assinatura_executante: novaSign||null,
+    c1:getChkVal('c1'),c2:getChkVal('c2'),c3:getChkVal('c3'),
+    c4:getChkVal('c4'),c5:matSel?.value||null,c6:getChkVal('c6'),
+    observacoes:document.getElementById('f002-obs').value||null,
+    status: novaSt,
+  };
+
+  try{
+    const{error}=await _supabase.from('bpf_sil002_registros').update(payload).eq('id',_editingId);
+    if(error) throw error;
+    toast('Checklist salvo — '+stLabel(novaSt),'success');
+    closeModal('modal-sil002');
+    await loadData(); renderSIL002();
+  }catch(e){toast('Erro: '+e.message,'danger');}
+}
+
+function getChkVal(id){
+  return document.querySelector(`input[name="${id}"]:checked`)?.value||null;
+}
+
+async function excluirReg002(id) {
+  const reg = _registros002.find(r => r.id === id);
+  if (!reg) return;
+
+  // Se tem dados preenchidos além do que veio do almoxarifado, oferece duas opções
+  const temPreenchimento = reg.executante_id || reg.c1 || reg.c2 || reg.c3 ||
+                           reg.assinatura_executante || reg.assinatura_encarregado || reg.assinatura_qualidade;
+
+  if (temPreenchimento) {
+    const escolha = await modalEscolhaExclusao();
+    if (!escolha) return; // cancelou
+
+    if (escolha === 'reset') {
+      // Limpa apenas os dados preenchidos, mantém os dados do almoxarifado
+      try {
+        const { error } = await _supabase.from('bpf_sil002_registros').update({
+          executante_id: null, executante_nome: null, executante_funcao: null,
+          assinatura_executante: null, assinatura_encarregado: null, encarregado_nome: null,
+          assinatura_qualidade: null, qualidade_nome: null,
+          c1: null, c2: null, c3: null, c4: null, c5: null, c6: null,
+          observacoes: null, status: 'pendente',
+        }).eq('id', id);
+        if (error) throw error;
+        toast('Registro resetado — pronto para novo preenchimento', 'success');
+        await loadData(); renderSIL002();
+      } catch(e) { toast('Erro: ' + e.message, 'danger'); }
+      return;
+    }
+    // escolha === 'delete' → exclui tudo
+  } else {
+    if (!confirm('Excluir este registro do almoxarifado?\n\nEle será resincronizado automaticamente se a entrada ainda existir no Almoxarifado.')) return;
+  }
+
+  try {
+    const { error } = await _supabase.from('bpf_sil002_registros').delete().eq('id', id);
+    if (error) throw error;
+    toast('Registro excluído', 'success');
+    await loadData(); renderSIL002();
+  } catch(e) { toast('Erro: ' + e.message, 'danger'); }
+}
+
+function modalEscolhaExclusao() {
+  return new Promise(resolve => {
+    // Remove modal anterior se existir
+    document.getElementById('modal-exc-escolha')?.remove();
+
+    const div = document.createElement('div');
+    div.id = 'modal-exc-escolha';
+    div.className = 'modal-overlay';
+    div.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;';
+    div.innerHTML = `
+      <div class="modal" style="max-width:420px;background:#fff;border-radius:14px;padding:24px;box-shadow:0 20px 60px rgba(0,0,0,.3);">
+        <div style="font-size:18px;font-weight:800;color:var(--primary);margin-bottom:8px;">🗑️ Excluir Registro</div>
+        <p style="font-size:13px;color:#475569;margin-bottom:20px;line-height:1.6;">Este registro possui dados preenchidos. O que deseja fazer?</p>
+        <div style="display:flex;flex-direction:column;gap:10px;">
+          <button class="btn btn-warning" style="justify-content:flex-start;text-align:left;padding:12px 16px;background:#fef9c3;border:1.5px solid #fde047;color:#92400e;border-radius:10px;" onclick="resolveEscolha('reset')">
+            <div style="font-weight:800;font-size:13px;">🔄 Limpar preenchimento</div>
+            <div style="font-size:11px;margin-top:2px;opacity:.8;">Mantém os dados do Almoxarifado (data, embalagem, lote, DANFE, qtd) e zera o checklist, executante e assinaturas para novo preenchimento.</div>
+          </button>
+          <button class="btn btn-danger" style="justify-content:flex-start;text-align:left;padding:12px 16px;border-radius:10px;" onclick="resolveEscolha('delete')">
+            <div style="font-weight:800;font-size:13px;">🗑️ Excluir tudo</div>
+            <div style="font-size:11px;margin-top:2px;opacity:.8;">Remove completamente este registro. Se a entrada ainda existir no Almoxarifado, será resincronizada automaticamente.</div>
+          </button>
+          <button class="btn btn-secondary" onclick="resolveEscolha(null)" style="margin-top:2px;">Cancelar</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(div);
+
+    window.resolveEscolha = (val) => {
+      div.remove();
+      delete window.resolveEscolha;
+      resolve(val);
+    };
+  });
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+// ASSINATURA DIGITAL
+// ═══════════════════════════════════════════════════════════════
+function abrirSign(target) {
+  _signTarget = target;
+  document.getElementById('sign-modal-title').textContent = '✍️ Assinatura do Executante';
+  document.getElementById('sign-modal-extra').innerHTML = '';
+  document.getElementById('modal-sign').classList.remove('hidden');
+  initCanvas();
+}
+
+function abrirSignTipo(regId, tipo) {
+  _signTarget = { regId, tipo };
+  const labels={encar:'Encarregado de Produção',qual:'Responsável da Qualidade'};
+  document.getElementById('sign-modal-title').textContent = `✍️ Assinatura — ${labels[tipo]}`;
+  document.getElementById('sign-modal-extra').innerHTML =
+    `<select id="sign-nome-sel" class="form-input" style="margin-bottom:10px;font-size:12px;">
+       <option value="">Selecione seu nome...</option>
+       ${_funcs.map(f=>`<option value="${f.nome}">${f.nome}${f.funcao?' — '+f.funcao:''}</option>`).join('')}
+     </select>`;
+  document.getElementById('modal-sign').classList.remove('hidden');
+  initCanvas();
+}
+
+function fecharModalSign(){
+  document.getElementById('modal-sign').classList.add('hidden');
+  _signTarget=null;
+}
+
+function initCanvas(){
+  _signCanvas=document.getElementById('sign-canvas');
+  _signCtx=_signCanvas.getContext('2d');
+  _signCtx.clearRect(0,0,_signCanvas.width,_signCanvas.height);
+  _signCtx.strokeStyle='#042D4D'; _signCtx.lineWidth=2.5;
+  _signCtx.lineCap='round'; _signCtx.lineJoin='round';
+  _signDrawing=false;
+
+  const pos=(e)=>{
+    const r=_signCanvas.getBoundingClientRect();
+    const sx=_signCanvas.width/r.width, sy=_signCanvas.height/r.height;
+    return e.touches
+      ?{x:(e.touches[0].clientX-r.left)*sx,y:(e.touches[0].clientY-r.top)*sy}
+      :{x:(e.clientX-r.left)*sx,y:(e.clientY-r.top)*sy};
+  };
+  _signCanvas.onmousedown=(e)=>{_signDrawing=true;const p=pos(e);_signCtx.beginPath();_signCtx.moveTo(p.x,p.y);};
+  _signCanvas.onmousemove=(e)=>{if(!_signDrawing)return;const p=pos(e);_signCtx.lineTo(p.x,p.y);_signCtx.stroke();};
+  _signCanvas.onmouseup=_signCanvas.onmouseleave=()=>{_signDrawing=false;};
+  _signCanvas.ontouchstart=(e)=>{e.preventDefault();_signDrawing=true;const p=pos(e);_signCtx.beginPath();_signCtx.moveTo(p.x,p.y);};
+  _signCanvas.ontouchmove=(e)=>{e.preventDefault();if(!_signDrawing)return;const p=pos(e);_signCtx.lineTo(p.x,p.y);_signCtx.stroke();};
+  _signCanvas.ontouchend=()=>{_signDrawing=false;};
+}
+
+function limparCanvas(){_signCtx?.clearRect(0,0,_signCanvas.width,_signCanvas.height);}
+
+async function confirmarAssinatura(){
+  const px=_signCtx.getImageData(0,0,_signCanvas.width,_signCanvas.height).data;
+  if(!px.some((v,i)=>i%4===3&&v>0)){toast('Assine antes de confirmar','warning');return;}
+  const dataUrl=_signCanvas.toDataURL('image/png');
+
+  if(_signTarget==='exec'){
+    document.getElementById('f002-sign-exec').value=dataUrl;
+    const prev=document.getElementById('sign-exec-preview');
+    if(prev) prev.innerHTML=`<div style="display:flex;align-items:center;gap:10px;"><img src="${dataUrl}" class="sign-preview" style="height:60px;"><button class="btn btn-secondary btn-sm" onclick="abrirSign('exec')">🔄 Re-assinar</button></div>`;
+    fecharModalSign();
+    toast('Assinatura registrada','success');
+  } else if(_signTarget?.regId){
+    const{regId,tipo}=_signTarget;
+    const nomeEl=document.getElementById('sign-nome-sel');
+    const nome=nomeEl?.value||'';
+    if(!nome){toast('Selecione seu nome','warning');return;}
+    const field    =tipo==='encar'?'assinatura_encarregado':'assinatura_qualidade';
+    const nameField=tipo==='encar'?'encarregado_nome':'qualidade_nome';
+    try{
+      const reg=_registros002.find(r=>r.id===regId);
+      const novaSt=calcSt({...reg,[field]:dataUrl});
+      const{error}=await _supabase.from('bpf_sil002_registros').update({[field]:dataUrl,[nameField]:nome,status:novaSt}).eq('id',regId);
+      if(error) throw error;
+      toast('Assinatura salva','success');
+      fecharModalSign();
+      await loadData();
+      renderSIL002();
+      showSignTab(tipo==='encar'?'encar':'qual');
+    }catch(e){toast('Erro: '+e.message,'danger');}
+  }
+}
+
+function calcSt(r){
+  const ex=!!r.assinatura_executante, en=!!r.assinatura_encarregado, qu=!!r.assinatura_qualidade;
+  if(!ex) return 'pendente';
+  if(ex&&en&&qu) return 'finalizado';
+  if(ex&&(en||qu)) return 'parcial';
+  return 'aguardando';
+}
+
+// ═══════════════════════════════════════════════════════════════
+// PDF SIL002 — completo com CNPJ, endereço, auditorias vinculadas
+// ═══════════════════════════════════════════════════════════════
+function gerarPDF002(id){
+  const reg=_registros002.find(r=>r.id===id); if(!reg) return;
+  const e=_empresa;
+  const logoHtml=e.logo
+    ?`<img src="${e.logo}" style="height:56px;object-fit:contain;">`
+    :`<div style="width:56px;height:56px;background:#042D4D;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#C9FF64;font-size:24px;">🏭</div>`;
+
+  // Endereço formatado
+  const addr=[e.rua, e.numero?'Nº '+e.numero:null, e.complemento, e.bairro, e.cidade&&e.uf?e.cidade+'/'+e.uf:e.cidade||e.uf, e.cep?'CEP '+e.cep:null].filter(Boolean).join(' · ');
+
+  // Auditorias vinculadas
+  const audsVinc=_auditorias.filter(a=>a.registro_sil002_id===id);
+  const audBlock=audsVinc.length>0?`
+    <div style="margin-bottom:16px;">
+      <div class="sec">Auditorias Vinculadas</div>
+      <table style="width:100%;border-collapse:collapse;">
+        <thead><tr>
+          <th style="background:#042D4D;color:#C9FF64;padding:6px 8px;text-align:left;font-size:10px;">Data</th>
+          <th style="background:#042D4D;color:#C9FF64;padding:6px 8px;text-align:left;font-size:10px;">Tipo</th>
+          <th style="background:#042D4D;color:#C9FF64;padding:6px 8px;text-align:left;font-size:10px;">Auditor</th>
+          <th style="background:#042D4D;color:#C9FF64;padding:6px 8px;text-align:left;font-size:10px;">Resultado</th>
+          <th style="background:#042D4D;color:#C9FF64;padding:6px 8px;text-align:left;font-size:10px;">Escopo</th>
+        </tr></thead>
+        <tbody>
+          ${audsVinc.map(a=>`<tr>
+            <td style="padding:5px 8px;border:1px solid #e2e8f0;font-size:11px;">${a.data||'—'}</td>
+            <td style="padding:5px 8px;border:1px solid #e2e8f0;font-size:11px;">${a.tipo||'—'}</td>
+            <td style="padding:5px 8px;border:1px solid #e2e8f0;font-size:11px;">${a.auditor||'—'}</td>
+            <td style="padding:5px 8px;border:1px solid #e2e8f0;font-size:11px;font-weight:700;">${a.resultado||'—'}</td>
+            <td style="padding:5px 8px;border:1px solid #e2e8f0;font-size:11px;">${a.escopo||a.obs||'—'}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`:'';
+
+  const chkL=(label,val)=>`<tr>
+    <td style="padding:5px 8px;border:1px solid #e2e8f0;font-size:11px;">${label}</td>
+    <td style="padding:5px 8px;border:1px solid #e2e8f0;text-align:center;font-weight:700;font-size:11px;color:${val==='sim'?'#16a34a':val==='nao'?'#dc2626':'#94a3b8'};">${val?.toUpperCase()||'—'}</td>
+  </tr>`;
+  const matL={rafia:'Ráfia',papel:'Papel',na:'N/A'};
+
+  const html=`<!DOCTYPE html><html><head><meta charset="UTF-8">
+  <style>
+    body{font-family:Arial,sans-serif;padding:26px;color:#1e293b;font-size:12px;}
+    .hdr{display:flex;align-items:center;gap:14px;padding-bottom:12px;border-bottom:2.5px solid #042D4D;margin-bottom:16px;}
+    .hdr-info h1{font-size:13px;color:#042D4D;margin:0 0 2px;font-weight:800;text-transform:uppercase;}
+    .hdr-info p{font-size:10px;color:#64748b;margin:0 0 1px;}
+    h2{color:#042D4D;font-size:13px;font-weight:800;text-align:center;margin:0 0 4px;text-transform:uppercase;letter-spacing:.5px;}
+    .sub{text-align:center;font-size:10px;color:#64748b;margin-bottom:16px;}
+    .meta{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:14px;}
+    .meta-box{background:#f8fafc;border-radius:6px;padding:8px 10px;border:1px solid #e2e8f0;}
+    .meta-box label{font-size:9px;font-weight:800;color:#94a3b8;text-transform:uppercase;display:block;margin-bottom:2px;}
+    .meta-box span{font-size:11px;font-weight:700;color:#042D4D;}
+    .sec{font-size:10px;font-weight:800;color:#042D4D;text-transform:uppercase;letter-spacing:.5px;margin:12px 0 5px;border-bottom:1.5px solid #e2e8f0;padding-bottom:3px;}
+    table.chk{width:100%;border-collapse:collapse;margin-bottom:12px;}
+    table.chk th{background:#042D4D;color:#C9FF64;padding:6px 8px;text-align:left;font-size:10px;text-transform:uppercase;}
+    .sign-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-top:18px;}
+    .sign-box{border:1px solid #e2e8f0;border-radius:8px;padding:10px;text-align:center;min-height:90px;}
+    .sign-box-title{font-size:9px;font-weight:800;color:#042D4D;text-transform:uppercase;margin-bottom:2px;}
+    .sign-box-freq{font-size:9px;color:#94a3b8;margin-bottom:8px;}
+    .sign-blank{border-top:1px solid #94a3b8;margin-top:30px;font-size:9px;color:#94a3b8;padding-top:3px;}
+    .obs-box{background:#fef9c3;border:1px solid #fde047;border-radius:6px;padding:10px;font-size:10px;color:#78350f;margin-bottom:12px;}
+    .nota-list{padding-left:14px;font-size:10px;color:#78350f;line-height:1.7;margin:4px 0 0;}
+    @media print{body{padding:12px;}}
+  </style></head><body>
+
+  <div class="hdr">
+    ${logoHtml}
+    <div class="hdr-info">
+      <h1>${e.nome_fantasia||'ERP Industrial'}</h1>
+      ${e.razao_social?`<p><strong>Razão Social:</strong> ${e.razao_social}</p>`:''}
+      ${e.cnpj?`<p><strong>CNPJ:</strong> ${e.cnpj}${e.ie?' &nbsp;|&nbsp; <strong>IE:</strong> '+e.ie:''}</p>`:''}
+      ${addr?`<p>${addr}</p>`:''}
+      ${e.telefone||e.email?`<p>${[e.telefone,e.email].filter(Boolean).join(' · ')}</p>`:''}
+    </div>
+  </div>
+
+  <h2>Check list do recebimento de embalagens para produtos da alimentação animal</h2>
+  <div class="sub">SIL002 — Rev. 02 &nbsp;|&nbsp; Linha 2 · Longa Vida</div>
+
+  <div class="meta">
+    <div class="meta-box"><label>Data / Hora</label><span>${fmtDH(reg.data,reg.hora)}</span></div>
+    <div class="meta-box"><label>Embalagem</label><span>${reg.embalagem||'—'}</span></div>
+    <div class="meta-box"><label>Lote da Embalagem</label><span>${reg.lote||'—'}</span></div>
+    <div class="meta-box"><label>Nº DANFE</label><span>${reg.danfe||'—'}</span></div>
+    <div class="meta-box"><label>Quantidade</label><span>${reg.quantidade||'—'}</span></div>
+    <div class="meta-box"><label>Executante</label><span>${reg.executante_nome||'—'}</span></div>
+    <div class="meta-box"><label>Função</label><span>${reg.executante_funcao||'—'}</span></div>
+    <div class="meta-box"><label>Status</label><span>${stLabel(reg.status)}</span></div>
+  </div>
+
+  <div class="sec">Controle de Estoque</div>
+  <table class="chk"><thead><tr><th>Item</th><th style="width:55px;">Resp.</th></tr></thead><tbody>
+    ${chkL('Estoque anterior?',reg.c1)}
+    ${chkL('Estoque antigo removido P.E.P.S?',reg.c2)}
+  </tbody></table>
+
+  <div class="sec">Inspeção Visual</div>
+  <table class="chk"><thead><tr><th>Item</th><th style="width:55px;">Resp.</th></tr></thead><tbody>
+    ${chkL('Embalagens em boas condições, sem sujidades ou avarias?',reg.c3)}
+    ${chkL('Fornecedor aprovado conforme Formulário de Homologação?',reg.c4)}
+    <tr><td style="padding:5px 8px;border:1px solid #e2e8f0;font-size:11px;">Material da embalagem (se sacaria)</td>
+        <td style="padding:5px 8px;border:1px solid #e2e8f0;text-align:center;font-weight:700;font-size:11px;">${matL[reg.c5]||'—'}</td></tr>
+    ${chkL('Embalagem apresenta rótulo/informações/marca conforme relatório de aprovação?',reg.c6)}
+  </tbody></table>
+
+  ${reg.observacoes?`<div class="obs-box"><strong>Observações:</strong> ${reg.observacoes}</div>`:''}
+
+  <div class="obs-box">
+    <strong>Notas:</strong>
+    <ol class="nota-list">
+      <li>Check list somente para embalagens para alimentação animal.</li>
+      <li>Não receber embalagens novas avariadas ou sujas.</li>
+      <li>Em caso de dúvidas sobre homologação ou aprovação, entrar em contato com o responsável da qualidade.</li>
+    </ol>
+  </div>
+
+  ${audBlock}
+
+  <div class="sign-row">
+    <div class="sign-box">
+      <div class="sign-box-title">Executante</div>
+      <div class="sign-box-freq">No recebimento</div>
+      ${reg.assinatura_executante
+        ?`<img src="${reg.assinatura_executante}" style="max-width:100%;max-height:50px;"><br><span style="font-size:9px;color:#475569;">${reg.executante_nome||''}</span>`
+        :`<div class="sign-blank">${reg.executante_nome||'________________________'}</div>`}
+    </div>
+    <div class="sign-box">
+      <div class="sign-box-title">Encarregado de Produção</div>
+      <div class="sign-box-freq">Semestral</div>
+      ${reg.assinatura_encarregado
+        ?`<img src="${reg.assinatura_encarregado}" style="max-width:100%;max-height:50px;"><br><span style="font-size:9px;color:#475569;">${reg.encarregado_nome||''}</span>`
+        :`<div style="height:46px;"></div><div class="sign-blank">________________________</div>`}
+    </div>
+    <div class="sign-box">
+      <div class="sign-box-title">Responsável da Qualidade</div>
+      <div class="sign-box-freq">Semestral</div>
+      ${reg.assinatura_qualidade
+        ?`<img src="${reg.assinatura_qualidade}" style="max-width:100%;max-height:50px;"><br><span style="font-size:9px;color:#475569;">${reg.qualidade_nome||''}</span>`
+        :`<div style="height:46px;"></div><div class="sign-blank">________________________</div>`}
+    </div>
+  </div>
+
+  <p style="font-size:9px;color:#94a3b8;text-align:center;margin-top:18px;">
+    Gerado em ${new Date().toLocaleString('pt-BR')} &nbsp;|&nbsp; ERP Industrial — BPF SIL002
+  </p>
+  </body></html>`;
+
+  const w=window.open('','_blank');
+  w.document.write(html);
+  w.document.close();
+  setTimeout(()=>w.print(),600);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// PROCEDIMENTO GENÉRICO
+// ═══════════════════════════════════════════════════════════════
+function renderProcGenerico(cod){
+  const proc=getProcs().find(p=>p.cod===cod); if(!proc) return;
+  const stMap={vigente:'badge-success',revisao:'badge-warning',nao_vigente:'badge-danger',obsoleto:'badge-gray'};
+  const stTxt={vigente:'Vigente',revisao:'Em Revisão',nao_vigente:'Não Vigente',obsoleto:'Obsoleto'};
+  setHdr('BPF › POP/PAC',`${proc.cod} — ${proc.nome}`,
+    `<button class="btn btn-secondary btn-sm" onclick="abrirModalStatus('${proc.cod}')">⚙️ Status</button>`);
+  setBdy(`
+    <div class="doc-meta">
+      <div class="doc-meta-item"><label>Código</label><span>${proc.cod}</span></div>
+      <div class="doc-meta-item"><label>Revisão</label><span>Rev. ${proc.rev}</span></div>
+      <div class="doc-meta-item"><label>Status</label><span><span class="badge ${stMap[proc.status]||'badge-success'}">${stTxt[proc.status]||'Vigente'}</span></span></div>
+      <div class="doc-meta-item"><label>Setor</label><span>${proc.setor}</span></div>
+      <div class="doc-meta-item"><label>Linhas</label><span>Linha 2 · Longa Vida</span></div>
+    </div>
+    <div class="empty-state" style="padding:60px 20px;">
+      <div class="empty-icon" style="font-size:40px;">🔧</div>
+      <h3>Procedimento em desenvolvimento</h3>
+      <p>O conteúdo detalhado será implementado em breve.</p>
+    </div>`);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// NCs
+// ═══════════════════════════════════════════════════════════════
+function renderNC(){
+  setHdr('BPF','⚠️ Não Conformidades',`<button class="btn btn-primary" onclick="abrirModalNC()">+ Nova NC</button>`);
+  setBdy(`
+    <div class="search-bar"><div class="search-input-wrap"><span class="search-icon">🔍</span>
+      <input type="text" class="form-input" placeholder="Filtrar..." oninput="filterRows(this,'nc-tr')" style="padding-left:36px;">
+    </div></div>
+    <div class="bpf-table-wrap"><table>
+      <thead><tr><th>Data</th><th>Procedimento</th><th>Descrição</th><th>Gravidade</th><th>Linha</th><th>Responsável</th><th>Status</th></tr></thead>
+      <tbody>${_ncs.map(n=>`<tr class="nc-tr">
+        <td>${n.data||'—'}</td><td><strong>${n.procedimento_cod||'—'}</strong></td>
+        <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${n.descricao||'—'}</td>
+        <td><span class="badge badge-${n.gravidade==='critica'||n.gravidade==='alta'?'danger':n.gravidade==='media'?'warning':'gray'}">${n.gravidade||'—'}</span></td>
+        <td>${n.linha||'—'}</td><td>${n.responsavel_nome||'—'}</td>
+        <td><span class="badge badge-${n.status==='encerrado'?'success':'danger'}">${n.status||'aberta'}</span></td>
+      </tr>`).join('')||'<tr><td colspan="7" style="text-align:center;padding:40px;color:#94a3b8;">Nenhuma NC</td></tr>'}</tbody>
+    </table></div>`);
+}
+function abrirModalNC(cod=''){
+  document.getElementById('nc-data').value=new Date().toISOString().split('T')[0];
+  if(cod) document.getElementById('nc-proc').value=cod;
+  document.getElementById('modal-nc').classList.remove('hidden');
+}
+async function salvarNC(){
+  const desc=document.getElementById('nc-desc').value.trim();
+  if(!desc){toast('Informe a descrição','warning');return;}
+  const respId=document.getElementById('nc-resp').value;
+  try{
+    const{error}=await _supabase.from('bpf_ncs').insert({
+      procedimento_cod:document.getElementById('nc-proc').value,
+      data:document.getElementById('nc-data').value,
+      linha:document.getElementById('nc-linha').value,
+      gravidade:document.getElementById('nc-grav').value,
+      descricao:desc,
+      acao_corretiva:document.getElementById('nc-acao').value,
+      responsavel_id:respId||null,
+      responsavel_nome:_funcs.find(f=>f.id==respId)?.nome||'',
+      prazo:document.getElementById('nc-prazo').value||null,
+      status:'aberta'
+    });
+    if(error) throw error;
+    toast('NC registrada','success');
+    closeModal('modal-nc');
+    await loadData(); renderNC();
+  }catch(e){toast('Erro: '+e.message,'danger');}
+}
+
+// ═══════════════════════════════════════════════════════════════
+// AUDITORIAS
+// ═══════════════════════════════════════════════════════════════
+function renderAuditoria(){
+  setHdr('BPF','🔍 Auditorias',`<button class="btn btn-primary" onclick="abrirModalAud()">+ Nova</button>`);
+  setBdy(`
+    <div class="bpf-table-wrap"><table>
+      <thead><tr><th>Data</th><th>Tipo</th><th>Auditor</th><th>Linha</th><th>Reg. SIL002</th><th>Escopo</th><th>Resultado</th></tr></thead>
+      <tbody>${_auditorias.map(a=>{
+        const reg=a.registro_sil002_id?_registros002.find(r=>r.id===a.registro_sil002_id):null;
+        return `<tr>
+          <td>${a.data||'—'}</td><td>${a.tipo||'—'}</td><td>${a.auditor||'—'}</td>
+          <td>${a.linha||'Todas'}</td>
+          <td>${reg?`<span style="font-size:11px;font-family:monospace;color:var(--primary);">${reg.embalagem||'—'} · ${fmtDH(reg.data,reg.hora)}</span>`:'—'}</td>
+          <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${a.escopo||a.obs||'—'}</td>
+          <td><span class="badge badge-${a.resultado==='aprovado'?'success':a.resultado==='reprovado'?'danger':a.resultado==='agendada'?'info':'warning'}">${a.resultado||'—'}</span></td>
+        </tr>`;}).join('')||'<tr><td colspan="7" style="text-align:center;padding:40px;color:#94a3b8;">Nenhuma auditoria</td></tr>'}</tbody>
+    </table></div>`);
+}
+function abrirModalAud(){
+  document.getElementById('aud-data').value=new Date().toISOString().split('T')[0];
+  // Atualizar opções de registros SIL002
+  const rOpts=_registros002.map(r=>`<option value="${r.id}">${r.embalagem||'—'} · ${fmtDH(r.data,r.hora)} · ${r.executante_nome||'—'}</option>`).join('');
+  setOpts('aud-reg002','<option value="">Nenhum</option>'+rOpts);
+  document.getElementById('modal-aud').classList.remove('hidden');
+}
+async function salvarAuditoria(){
+  const data=document.getElementById('aud-data').value;
+  if(!data){toast('Informe a data','warning');return;}
+  try{
+    const{error}=await _supabase.from('bpf_auditorias').insert({
+      tipo:document.getElementById('aud-tipo').value,
+      data,
+      auditor:document.getElementById('aud-auditor').value,
+      linha:document.getElementById('aud-linha').value,
+      escopo:document.getElementById('aud-obs').value,
+      resultado:document.getElementById('aud-result').value,
+      registro_sil002_id:document.getElementById('aud-reg002').value||null,
+    });
+    if(error) throw error;
+    toast('Auditoria salva','success');
+    closeModal('modal-aud');
+    await loadData(); renderAuditoria();
+  }catch(e){toast('Erro: '+e.message,'danger');}
+}
+
+// ═══════════════════════════════════════════════════════════════
+// TREINAMENTOS
+// ═══════════════════════════════════════════════════════════════
+function renderTreinamentos(){
+  setHdr('BPF','🎓 Treinamentos',`<button class="btn btn-primary" onclick="document.getElementById('modal-trein').classList.remove('hidden');document.getElementById('trein-data').value=new Date().toISOString().split('T')[0]">+ Novo</button>`);
+  setBdy(`
+    <div class="bpf-table-wrap"><table>
+      <thead><tr><th>Data</th><th>Procedimento</th><th>Instrutor</th><th>CH</th><th>Participantes</th><th>Conteúdo</th></tr></thead>
+      <tbody>${_treinamentos.map(t=>`<tr>
+        <td>${t.data||'—'}</td><td>${t.procedimento_cod||'Geral'}</td>
+        <td>${t.instrutor_nome||'—'}</td><td>${t.carga_horaria||'—'}h</td>
+        <td><span class="badge badge-info">${t.num_participantes||0}</span></td>
+        <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${t.conteudo||'—'}</td>
+      </tr>`).join('')||'<tr><td colspan="6" style="text-align:center;padding:40px;color:#94a3b8;">Nenhum treinamento</td></tr>'}</tbody>
+    </table></div>`);
+}
+async function salvarTreinamento(){
+  const data=document.getElementById('trein-data').value;
+  if(!data){toast('Informe a data','warning');return;}
+  const instrId=document.getElementById('trein-instr').value;
+  const parts=Array.from(document.getElementById('trein-parts').selectedOptions).map(o=>o.value);
+  try{
+    const{error}=await _supabase.from('bpf_treinamentos').insert({
+      procedimento_cod:document.getElementById('trein-proc').value||null,
+      data, instrutor_id:instrId||null,
+      instrutor_nome:_funcs.find(f=>f.id==instrId)?.nome||'',
+      carga_horaria:parseInt(document.getElementById('trein-ch').value)||2,
+      participantes_ids:parts, num_participantes:parts.length,
+      conteudo:document.getElementById('trein-obs').value,
+    });
+    if(error) throw error;
+    toast('Treinamento salvo','success');
+    closeModal('modal-trein');
+    await loadData(); renderTreinamentos();
+  }catch(e){toast('Erro: '+e.message,'danger');}
+}
+
+// ═══════════════════════════════════════════════════════════════
+// DOCUMENTOS
+// ═══════════════════════════════════════════════════════════════
+function renderDocumentos(){
+  setHdr('BPF','📎 Documentos',`<button class="btn btn-primary" onclick="document.getElementById('doc-file-input').click()">+ Anexar Documento</button><input type="file" id="doc-file-input" class="hidden" multiple accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx" onchange="uploadDocumento(this)">`);
+  setBdy(`
+    <div style="font-size:12px;color:#64748b;margin-bottom:16px;">Documentos gerais do módulo BPF. Para anexos vinculados a um procedimento específico, acesse o procedimento correspondente.</div>
+    ${_documentos.length===0
+      ?`<div class="upload-drop" onclick="document.getElementById('doc-file-input').click()">
+          <div style="font-size:36px;margin-bottom:10px;">📎</div>
+          <div style="font-size:14px;font-weight:700;color:#64748b;">Nenhum documento anexado</div>
+          <div style="font-size:12px;color:#94a3b8;margin-top:4px;">Clique para selecionar ou arraste arquivos aqui</div>
+          <div style="font-size:11px;color:#cbd5e1;margin-top:8px;">PDF, imagens, Word, Excel</div>
+        </div>`
+      :`<div class="bpf-table-wrap"><table>
+          <thead><tr><th>Nome</th><th>Tipo</th><th>Tamanho</th><th>Data</th><th>Enviado por</th><th style="width:120px;">Ações</th></tr></thead>
+          <tbody>${_documentos.map(d=>`<tr>
+            <td><span style="color:var(--primary);font-weight:600;">${getFileIcon(d.nome)} ${d.nome||'—'}</span></td>
+            <td><span class="badge badge-info" style="font-size:10px;">${fmtTipo(d.tipo)}</span></td>
+            <td>${d.tamanho?fmtSize(d.tamanho):'—'}</td>
+            <td>${d.created_at?.slice(0,10)||'—'}</td>
+            <td>${d.enviado_por||'—'}</td>
+            <td>
+              <div class="table-actions">
+                <button class="btn btn-secondary btn-sm" title="Visualizar" onclick="visualizarDoc('${d.id}')">👁️</button>
+                <button class="btn btn-secondary btn-sm" title="Imprimir" onclick="imprimirDoc('${d.id}')">🖨️</button>
+                <button class="btn btn-danger btn-sm" title="Excluir" onclick="excluirDoc('${d.id}')">🗑️</button>
+              </div>
+            </td>
+          </tr>`).join('')}</tbody>
+        </table></div>`
+    }`);
+}
+
+function fmtTipo(mime){
+  if(!mime) return '—';
+  if(mime.includes('pdf')) return 'PDF';
+  if(mime.includes('image')) return 'Imagem';
+  if(mime.includes('word')||mime.includes('document')) return 'Word';
+  if(mime.includes('sheet')||mime.includes('excel')) return 'Excel';
+  return mime.split('/')[1]?.toUpperCase()||mime;
+}
+
+function visualizarDoc(id){
+  const doc = _documentos.find(d=>d.id===id);
+  const src = getDocSrc(doc);
+  if(!src){ toast('Conteúdo do documento não disponível','warning'); return; }
+
+  const mime = doc.tipo||'';
+  const isImg = mime.startsWith('image/');
+  const isPdf = mime.includes('pdf');
+
+  // Remove modal anterior
+  document.getElementById('modal-doc-view')?.remove();
+
+  const modal = document.createElement('div');
+  modal.id = 'modal-doc-view';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px;';
+  modal.onclick = (e)=>{ if(e.target===modal) modal.remove(); };
+
+  let content = '';
+  if(isPdf){
+    content = `<iframe src="${src}" style="width:min(860px,90vw);height:80vh;border:none;border-radius:8px;background:#fff;"></iframe>`;
+  } else if(isImg){
+    content = `<img src="${src}" style="max-width:min(860px,90vw);max-height:80vh;border-radius:8px;object-fit:contain;background:#fff;">`;
+  } else {
+    // Word/Excel — não renderizável, oferecer download se tiver url
+    const dlBtn = (doc.url||doc.conteudo_base64)
+      ? `<a href="${doc.url||doc.conteudo_base64}" download="${doc.nome}" class="btn btn-primary">⬇️ Baixar arquivo</a>`
+      : `<div style="color:#94a3b8;font-size:12px;">Arquivo sem URL de download disponível.</div>`;
+    content = `
+      <div style="background:#fff;border-radius:12px;padding:40px;text-align:center;max-width:400px;">
+        <div style="font-size:48px;margin-bottom:12px;">${getFileIcon(doc.nome)}</div>
+        <div style="font-size:15px;font-weight:700;color:#042D4D;margin-bottom:6px;">${doc.nome}</div>
+        <div style="font-size:12px;color:#64748b;margin-bottom:20px;">Este tipo de arquivo não pode ser visualizado no navegador.<br>Faça o download para abrir.</div>
+        ${dlBtn}
+      </div>`;
+  }
+
+  const dlHref = doc.url || doc.conteudo_base64 || '#';
+  modal.innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:space-between;width:min(860px,90vw);margin-bottom:10px;">
+      <div style="color:#fff;font-size:13px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;">${getFileIcon(doc.nome)} ${doc.nome}</div>
+      <div style="display:flex;gap:8px;flex-shrink:0;margin-left:12px;">
+        <button onclick="imprimirDoc('${id}')" style="background:rgba(255,255,255,.15);color:#fff;border:1px solid rgba(255,255,255,.3);border-radius:8px;padding:6px 14px;font-size:12px;font-weight:700;cursor:pointer;">🖨️ Imprimir</button>
+        <a href="${dlHref}" download="${doc.nome}" style="background:rgba(255,255,255,.15);color:#fff;border:1px solid rgba(255,255,255,.3);border-radius:8px;padding:6px 14px;font-size:12px;font-weight:700;cursor:pointer;text-decoration:none;">⬇️ Baixar</a>
+        <button onclick="document.getElementById('modal-doc-view').remove()" style="background:rgba(255,255,255,.15);color:#fff;border:1px solid rgba(255,255,255,.3);border-radius:8px;padding:6px 12px;font-size:14px;cursor:pointer;">✕</button>
+      </div>
+    </div>
+    ${content}
+  `;
+  document.body.appendChild(modal);
+}
+
+function imprimirDoc(id){
+  const doc = _documentos.find(d=>d.id===id);
+  const src = getDocSrc(doc);
+  if(!src){ toast('Conteúdo do documento não disponível','warning'); return; }
+
+  const mime = doc.tipo||'';
+  const isImg = mime.startsWith('image/');
+  const isPdf = mime.includes('pdf');
+
+  if(isPdf){
+    // Se base64: cria blob URL para abrir e imprimir
+    if(src.startsWith('data:')){
+      const byteStr = atob(src.split(',')[1]);
+      const ab = new ArrayBuffer(byteStr.length);
+      const ia = new Uint8Array(ab);
+      for(let i=0;i<byteStr.length;i++) ia[i]=byteStr.charCodeAt(i);
+      const blob = new Blob([ab], {type:'application/pdf'});
+      const blobUrl = URL.createObjectURL(blob);
+      const w = window.open(blobUrl, '_blank');
+      if(w) setTimeout(()=>{ try{ w.print(); } catch(e){} URL.revokeObjectURL(blobUrl); }, 1500);
+      else toast('Permita pop-ups para imprimir','warning');
+    } else {
+      const w = window.open(src, '_blank');
+      if(w) setTimeout(()=>{ try{ w.print(); } catch(e){} }, 1200);
+      else toast('Permita pop-ups para imprimir','warning');
+    }
+  } else if(isImg){
+    const w = window.open('','_blank');
+    const emp = _empresa;
+    const logoHtml = emp.logo
+      ? `<img src="${emp.logo}" style="height:40px;object-fit:contain;">`
+      : `<div style="font-size:24px;">🏭</div>`;
+    w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8">
+      <style>
+        body{margin:20px;font-family:Arial,sans-serif;}
+        .hdr{display:flex;align-items:center;gap:12px;padding-bottom:12px;border-bottom:2px solid #042D4D;margin-bottom:16px;}
+        .hdr-info h1{font-size:13px;color:#042D4D;margin:0 0 2px;font-weight:800;}
+        .hdr-info p{font-size:10px;color:#64748b;margin:0;}
+        h2{font-size:13px;color:#042D4D;margin:0 0 12px;}
+        img.doc{max-width:100%;border:1px solid #e2e8f0;border-radius:6px;}
+        .meta{font-size:10px;color:#94a3b8;margin-bottom:12px;}
+        @media print{body{margin:10px;}}
+      </style></head><body>
+      <div class="hdr">${logoHtml}<div class="hdr-info"><h1>${emp.nome_fantasia||'ERP Industrial'}</h1><p>${emp.razao_social||''}</p></div></div>
+      <h2>📎 ${doc.nome}</h2>
+      <div class="meta">Enviado por: ${doc.enviado_por||'—'} &nbsp;|&nbsp; Data: ${doc.created_at?.slice(0,10)||'—'} &nbsp;|&nbsp; Tamanho: ${doc.tamanho?fmtSize(doc.tamanho):'—'}</div>
+      <img class="doc" src="${src}" onload="window.print()">
+      </body></html>`);
+    w.document.close();
+  } else {
+    toast('Este tipo de arquivo deve ser baixado para impressão','info');
+    if(doc.url) window.open(doc.url,'_blank');
+    else if(doc.conteudo_base64){
+      const a = document.createElement('a');
+      a.href = doc.conteudo_base64;
+      a.download = doc.nome;
+      a.click();
+    }
+  }
+}
+
+async function uploadDocumento(input){
+  const user = getUser();
+  const MAX_BASE64 = 4 * 1024 * 1024;
+  for(const file of input.files){
+    try{
+      toast(`Carregando ${file.name}...`, 'info');
+      const base64 = await new Promise((res, rej) => {
+        const r = new FileReader();
+        r.onload = () => res(r.result);
+        r.onerror = () => rej(new Error('Erro ao ler arquivo'));
+        r.readAsDataURL(file);
+      });
+
+      let url = null, conteudo_base64 = null, path_storage = null;
+
+      if(file.size <= MAX_BASE64){
+        conteudo_base64 = base64;
+      } else {
+        const path = `bpf/${Date.now()}_${file.name}`;
+        const { error: upErr } = await _supabase.storage.from('documentos').upload(path, file, {upsert:true});
+        if(!upErr){
+          const { data: pub } = _supabase.storage.from('documentos').getPublicUrl(path);
+          url = pub?.publicUrl || null;
+          path_storage = path;
+        } else {
+          conteudo_base64 = base64;
+        }
+      }
+
+      const { error } = await _supabase.from('bpf_documentos').insert({
+        nome: file.name,
+        tipo: file.type || 'application/octet-stream',
+        tamanho: file.size,
+        url, conteudo_base64, path_storage,
+        enviado_por: user?.nome || user?.email || 'Sistema',
+      });
+      if(error) throw error;
+      toast(`${file.name} anexado com sucesso`, 'success');
+    }catch(e){ toast('Erro ao anexar: ' + e.message, 'danger'); }
+  }
+  input.value = '';
+  await loadData(); renderDocumentos();
+}
+
+async function excluirDoc(id){
+  if(!confirm('Excluir documento?')) return;
+  try{
+    const doc = _documentos.find(d=>d.id===id);
+    if(doc?.path_storage) await _supabase.storage.from('documentos').remove([doc.path_storage]);
+    await _supabase.from('bpf_documentos').delete().eq('id', id);
+    toast('Documento excluído', 'success');
+    await loadData(); renderDocumentos();
+  }catch(e){ toast('Erro: ' + e.message, 'danger'); }
+}
+
+function getDocSrc(doc){
+  return doc.conteudo_base64 || doc.url || null;
+}
+
+function getFileIcon(nome){
+  if(!nome) return '📄';
+  const ext=nome.split('.').pop().toLowerCase();
+  if(ext==='pdf') return '📕';
+  if(['jpg','jpeg','png','gif','webp'].includes(ext)) return '🖼️';
+  if(['doc','docx'].includes(ext)) return '📝';
+  if(['xls','xlsx'].includes(ext)) return '📊';
+  return '📄';
+}
+function fmtSize(bytes){
+  if(bytes<1024) return bytes+'B';
+  if(bytes<1048576) return (bytes/1024).toFixed(0)+'KB';
+  return (bytes/1048576).toFixed(1)+'MB';
+}
+
+// ═══════════════════════════════════════════════════════════════
+// UTILITÁRIOS
+// ═══════════════════════════════════════════════════════════════
+function setHdr(crumb,title,actHtml){
+  document.getElementById('bpf-crumb').textContent=crumb;
+  document.getElementById('bpf-title').textContent=title;
+  document.getElementById('bpf-actions').innerHTML=actHtml;
+}
+function setBdy(html){ document.getElementById('bpf-body').innerHTML=html; }
+function badgeSt(st){
+  return 'badge '+({pendente:'st-pendente',aguardando:'st-aguardando',parcial:'st-parcial',finalizado:'st-finalizado',vencido:'st-vencido'}[st]||'st-pendente');
+}
+function stLabel(st){
+  return {pendente:'Pendente',aguardando:'Aguardando assinatura',parcial:'Parcialmente assinado',finalizado:'Finalizado',vencido:'Vencido'}[st]||'Pendente';
+}
+function fmtDH(data,hora){
+  if(!data) return '—';
+  return data.split('-').reverse().join('/')+(hora?' '+hora:'');
+}
+function filterRows(input,cls){
+  const q=input.value.toLowerCase();
+  document.querySelectorAll('.'+cls).forEach(r=>r.style.display=r.textContent.toLowerCase().includes(q)?'':'none');
+}
+
+init();
+</script>
+</body>
+</html>
