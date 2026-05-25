@@ -122,25 +122,16 @@ function requireAuth(moduloId) {
   const temAcesso = perms[moduloId] && perms[moduloId].view;
 
   if (!temAcesso) {
-    // Módulo negado — redirecionar para dashboard (ou login se for o próprio dashboard)
     if (moduloId === 'dashboard') {
-      // Sem acesso ao dashboard: sessão válida mas perfil sem permissão configurada
-      // Redirecionar para página de acesso negado sem destruir sessão
-      document.body.innerHTML = `
-        <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;
-          background:#f8fafc;font-family:'Plus Jakarta Sans',sans-serif;">
-          <div style="text-align:center;padding:40px;background:#fff;border-radius:20px;
-            border:1.5px solid #e2e8f0;max-width:420px;box-shadow:0 8px 32px rgba(4,45,77,.1);">
-            <div style="font-size:48px;margin-bottom:16px;">🔒</div>
-            <h2 style="color:#042D4D;margin:0 0 8px;font-size:20px;">Acesso não autorizado</h2>
-            <p style="color:#64748b;font-size:14px;line-height:1.6;margin-bottom:24px;">
-              Seu perfil <strong>${user.perfil}</strong> não possui permissão para acessar o Dashboard.<br>
-              Entre em contato com o administrador do sistema.
-            </p>
-            <button onclick="doLogout()" style="background:#042D4D;color:#fff;border:none;padding:10px 24px;
-              border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;">Sair do Sistema</button>
-          </div>
-        </div>`;
+      // Sem acesso ao dashboard: redirecionar para o primeiro módulo permitido
+      const primeiroModulo = MODULO_MAP.find(m => perms[m.id] && perms[m.id].view);
+      if (primeiroModulo) {
+        window.location.href = primeiroModulo.page;
+      } else {
+        // Nenhum módulo permitido — logout
+        sessionStorage.removeItem('erp_user');
+        window.location.href = 'index.html';
+      }
     } else {
       sessionStorage.setItem('erp_access_denied', moduloId);
       window.location.href = 'dashboard.html';
