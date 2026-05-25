@@ -109,12 +109,22 @@ function canView(moduloId) {
 function requireAuth(moduloId) {
   const user = getUser();
   if (!user) { window.location.href = 'index.html'; return null; }
-  if (moduloId && !PERFIS_ADMIN.includes(user.perfil)) {
+  // SADM e ADM têm acesso total — nunca bloquear
+  if (PERFIS_ADMIN.includes(user.perfil)) return user;
+
+  if (moduloId) {
     const perms = user.permissoes || {};
-    if (!perms[moduloId] || !perms[moduloId].view) {
-      // Redirecionar para dashboard com mensagem
-      sessionStorage.setItem('erp_access_denied', moduloId);
-      window.location.href = 'dashboard.html';
+    const temAcesso = perms[moduloId] && perms[moduloId].view;
+    if (!temAcesso) {
+      // Dashboard é a página de fallback — se não tem acesso ao dashboard
+      // redireciona para login para evitar loop infinito
+      if (moduloId === 'dashboard') {
+        sessionStorage.removeItem('erp_user');
+        window.location.href = 'index.html';
+      } else {
+        sessionStorage.setItem('erp_access_denied', moduloId);
+        window.location.href = 'dashboard.html';
+      }
       return null;
     }
   }
@@ -136,7 +146,12 @@ function applyPermUI() {
 
 // ── SIDEBAR FILTRADA POR PERMISSÃO ────────────────────────
 async function initSidebar(paginaAtiva) {
-  const user = requireAuth();
+  // Resolver moduloId a partir do nome do arquivo (ex: 'producao.html' → 'producao')
+  const moduloEntry = paginaAtiva ? MODULO_MAP.find(m => m.page === paginaAtiva) : null;
+  const moduloId = moduloEntry ? moduloEntry.id : null;
+
+  // Verificar auth + permissão de view para esta página
+  const user = requireAuth(moduloId);
   if (!user) return;
 
   // Dados do usuário na topbar e sidebar
