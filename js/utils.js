@@ -1,76 +1,338 @@
 // ============================================================
-// ERP INDUSTRIAL — UTILS.JS
-// Funções compartilhadas entre todos os módulos
+// ERP INDUSTRIAL — UTILS.JS  v2.0
+// Engine de controle de acesso, sidebar filtrada e utilitários
 // ============================================================
 
-// ── SIDEBAR ──
+// ── MAPA CANÔNICO DE MÓDULOS ──────────────────────────────
+// chave = id interno usado em permissoes{}
+// page  = arquivo .html correspondente
+// label = rótulo exibido no menu
+// group = grupo do sidebar
+// icon  = emoji do sidebar
+const MODULO_MAP = [
+  // PRINCIPAL
+  { id:'dashboard',      page:'dashboard.html',      label:'Dashboard',            group:'principal',    icon:'📊' },
+  { id:'notificacoes',   page:'notificacoes.html',    label:'Notificações',         group:'principal',    icon:'🔔' },
+  { id:'relatorios',     page:'relatorios.html',      label:'Relatórios',           group:'principal',    icon:'📋' },
+  // ADMINISTRAÇÃO
+  { id:'usuarios',       page:'usuarios.html',        label:'Usuários',             group:'administracao',icon:'👥' },
+  { id:'perfis',         page:'perfis.html',          label:'Perfis & Permissões',  group:'administracao',icon:'🔒' },
+  { id:'auditoria',      page:'auditoria.html',       label:'Auditoria',            group:'administracao',icon:'📋' },
+  { id:'configuracoes',  page:'configuracoes.html',   label:'Configurações',        group:'administracao',icon:'⚙️' },
+  // CADASTROS
+  { id:'funcionarios',   page:'funcionarios.html',    label:'Funcionários',         group:'cadastros',    icon:'👷' },
+  { id:'equip_linhas',   page:'equip-linhas.html',    label:'Equip. das Linhas',    group:'cadastros',    icon:'⚙️' },
+  { id:'equip_gerais',   page:'equip-gerais.html',    label:'Equip. Gerais',        group:'cadastros',    icon:'🔧' },
+  { id:'linhas',         page:'linhas.html',          label:'Linhas de Produção',   group:'cadastros',    icon:'🏭' },
+  { id:'turnos',         page:'turnos.html',          label:'Turnos',               group:'cadastros',    icon:'🕐' },
+  { id:'produtos',       page:'produtos.html',        label:'Produtos',             group:'cadastros',    icon:'📦' },
+  { id:'motivos',        page:'motivos.html',         label:'Motivos de Parada',    group:'cadastros',    icon:'🛑' },
+  // PRODUÇÃO
+  { id:'planejamento',   page:'planejamento.html',    label:'Planejamento',         group:'producao',     icon:'📋' },
+  { id:'producao',       page:'producao.html',        label:'Produção',             group:'producao',     icon:'⚙️' },
+  // QUALIDADE
+  { id:'laboratorio',    page:'laboratorio.html',     label:'Laboratório',          group:'qualidade',    icon:'🧪' },
+  { id:'bpf',            page:'bpf.html',             label:'BPF',                  group:'qualidade',    icon:'📋' },
+  // OPERAÇÕES
+  { id:'manutencao',     page:'manutencao.html',      label:'Manutenção',           group:'operacoes',    icon:'🔧' },
+  { id:'frota',          page:'frota.html',           label:'Frota',                group:'operacoes',    icon:'🚜' },
+  { id:'abastecimento',  page:'abastecimento.html',   label:'Abastecimento',        group:'operacoes',    icon:'⛽' },
+  // ALMOXARIFADO
+  { id:'almoxarifado',   page:'almoxarifado.html',    label:'Almoxarifado',         group:'almoxarifado', icon:'📦' },
+  // CUSTOS
+  { id:'custos',         page:'custos.html',          label:'Gestão de Custos',     group:'custos',       icon:'💰' },
+  // LOGÍSTICA
+  { id:'portaria',       page:'portaria.html',        label:'Portaria',             group:'logistica',    icon:'🚪' },
+  { id:'expedicao',      page:'expedicao.html',       label:'Expedição',            group:'logistica',    icon:'🚛' },
+  { id:'carregamento',   page:'carregamento.html',    label:'Carregamento',         group:'logistica',    icon:'📦' },
+  // SEGURANÇA
+  { id:'epi',            page:'epi.html',             label:'EPI',                  group:'seguranca',    icon:'🦺' },
+  // RH
+  { id:'rh',             page:'rh.html',              label:'RH & Escala',          group:'rh',           icon:'📅' },
+];
+
+// Rótulos dos grupos para render do sidebar
+const GROUP_LABELS = {
+  principal:    'PRINCIPAL',
+  administracao:'ADMINISTRAÇÃO',
+  cadastros:    'CADASTROS',
+  producao:     'PRODUÇÃO',
+  qualidade:    'QUALIDADE',
+  operacoes:    'OPERAÇÕES',
+  almoxarifado: 'ALMOXARIFADO',
+  custos:       'CUSTOS',
+  logistica:    'LOGÍSTICA',
+  seguranca:    'SEGURANÇA DO TRABALHO',
+  rh:           'RH',
+};
+
+// Módulos sempre visíveis para SADM/ADM (acesso total)
+const PERFIS_ADMIN = ['SADM', 'ADM'];
+
+// ── ENGINE DE PERMISSÕES ──────────────────────────────────
+function getUser() {
+  try { return JSON.parse(sessionStorage.getItem('erp_user')); }
+  catch { return null; }
+}
+
+function isAdmin() {
+  const u = getUser();
+  return u && PERFIS_ADMIN.includes(u.perfil);
+}
+
+/**
+ * Verifica se o usuário tem permissão para ação em módulo.
+ * acao: 'view' | 'create' | 'edit' | 'delete' | 'export'
+ */
+function checkPerm(moduloId, acao) {
+  const u = getUser();
+  if (!u) return false;
+  if (PERFIS_ADMIN.includes(u.perfil)) return true;
+  const perms = u.permissoes;
+  if (!perms) return false;
+  const mp = perms[moduloId];
+  if (!mp) return false;
+  return !!mp[acao];
+}
+
+/**
+ * Atalho: pode visualizar o módulo?
+ */
+function canView(moduloId) {
+  return checkPerm(moduloId, 'view');
+}
+
+/**
+ * requireAuth com verificação de acesso à página atual.
+ * Redireciona para acesso-negado.html ou dashboard se não tiver permissão.
+ */
+function requireAuth(moduloId) {
+  const user = getUser();
+  if (!user) { window.location.href = 'index.html'; return null; }
+  if (moduloId && !PERFIS_ADMIN.includes(user.perfil)) {
+    const perms = user.permissoes || {};
+    if (!perms[moduloId] || !perms[moduloId].view) {
+      // Redirecionar para dashboard com mensagem
+      sessionStorage.setItem('erp_access_denied', moduloId);
+      window.location.href = 'dashboard.html';
+      return null;
+    }
+  }
+  return user;
+}
+
+/**
+ * Oculta elementos com data-perm="modulo:acao" se sem permissão.
+ * Uso: <button data-perm="producao:create">Novo</button>
+ */
+function applyPermUI() {
+  document.querySelectorAll('[data-perm]').forEach(el => {
+    const [mod, acao] = (el.getAttribute('data-perm') || '').split(':');
+    if (!checkPerm(mod, acao || 'view')) {
+      el.style.display = 'none';
+    }
+  });
+}
+
+// ── SIDEBAR FILTRADA POR PERMISSÃO ────────────────────────
+async function initSidebar(paginaAtiva) {
+  const user = requireAuth();
+  if (!user) return;
+
+  // Dados do usuário na topbar e sidebar
+  const initials = (user.nome || 'SA').split(' ').map(x => x[0]).join('').substring(0, 2).toUpperCase();
+  const setEl = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+  setEl('sb-avatar',      initials);
+  setEl('top-avatar',     initials);
+  setEl('sb-user-name',   (user.nome || 'Super Admin').split(' ')[0]);
+  setEl('top-user-name',  user.nome || 'Super Admin');
+  setEl('sb-user-perfil', user.perfil || 'SADM');
+  setEl('top-user-perfil', (user.perfil || 'SADM'));
+
+  // Dados da empresa
+  try {
+    const { data } = await _supabase.from('empresa_config')
+      .select('nome_fantasia,razao_social,logo').limit(1).maybeSingle();
+    if (data) {
+      setEl('sb-company-name', data.nome_fantasia || data.razao_social || 'ERP Industrial');
+      if (data.logo) {
+        const logoEl = document.getElementById('sb-logo');
+        if (logoEl) logoEl.innerHTML = `<img src="${data.logo}" style="width:100%;height:100%;object-fit:cover;">`;
+      }
+    }
+  } catch (e) {}
+
+  // Construir sidebar filtrada por permissões
+  _buildSidebar(user, paginaAtiva);
+
+  // Aplicar restrições de UI baseadas em permissão
+  applyPermUI();
+
+  // Aviso de acesso negado (vindo de redirecionamento)
+  const denied = sessionStorage.getItem('erp_access_denied');
+  if (denied) {
+    sessionStorage.removeItem('erp_access_denied');
+    const modulo = MODULO_MAP.find(m => m.id === denied);
+    toast(`Acesso restrito: você não tem permissão para "${modulo?.label || denied}".`, 'warning');
+  }
+}
+
+function _buildSidebar(user, paginaAtiva) {
+  const sidebar = document.getElementById('sidebar');
+  if (!sidebar) return;
+
+  const nav = sidebar.querySelector('.sidebar-nav');
+  if (!nav) return;
+
+  // Determinar módulos visíveis
+  const modulos = PERFIS_ADMIN.includes(user.perfil)
+    ? MODULO_MAP
+    : MODULO_MAP.filter(m => {
+        const p = (user.permissoes || {})[m.id];
+        return p && p.view;
+      });
+
+  // Agrupar
+  const grupos = {};
+  modulos.forEach(m => {
+    if (!grupos[m.group]) grupos[m.group] = [];
+    grupos[m.group].push(m);
+  });
+
+  // Limpar conteúdo de nav (mantém apenas os filhos que não são grupos)
+  nav.innerHTML = '';
+
+  const paginaAtualNorm = (paginaAtiva || window.location.pathname.split('/').pop() || '').toLowerCase();
+
+  Object.entries(GROUP_LABELS).forEach(([groupId, groupLabel]) => {
+    const itens = grupos[groupId];
+    if (!itens || !itens.length) return;
+
+    const temAtivo = itens.some(m => m.page === paginaAtualNorm);
+
+    // Label do grupo
+    const labelEl = document.createElement('div');
+    labelEl.className = 'nav-group-label' + (temAtivo ? ' open' : '');
+    labelEl.setAttribute('data-group', groupId);
+    labelEl.setAttribute('onclick', `toggleGroup('${groupId}')`);
+    labelEl.innerHTML = `<span>${groupLabel}</span><span class="group-arrow">▶</span>`;
+    nav.appendChild(labelEl);
+
+    // Items do grupo
+    const groupEl = document.createElement('div');
+    groupEl.className = 'nav-group-items' + (temAtivo ? ' open' : '');
+    groupEl.id = 'group-' + groupId;
+    itens.forEach(m => {
+      const isActive = m.page === paginaAtualNorm;
+      const a = document.createElement('a');
+      a.className = 'nav-item' + (isActive ? ' active' : '');
+      a.href = m.page;
+      a.setAttribute('onclick', 'setActiveItem(this)');
+      a.innerHTML = `<span class="nav-icon">${m.icon}</span><span class="nav-label">${m.label}</span>`;
+      groupEl.appendChild(a);
+    });
+    nav.appendChild(groupEl);
+  });
+}
+
+// ── SIDEBAR helpers ───────────────────────────────────────
 let _sidebarCollapsed = false;
 
 function toggleSidebar() {
   _sidebarCollapsed = !_sidebarCollapsed;
-  document.getElementById('sidebar').classList.toggle('collapsed', _sidebarCollapsed);
-  document.getElementById('topbar').classList.toggle('collapsed', _sidebarCollapsed);
-  document.getElementById('main-content').classList.toggle('collapsed', _sidebarCollapsed);
+  ['sidebar','topbar','main-content'].forEach(id => {
+    document.getElementById(id)?.classList.toggle('collapsed', _sidebarCollapsed);
+  });
 }
 
-function toggleGroup(grupo) {
-  const label = document.querySelector(`[data-group="${grupo}"]`);
-  const items = document.getElementById('group-' + grupo);
+function toggleGroup(groupId) {
+  const label = document.querySelector(`.nav-group-label[data-group="${groupId}"]`);
+  const items = document.getElementById('group-' + groupId);
   if (!label || !items) return;
-  const isOpen = items.classList.contains('open');
-
-  // Se está aberto e contém o item ativo, não recolhe
+  const isOpen = label.classList.contains('open');
   if (isOpen && items.querySelector('.nav-item.active')) return;
-
-  // Fecha todos os outros grupos que não contenham item ativo
   document.querySelectorAll('.nav-group-items').forEach(el => {
-    if (el.id !== 'group-' + grupo && !el.querySelector('.nav-item.active')) {
+    if (el.id !== 'group-' + groupId && !el.querySelector('.nav-item.active'))
       el.classList.remove('open');
-    }
   });
   document.querySelectorAll('.nav-group-label').forEach(el => {
     const g = el.getAttribute('data-group');
-    const groupItems = document.getElementById('group-' + g);
-    if (g !== grupo && groupItems && !groupItems.querySelector('.nav-item.active')) {
-      el.classList.remove('open');
-    }
+    const gi = document.getElementById('group-' + g);
+    if (g !== groupId && gi && !gi.querySelector('.nav-item.active')) el.classList.remove('open');
   });
-
-  // Abre ou fecha o grupo clicado
   items.classList.toggle('open', !isOpen);
   label.classList.toggle('open', !isOpen);
 }
 
 function openGroup(grupo) {
-  const items = document.getElementById('group-' + grupo);
-  const label = document.querySelector(`[data-group="${grupo}"]`);
-  if (items) items.classList.add('open');
-  if (label) label.classList.add('open');
+  document.getElementById('group-' + grupo)?.classList.add('open');
+  document.querySelector(`[data-group="${grupo}"]`)?.classList.add('open');
 }
 
-// ── TOAST ──
+function setActiveItem(el) {
+  document.querySelectorAll('.nav-item.active').forEach(i => i.classList.remove('active'));
+  el.classList.add('active');
+  const group = el.closest('.nav-group-items');
+  if (group) {
+    const gid = group.id.replace('group-', '');
+    document.querySelector(`.nav-group-label[data-group="${gid}"]`)?.classList.add('open');
+    group.classList.add('open');
+  }
+}
+
+// ── TOAST ──────────────────────────────────────────────────
 function toast(msg, type = 'success') {
   const icons = { success: '✅', danger: '❌', warning: '⚠️', info: 'ℹ️' };
   const el = document.createElement('div');
   el.className = 'toast ' + type;
   el.innerHTML = `<span>${icons[type] || 'ℹ️'}</span><span>${msg}</span>`;
-  document.getElementById('toast-container').appendChild(el);
+  document.getElementById('toast-container')?.appendChild(el);
   setTimeout(() => el.remove(), 3500);
 }
 
-// ── MODAL ──
+// ── MODAL ──────────────────────────────────────────────────
 function closeModal(id) {
-  document.getElementById(id).classList.add('hidden');
+  document.getElementById(id)?.classList.add('hidden');
 }
-
-// Fechar modal ao clicar fora
 document.addEventListener('DOMContentLoaded', () => {
   document.querySelectorAll('.modal-overlay').forEach(el => {
     el.addEventListener('click', e => { if (e.target === el) el.classList.add('hidden'); });
   });
 });
 
-// ── AUDITORIA ──
+// ── AUTH ───────────────────────────────────────────────────
+async function doLogout() {
+  const user = getUser();
+  try { await addLog('LOGOUT','AUTH', user?.id || 'unknown', 'Logout realizado'); } catch(e) {}
+  sessionStorage.removeItem('erp_user');
+  window.location.href = 'index.html';
+}
+
+/**
+ * Carrega permissões do perfil do banco e salva no sessionStorage.
+ * Chamado após login bem-sucedido.
+ */
+async function carregarPermissoesPerfil(user) {
+  try {
+    if (PERFIS_ADMIN.includes(user.perfil)) {
+      // Admin: permissão total em todos os módulos
+      const perms = {};
+      MODULO_MAP.forEach(m => {
+        perms[m.id] = { view:true, create:true, edit:true, delete:true, export:true };
+      });
+      user.permissoes = perms;
+    } else {
+      const { data } = await _supabase.from('perfis')
+        .select('permissoes').eq('codigo', user.perfil).maybeSingle();
+      user.permissoes = data?.permissoes || {};
+    }
+    sessionStorage.setItem('erp_user', JSON.stringify(user));
+  } catch(e) {
+    console.warn('Erro ao carregar permissões:', e);
+  }
+}
+
+// ── AUDITORIA ──────────────────────────────────────────────
 async function addLog(acao, modulo, registroId, descricao) {
   const user = getUser();
   try {
@@ -80,124 +342,45 @@ async function addLog(acao, modulo, registroId, descricao) {
       descricao,
       usuario_email: user?.email || 'sistema'
     });
-  } catch (e) {
-    console.warn('Erro ao registrar auditoria:', e);
-  }
+  } catch(e) {}
 }
 
-// ── AUTH ──
-function getUser() {
-  try { return JSON.parse(sessionStorage.getItem('erp_user')); }
-  catch { return null; }
-}
-
-function requireAuth() {
-  const user = getUser();
-  if (!user) { window.location.href = 'index.html'; return null; }
-  return user;
-}
-
-async function doLogout() {
-  const user = getUser();
-  try{await addLog('LOGOUT','AUTH',user?.id||'unknown','Logout realizado');}catch(e){}
-  sessionStorage.removeItem('erp_user');
-  window.location.href = 'index.html';
-}
-
-// ── PREENCHER SIDEBAR COM DADOS DO USUÁRIO E EMPRESA ──
-async function initSidebar(paginaAtiva) {
-  const user = requireAuth();
-  if (!user) return;
-
-  // Usuário
-  const initials = (user.nome || 'SA').split(' ').map(x => x[0]).join('').substring(0, 2).toUpperCase();
-  const setEl = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
-  setEl('sb-avatar', initials);
-  setEl('top-avatar', initials);
-  setEl('sb-user-name', (user.nome || 'Super Admin').split(' ')[0]);
-  setEl('top-user-name', user.nome || 'Super Admin');
-  setEl('sb-user-perfil', user.perfil || 'SADM');
-  setEl('top-user-perfil', (user.perfil || 'SADM') + ' — Super Administrador');
-
-  // Empresa
-  try {
-    const { data } = await _supabase.from('empresa_config')
-      .select('nome_fantasia,razao_social,logo').limit(1).maybeSingle();
-    if (data) {
-      setEl('sb-company-name', data.nome_fantasia || data.razao_social || 'ERP Industrial');
-      if (data.logo) {
-        const logoEl = document.getElementById('sb-logo');
-        if (logoEl) logoEl.innerHTML = `<img src="${data.logo}" style="width:100%;height:100%;object-fit:cover;">`;
-        const brandEl = document.getElementById('login-logo');
-        if (brandEl) brandEl.innerHTML = `<img src="${data.logo}">`;
-        const nomeEl = document.getElementById('login-empresa');
-        if (nomeEl) nomeEl.textContent = data.nome_fantasia || data.razao_social || 'ERP Industrial';
-      }
-    }
-  } catch (e) { /* silencioso */ }
-
-  // Marcar item ativo na sidebar e abrir o grupo correspondente
-  if (paginaAtiva) {
-    document.querySelectorAll('.nav-item').forEach(el => {
-      const isActive = el.getAttribute('href') === paginaAtiva;
-      el.classList.toggle('active', isActive);
-      if (isActive) {
-        // Abre o grupo pai do item ativo
-        const groupItems = el.closest('.nav-group-items');
-        if (groupItems) {
-          const groupId = groupItems.id.replace('group-', '');
-          const groupLabel = document.querySelector(`[data-group="${groupId}"]`);
-          groupItems.classList.add('open');
-          if (groupLabel) groupLabel.classList.add('open');
-        }
-      }
-    });
-  }
-}
-
-// ── SHA256 (para senhas) ──
+// ── SHA256 ─────────────────────────────────────────────────
 async function sha256(str) {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
   return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
-// ── MÁSCARAS ──
+// ── MÁSCARAS ───────────────────────────────────────────────
 function mascaraCNPJ(el) {
-  let v = el.value.replace(/\D/g, '');
-  if (v.length > 14) v = v.substring(0, 14);
+  let v = el.value.replace(/\D/g, '').substring(0, 14);
   v = v.replace(/^(\d{2})(\d)/, '$1.$2')
        .replace(/^(\d{2})\.(\d{3})(\d)/, '$1.$2.$3')
        .replace(/\.(\d{3})(\d)/, '.$1/$2')
        .replace(/(\d{4})(\d)/, '$1-$2');
   el.value = v;
 }
-
 function mascaraCPF(el) {
-  let v = el.value.replace(/\D/g, '');
-  if (v.length > 11) v = v.substring(0, 11);
+  let v = el.value.replace(/\D/g, '').substring(0, 11);
   v = v.replace(/(\d{3})(\d)/, '$1.$2')
        .replace(/(\d{3})(\d)/, '$1.$2')
        .replace(/(\d{3})(\d{1,2})$/, '$1-$2');
   el.value = v;
 }
-
 function mascaraTel(el) {
-  let v = el.value.replace(/\D/g, '');
-  if (v.length > 11) v = v.substring(0, 11);
+  let v = el.value.replace(/\D/g, '').substring(0, 11);
   if (v.length > 10) v = v.replace(/(\d{2})(\d{5})(\d{4})/, '($1) $2-$3');
   else if (v.length > 6) v = v.replace(/(\d{2})(\d{4})(\d+)/, '($1) $2-$3');
   else if (v.length > 2) v = v.replace(/(\d{2})(\d+)/, '($1) $2');
   el.value = v;
 }
-
 function mascaraCEP(el) {
-  let v = el.value.replace(/\D/g, '');
-  if (v.length > 8) v = v.substring(0, 8);
+  let v = el.value.replace(/\D/g, '').substring(0, 8);
   v = v.replace(/(\d{5})(\d)/, '$1-$2');
   el.value = v;
 }
 
-// ── EXPORT CSV genérico ──
+// ── EXPORT CSV ─────────────────────────────────────────────
 function exportarCSV(colunas, linhas, nomeArquivo) {
   const csv = [colunas, ...linhas]
     .map(r => r.map(c => `"${(c || '').toString().replace(/"/g, '""')}"`).join(','))
@@ -208,73 +391,47 @@ function exportarCSV(colunas, linhas, nomeArquivo) {
   a.click();
 }
 
-// ── EXPORT PDF genérico ──
+// ── EXPORT PDF genérico ─────────────────────────────────────
 function exportarPDF(titulo, colunas, linhas) {
-  // Buscar logo e empresa da config salva
-  const cfg = (() => { try { return JSON.parse(localStorage.getItem('erp_config')||'{}'); } catch(e){ return {}; } })();
-  const empresa = cfg.nome || document.getElementById('sb-company-name')?.textContent?.trim() || 'ERP Industrial';
-  const logo = cfg.logo || document.querySelector('#sb-logo img')?.src || null;
-  const logoHtml = logo ? `<img src="${logo}" style="height:48px;object-fit:contain;">` : `<div style="width:48px;height:48px;background:#042D4D;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:20px;">🏭</div>`;
-  const ths = colunas.map(c => `<th>${c}</th>`).join('');
-  const trs = linhas.map(r => `<tr>${r.map(c => `<td>${c || '—'}</td>`).join('')}</tr>`).join('');
-  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
-    <style>
-      body{font-family:sans-serif;padding:24px;color:#1e293b;}
-      .cabecalho{display:flex;align-items:center;gap:14px;padding-bottom:14px;border-bottom:2px solid #042D4D;margin-bottom:18px;}
-      .cab-info h1{font-size:16px;color:#042D4D;margin:0 0 2px;}
-      .cab-info p{font-size:11px;color:#64748b;margin:0;}
-      h2{color:#042D4D;margin-bottom:4px;font-size:15px;}
-      .meta{font-size:11px;color:#64748b;margin-bottom:14px;}
-      table{width:100%;border-collapse:collapse;}
-      th{background:#042D4D;color:#fff;padding:9px 10px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.5px;}
-      td{padding:7px 10px;border-bottom:1px solid #e2e8f0;font-size:12px;}
-      tr:nth-child(even) td{background:#f8fafc;}
-      @media print{body{padding:12px;}}
-    </style></head><body>
-    <div class="cabecalho">${logoHtml}<div class="cab-info"><h1>${empresa}</h1><p>ERP Industrial</p></div></div>
-    <h2>${titulo}</h2>
-    <p class="meta">Gerado em ${new Date().toLocaleString('pt-BR')} &nbsp;|&nbsp; Total: ${linhas.length} registro(s)</p>
-    <table><thead><tr>${ths}</tr></thead><tbody>${trs}</tbody></table>
-    </body></html>`;
-  const w = window.open('', '_blank');
-  w.document.write(html);
-  w.document.close();
-  setTimeout(() => w.print(), 500);
+  const empresa = document.getElementById('sb-company-name')?.textContent?.trim() || 'ERP Industrial';
+  const logo    = document.querySelector('#sb-logo img')?.src || null;
+  const logoHtml = logo
+    ? `<img src="${logo}" style="height:48px;object-fit:contain;">`
+    : `<div style="width:48px;height:48px;background:#042D4D;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:20px;">🏭</div>`;
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
+    body{font-family:sans-serif;padding:24px;color:#1e293b;}
+    .cab{display:flex;align-items:center;gap:14px;padding-bottom:14px;border-bottom:2px solid #042D4D;margin-bottom:18px;}
+    h2{color:#042D4D;margin-bottom:4px;font-size:15px;}
+    .meta{font-size:11px;color:#64748b;margin-bottom:14px;}
+    table{width:100%;border-collapse:collapse;}
+    th{background:#042D4D;color:#fff;padding:9px 10px;text-align:left;font-size:11px;}
+    td{padding:7px 10px;border-bottom:1px solid #e2e8f0;font-size:12px;}
+    tr:nth-child(even) td{background:#f8fafc;}
+    @media print{body{padding:12px;}}
+  </style></head><body>
+  <div class="cab">${logoHtml}<div><strong style="font-size:16px;color:#042D4D;">${empresa}</strong><br><span style="font-size:11px;color:#64748b;">ERP Industrial</span></div></div>
+  <h2>${titulo}</h2>
+  <p class="meta">Gerado em ${new Date().toLocaleString('pt-BR')} | Total: ${linhas.length} registros</p>
+  <table><thead><tr>${colunas.map(c=>`<th>${c}</th>`).join('')}</tr></thead>
+  <tbody>${linhas.map(r=>`<tr>${r.map(c=>`<td>${c||'—'}</td>`).join('')}</tr>`).join('')}</tbody></table>
+  <script>setTimeout(()=>window.print(),400);<\/script>
+  </body></html>`;
+  const w = window.open('','_blank');
+  w?.document.write(html);
+  w?.document.close();
 }
 
-// ── MODAL FOTO INLINE ──
-function verFotoInline(src){
-  if(!src)return;
-  let overlay=document.getElementById('foto-modal-overlay');
-  if(!overlay){
-    overlay=document.createElement('div');overlay.id='foto-modal-overlay';
-    overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:9999;display:flex;align-items:center;justify-content:center;cursor:zoom-out;';
-    overlay.onclick=()=>overlay.remove();
+// ── MODAL FOTO ─────────────────────────────────────────────
+function verFotoInline(src) {
+  if (!src) return;
+  let overlay = document.getElementById('foto-modal-overlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'foto-modal-overlay';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:9999;display:flex;align-items:center;justify-content:center;cursor:zoom-out;';
+    overlay.onclick = () => overlay.remove();
     document.body.appendChild(overlay);
   }
-  overlay.innerHTML=`<img src="${src}" style="max-width:90vw;max-height:90vh;border-radius:10px;box-shadow:0 8px 40px rgba(0,0,0,.6);">`;
-  overlay.style.display='flex';
-}
-
-// ── VERIFICAÇÃO DE PERMISSÃO ──
-function checkPerm(modulo, acao) {
-  try {
-    const user = getUser();
-    if (!user) return false;
-    if (['SADM','ADM'].includes(user.perfil)) return true;
-    const perms = user.permissoes;
-    if (!perms || !perms[modulo]) return false;
-    return !!perms[modulo][acao];
-  } catch(e) { return true; } // fallback permissivo
-}
-
-// Ao fazer login, salvar permissoes do perfil junto com o user
-async function carregarPermissoesPerfil(user) {
-  try {
-    const {data} = await _supabase.from('perfis').select('permissoes').eq('codigo', user.perfil).maybeSingle();
-    if (data?.permissoes) {
-      user.permissoes = data.permissoes;
-      sessionStorage.setItem('erp_user', JSON.stringify(user));
-    }
-  } catch(e) {}
+  overlay.innerHTML = `<img src="${src}" style="max-width:90vw;max-height:90vh;border-radius:10px;box-shadow:0 8px 40px rgba(0,0,0,.6);">`;
+  overlay.style.display = 'flex';
 }
