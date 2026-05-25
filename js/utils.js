@@ -108,23 +108,27 @@ function canView(moduloId) {
  */
 function requireAuth(moduloId) {
   const user = getUser();
+  // Não autenticado — vai para login
   if (!user) { window.location.href = 'index.html'; return null; }
+
   // SADM e ADM têm acesso total — nunca bloquear
   if (PERFIS_ADMIN.includes(user.perfil)) return user;
 
-  if (moduloId) {
-    const perms = user.permissoes || {};
+  // Dashboard e notificações são sempre acessíveis para qualquer usuário logado
+  const SEMPRE_LIVRES = ['dashboard', 'notificacoes', null, undefined];
+  if (SEMPRE_LIVRES.includes(moduloId)) return user;
+
+  // Para outros módulos, verificar permissão de view
+  // Se as permissões ainda não foram carregadas (objeto vazio), permitir acesso
+  // para não bloquear usuários em carregamento
+  const perms = user.permissoes || {};
+  const temPermsCarregadas = Object.keys(perms).length > 0;
+
+  if (temPermsCarregadas) {
     const temAcesso = perms[moduloId] && perms[moduloId].view;
     if (!temAcesso) {
-      // Dashboard é a página de fallback — se não tem acesso ao dashboard
-      // redireciona para login para evitar loop infinito
-      if (moduloId === 'dashboard') {
-        sessionStorage.removeItem('erp_user');
-        window.location.href = 'index.html';
-      } else {
-        sessionStorage.setItem('erp_access_denied', moduloId);
-        window.location.href = 'dashboard.html';
-      }
+      sessionStorage.setItem('erp_access_denied', moduloId);
+      window.location.href = 'dashboard.html';
       return null;
     }
   }
@@ -337,13 +341,33 @@ async function carregarPermissoesPerfil(user) {
       });
       user.permissoes = perms;
     } else {
-      const { data } = await _supabase.from('perfis')
+      const { data, error } = await _supabase.from('perfis')
         .select('permissoes').eq('codigo', user.perfil).maybeSingle();
-      user.permissoes = data?.permissoes || {};
+
+      if (data?.permissoes && Object.keys(data.permissoes).length > 0) {
+        // Perfil encontrado no banco com permissões definidas
+        user.permissoes = data.permissoes;
+      } else {
+        // Perfil não encontrado ou sem permissões — garantir acesso mínimo ao dashboard
+        // para não travar o usuário na tela de login
+        console.warn('Permissões não encontradas para perfil:', user.perfil, error?.message || '');
+        user.permissoes = {
+          dashboard:     { view:true,  create:false, edit:false, delete:false, export:false },
+          notificacoes:  { view:true,  create:false, edit:false, delete:false, export:false },
+        };
+      }
     }
     sessionStorage.setItem('erp_user', JSON.stringify(user));
   } catch(e) {
+    // Em caso de erro de rede, não travar o usuário — permitir dashboard
     console.warn('Erro ao carregar permissões:', e);
+    if (!user.permissoes || Object.keys(user.permissoes).length === 0) {
+      user.permissoes = {
+        dashboard:    { view:true, create:false, edit:false, delete:false, export:false },
+        notificacoes: { view:true, create:false, edit:false, delete:false, export:false },
+      };
+      sessionStorage.setItem('erp_user', JSON.stringify(user));
+    }
   }
 }
 
