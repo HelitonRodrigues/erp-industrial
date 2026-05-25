@@ -114,23 +114,38 @@ function requireAuth(moduloId) {
   // SADM e ADM têm acesso total — nunca bloquear
   if (PERFIS_ADMIN.includes(user.perfil)) return user;
 
-  // Dashboard e notificações são sempre acessíveis para qualquer usuário logado
-  const SEMPRE_LIVRES = ['dashboard', 'notificacoes', null, undefined];
-  if (SEMPRE_LIVRES.includes(moduloId)) return user;
+  // Sem moduloId definido — apenas verifica autenticação
+  if (!moduloId) return user;
 
-  // Para outros módulos, verificar permissão de view
-  // Se as permissões ainda não foram carregadas (objeto vazio), permitir acesso
-  // para não bloquear usuários em carregamento
+  // Verificar permissão de view para o módulo
   const perms = user.permissoes || {};
-  const temPermsCarregadas = Object.keys(perms).length > 0;
+  const temAcesso = perms[moduloId] && perms[moduloId].view;
 
-  if (temPermsCarregadas) {
-    const temAcesso = perms[moduloId] && perms[moduloId].view;
-    if (!temAcesso) {
+  if (!temAcesso) {
+    // Módulo negado — redirecionar para dashboard (ou login se for o próprio dashboard)
+    if (moduloId === 'dashboard') {
+      // Sem acesso ao dashboard: sessão válida mas perfil sem permissão configurada
+      // Redirecionar para página de acesso negado sem destruir sessão
+      document.body.innerHTML = `
+        <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;
+          background:#f8fafc;font-family:'Plus Jakarta Sans',sans-serif;">
+          <div style="text-align:center;padding:40px;background:#fff;border-radius:20px;
+            border:1.5px solid #e2e8f0;max-width:420px;box-shadow:0 8px 32px rgba(4,45,77,.1);">
+            <div style="font-size:48px;margin-bottom:16px;">🔒</div>
+            <h2 style="color:#042D4D;margin:0 0 8px;font-size:20px;">Acesso não autorizado</h2>
+            <p style="color:#64748b;font-size:14px;line-height:1.6;margin-bottom:24px;">
+              Seu perfil <strong>${user.perfil}</strong> não possui permissão para acessar o Dashboard.<br>
+              Entre em contato com o administrador do sistema.
+            </p>
+            <button onclick="doLogout()" style="background:#042D4D;color:#fff;border:none;padding:10px 24px;
+              border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;">Sair do Sistema</button>
+          </div>
+        </div>`;
+    } else {
       sessionStorage.setItem('erp_access_denied', moduloId);
       window.location.href = 'dashboard.html';
-      return null;
     }
+    return null;
   }
   return user;
 }
@@ -144,6 +159,67 @@ function applyPermUI() {
     const [mod, acao] = (el.getAttribute('data-perm') || '').split(':');
     if (!checkPerm(mod, acao || 'view')) {
       el.style.display = 'none';
+    }
+  });
+}
+
+/**
+ * Guard para ações destrutivas ou restritas chamado no início
+ * de funções de create/edit/delete em qualquer módulo.
+ *
+ * Uso:
+ *   async function excluirRegistro(id) {
+ *     if (!guardAction('producao', 'delete')) return;
+ *     ...
+ *   }
+ *
+ * Retorna true se permitido, false (+ toast) se negado.
+ */
+function guardAction(moduloId, acao) {
+  const user = getUser();
+  if (!user) { window.location.href = 'index.html'; return false; }
+  if (PERFIS_ADMIN.includes(user.perfil)) return true;
+  if (checkPerm(moduloId, acao)) return true;
+
+  const acaoLabel = {
+    view:   'visualizar',
+    create: 'criar registros em',
+    edit:   'editar registros em',
+    delete: 'excluir registros de',
+    export: 'exportar dados de',
+  }[acao] || acao;
+  const modulo = MODULO_MAP.find(m => m.id === moduloId);
+  toast(`Sem permissão para ${acaoLabel} ${modulo?.label || moduloId}.`, 'warning');
+  return false;
+}
+
+/**
+ * Aplica guards automáticos nos botões de ação renderizados dinamicamente.
+ * Chame após renderizar tabelas/listas para ocultar botões não autorizados.
+ * Detecta padrões comuns: onclick com "exclu", "delet", "edit", "novo", "salvar".
+ */
+function applyActionGuards(moduloId, containerEl) {
+  if (!moduloId || !containerEl) return;
+  if (isAdmin()) return; // admin vê tudo
+
+  const perms = (getUser()?.permissoes || {})[moduloId] || {};
+
+  // Padrões para detectar tipo de ação pelo onclick ou texto do botão
+  const patterns = [
+    { regex: /exclu|delet|remov/i,   acao: 'delete' },
+    { regex: /edit|alter|modif/i,    acao: 'edit'   },
+    { regex: /novo|criar|add|insert|salvar/i, acao: 'create' },
+    { regex: /export|csv|pdf|baixar/i, acao: 'export' },
+  ];
+
+  containerEl.querySelectorAll('button, a[onclick]').forEach(el => {
+    const sig = (el.getAttribute('onclick') || '') + ' ' + (el.textContent || '');
+    for (const {regex, acao} of patterns) {
+      if (regex.test(sig) && !perms[acao]) {
+        el.style.display = 'none';
+        el.setAttribute('data-blocked', acao);
+        break;
+      }
     }
   });
 }
@@ -186,6 +262,23 @@ async function initSidebar(paginaAtiva) {
 
   // Aplicar restrições de UI baseadas em permissão
   applyPermUI();
+
+  // Aplicar guards automáticos de ação no conteúdo principal
+  if (moduloId) {
+    // Aguardar um tick para que o conteúdo dinâmico seja renderizado
+    setTimeout(() => {
+      const main = document.getElementById('main-content');
+      if (main) applyActionGuards(moduloId, main);
+
+      // Re-aplicar quando conteúdo dinâmico for atualizado
+      // (observer para tabelas que renderizam após fetch)
+      const observer = new MutationObserver(() => {
+        applyPermUI();
+        if (main) applyActionGuards(moduloId, main);
+      });
+      if (main) observer.observe(main, { childList: true, subtree: true });
+    }, 300);
+  }
 
   // Aviso de acesso negado (vindo de redirecionamento)
   const denied = sessionStorage.getItem('erp_access_denied');
@@ -348,26 +441,17 @@ async function carregarPermissoesPerfil(user) {
         // Perfil encontrado no banco com permissões definidas
         user.permissoes = data.permissoes;
       } else {
-        // Perfil não encontrado ou sem permissões — garantir acesso mínimo ao dashboard
-        // para não travar o usuário na tela de login
+        // Perfil não encontrado ou sem permissões configuradas no banco
         console.warn('Permissões não encontradas para perfil:', user.perfil, error?.message || '');
-        user.permissoes = {
-          dashboard:     { view:true,  create:false, edit:false, delete:false, export:false },
-          notificacoes:  { view:true,  create:false, edit:false, delete:false, export:false },
-        };
+        user.permissoes = {};
       }
     }
     sessionStorage.setItem('erp_user', JSON.stringify(user));
   } catch(e) {
-    // Em caso de erro de rede, não travar o usuário — permitir dashboard
     console.warn('Erro ao carregar permissões:', e);
-    if (!user.permissoes || Object.keys(user.permissoes).length === 0) {
-      user.permissoes = {
-        dashboard:    { view:true, create:false, edit:false, delete:false, export:false },
-        notificacoes: { view:true, create:false, edit:false, delete:false, export:false },
-      };
-      sessionStorage.setItem('erp_user', JSON.stringify(user));
-    }
+    // Manter permissões existentes se houver, senão objeto vazio
+    if (!user.permissoes) user.permissoes = {};
+    sessionStorage.setItem('erp_user', JSON.stringify(user));
   }
 }
 
