@@ -449,17 +449,19 @@ async function carregarPermissoesPerfil(user) {
 // ── AUDITORIA ──────────────────────────────────────────────
 async function addLog(acao, modulo, registroId, descricao) {
   const user = getUser();
+  // Monta descricao incluindo nome/perfil do usuário já no texto
+  // (evita depender de colunas extras que podem não existir na tabela)
+  const quem  = [user?.nome, user?.perfil].filter(Boolean).join(' / ') || 'sistema';
+  const desc  = descricao ? String(descricao).slice(0, 490) + ` [${quem}]` : `[${quem}]`;
   try {
     const { error } = await _supabase.from('auditoria').insert({
-      acao:           acao,
-      modulo:         modulo,
-      registro_id:    registroId ? String(registroId).slice(0, 100) : null,
-      descricao:      descricao  ? String(descricao).slice(0, 500)  : null,
-      usuario_email:  user?.email || user?.nome || 'sistema',
-      usuario_nome:   user?.nome  || null,
-      perfil:         user?.perfil || null,
+      acao,
+      modulo,
+      registro_id:   registroId ? String(registroId).slice(0, 100) : null,
+      descricao:     desc,
+      usuario_email: user?.email || user?.nome || 'sistema',
     });
-    if (error) console.warn('[addLog] Erro ao registrar auditoria:', error.message, {acao, modulo});
+    if (error) console.warn('[addLog] Erro:', error.message, {acao, modulo});
   } catch(e) {
     console.warn('[addLog] Exceção:', e.message, {acao, modulo});
   }
