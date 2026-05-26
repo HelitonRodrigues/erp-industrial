@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Diagnóstico Auditoria</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;700;800&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/supabase.js"></script>
+<script src="js/utils.js"></script>
+<style>
+  body { font-family: 'Plus Jakarta Sans', sans-serif; padding: 32px; background: #f8fafc; color: #1e293b; }
+  h1   { color: #042D4D; margin-bottom: 24px; }
+  .card { background: #fff; border-radius: 14px; border: 1.5px solid #e2e8f0; padding: 20px; margin-bottom: 16px; }
+  .ok   { color: #16a34a; font-weight: 700; }
+  .err  { color: #dc2626; font-weight: 700; }
+  .warn { color: #b45309; font-weight: 700; }
+  pre   { background: #f1f5f9; border-radius: 8px; padding: 12px; font-size: 12px;
+          overflow-x: auto; white-space: pre-wrap; word-break: break-word; margin: 8px 0; }
+  button { background: #042D4D; color: #fff; border: none; padding: 10px 20px;
+           border-radius: 8px; font-size: 14px; font-weight: 700; cursor: pointer; margin: 4px; }
+  button:hover { opacity: .85; }
+  .btn-green { background: #16a34a; }
+  .btn-red   { background: #dc2626; }
+</style>
+</head>
+<body>
+<h1>🔍 Diagnóstico da Tabela Auditoria</h1>
+<p style="color:#64748b;margin-bottom:24px;">Esta página testa diretamente a tabela <code>auditoria</code> no Supabase e reporta o resultado.</p>
+
+<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:24px;">
+  <button onclick="testarSelect()">1. Testar SELECT *</button>
+  <button class="btn-green" onclick="testarInsert()">2. Testar INSERT</button>
+  <button onclick="testarSelectAposInsert()">3. SELECT após INSERT</button>
+  <button class="btn-red" onclick="limparTeste()">4. Limpar registros de teste</button>
+  <button onclick="testarTudo()">▶ Executar Tudo</button>
+</div>
+
+<div id="resultado"></div>
+
+<script>
+function log(html) {
+  document.getElementById('resultado').innerHTML += html;
+}
+function clear_log() {
+  document.getElementById('resultado').innerHTML = '';
+}
+
+async function testarSelect() {
+  log('<div class="card"><h3>1. SELECT * da tabela auditoria</h3>');
+  try {
+    const { data, error } = await _supabase
+      .from('auditoria')
+      .select('*')
+      .limit(5);
+
+    if (error) {
+      log(`<p class="err">❌ Erro no SELECT: ${error.message}</p>`);
+      log(`<pre>${JSON.stringify(error, null, 2)}</pre>`);
+    } else if (!data || data.length === 0) {
+      log(`<p class="warn">⚠️ Tabela vazia (0 registros)</p>`);
+      log(`<p>A tabela existe mas não tem dados ainda.</p>`);
+    } else {
+      log(`<p class="ok">✅ SELECT OK — ${data.length} registro(s) retornado(s)</p>`);
+      log(`<p><strong>Colunas disponíveis:</strong> ${Object.keys(data[0]).join(', ')}</p>`);
+      log(`<pre>${JSON.stringify(data[0], null, 2)}</pre>`);
+    }
+  } catch(e) {
+    log(`<p class="err">❌ Exceção: ${e.message}</p>`);
+  }
+  log('</div>');
+}
+
+async function testarInsert() {
+  log('<div class="card"><h3>2. INSERT de registro de teste</h3>');
+  const payload = {
+    acao: 'TEST',
+    modulo: 'DIAGNOSTICO',
+    registro_id: 'diag-' + Date.now(),
+    descricao: 'Registro de diagnóstico — pode excluir',
+    usuario_email: 'diagnostico@sistema'
+  };
+  log(`<p>Payload enviado:</p><pre>${JSON.stringify(payload, null, 2)}</pre>`);
+
+  try {
+    const { data, error } = await _supabase
+      .from('auditoria')
+      .insert(payload)
+      .select();
+
+    if (error) {
+      log(`<p class="err">❌ Erro no INSERT: ${error.message}</p>`);
+      log(`<pre>${JSON.stringify(error, null, 2)}</pre>`);
+      
+      // Tentar com campos mínimos
+      log(`<p class="warn">⚠️ Tentando apenas com campos mínimos...</p>`);
+      const { data: d2, error: e2 } = await _supabase
+        .from('auditoria')
+        .insert({ acao: 'TEST', modulo: 'DIAG' })
+        .select();
+      
+      if (e2) {
+        log(`<p class="err">❌ Também falhou: ${e2.message}</p>`);
+        log(`<pre>${JSON.stringify(e2, null, 2)}</pre>`);
+      } else {
+        log(`<p class="ok">✅ Inseriu com campos mínimos! Colunas da tabela:</p>`);
+        log(`<pre>${JSON.stringify(d2, null, 2)}</pre>`);
+      }
+    } else {
+      log(`<p class="ok">✅ INSERT OK!</p>`);
+      log(`<p>Registro inserido:</p><pre>${JSON.stringify(data, null, 2)}</pre>`);
+      if (data && data[0]) {
+        log(`<p><strong>Colunas da tabela:</strong> ${Object.keys(data[0]).join(', ')}</p>`);
+      }
+    }
+  } catch(e) {
+    log(`<p class="err">❌ Exceção: ${e.message}</p>`);
+  }
+  log('</div>');
+}
+
+async function testarSelectAposInsert() {
+  log('<div class="card"><h3>3. SELECT após INSERT (verificar se gravou)</h3>');
+  try {
+    const { data, error } = await _supabase
+      .from('auditoria')
+      .select('*')
+      .eq('modulo', 'DIAGNOSTICO')
+      .limit(10);
+
+    if (error) {
+      log(`<p class="err">❌ Erro: ${error.message}</p>`);
+    } else {
+      log(`<p class="${data?.length > 0 ? 'ok' : 'warn'}">${data?.length > 0 ? '✅' : '⚠️'} ${data?.length || 0} registro(s) de diagnóstico encontrado(s)</p>`);
+      if (data?.length > 0) {
+        log(`<pre>${JSON.stringify(data, null, 2)}</pre>`);
+      }
+    }
+  } catch(e) {
+    log(`<p class="err">❌ Exceção: ${e.message}</p>`);
+  }
+  log('</div>');
+}
+
+async function limparTeste() {
+  log('<div class="card"><h3>4. Limpar registros de teste</h3>');
+  try {
+    const { error } = await _supabase
+      .from('auditoria')
+      .delete()
+      .eq('modulo', 'DIAGNOSTICO');
+    if (error) log(`<p class="err">❌ ${error.message}</p>`);
+    else log(`<p class="ok">✅ Registros de teste removidos</p>`);
+  } catch(e) {
+    log(`<p class="err">❌ Exceção: ${e.message}</p>`);
+  }
+  log('</div>');
+}
+
+async function testarTudo() {
+  clear_log();
+  await testarSelect();
+  await testarInsert();
+  await testarSelectAposInsert();
+}
+
+// Auto-executar ao carregar
+testarTudo();
+</script>
+</body>
+</html>
