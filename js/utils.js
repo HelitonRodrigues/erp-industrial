@@ -37,8 +37,9 @@ const MODULO_MAP = [
   { id:'manutencao',     page:'manutencao.html',      label:'Manutenção',           group:'operacoes',    icon:'🔧' },
   { id:'frota',          page:'frota.html',           label:'Frota',                group:'operacoes',    icon:'🚜' },
   { id:'abastecimento',  page:'abastecimento.html',   label:'Abastecimento',        group:'operacoes',    icon:'⛽' },
-  // ALMOXARIFADO
-  { id:'almoxarifado',   page:'almoxarifado.html',    label:'Almoxarifado',         group:'almoxarifado', icon:'📦' },
+  // SUPRIMENTOS
+  { id:'almoxarifado',   page:'almoxarifado.html',    label:'Almoxarifado',         group:'suprimentos',  icon:'📦' },
+  { id:'compras',        page:'compras.html',         label:'Compras',              group:'suprimentos',  icon:'🛒' },
   // CUSTOS
   { id:'custos',         page:'custos.html',          label:'Gestão de Custos',     group:'custos',       icon:'💰' },
   // LOGÍSTICA
@@ -59,7 +60,7 @@ const GROUP_LABELS = {
   producao:     'PRODUÇÃO',
   qualidade:    'QUALIDADE',
   operacoes:    'OPERAÇÕES',
-  almoxarifado: 'ALMOXARIFADO',
+  suprimentos:  'SUPRIMENTOS',
   custos:       'CUSTOS',
   logistica:    'LOGÍSTICA',
   seguranca:    'SEGURANÇA DO TRABALHO',
