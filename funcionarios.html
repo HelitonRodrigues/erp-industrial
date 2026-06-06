@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ERP Industrial — Funcionários</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/supabase.js"></script>
+<script src="js/utils.js"></script>
+</head>
+<body>
+<div id="sidebar-container"></div>
+<header class="topbar" id="topbar">
+  <button class="topbar-open-sidebar" onclick="toggleSidebar()">☰</button>
+  <div class="topbar-title">Funcionários</div>
+  <div class="topbar-right">
+    <div class="topbar-user">
+      <div class="user-avatar" style="width:32px;height:32px;font-size:12px;" id="top-avatar">SA</div>
+      <div><div class="topbar-user-name" id="top-user-name">Super Admin</div><div class="topbar-user-profile" id="top-user-perfil">SADM</div></div>
+    </div>
+    <button class="btn btn-ghost btn-sm" onclick="doLogout()" style="color:#64748b;">Sair</button>
+  </div>
+</header>
+<main class="main-content" id="main-content">
+  <div class="page-header">
+    <div class="page-header-left"><h1>Funcionários</h1><p>Cadastro completo de colaboradores da fábrica</p></div>
+    <div style="display:flex;gap:10px;">
+      <button class="btn btn-secondary" onclick="exportarCSV(['Nome','CPF','Função','Setor','Turno','Admissão','Status'],_funcionarios.map(f=>[f.nome,f.cpf||'—',f.funcao||'—',f.setor||'—',f.turno||'—',f.admissao||'—',f.status]),'funcionarios')">⬇️ CSV</button>
+      <button class="btn btn-secondary" onclick="exportarPDF('Funcionários',['Nome','CPF','Função','Setor','Admissão','Status'],_funcionarios.map(f=>[f.nome,f.cpf||'—',f.funcao||'—',f.setor||'—',f.admissao||'—',f.status]))">📄 PDF</button>
+      <button class="btn btn-primary" onclick="openModalFuncionario()">+ Novo Funcionário</button>
+    </div>
+  </div>
+  <div id="kpis-cert" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px;margin-bottom:14px;"></div>
+  <div class="card">
+    <div class="search-bar">
+      <div class="search-input-wrap" style="flex:1;"><span class="search-icon">🔍</span><input type="text" class="form-input" id="busca-func" placeholder="Buscar por nome, CPF, função ou setor..." oninput="renderFuncionarios()"></div>
+      <select class="form-input" id="filtro-status-func" style="width:140px;" onchange="renderFuncionarios()">
+        <option value="">Todos</option><option value="ativo">Ativo</option><option value="inativo">Inativo</option><option value="afastado">Afastado</option><option value="ferias">Férias</option>
+      </select>
+      <select class="form-input" id="filtro-setor-func" style="width:160px;" onchange="renderFuncionarios()"><option value="">Todos os setores</option></select>
+    </div>
+    <div class="table-wrap">
+      <table><thead><tr><th>Funcionário</th><th>CPF</th><th>Função</th><th>Setor</th><th>Turno</th><th>🎓 Certificações</th><th>Admissão</th><th>Status</th><th>Ações</th></tr></thead>
+      <tbody id="tbody-funcionarios"></tbody></table>
+    </div>
+    <div id="func-empty" class="empty-state hidden"><div class="empty-icon">👷</div><h3>Nenhum funcionário cadastrado</h3><p>Clique em "+ Novo Funcionário" para começar.</p></div>
+  </div>
+</main>
+
+<!-- MODAL FUNCIONÁRIO -->
+<div id="modal-funcionario" class="modal-overlay hidden">
+  <div class="modal modal-lg">
+    <div class="modal-header"><div class="modal-title" id="modal-func-title">Novo Funcionário</div><button class="modal-close" onclick="closeModal('modal-funcionario')">✕</button></div>
+    <div style="display:flex;gap:6px;border-bottom:2px solid #e2e8f0;margin-bottom:16px;">
+      <button class="func-tab-btn" id="ftab-btn-cad" onclick="funcTab('cad')" style="padding:9px 16px;border:none;background:none;font-weight:800;font-size:13px;color:var(--primary);border-bottom:3px solid var(--primary);cursor:pointer;">📋 Cadastro</button>
+      <button class="func-tab-btn" id="ftab-btn-cert" onclick="funcTab('cert')" style="padding:9px 16px;border:none;background:none;font-weight:700;font-size:13px;color:#94a3b8;border-bottom:3px solid transparent;cursor:pointer;">🎓 Capacitações / Certificações</button>
+      <button class="func-tab-btn" id="ftab-btn-custo" onclick="funcTab('custo')" style="padding:9px 16px;border:none;background:none;font-weight:700;font-size:13px;color:#94a3b8;border-bottom:3px solid transparent;cursor:pointer;">💰 Custos</button>
+    </div>
+    <div id="ftab-cad" style="display:flex;flex-direction:column;gap:16px;">
+      <div style="display:flex;align-items:center;gap:20px;padding:16px;background:#f8fafc;border-radius:12px;border:1.2px solid #e2e8f0;">
+        <div id="func-foto-preview" style="width:80px;height:80px;border-radius:50%;background:#e2e8f0;display:flex;align-items:center;justify-content:center;font-size:32px;overflow:hidden;flex-shrink:0;">👤</div>
+        <div><p style="font-size:13px;font-weight:600;color:var(--primary);margin-bottom:6px;">Foto do Funcionário</p><button class="btn btn-secondary btn-sm" onclick="document.getElementById('func-foto-input').click()">📷 Selecionar Foto</button><input type="file" id="func-foto-input" accept="image/*" style="display:none;" onchange="previewFuncFoto(this)"></div>
+      </div>
+      <div class="form-grid-2">
+        <div class="form-group"><label class="form-label">Nome Completo <span class="req">*</span></label><input id="func-nome" type="text" class="form-input" placeholder="Nome completo"></div>
+        <div class="form-group"><label class="form-label">CPF <span class="req">*</span></label><input id="func-cpf" type="text" class="form-input" placeholder="000.000.000-00" maxlength="14" oninput="mascaraCPF(this)"></div>
+      </div>
+      <div class="form-grid-2">
+        <div class="form-group"><label class="form-label">RG</label><input id="func-rg" type="text" class="form-input"></div>
+        <div class="form-group"><label class="form-label">Data de Nascimento</label><input id="func-nascimento" type="date" class="form-input"></div>
+      </div>
+      <div class="form-grid-2">
+        <div class="form-group"><label class="form-label">Telefone / WhatsApp</label><input id="func-tel" type="text" class="form-input" placeholder="(00) 00000-0000" oninput="mascaraTel(this)"></div>
+        <div class="form-group"><label class="form-label">E-mail</label><input id="func-email" type="email" class="form-input"></div>
+      </div>
+      <div class="form-grid-2">
+        <div class="form-group"><label class="form-label">Função / Cargo <span class="req">*</span></label><input id="func-funcao" type="text" class="form-input" placeholder="Ex: Operador de Máquina"></div>
+        <div class="form-group"><label class="form-label">Setor <span class="req">*</span></label><input id="func-setor" type="text" class="form-input" placeholder="Ex: Produção"></div>
+      </div>
+      <div class="form-grid-2">
+        <div class="form-group"><label class="form-label">Turno Padrão</label><select id="func-turno" class="form-input"><option value="">Selecione...</option></select></div>
+        <div class="form-group"><label class="form-label">Linha de Atuação</label><select id="func-linha" class="form-input"><option value="">Nenhuma / Geral</option></select></div>
+      </div>
+      <div class="form-grid-2">
+        <div class="form-group"><label class="form-label">Data de Admissão <span class="req">*</span></label><input id="func-admissao" type="date" class="form-input"></div>
+        <div class="form-group"><label class="form-label">Data de Demissão</label><input id="func-demissao" type="date" class="form-input"></div>
+      </div>
+      <div class="form-group"><label class="form-label">Status</label>
+        <select id="func-status" class="form-input"><option value="ativo">✅ Ativo</option><option value="ferias">🏖️ Férias</option><option value="afastado">⚠️ Afastado</option><option value="inativo">⚫ Inativo</option></select>
+      </div>
+      <div class="form-group"><label class="form-label">Observações</label><input id="func-obs" type="text" class="form-input"></div>
+    </div>
+    <!-- ABA CERTIFICAÇÕES -->
+    <div id="ftab-cert" style="display:none;flex-direction:column;gap:12px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <div style="font-size:13px;color:#64748b;">Treinamentos e certificações do colaborador. O status é calculado automaticamente pela data de validade (vence em breve = 30 dias).</div>
+        <button class="btn btn-secondary btn-sm" onclick="addCertificacao()">➕ Adicionar Certificação</button>
+      </div>
+      <div id="func-cert-list" style="display:flex;flex-direction:column;gap:10px;"></div>
+      <p id="func-cert-empty" style="color:#94a3b8;font-size:13px;text-align:center;padding:14px;">Nenhuma certificação cadastrada.</p>
+    </div>
+    <!-- ABA CUSTOS -->
+    <div id="ftab-custo" style="display:none;flex-direction:column;gap:14px;">
+      <div style="font-size:13px;color:#64748b;">Custo de mão de obra utilizado nas Ordens de Serviço e nos custos de manutenção. <strong>Custo Hora = ((Salário Base + Adicional Fixo + Insalubridade) × (1 + Encargos%)) ÷ Horas Mensais.</strong></div>
+      <div class="form-grid-2">
+        <div class="form-group"><label class="form-label">Salário Base (R$)</label><input id="fc-salario" type="number" min="0" step="0.01" class="form-input" placeholder="Ex: 2500,00" oninput="calcCustoHora()"></div>
+        <div class="form-group"><label class="form-label">Adicional Fixo (R$)</label><input id="fc-adicional" type="number" min="0" step="0.01" class="form-input" placeholder="Ex: 300,00" oninput="calcCustoHora()"></div>
+      </div>
+      <div class="form-grid-2">
+        <div class="form-group"><label class="form-label">Insalubridade (R$)</label><input id="fc-insalubridade" type="number" min="0" step="0.01" class="form-input" placeholder="Ex: 280,00" oninput="calcCustoHora()"></div>
+        <div class="form-group"><label class="form-label">Fator de Encargos (%)</label><input id="fc-encargos" type="number" min="0" step="0.1" class="form-input" placeholder="Ex: 70" oninput="calcCustoHora()"></div>
+      </div>
+      <div class="form-grid-2">
+        <div class="form-group"><label class="form-label">Horas Mensais</label><input id="fc-horas-mes" type="number" min="1" step="1" class="form-input" value="220" oninput="calcCustoHora()"></div>
+        <div class="form-group"><label class="form-label">💰 Custo Hora (automático)</label>
+          <div id="fc-custo-hora" style="padding:10px 12px;background:#f0fdf4;border:1.5px solid #86efac;border-radius:10px;font-size:16px;font-weight:800;color:#16a34a;">R$ 0,00</div>
+        </div>
+      </div>
+    </div>
+    <div id="func-error" class="hidden alert alert-danger"></div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-funcionario')">Cancelar</button>
+      <button class="btn btn-primary" id="btn-salvar-func" onclick="salvarFuncionario()">💾 Salvar Funcionário</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL VISUALIZAR -->
+<div id="modal-view-func" class="modal-overlay hidden">
+  <div class="modal modal-lg">
+    <div class="modal-header"><div class="modal-title">👷 Funcionário</div><button class="modal-close" onclick="closeModal('modal-view-func')">✕</button></div>
+    <div id="modal-view-func-body"></div>
+    <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('modal-view-func')">Fechar</button></div>
+  </div>
+</div>
+
+<!-- MODAL CONFIRMAÇÃO -->
+<div id="modal-confirm" class="modal-overlay hidden">
+  <div class="modal" style="max-width:420px;">
+    <div class="modal-header"><div class="modal-title">⚠️ Confirmar Exclusão</div><button class="modal-close" onclick="closeModal('modal-confirm')">✕</button></div>
+    <p id="confirm-msg" style="font-size:14px;color:#475569;line-height:1.6;"></p>
+    <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('modal-confirm')">Cancelar</button><button class="btn btn-danger" id="confirm-ok-btn">🗑️ Sim, Excluir</button></div>
+  </div>
+</div>
+<div id="toast-container"></div>
+
+<script>
+let _editingFuncId=null, _funcFoto=null, _funcionarios=[], _turnos=[], _linhas=[];
+
+fetch('partials/sidebar.html').then(r=>r.text()).then(html=>{
+  document.getElementById('sidebar-container').innerHTML=html;
+  document.querySelector('[href="funcionarios.html"]')?.classList.add('active');
+  openGroup('cadastros');
+});
+initSidebar('funcionarios.html');
+
+async function init(){await Promise.all([loadFuncionarios(),loadTurnos(),loadLinhas()]);renderFuncionarios();renderKpisCert();alertarCertVencidos();}
+
+// ─── ABAS DO MODAL ───
+function funcTab(t){
+  ['cad','cert','custo'].forEach(x=>{
+    document.getElementById('ftab-'+x).style.display=x===t?'flex':'none';
+    const btn=document.getElementById('ftab-btn-'+x);
+    btn.style.color=x===t?'var(--primary)':'#94a3b8';
+    btn.style.borderBottom=x===t?'3px solid var(--primary)':'3px solid transparent';
+    btn.style.fontWeight=x===t?'800':'700';
+  });
+}
+
+// ─── CERTIFICAÇÕES ───
+function statusCert(c){
+  if(!c.validade)return{k:'vigente',txt:'✅ Vigente (sem validade)',cor:'#16a34a',bg:'#f0fdf4',bd:'#86efac'};
+  const hoje=new Date().toISOString().split('T')[0];
+  const lim=new Date();lim.setDate(lim.getDate()+30);
+  const lim30=lim.toISOString().split('T')[0];
+  if(c.validade<hoje)return{k:'vencido',txt:'🔴 Vencido',cor:'#dc2626',bg:'#fef2f2',bd:'#fca5a5'};
+  if(c.validade<=lim30)return{k:'vence_breve',txt:'🟡 Vence em Breve',cor:'#b45309',bg:'#fffbeb',bd:'#fcd34d'};
+  return{k:'vigente',txt:'✅ Vigente',cor:'#16a34a',bg:'#f0fdf4',bd:'#86efac'};
+}
+function addCertificacao(c){
+  c=c||{};
+  const id='cert-'+Date.now()+'-'+Math.floor(Math.random()*999);
+  const st=statusCert(c);
+  const div=document.createElement('div');
+  div.id=id;div.className='cert-row';
+  div.style.cssText='border:1.5px solid '+st.bd+';background:'+st.bg+';border-radius:12px;padding:12px;';
+  div.innerHTML=`
+    <div style="display:grid;grid-template-columns:2fr 1fr 1fr auto;gap:8px;align-items:end;margin-bottom:8px;">
+      <div class="form-group" style="margin:0;"><label class="form-label" style="font-size:10px;">Nome da Certificação *</label>
+        <input type="text" class="form-input" data-cf="nome" value="${(c.nome||'').replace(/"/g,'&quot;')}" placeholder="Ex: NR-10, NR-35, Empilhadeira..." style="font-size:12px;padding:7px 9px;"></div>
+      <div class="form-group" style="margin:0;"><label class="form-label" style="font-size:10px;">Emissão</label>
+        <input type="date" class="form-input" data-cf="emissao" value="${c.emissao||''}" style="font-size:12px;padding:7px 9px;"></div>
+      <div class="form-group" style="margin:0;"><label class="form-label" style="font-size:10px;">Validade</label>
+        <input type="date" class="form-input" data-cf="validade" value="${c.validade||''}" onchange="atualizarStatusCertRow('${id}')" style="font-size:12px;padding:7px 9px;"></div>
+      <button onclick="document.getElementById('${id}').remove();checkCertEmpty()" style="background:none;border:none;font-size:18px;cursor:pointer;color:#ef4444;">✕</button>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+      <span data-cf-status style="font-size:12px;font-weight:800;color:${st.cor};">${st.txt}</span>
+      <input type="hidden" data-cf="anexo" value="${c.anexo||''}">
+      <input type="hidden" data-cf="anexo_nome" value="${(c.anexo_nome||'').replace(/"/g,'&quot;')}">
+      <button class="btn btn-secondary btn-sm" onclick="document.getElementById('${id}-file').click()">📎 Anexar Certificado</button>
+      <input type="file" id="${id}-file" accept=".pdf,image/*" style="display:none;" onchange="anexarCert(this,'${id}')">
+      <span data-cf-anexo-label style="font-size:11px;color:#64748b;">${c.anexo?('📄 '+(c.anexo_nome||'anexo')):'sem anexo'}</span>
+      <button class="btn btn-secondary btn-sm" data-cf-ver style="display:${c.anexo?'inline-flex':'none'};" onclick="verAnexoCert('${id}')">👁 Ver</button>
+      <button class="btn btn-secondary btn-sm" data-cf-down style="display:${c.anexo?'inline-flex':'none'};" onclick="baixarAnexoCert('${id}')">⬇️ Baixar</button>
+    </div>`;
+  document.getElementById('func-cert-list').appendChild(div);
+  checkCertEmpty();
+}
+function atualizarStatusCertRow(id){
+  const div=document.getElementById(id);if(!div)return;
+  const c={validade:div.querySelector('[data-cf="validade"]')?.value||''};
+  const st=statusCert(c);
+  div.style.borderColor=st.bd;div.style.background=st.bg;
+  const sp=div.querySelector('[data-cf-status]');if(sp){sp.textContent=st.txt;sp.style.color=st.cor;}
+}
+function checkCertEmpty(){
+  const tem=document.querySelectorAll('#func-cert-list .cert-row').length>0;
+  const e=document.getElementById('func-cert-empty');if(e)e.style.display=tem?'none':'block';
+}
+function anexarCert(input,id){
+  if(!input.files||!input.files[0])return;
+  const f=input.files[0];
+  if(f.size>1.5*1024*1024){toast('Anexo muito grande (máx. 1,5 MB).','warning');return;}
+  const r=new FileReader();
+  r.onload=e=>{
+    const div=document.getElementById(id);
+    div.querySelector('[data-cf="anexo"]').value=e.target.result;
+    div.querySelector('[data-cf="anexo_nome"]').value=f.name;
+    div.querySelector('[data-cf-anexo-label]').textContent='📄 '+f.name;
+    div.querySelector('[data-cf-ver]').style.display='inline-flex';
+    div.querySelector('[data-cf-down]').style.display='inline-flex';
+  };
+  r.readAsDataURL(f);
+}
+function verAnexoCert(id){
+  const data=document.getElementById(id)?.querySelector('[data-cf="anexo"]')?.value;
+  if(!data)return;
+  const w=window.open('','_blank');
+  if(w)w.document.write(data.startsWith('data:application/pdf')?`<iframe src="${data}" style="width:100%;height:100vh;border:none;"></iframe>`:`<img src="${data}" style="max-width:100%;">`);
+}
+function baixarAnexoCert(id){
+  const div=document.getElementById(id);
+  const data=div?.querySelector('[data-cf="anexo"]')?.value;
+  if(!data)return;
+  const aEl=document.createElement('a');aEl.href=data;aEl.download=div.querySelector('[data-cf="anexo_nome"]')?.value||'certificado';
+  document.body.appendChild(aEl);aEl.click();document.body.removeChild(aEl);
+}
+function getCertificacoesFromForm(){
+  return[...document.querySelectorAll('#func-cert-list .cert-row')].map(div=>{
+    const g=f=>div.querySelector('[data-cf="'+f+'"]')?.value||'';
+    return{nome:g('nome').trim(),emissao:g('emissao')||null,validade:g('validade')||null,anexo:g('anexo')||null,anexo_nome:g('anexo_nome')||null};
+  }).filter(c=>c.nome);
+}
+
+// ─── CUSTOS / CUSTO HORA ───
+function calcCustoHora(){
+  const v=id=>parseFloat(document.getElementById(id)?.value)||0;
+  const horas=v('fc-horas-mes')||220;
+  const ch=((v('fc-salario')+v('fc-adicional')+v('fc-insalubridade'))*(1+v('fc-encargos')/100))/horas;
+  document.getElementById('fc-custo-hora').textContent='R$ '+ch.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+  return Math.round(ch*100)/100;
+}
+function getCustosFromForm(){
+  const v=id=>parseFloat(document.getElementById(id)?.value)||0;
+  const custos={salario_base:v('fc-salario')||null,adicional_fixo:v('fc-adicional')||null,insalubridade:v('fc-insalubridade')||null,encargos_pct:v('fc-encargos')||null,horas_mensais:v('fc-horas-mes')||220,custo_hora:calcCustoHora()||null};
+  const preenchido=custos.salario_base||custos.adicional_fixo||custos.insalubridade;
+  return preenchido?custos:null;
+}
+// Espelho local para colunas ainda não criadas no banco
+function getExtrasLocalFunc(id){try{return JSON.parse(localStorage.getItem('rh_func_extras')||'{}')[id]||null;}catch(e){return null;}}
+function salvarExtrasLocalFunc(id,extras){try{const ls=JSON.parse(localStorage.getItem('rh_func_extras')||'{}');ls[id]={...(ls[id]||{}),...extras};localStorage.setItem('rh_func_extras',JSON.stringify(ls));}catch(e){}}
+function getCerts(f){return f.certificacoes||getExtrasLocalFunc(f.id)?.certificacoes||[];}
+function getCustos(f){return f.custos||getExtrasLocalFunc(f.id)?.custos||null;}
+
+// ─── KPIs E RELATÓRIOS DE CERTIFICAÇÕES ───
+function renderKpisCert(){
+  const el=document.getElementById('kpis-cert');if(!el)return;
+  let vig=0,breve=0,venc=0;
+  _funcionarios.filter(f=>f.status!=='inativo').forEach(f=>getCerts(f).forEach(c=>{const k=statusCert(c).k;if(k==='vigente')vig++;else if(k==='vence_breve')breve++;else venc++;}));
+  el.innerHTML=[
+    ['✅ Certificados Vigentes',vig,'#16a34a','vigente'],
+    ['🟡 Vencem em 30 dias',breve,breve>0?'#b45309':'#16a34a','vence_breve'],
+    ['🔴 Certificados Vencidos',venc,venc>0?'#dc2626':'#16a34a','vencido'],
+  ].map(([t,v,cor,k])=>`<div class="card" style="padding:12px;text-align:center;cursor:pointer;" onclick="relatorioCert('${k}')" title="Clique para gerar o relatório">
+    <div style="font-size:24px;font-weight:800;color:${cor};">${v}</div><div style="font-size:11px;color:#64748b;margin-top:2px;">${t}</div></div>`).join('');
+}
+function relatorioCert(filtro){
+  const rows=[];
+  _funcionarios.filter(f=>f.status!=='inativo').forEach(f=>getCerts(f).forEach(c=>{
+    const st=statusCert(c);
+    if(!filtro||st.k===filtro)rows.push([f.nome,f.funcao||'—',f.setor||'—',c.nome,c.emissao||'—',c.validade||'—',st.txt.replace(/[✅🟡🔴] /,'')]);
+  }));
+  if(!rows.length){toast('Nenhum certificado nesta condição.','info');return;}
+  if(typeof exportarCSV==='function')exportarCSV(['Funcionário','Função','Setor','Certificação','Emissão','Validade','Status'],rows,'certificacoes_'+(filtro||'todas'));
+}
+function alertarCertVencidos(){
+  let venc=0,breve=0;
+  _funcionarios.filter(f=>f.status!=='inativo').forEach(f=>getCerts(f).forEach(c=>{const k=statusCert(c).k;if(k==='vencido')venc++;else if(k==='vence_breve')breve++;}));
+  if(venc>0)toast('⚠️ '+venc+' certificado(s) vencido(s)! Verifique as capacitações.','warning');
+  else if(breve>0)toast('🟡 '+breve+' certificado(s) vencem nos próximos 30 dias.','info');
+}
+async function loadFuncionarios(){const{data}=await _supabase.from('funcionarios').select('*').order('nome');_funcionarios=data||[];}
+async function loadTurnos(){const{data}=await _supabase.from('turnos').select('id,nome').eq('status','ativo');_turnos=data||[];}
+async function loadLinhas(){const{data}=await _supabase.from('linhas_producao').select('id,nome').eq('status','ativo');_linhas=data||[];}
+
+function renderFuncionarios(){
+  const busca=(document.getElementById('busca-func')?.value||'').toLowerCase();
+  const status=document.getElementById('filtro-status-func')?.value||'';
+  const setor=document.getElementById('filtro-setor-func')?.value||'';
+  const setores=[...new Set(_funcionarios.map(f=>f.setor).filter(Boolean))];
+  const sel=document.getElementById('filtro-setor-func');
+  if(sel){const cur=sel.value;sel.innerHTML='<option value="">Todos os setores</option>';setores.forEach(s=>{const o=document.createElement('option');o.value=s;o.textContent=s;sel.appendChild(o);});sel.value=cur;}
+  const lista=_funcionarios.filter(f=>(!busca||f.nome?.toLowerCase().includes(busca)||(f.cpf||'').includes(busca)||(f.funcao||'').toLowerCase().includes(busca)||(f.setor||'').toLowerCase().includes(busca))&&(!status||f.status===status)&&(!setor||f.setor===setor));
+  const tbody=document.getElementById('tbody-funcionarios');const empty=document.getElementById('func-empty');
+  tbody.innerHTML='';
+  if(!lista.length){empty.classList.remove('hidden');return;}empty.classList.add('hidden');
+  const scCfg={ativo:{cls:'badge-success',txt:'✅ Ativo'},ferias:{cls:'badge-info',txt:'🏖️ Férias'},afastado:{cls:'badge-warning',txt:'⚠️ Afastado'},inativo:{cls:'badge-gray',txt:'⚫ Inativo'}};
+  lista.forEach(f=>{
+    const sc=scCfg[f.status]||scCfg.inativo;
+    const ini=(f.nome||'?').split(' ').map(x=>x[0]).join('').substring(0,2).toUpperCase();
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td><div style="display:flex;align-items:center;gap:10px;">
+        ${f.foto?`<img src="${f.foto}" style="width:38px;height:38px;border-radius:50%;object-fit:cover;cursor:pointer;flex-shrink:0;" onclick="verFotoInline('${f.foto}')">`:
+        `<div style="width:38px;height:38px;border-radius:50%;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;flex-shrink:0;">${ini}</div>`}
+        <div><div style="font-weight:700;color:var(--primary);">${f.nome}</div><div style="font-size:11px;color:#94a3b8;">${f.email||'—'}</div></div></div></td>
+      <td style="font-size:12px;">${f.cpf||'—'}</td><td>${f.funcao||'—'}</td><td>${f.setor||'—'}</td><td>${f.turno||'—'}</td>
+      <td>${(()=>{const cs=getCerts(f);if(!cs.length)return'<span style="font-size:11px;color:#cbd5e1;">—</span>';let v=0,b2=0,x=0;cs.forEach(c=>{const k=statusCert(c).k;if(k==='vigente')v++;else if(k==='vence_breve')b2++;else x++;});return[v?`<span class="badge badge-success" style="font-size:10px;">✅ ${v}</span>`:'',b2?`<span class="badge badge-warning" style="font-size:10px;">🟡 ${b2}</span>`:'',x?`<span class="badge badge-danger" style="font-size:10px;">🔴 ${x}</span>`:''].filter(Boolean).join(' ');})()}</td>
+      <td style="font-size:12px;color:#64748b;">${f.admissao||'—'}</td>
+      <td><span class="badge ${sc.cls}">${sc.txt}</span></td>
+      <td><div class="table-actions"><button class="btn btn-secondary btn-sm" onclick="visualizarFuncionario('${f.id}')">👁️</button><button class="btn btn-secondary btn-sm" onclick="editarFuncionario('${f.id}')">✏️</button><button class="btn btn-danger btn-sm" onclick="confirmarExclusao('${f.id}','${f.nome}')">🗑️</button></div></td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+function openModalFuncionario(){
+  _editingFuncId=null;_funcFoto=null;
+  document.getElementById('modal-func-title').textContent='Novo Funcionário';
+  ['func-nome','func-cpf','func-rg','func-tel','func-email','func-funcao','func-setor','func-obs','fc-salario','fc-adicional','fc-insalubridade','fc-encargos'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+  document.getElementById('fc-horas-mes').value='220';calcCustoHora();
+  document.getElementById('func-cert-list').innerHTML='';checkCertEmpty();funcTab('cad');
+  document.getElementById('func-nascimento').value='';document.getElementById('func-admissao').value=new Date().toISOString().split('T')[0];
+  document.getElementById('func-demissao').value='';document.getElementById('func-status').value='ativo';
+  document.getElementById('func-foto-preview').innerHTML='👤';document.getElementById('func-error').classList.add('hidden');
+  populateFuncSelects(null);document.getElementById('modal-funcionario').classList.remove('hidden');
+}
+
+function editarFuncionario(id){
+  const f=_funcionarios.find(x=>x.id===id);if(!f)return;
+  _editingFuncId=id;_funcFoto=f.foto||null;
+  document.getElementById('modal-func-title').textContent='Editar Funcionário';
+  document.getElementById('func-nome').value=f.nome||'';document.getElementById('func-cpf').value=f.cpf||'';
+  document.getElementById('func-rg').value=f.rg||'';document.getElementById('func-nascimento').value=f.nascimento||'';
+  document.getElementById('func-tel').value=f.telefone||'';document.getElementById('func-email').value=f.email||'';
+  document.getElementById('func-funcao').value=f.funcao||'';document.getElementById('func-setor').value=f.setor||'';
+  document.getElementById('func-admissao').value=f.admissao||'';document.getElementById('func-demissao').value=f.demissao||'';
+  document.getElementById('func-status').value=f.status||'ativo';document.getElementById('func-obs').value=f.obs||'';
+  document.getElementById('func-cert-list').innerHTML='';
+  getCerts(f).forEach(c=>addCertificacao(c));checkCertEmpty();
+  const cst=getCustos(f)||{};
+  document.getElementById('fc-salario').value=cst.salario_base||'';
+  document.getElementById('fc-adicional').value=cst.adicional_fixo||'';
+  document.getElementById('fc-insalubridade').value=cst.insalubridade||'';
+  document.getElementById('fc-encargos').value=cst.encargos_pct||'';
+  document.getElementById('fc-horas-mes').value=cst.horas_mensais||220;
+  calcCustoHora();funcTab('cad');
+  document.getElementById('func-foto-preview').innerHTML=f.foto?`<img src="${f.foto}" style="width:80px;height:80px;object-fit:cover;border-radius:50%;">`:'👤';
+  document.getElementById('func-error').classList.add('hidden');populateFuncSelects(f);document.getElementById('modal-funcionario').classList.remove('hidden');
+}
+
+function populateFuncSelects(f){
+  const selT=document.getElementById('func-turno');selT.innerHTML='<option value="">Selecione...</option>';
+  _turnos.forEach(t=>{const o=document.createElement('option');o.value=t.nome;o.textContent=t.nome;selT.appendChild(o);});if(f)selT.value=f.turno||'';
+  const selL=document.getElementById('func-linha');selL.innerHTML='<option value="">Nenhuma / Geral</option>';
+  _linhas.forEach(l=>{const o=document.createElement('option');o.value=l.nome;o.textContent=l.nome;selL.appendChild(o);});if(f)selL.value=f.linha||'';
+}
+
+function previewFuncFoto(input){if(input.files&&input.files[0]){const r=new FileReader();r.onload=e=>{_funcFoto=e.target.result;document.getElementById('func-foto-preview').innerHTML=`<img src="${e.target.result}" style="width:80px;height:80px;object-fit:cover;border-radius:50%;">`;};r.readAsDataURL(input.files[0]);}}
+
+async function salvarFuncionario(){
+  if (!guardAction('funcionarios', 'edit')) return;
+  const nome=document.getElementById('func-nome').value.trim();const cpf=document.getElementById('func-cpf').value.trim();
+  const funcao=document.getElementById('func-funcao').value.trim();const setor=document.getElementById('func-setor').value.trim();
+  const admissao=document.getElementById('func-admissao').value;
+  const errEl=document.getElementById('func-error');const btn=document.getElementById('btn-salvar-func');
+  if(!nome||!cpf||!funcao||!setor||!admissao){errEl.textContent='Preencha: Nome, CPF, Função, Setor e Admissão!';errEl.classList.remove('hidden');return;}
+  const dados={nome,cpf,funcao,setor,admissao,rg:document.getElementById('func-rg').value||null,nascimento:document.getElementById('func-nascimento').value||null,telefone:document.getElementById('func-tel').value||null,email:document.getElementById('func-email').value||null,turno:document.getElementById('func-turno').value||null,linha:document.getElementById('func-linha').value||null,demissao:document.getElementById('func-demissao').value||null,status:document.getElementById('func-status').value,obs:document.getElementById('func-obs').value||null,foto:_funcFoto||null,atualizado_em:new Date().toISOString()};
+  const extrasFunc={certificacoes:getCertificacoesFromForm(),custos:getCustosFromForm()};
+  btn.innerHTML='<span class="spin"></span>';btn.disabled=true;
+  try{
+    let funcId=_editingFuncId;
+    if(_editingFuncId){
+      // Tentar gravar com as colunas novas (certificacoes/custos); fallback sem elas + espelho local
+      let{error:eU}=await _supabase.from('funcionarios').update({...dados,...extrasFunc}).eq('id',_editingFuncId);
+      if(eU){await _supabase.from('funcionarios').update(dados).eq('id',_editingFuncId);salvarExtrasLocalFunc(_editingFuncId,extrasFunc);}
+      await addLog('UPDATE','FUNCIONARIOS',_editingFuncId,'Atualizado: '+nome);toast('Funcionário atualizado!','success');
+    }
+    else{
+      let{data,error:eI}=await _supabase.from('funcionarios').insert({...dados,...extrasFunc}).select().single();
+      if(eI)({data}=await _supabase.from('funcionarios').insert(dados).select().single());
+      funcId=data?.id;
+      if(eI&&funcId)salvarExtrasLocalFunc(funcId,extrasFunc);
+      await addLog('CREATE','FUNCIONARIOS',funcId,'Novo: '+nome);toast('Funcionário cadastrado!','success');
+    }
+    closeModal('modal-funcionario');await loadFuncionarios();renderFuncionarios();renderKpisCert();
+  }catch(e){errEl.textContent='Erro: '+e.message;errEl.classList.remove('hidden');}
+  btn.innerHTML='💾 Salvar Funcionário';btn.disabled=false;
+}
+
+function visualizarFuncionario(id){
+  const f=_funcionarios.find(x=>x.id===id);if(!f)return;
+  const scCfg={ativo:{cls:'badge-success',txt:'✅ Ativo'},ferias:{cls:'badge-info',txt:'🏖️ Férias'},afastado:{cls:'badge-warning',txt:'⚠️ Afastado'},inativo:{cls:'badge-gray',txt:'⚫ Inativo'}};
+  const sc=scCfg[f.status]||scCfg.inativo;
+  const ini=(f.nome||'?').split(' ').map(x=>x[0]).join('').substring(0,2).toUpperCase();
+  const body=document.getElementById('modal-view-func-body');
+  body.innerHTML='';
+
+  // Avatar
+  const avatarDiv=document.createElement('div');
+  avatarDiv.style.cssText='width:72px;height:72px;border-radius:50%;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:800;flex-shrink:0;overflow:hidden;';
+  if(f.foto){
+    const img=document.createElement('img');
+    img.src=f.foto;
+    img.alt=f.nome||'Foto';
+    img.style.cssText='width:100%;height:100%;object-fit:cover;';
+    img.onerror=function(){avatarDiv.innerHTML=ini;};
+    avatarDiv.appendChild(img);
+    avatarDiv.style.cursor='pointer';
+    avatarDiv.title='Clique para ampliar';
+    avatarDiv.onclick=function(){verFotoInline(f.foto);};
+  }else{
+    avatarDiv.textContent=ini;
+  }
+
+  // Info
+  const infoDiv=document.createElement('div');
+  const nomeLine=document.createElement('div');
+  nomeLine.style.cssText='font-size:20px;font-weight:800;color:var(--primary);';
+  nomeLine.textContent=f.nome||'';
+  const cargoLine=document.createElement('div');
+  cargoLine.style.cssText='font-size:13px;color:#64748b;';
+  cargoLine.textContent=(f.funcao||'—')+' — '+(f.setor||'—');
+  const badge=document.createElement('span');
+  badge.className='badge '+sc.cls;
+  badge.style.cssText='margin-top:6px;display:inline-block;';
+  badge.textContent=sc.txt;
+  infoDiv.appendChild(nomeLine);
+  infoDiv.appendChild(cargoLine);
+  if(f.foto){
+    const btnFoto=document.createElement('button');
+    btnFoto.className='btn btn-secondary btn-sm';
+    btnFoto.style.cssText='margin-top:8px;margin-right:6px;';
+    btnFoto.textContent='🔍 Ver foto';
+    btnFoto.onclick=function(){verFotoInline(f.foto);};
+    infoDiv.appendChild(btnFoto);
+  }
+  infoDiv.appendChild(badge);
+
+  // Header
+  const headerDiv=document.createElement('div');
+  headerDiv.style.cssText='display:flex;align-items:center;gap:16px;padding:16px;background:#f8fafc;border-radius:12px;margin-bottom:20px;';
+  headerDiv.appendChild(avatarDiv);
+  headerDiv.appendChild(infoDiv);
+
+  // Grid de campos
+  const grid=document.createElement('div');
+  grid.style.cssText='display:grid;grid-template-columns:1fr 1fr;gap:12px;';
+  const _certs=getCerts(f);
+  const _cst=getCustos(f);
+  [['CPF',f.cpf],['RG',f.rg],['Nascimento',f.nascimento],['Telefone',f.telefone],['E-mail',f.email],['Turno',f.turno],['Linha',f.linha],['Admissão',f.admissao],['Demissão',f.demissao||'—'],['Custo Hora',_cst?.custo_hora?('R$ '+_cst.custo_hora.toLocaleString('pt-BR',{minimumFractionDigits:2})):'—'],['Certificações',_certs.length?_certs.map(c=>{const st=statusCert(c);return c.nome+' ('+st.txt+(c.validade?' — val. '+new Date(c.validade+'T00:00:00').toLocaleDateString('pt-BR'):'')+')';}).join(' · '):'—'],['Observações',f.obs||'—']].forEach(function(pair){
+    const cell=document.createElement('div');
+    cell.style.cssText='padding:10px 14px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;';
+    const lbl=document.createElement('p');
+    lbl.style.cssText='font-size:11px;color:#94a3b8;font-weight:600;text-transform:uppercase;';
+    lbl.textContent=pair[0];
+    const val=document.createElement('p');
+    val.style.cssText='font-size:13px;font-weight:600;color:var(--primary);margin-top:2px;';
+    val.textContent=pair[1]||'—';
+    cell.appendChild(lbl);
+    cell.appendChild(val);
+    grid.appendChild(cell);
+  });
+
+  body.appendChild(headerDiv);
+  body.appendChild(grid);
+  document.getElementById('modal-view-func').classList.remove('hidden');
+}
+
+
+function confirmarExclusao(id,nome){
+  document.getElementById('confirm-msg').innerHTML=`Deseja excluir o funcionário <strong>${nome}</strong>?`;
+  document.getElementById('confirm-ok-btn').onclick=async()=>{await _supabase.from('funcionarios').delete().eq('id',id);await addLog('DELETE','FUNCIONARIOS',id,'Excluído: '+nome);toast('Funcionário excluído.','warning');closeModal('modal-confirm');await loadFuncionarios();renderFuncionarios();};
+  document.getElementById('modal-confirm').classList.remove('hidden');
+}
+
+init();
+</script>
+</body>
+</html>
