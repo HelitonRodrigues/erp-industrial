@@ -74,12 +74,12 @@ const PERFIS_ADMIN = ['SADM', 'ADM'];
 // Ações base (módulos de tela única / legado).
 const ACOES_BASE = ['view', 'create', 'edit', 'delete', 'export'];
 // Ações configuráveis POR ABA/TELA (modelo detalhado).
-const ACOES_TAB  = ['view', 'create', 'edit', 'delete', 'aprovar', 'export'];
+const ACOES_TAB  = ['view', 'create', 'edit', 'delete', 'aprovar', 'export', 'imprimir'];
 
 const ACAO_LABELS_FULL = {
   view:'Ver', create:'Criar', edit:'Editar', delete:'Excluir',
   export:'Exportar', aprovar:'Aprovar', cancelar:'Cancelar/Rejeitar',
-  finalizar:'Finalizar/Concluir',
+  finalizar:'Finalizar/Concluir', imprimir:'Imprimir/PDF',
 };
 
 // Ações EXTRAS por módulo, acrescentadas às de aba (ex.: fluxos de aprovação).
@@ -452,10 +452,12 @@ function applyActionGuards(moduloId, containerEl) {
     { regex: /aprov/i,                                                            acao: 'aprovar' },
     { regex: /edit|alter|modific/i,                                               acao: 'edit'    },
     { regex: /\bnov[oa]\b|criar|cadastr|adicion|inclu|inserir|\badd\b|salvar|gravar/i, acao: 'create' },
-    { regex: /export|csv|pdf|baixar|download/i,                                    acao: 'export'  },
+    { regex: /imprim|\.pdf|etiqueta|\bficha\b/i,                                    acao: 'imprimir'},
+    { regex: /export|csv|baixar|download|planilha|xlsx/i,                          acao: 'export'  },
   ];
 
   containerEl.querySelectorAll('button, a[onclick]').forEach(el => {
+    if (el.hasAttribute('data-perm') || el.hasAttribute('data-tab-perm')) return; // marcação explícita vence
     if (_abaDoBotao(el)) return;             // botões de aba são tratados por enforceTabs
     const sig = (el.getAttribute('onclick') || '') + ' ' + (el.textContent || '');
     for (const {regex, acao} of patterns) {
