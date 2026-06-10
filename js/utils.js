@@ -380,29 +380,86 @@ function guardAction(moduloId, acao) {
   return false;
 }
 
+// Regex que identifica botões de TROCA DE ABA pelas funções conhecidas.
+const _TAB_FN_RE = /(?:showTab|switchEpiTab|funcTab)\(\s*'([^']+)'/;
+function _abaDoBotao(el){
+  const m = (el.getAttribute('onclick') || '').match(_TAB_FN_RE);
+  return m ? m[1] : null;
+}
+// id da aba atualmente ativa (botão de aba com classe 'active').
+function _abaAtiva(scope){
+  scope = scope || document;
+  const btn = [...scope.querySelectorAll('.active')].find(b => _abaDoBotao(b));
+  return btn ? _abaDoBotao(btn) : null;
+}
+
 /**
- * Aplica guards automáticos nos botões de ação renderizados dinamicamente.
- * Chame após renderizar tabelas/listas para ocultar botões não autorizados.
- * Detecta padrões comuns: onclick com "exclu", "delet", "edit", "novo", "salvar".
+ * Esconde as ABAS (telas) que o perfil não pode ver, de forma genérica,
+ * para qualquer módulo cujo perfil tenha permissão por aba configurada.
+ * Se a aba ativa for bloqueada, troca para a primeira aba permitida.
+ * Não faz nada para perfis sem `abas` (retrocompat: libera tudo).
+ */
+function enforceTabs(moduloId, containerEl){
+  if (!moduloId) return;
+  const u = getUser();
+  if (!u || PERFIS_ADMIN.includes(u.perfil)) return;
+  const mp = (u.permissoes || {})[moduloId];
+  if (!mp || !mp.abas) return;                 // sem config por aba → não restringe
+  const scope = containerEl || document.getElementById('main-content') || document;
+  const botoes = [...scope.querySelectorAll('button, a[onclick]')].filter(b => _abaDoBotao(b));
+  if (!botoes.length) return;
+
+  let firstAllowed = null, activeBloqueada = false;
+  botoes.forEach(b => {
+    const aba = _abaDoBotao(b);
+    if (canTab(moduloId, aba)) {
+      if (!firstAllowed) firstAllowed = b;
+    } else {
+      if (b.classList.contains('active')) activeBloqueada = true;
+      b.style.display = 'none';
+      // esconder também o painel (convenções "tab-<id>" ou "<id>")
+      const p1 = document.getElementById('tab-' + aba);
+      const p2 = document.getElementById(aba);
+      if (p1) p1.style.display = 'none';
+      if (p2 && p2 !== b) p2.style.display = 'none';
+    }
+  });
+  if (activeBloqueada && firstAllowed) { try { firstAllowed.click(); } catch(e){} }
+}
+
+/**
+ * Oculta botões de ação não autorizados. Agora é ESCOPADO À ABA ATIVA:
+ * quando o módulo tem permissão por aba, usa checkPermTab(modulo, abaAtiva, acao),
+ * evitando "vazar" botões de uma aba para outra. Reaplicável (faz reset antes).
  */
 function applyActionGuards(moduloId, containerEl) {
   if (!moduloId || !containerEl) return;
   if (isAdmin()) return; // admin vê tudo
 
-  const perms = (getUser()?.permissoes || {})[moduloId] || {};
+  const mp = (getUser()?.permissoes || {})[moduloId] || {};
 
-  // Padrões para detectar tipo de ação pelo onclick ou texto do botão
+  // Reset: reexibe o que ESTE guard ocultou anteriormente (permite reavaliar ao trocar de aba)
+  containerEl.querySelectorAll('[data-blocked]').forEach(el => {
+    el.style.display = '';
+    el.removeAttribute('data-blocked');
+  });
+
+  const aba = mp.abas ? _abaAtiva(containerEl) : null;
+  const pode = (acao) => (aba && mp.abas) ? checkPermTab(moduloId, aba, acao) : checkPerm(moduloId, acao);
+
   const patterns = [
-    { regex: /exclu|delet|remov/i,   acao: 'delete' },
-    { regex: /edit|alter|modif/i,    acao: 'edit'   },
-    { regex: /novo|criar|add|insert|salvar/i, acao: 'create' },
-    { regex: /export|csv|pdf|baixar/i, acao: 'export' },
+    { regex: /exclu|delet|remov|apagar/i,                                         acao: 'delete'  },
+    { regex: /aprov/i,                                                            acao: 'aprovar' },
+    { regex: /edit|alter|modific/i,                                               acao: 'edit'    },
+    { regex: /\bnov[oa]\b|criar|cadastr|adicion|inclu|inserir|\badd\b|salvar|gravar/i, acao: 'create' },
+    { regex: /export|csv|pdf|baixar|download/i,                                    acao: 'export'  },
   ];
 
   containerEl.querySelectorAll('button, a[onclick]').forEach(el => {
+    if (_abaDoBotao(el)) return;             // botões de aba são tratados por enforceTabs
     const sig = (el.getAttribute('onclick') || '') + ' ' + (el.textContent || '');
     for (const {regex, acao} of patterns) {
-      if (regex.test(sig) && !perms[acao]) {
+      if (regex.test(sig) && !pode(acao)) {
         el.style.display = 'none';
         el.setAttribute('data-blocked', acao);
         break;
@@ -450,20 +507,34 @@ async function initSidebar(paginaAtiva) {
   // Aplicar restrições de UI baseadas em permissão
   applyPermUI();
 
-  // Aplicar guards automáticos de ação no conteúdo principal
+  // Aplicar guards automáticos de aba + ação no conteúdo principal
   if (moduloId) {
     // Aguardar um tick para que o conteúdo dinâmico seja renderizado
     setTimeout(() => {
       const main = document.getElementById('main-content');
+      enforceTabs(moduloId, main);                 // esconde abas não permitidas
       if (main) applyActionGuards(moduloId, main);
 
-      // Re-aplicar quando conteúdo dinâmico for atualizado
-      // (observer para tabelas que renderizam após fetch)
+      // Re-aplicar quando conteúdo dinâmico for atualizado (fetch/render)
       const observer = new MutationObserver(() => {
         applyPermUI();
         if (main) applyActionGuards(moduloId, main);
       });
       if (main) observer.observe(main, { childList: true, subtree: true });
+
+      // Reavaliar guards de ação ao TROCAR DE ABA (envolve as funções conhecidas)
+      ['showTab', 'switchEpiTab', 'funcTab'].forEach(fn => {
+        const orig = window[fn];
+        if (typeof orig === 'function' && !orig.__permWrapped) {
+          const wrapped = function(){
+            const r = orig.apply(this, arguments);
+            try { applyPermUI(); if (main) applyActionGuards(moduloId, main); } catch(e){}
+            return r;
+          };
+          wrapped.__permWrapped = true;
+          window[fn] = wrapped;
+        }
+      });
     }, 300);
   }
 
