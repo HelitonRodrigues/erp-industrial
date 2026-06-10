@@ -70,6 +70,90 @@ const GROUP_LABELS = {
 // Módulos sempre visíveis para SADM/ADM (acesso total)
 const PERFIS_ADMIN = ['SADM', 'ADM'];
 
+// ── AÇÕES POR MÓDULO ───────────────────────────────────────
+// Ações base disponíveis em todo módulo.
+const ACOES_BASE = ['view', 'create', 'edit', 'delete', 'export'];
+
+// Rótulos amigáveis das ações (usados em perfis.html e nos guards).
+const ACAO_LABELS_FULL = {
+  view:      'Ver',
+  create:    'Criar',
+  edit:      'Editar',
+  delete:    'Excluir',
+  export:    'Exportar',
+  aprovar:   'Aprovar',
+  cancelar:  'Cancelar/Rejeitar',
+  finalizar: 'Finalizar/Concluir',
+};
+
+// Ações EXTRAS habilitadas por módulo (além das 5 base).
+// Estenda aqui conforme novos fluxos de aprovação forem ligados.
+const MODULO_ACOES_EXTRAS = {
+  almoxarifado: ['cancelar', 'finalizar'],
+  compras:      ['aprovar', 'cancelar', 'finalizar'],
+  aprovacoes:   ['aprovar', 'cancelar', 'finalizar'],
+};
+
+// Lista completa de ações configuráveis de um módulo (base + extras).
+function acoesDoModulo(moduloId) {
+  return ACOES_BASE.concat(MODULO_ACOES_EXTRAS[moduloId] || []);
+}
+
+// ── SUBMENUS / ABAS POR MÓDULO ─────────────────────────────
+// Catálogo de abas controláveis por módulo. SOMENTE módulos listados
+// aqui têm controle por aba; os demais liberam todas as abas (retrocompat).
+// id = identificador da aba usado em data-tab-perm="modulo:aba".
+const MODULO_ABAS = {
+  almoxarifado: [
+    { id:'estoque',      label:'Estoque' },
+    { id:'insumos',      label:'Insumos' },
+    { id:'movimentos',   label:'Movimentos' },
+    { id:'relatorio',    label:'Relatório' },
+    { id:'previsao',     label:'Previsão' },
+    { id:'solicitacoes', label:'Solicitações' },
+  ],
+  compras: [
+    { id:'painel',       label:'Painel' },
+    { id:'kanban',       label:'Kanban' },
+    { id:'catalogo',     label:'Catálogo' },
+    { id:'solicitacoes', label:'Solicitações' },
+    { id:'cotacoes',     label:'Cotações' },
+    { id:'pedidos',      label:'Pedidos' },
+    { id:'recebimentos', label:'Recebimentos' },
+    { id:'fornecedores', label:'Fornecedores' },
+    { id:'contratos',    label:'Contratos' },
+    { id:'nc',           label:'Não Conformidades' },
+    { id:'indicadores',  label:'Indicadores' },
+    { id:'auditoria',    label:'Auditoria' },
+  ],
+};
+
+/**
+ * Pode visualizar/usar uma aba (submenu) de um módulo?
+ * Retrocompatível: se o perfil não define o mapa `abas` para o módulo,
+ * libera todas as abas. Só restringe quando `abas` existe explicitamente.
+ */
+function canTab(moduloId, abaId) {
+  const u = getUser();
+  if (!u) return false;
+  if (PERFIS_ADMIN.includes(u.perfil)) return true;
+  const mp = (u.permissoes || {})[moduloId];
+  if (!mp || !mp.view) return false;   // sem acesso ao módulo → sem abas
+  if (!mp.abas) return true;           // abas não configuradas → libera todas
+  return !!mp.abas[abaId];
+}
+
+/**
+ * Guard para troca de aba. Retorna true se permitido; senão toast + false.
+ * Uso: function showTab(t){ if(!guardTab('compras', t)) return; ... }
+ */
+function guardTab(moduloId, abaId) {
+  if (canTab(moduloId, abaId)) return true;
+  const modulo = MODULO_MAP.find(m => m.id === moduloId);
+  toast(`Sem permissão para acessar esta seção de ${modulo?.label || moduloId}.`, 'warning');
+  return false;
+}
+
 // ── ENGINE DE PERMISSÕES ──────────────────────────────────
 function getUser() {
   try { return JSON.parse(sessionStorage.getItem('erp_user')); }
@@ -153,6 +237,13 @@ function applyPermUI() {
       el.style.display = 'none';
     }
   });
+  // Controle por aba/submenu: <button data-tab-perm="compras:cotacoes">
+  document.querySelectorAll('[data-tab-perm]').forEach(el => {
+    const [mod, aba] = (el.getAttribute('data-tab-perm') || '').split(':');
+    if (mod && aba && !canTab(mod, aba)) {
+      el.style.display = 'none';
+    }
+  });
 }
 
 /**
@@ -174,11 +265,14 @@ function guardAction(moduloId, acao) {
   if (checkPerm(moduloId, acao)) return true;
 
   const acaoLabel = {
-    view:   'visualizar',
-    create: 'criar registros em',
-    edit:   'editar registros em',
-    delete: 'excluir registros de',
-    export: 'exportar dados de',
+    view:      'visualizar',
+    create:    'criar registros em',
+    edit:      'editar registros em',
+    delete:    'excluir registros de',
+    export:    'exportar dados de',
+    aprovar:   'aprovar registros em',
+    cancelar:  'cancelar/rejeitar registros em',
+    finalizar: 'finalizar registros em',
   }[acao] || acao;
   const modulo = MODULO_MAP.find(m => m.id === moduloId);
   toast(`Sem permissão para ${acaoLabel} ${modulo?.label || moduloId}.`, 'warning');
@@ -422,7 +516,9 @@ async function carregarPermissoesPerfil(user) {
       // Admin: permissão total em todos os módulos
       const perms = {};
       MODULO_MAP.forEach(m => {
-        perms[m.id] = { view:true, create:true, edit:true, delete:true, export:true };
+        const mp = { view:true, create:true, edit:true, delete:true, export:true };
+        (MODULO_ACOES_EXTRAS[m.id] || []).forEach(a => { mp[a] = true; });
+        perms[m.id] = mp;
       });
       user.permissoes = perms;
     } else {
