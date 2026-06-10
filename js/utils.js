@@ -70,87 +70,186 @@ const GROUP_LABELS = {
 // Módulos sempre visíveis para SADM/ADM (acesso total)
 const PERFIS_ADMIN = ['SADM', 'ADM'];
 
-// ── AÇÕES POR MÓDULO ───────────────────────────────────────
-// Ações base disponíveis em todo módulo.
+// ── AÇÕES E TELAS POR MÓDULO ───────────────────────────────
+// Ações base (módulos de tela única / legado).
 const ACOES_BASE = ['view', 'create', 'edit', 'delete', 'export'];
+// Ações configuráveis POR ABA/TELA (modelo detalhado).
+const ACOES_TAB  = ['view', 'create', 'edit', 'delete', 'aprovar', 'export'];
 
-// Rótulos amigáveis das ações (usados em perfis.html e nos guards).
 const ACAO_LABELS_FULL = {
-  view:      'Ver',
-  create:    'Criar',
-  edit:      'Editar',
-  delete:    'Excluir',
-  export:    'Exportar',
-  aprovar:   'Aprovar',
-  cancelar:  'Cancelar/Rejeitar',
-  finalizar: 'Finalizar/Concluir',
+  view:'Ver', create:'Criar', edit:'Editar', delete:'Excluir',
+  export:'Exportar', aprovar:'Aprovar', cancelar:'Cancelar/Rejeitar',
+  finalizar:'Finalizar/Concluir',
 };
 
-// Ações EXTRAS habilitadas por módulo (além das 5 base).
-// Estenda aqui conforme novos fluxos de aprovação forem ligados.
+// Ações EXTRAS por módulo, acrescentadas às de aba (ex.: fluxos de aprovação).
 const MODULO_ACOES_EXTRAS = {
   almoxarifado: ['cancelar', 'finalizar'],
-  compras:      ['aprovar', 'cancelar', 'finalizar'],
-  aprovacoes:   ['aprovar', 'cancelar', 'finalizar'],
+  compras:      ['cancelar', 'finalizar'],
+  aprovacoes:   ['cancelar', 'finalizar'],
 };
-
-// Lista completa de ações configuráveis de um módulo (base + extras).
+// Ações disponíveis para as abas de um módulo (base de aba + extras).
+function acoesDaAba(moduloId) {
+  return ACOES_TAB.concat(MODULO_ACOES_EXTRAS[moduloId] || []);
+}
+// (compat) ações no nível de módulo p/ módulos de tela única.
 function acoesDoModulo(moduloId) {
   return ACOES_BASE.concat(MODULO_ACOES_EXTRAS[moduloId] || []);
 }
 
-// ── SUBMENUS / ABAS POR MÓDULO ─────────────────────────────
-// Catálogo de abas controláveis por módulo. SOMENTE módulos listados
-// aqui têm controle por aba; os demais liberam todas as abas (retrocompat).
-// id = identificador da aba usado em data-tab-perm="modulo:aba".
-const MODULO_ABAS = {
+// ── CATÁLOGO DE TELAS/ABAS POR MÓDULO ──────────────────────
+// Apenas módulos multi-tela. Os demais são "tela única" (permissão no
+// nível do módulo). Para dar controle por tela a um módulo, inclua-o aqui
+// com os ids das suas abas (o id deve bater com o argumento usado na função
+// de troca de aba da página, para o enforcement por guardTab/data-tab-perm).
+const MODULO_FUNCIONALIDADES = {
+  funcionarios: [
+    { id:'cad', label:'📋 Cadastro' },
+    { id:'cert', label:'🎓 Capacitações / Certificações' },
+    { id:'custo', label:'💰 Custos' },
+  ],
+  laboratorio: [
+    { id:'analises', label:'📋 Análises' },
+    { id:'afericoes', label:'⚙️ Aferições' },
+    { id:'composicao', label:'🧱 Composições' },
+    { id:'pallets', label:'📦 Análise de Pallets' },
+  ],
+  manutencao: [
+    { id:'monitor', label:'🖥️ Monitor' },
+    { id:'historico', label:'📋 Ordens de Serviço' },
+    { id:'kanban', label:'🗂️ Kanban' },
+    { id:'agenda', label:'🗓️ Agenda' },
+    { id:'docs', label:'📁 Documentação' },
+    { id:'cronograma', label:'📅 Cronograma' },
+    { id:'prev', label:'🔧 Preventiva' },
+    { id:'kpis', label:'📊 KPIs' },
+  ],
+  frota: [
+    { id:'cadastro', label:'🚜 Equipamentos' },
+    { id:'empresas', label:'🏢 Empresas / Mecânicos' },
+    { id:'os', label:'📋 Ordens de Serviço' },
+  ],
+  abastecimento: [
+    { id:'dashboard', label:'📊 Dashboard' },
+    { id:'historico', label:'📋 Histórico' },
+    { id:'frotas', label:'🚛 Por Frota' },
+    { id:'entradas', label:'📥 Entradas NF' },
+    { id:'bombas', label:'🛢️ Bombas' },
+  ],
   almoxarifado: [
-    { id:'estoque',      label:'Estoque' },
-    { id:'insumos',      label:'Insumos' },
-    { id:'movimentos',   label:'Movimentos' },
-    { id:'relatorio',    label:'Relatório' },
-    { id:'previsao',     label:'Previsão' },
-    { id:'solicitacoes', label:'Solicitações' },
+    { id:'estoque', label:'📦 Estoque' },
+    { id:'insumos', label:'🌿 Insumos' },
+    { id:'movimentos', label:'🔄 Movimentos' },
+    { id:'relatorio', label:'📊 Relatório' },
+    { id:'previsao', label:'🔮 Previsão' },
+    { id:'solicitacoes', label:'📝 Solicitações' },
+    { id:'fornecedores', label:'🏢 Fornecedores' },
   ],
   compras: [
-    { id:'painel',       label:'Painel' },
-    { id:'kanban',       label:'Kanban' },
-    { id:'catalogo',     label:'Catálogo' },
-    { id:'solicitacoes', label:'Solicitações' },
-    { id:'cotacoes',     label:'Cotações' },
-    { id:'pedidos',      label:'Pedidos' },
-    { id:'recebimentos', label:'Recebimentos' },
-    { id:'fornecedores', label:'Fornecedores' },
-    { id:'contratos',    label:'Contratos' },
-    { id:'nc',           label:'Não Conformidades' },
-    { id:'indicadores',  label:'Indicadores' },
-    { id:'auditoria',    label:'Auditoria' },
+    { id:'painel', label:'📊 Painel' },
+    { id:'kanban', label:'🗂️ Kanban' },
+    { id:'catalogo', label:'📚 Catálogo' },
+    { id:'solicitacoes', label:'📝 Solicitações' },
+    { id:'cotacoes', label:'💬 Cotações' },
+    { id:'pedidos', label:'📦 Pedidos' },
+    { id:'recebimentos', label:'📥 Recebimentos' },
+    { id:'fornecedores', label:'🏭 Fornecedores' },
+    { id:'contratos', label:'📄 Contratos' },
+    { id:'nc', label:'⚠️ Não Conf.' },
+    { id:'indicadores', label:'📈 Indicadores' },
+    { id:'auditoria', label:'🛡️ Auditoria' },
+  ],
+  custos: [
+    { id:'dashboard', label:'📊 Dashboard' },
+    { id:'dre', label:'📈 DRE' },
+    { id:'orcamento', label:'🎯 Orçamento' },
+    { id:'comparativo', label:'📅 Comparativo' },
+    { id:'custoton', label:'⚖️ Custo/Ton' },
+    { id:'custoprod', label:'🏷️ Custo/Produto' },
+    { id:'lancamentos', label:'📋 Lançamentos' },
+    { id:'naturezas', label:'🏷️ Naturezas' },
+    { id:'centros', label:'🏭 Centros' },
+    { id:'metas', label:'🎯 Metas' },
+    { id:'fechamento', label:'🔒 Fechamento' },
+  ],
+  expedicao: [
+    { id:'ordens', label:'📋 Ordens' },
+    { id:'pedidos', label:'📄 Pedidos' },
+    { id:'relatorio', label:'📊 Relatório' },
+  ],
+  epi: [
+    { id:'tab-cadastro', label:'📦 Cadastro de EPIs' },
+    { id:'tab-alertas', label:'⚠️ Painel de Alertas' },
+    { id:'tab-treinamentos', label:'🎓 Treinamentos' },
   ],
 };
 
+// Retorna o catálogo de telas de um módulo, ou null se for tela única.
+function funcsDoModulo(moduloId) {
+  return (typeof MODULO_FUNCIONALIDADES !== 'undefined' && MODULO_FUNCIONALIDADES[moduloId]) || null;
+}
+
+// ── AGREGADOR DE PERMISSÕES (rollup módulo ← abas) ─────────
+// Mantém checkPerm('modulo','acao') funcionando também no modelo por aba:
+// no nível de módulo, a ação é concedida se QUALQUER aba liberada a concede.
+function _modAgg(mp, acao) {
+  if (!mp) return false;
+  if (mp.abas) {
+    if (acao === 'view') return !!mp.view || Object.values(mp.abas).some(t => t && t.view);
+    return Object.values(mp.abas).some(t => t && t.view && t[acao]);
+  }
+  return !!mp[acao];
+}
+
 /**
- * Pode visualizar/usar uma aba (submenu) de um módulo?
- * Retrocompatível: se o perfil não define o mapa `abas` para o módulo,
- * libera todas as abas. Só restringe quando `abas` existe explicitamente.
+ * Pode ver/usar uma TELA (aba) de um módulo?
+ * Retrocompat: perfil sem mapa `abas` segue o view do módulo (libera todas).
  */
 function canTab(moduloId, abaId) {
   const u = getUser();
   if (!u) return false;
   if (PERFIS_ADMIN.includes(u.perfil)) return true;
   const mp = (u.permissoes || {})[moduloId];
-  if (!mp || !mp.view) return false;   // sem acesso ao módulo → sem abas
-  if (!mp.abas) return true;           // abas não configuradas → libera todas
-  return !!mp.abas[abaId];
+  if (!mp) return false;
+  if (!mp.abas) return !!mp.view;          // tela única / legado
+  return !!(mp.abas[abaId] && mp.abas[abaId].view);
 }
 
 /**
- * Guard para troca de aba. Retorna true se permitido; senão toast + false.
- * Uso: function showTab(t){ if(!guardTab('compras', t)) return; ... }
+ * Permissão de uma AÇÃO dentro de uma TELA específica.
+ * acao: 'view'|'create'|'edit'|'delete'|'aprovar'|'export'|'cancelar'|'finalizar'
  */
+function checkPermTab(moduloId, abaId, acao) {
+  const u = getUser();
+  if (!u) return false;
+  if (PERFIS_ADMIN.includes(u.perfil)) return true;
+  const mp = (u.permissoes || {})[moduloId];
+  if (!mp) return false;
+  if (mp.abas) {
+    const t = mp.abas[abaId];
+    if (!t || !t.view) return false;
+    return acao === 'view' ? true : !!t[acao];
+  }
+  if (!mp.view) return false;              // tela única → nível de módulo
+  return acao === 'view' ? true : !!mp[acao];
+}
+
+// Guard de troca de aba (toast + false se negado).
 function guardTab(moduloId, abaId) {
   if (canTab(moduloId, abaId)) return true;
   const modulo = MODULO_MAP.find(m => m.id === moduloId);
   toast(`Sem permissão para acessar esta seção de ${modulo?.label || moduloId}.`, 'warning');
+  return false;
+}
+
+// Guard de ação dentro de uma tela (toast + false se negado).
+function guardActionTab(moduloId, abaId, acao) {
+  const user = getUser();
+  if (!user) { window.location.href = 'index.html'; return false; }
+  if (PERFIS_ADMIN.includes(user.perfil)) return true;
+  if (checkPermTab(moduloId, abaId, acao)) return true;
+  const modulo = MODULO_MAP.find(m => m.id === moduloId);
+  toast(`Sem permissão para ${ACAO_LABELS_FULL[acao] || acao} em ${modulo?.label || moduloId}.`, 'warning');
   return false;
 }
 
@@ -175,9 +274,7 @@ function checkPerm(moduloId, acao) {
   if (PERFIS_ADMIN.includes(u.perfil)) return true;
   const perms = u.permissoes;
   if (!perms) return false;
-  const mp = perms[moduloId];
-  if (!mp) return false;
-  return !!mp[acao];
+  return _modAgg(perms[moduloId], acao);   // agrega abas → nível de módulo
 }
 
 /**
@@ -231,18 +328,22 @@ function requireAuth(moduloId) {
  * Uso: <button data-perm="producao:create">Novo</button>
  */
 function applyPermUI() {
+  // data-perm="modulo:acao"  OU  data-perm="modulo.aba:acao" (ação por tela)
   document.querySelectorAll('[data-perm]').forEach(el => {
-    const [mod, acao] = (el.getAttribute('data-perm') || '').split(':');
-    if (!checkPerm(mod, acao || 'view')) {
-      el.style.display = 'none';
+    const [left, acao] = (el.getAttribute('data-perm') || '').split(':');
+    let ok;
+    if (left.includes('.')) {
+      const [mod, aba] = left.split('.');
+      ok = checkPermTab(mod, aba, acao || 'view');
+    } else {
+      ok = checkPerm(left, acao || 'view');
     }
+    if (!ok) el.style.display = 'none';
   });
-  // Controle por aba/submenu: <button data-tab-perm="compras:cotacoes">
+  // Visibilidade de aba: <button data-tab-perm="compras:cotacoes">
   document.querySelectorAll('[data-tab-perm]').forEach(el => {
     const [mod, aba] = (el.getAttribute('data-tab-perm') || '').split(':');
-    if (mod && aba && !canTab(mod, aba)) {
-      el.style.display = 'none';
-    }
+    if (mod && aba && !canTab(mod, aba)) el.style.display = 'none';
   });
 }
 
