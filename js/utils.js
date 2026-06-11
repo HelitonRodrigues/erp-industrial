@@ -29,6 +29,7 @@ const MODULO_MAP = [
   { id:'motivos',        page:'motivos.html',         label:'Motivos de Parada',    group:'cadastros',    icon:'🛑' },
   // PRODUÇÃO
   { id:'planejamento',   page:'planejamento.html',    label:'Planejamento',         group:'producao',     icon:'📋' },
+  { id:'escala',         page:'escala.html',          label:'Escala de Equipe',     group:'producao',     icon:'🧤' },
   { id:'producao',       page:'producao.html',        label:'Produção',             group:'producao',     icon:'⚙️' },
   { id:'banners',        page:'banners.html',         label:'Produção de Banners',  group:'producao',     icon:'🖼️' },
   // QUALIDADE
