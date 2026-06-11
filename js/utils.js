@@ -32,6 +32,7 @@ const MODULO_MAP = [
   { id:'escala',         page:'escala.html',          label:'Escala de Equipe',     group:'producao',     icon:'🧤' },
   { id:'producao',       page:'producao.html',        label:'Produção',             group:'producao',     icon:'⚙️' },
   { id:'banners',        page:'banners.html',         label:'Produção de Banners',  group:'producao',     icon:'🖼️' },
+  { id:'aferidor',       page:'aferidor.html',        label:'Aferidor',             group:'producao',     icon:'🏷️' },
   // QUALIDADE
   { id:'laboratorio',    page:'laboratorio.html',     label:'Laboratório',          group:'qualidade',    icon:'🧪' },
   { id:'bpf',            page:'bpf.html',             label:'BPF',                  group:'qualidade',    icon:'📋' },
