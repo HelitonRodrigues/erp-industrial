@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Rastreabilidade — Carregamento</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/supabase.js"></script>
+<style>
+:root{--primary:#042D4D;--accent:#C9FF64;--bg:#FAFDFF;--text:#032036;--border:#e2e8f0;--muted:#64748b;--success:#22c55e;--warning:#f59e0b;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Plus Jakarta Sans',sans-serif;background:var(--bg);color:var(--text);padding:18px;}
+.wrap{max-width:920px;margin:0 auto;}
+.head{display:flex;align-items:center;gap:14px;background:var(--primary);color:#fff;border-radius:16px;padding:18px 22px;margin-bottom:18px;}
+.logo{width:52px;height:52px;border-radius:12px;background:var(--accent);display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:800;color:var(--primary);overflow:hidden;flex-shrink:0;}
+.head h1{font-size:18px;font-weight:800;}
+.head p{font-size:12px;opacity:.85;margin-top:2px;}
+.card{background:#fff;border:1.5px solid var(--border);border-radius:14px;padding:16px;margin-bottom:14px;}
+.meta-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;}
+.meta{background:#f8fafc;border-radius:8px;padding:9px 11px;border-left:3px solid var(--primary);}
+.meta .l{font-size:9px;color:#94a3b8;font-weight:800;text-transform:uppercase;letter-spacing:.4px;}
+.meta .v{font-size:14px;font-weight:700;color:var(--primary);margin-top:2px;word-break:break-word;}
+.cli-title{font-size:14px;font-weight:800;color:var(--primary);margin:6px 0 8px;display:flex;align-items:center;gap:8px;}
+table{width:100%;border-collapse:collapse;}
+th{background:var(--primary);color:var(--accent);padding:9px 11px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;}
+td{padding:8px 11px;border-bottom:1px solid var(--border);font-size:12px;vertical-align:top;}
+tr:nth-child(even) td{background:#f8fafc;}
+.badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:800;}
+.b-ok{background:#dcfce7;color:#166534;}.b-pend{background:#fef3c7;color:#92400e;}
+.foot{text-align:center;font-size:11px;color:var(--muted);margin-top:20px;padding-top:14px;border-top:1px solid var(--border);}
+.loading,.err{text-align:center;padding:50px 20px;color:var(--muted);}
+.err{color:var(--warning);}
+.btn-print{background:var(--primary);color:#fff;border:none;border-radius:9px;padding:9px 16px;font-family:inherit;font-weight:700;font-size:13px;cursor:pointer;}
+@media print{.no-print{display:none;}body{padding:0;}.head{border-radius:0;}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="head">
+    <div class="logo" id="logo">🏭</div>
+    <div style="flex:1;"><h1 id="empresa">Rastreabilidade de Carregamento</h1><p id="sub">Consulta pública — sem necessidade de login</p></div>
+    <button class="btn-print no-print" onclick="window.print()">🖨️ Imprimir</button>
+  </div>
+  <div id="conteudo"><div class="loading">Carregando informações…</div></div>
+  <div class="foot">Documento gerado pelo ERP Industrial · <span id="ts"></span></div>
+</div>
+
+<script>
+function esc(s){return (s==null?'':String(s)).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function fmtData(d){if(!d)return '—';try{return new Date((''+d).length<=10?d+'T12:00':d).toLocaleDateString('pt-BR');}catch(e){return d;}}
+function fmtDataHora(d){if(!d)return '—';try{return new Date(d).toLocaleString('pt-BR');}catch(e){return d;}}
+function palCodigo(p){
+  if(p.codigo)return p.codigo;
+  const lin=(p.linha||'').replace(/[^A-Za-z0-9]/g,'').substring(0,3).toUpperCase()||'LIN';
+  const dt=(p.data||'').replace(/-/g,'');
+  const op=(p.producao&&p.producao.op_numero)?String(p.producao.op_numero).split('-').pop():'0000';
+  return `${lin}-${dt}-${op}-P${String(p.numero||0).padStart(3,'0')}`;
+}
+function loteDe(p){const po=p.producao&&p.producao.produtos_op;if(Array.isArray(po)){const m=po.find(x=>x.produto===p.produto)||po[0];if(m&&m.lote)return m.lote;}return '—';}
+function validadeDe(p){const po=p.producao&&p.producao.produtos_op;if(Array.isArray(po)){const m=po.find(x=>x.produto===p.produto)||po[0];if(m&&m.validade)return fmtData(m.validade);}return '—';}
+
+(async function(){
+  document.getElementById('ts').textContent=new Date().toLocaleString('pt-BR');
+  // logo/empresa
+  try{const{data}=await _supabase.from('empresa_config').select('nome_fantasia,razao_social,logo').limit(1).maybeSingle();
+    if(data){document.getElementById('empresa').textContent=data.nome_fantasia||data.razao_social||'Rastreabilidade de Carregamento';
+      if(data.logo)document.getElementById('logo').innerHTML=`<img src="${data.logo}" style="width:100%;height:100%;object-fit:cover;">`;}}catch(e){}
+
+  const params=new URLSearchParams(location.search);
+  const ordem=params.get('ordem'), palletCod=params.get('pallet');
+  const cont=document.getElementById('conteudo');
+
+  if(!ordem&&!palletCod){cont.innerHTML='<div class="err">Informe ?ordem=NUMERO ou ?pallet=CODIGO na URL.</div>';return;}
+
+  try{
+    let pallets=[];
+    const sel='*,producao(op_numero,produtos_op,encarregado,data)';
+    if(ordem){
+      const{data}=await _supabase.from('producao_pallets').select(sel).eq('ordem_numero',String(ordem)).eq('estoque_status','carregado');
+      pallets=data||[];
+    }else{
+      const{data}=await _supabase.from('producao_pallets').select(sel).or(`codigo.eq.${palletCod}`);
+      pallets=(data||[]).filter(p=>palCodigo(p)===palletCod||p.codigo===palletCod);
+    }
+    if(!pallets.length){cont.innerHTML='<div class="err">Nenhum pallet encontrado para esta consulta.</div>';return;}
+
+    const carregadoEm=pallets.map(p=>p.carregado_em).filter(Boolean).sort()[0];
+    let html=`<div class="card"><div class="meta-grid">
+      <div class="meta"><div class="l">Ordem de Carregamento</div><div class="v">${esc(ordem||'—')}</div></div>
+      <div class="meta"><div class="l">Pallets</div><div class="v">${pallets.length}</div></div>
+      <div class="meta"><div class="l">Carregado em</div><div class="v">${fmtDataHora(carregadoEm)}</div></div>
+      <div class="meta"><div class="l">Produtos</div><div class="v">${[...new Set(pallets.map(p=>p.produto))].map(esc).join(', ')}</div></div>
+    </div></div>`;
+
+    // agrupar por cliente
+    const porCli={};pallets.forEach(p=>{const c=p.cliente_dest||'Sem cliente';(porCli[c]=porCli[c]||[]).push(p);});
+    Object.keys(porCli).sort().forEach(cli=>{
+      const lista=porCli[cli].sort((a,b)=>new Date(a.data)-new Date(b.data));
+      html+=`<div class="card"><div class="cli-title">👤 ${esc(cli)} <span class="badge b-ok">${lista.length} pallet(s)</span></div>
+        <div style="overflow-x:auto;"><table><thead><tr><th>Código</th><th>Produto</th><th>Fabricação</th><th>Lote</th><th>Validade</th><th>Carregado</th><th>Análise</th></tr></thead><tbody>
+        ${lista.map(p=>{
+          const an=p.analise?(typeof p.analise==='string'?p.analise:JSON.stringify(p.analise)):'';
+          const stBadge=p.status==='aprovado'?'<span class="badge b-ok">Aprovado</span>':`<span class="badge b-pend">${esc(p.status||'—')}</span>`;
+          return `<tr><td><b>${esc(palCodigo(p))}</b></td><td>${esc(p.produto)}</td><td>${fmtData(p.data)}</td><td>${esc(loteDe(p))}</td><td>${validadeDe(p)}</td><td>${fmtDataHora(p.carregado_em)}</td><td>${stBadge}${an?'<br><span style="font-size:11px;color:#475569;">'+esc(an).slice(0,160)+'</span>':''}</td></tr>`;
+        }).join('')}
+        </tbody></table></div></div>`;
+    });
+    cont.innerHTML=html;
+  }catch(e){
+    cont.innerHTML=`<div class="err">Erro ao consultar: ${esc(e.message||e)}</div>`;
+  }
+})();
+</script>
+</body>
+</html>
