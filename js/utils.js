@@ -613,12 +613,62 @@ function _buildSidebar(user, paginaAtiva) {
 // ── SIDEBAR helpers ───────────────────────────────────────
 let _sidebarCollapsed = false;
 
+// Considera "celular/tablet em retrato" abaixo de 900px (mesmo breakpoint do CSS)
+function _isMobileLayout() {
+  return window.matchMedia('(max-width: 900px)').matches;
+}
+
+// Cria (uma vez só) o fundo escuro que aparece atrás da gaveta no celular
+function _getSidebarBackdrop() {
+  let bd = document.getElementById('sidebar-backdrop');
+  if (!bd) {
+    bd = document.createElement('div');
+    bd.id = 'sidebar-backdrop';
+    bd.className = 'sidebar-backdrop';
+    bd.addEventListener('click', closeMobileSidebar);
+    document.body.appendChild(bd);
+  }
+  return bd;
+}
+
+function openMobileSidebar() {
+  document.getElementById('sidebar')?.classList.add('mobile-open');
+  _getSidebarBackdrop().classList.add('show');
+  document.body.style.overflow = 'hidden';   // trava o scroll do fundo
+}
+
+function closeMobileSidebar() {
+  document.getElementById('sidebar')?.classList.remove('mobile-open');
+  document.getElementById('sidebar-backdrop')?.classList.remove('show');
+  document.body.style.overflow = '';
+}
+
 function toggleSidebar() {
+  // No celular/tablet: abre/fecha a gaveta com fundo escuro
+  if (_isMobileLayout()) {
+    const sb = document.getElementById('sidebar');
+    if (sb && sb.classList.contains('mobile-open')) closeMobileSidebar();
+    else openMobileSidebar();
+    return;
+  }
+  // No PC: comportamento original de recolher/expandir o menu
   _sidebarCollapsed = !_sidebarCollapsed;
   ['sidebar','topbar','main-content'].forEach(id => {
     document.getElementById(id)?.classList.toggle('collapsed', _sidebarCollapsed);
   });
 }
+
+// Ao girar/redimensionar a tela, evita que a gaveta ou o colapso fiquem "presos"
+window.addEventListener('resize', () => {
+  if (!_isMobileLayout()) {
+    closeMobileSidebar();
+  } else {
+    _sidebarCollapsed = false;
+    ['sidebar','topbar','main-content'].forEach(id => {
+      document.getElementById(id)?.classList.remove('collapsed');
+    });
+  }
+});
 
 function toggleGroup(groupId) {
   const label = document.querySelector(`.nav-group-label[data-group="${groupId}"]`);
