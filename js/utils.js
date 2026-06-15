@@ -881,3 +881,32 @@ function verFotoInline(src) {
   overlay.innerHTML = `<img src="${src}" style="max-width:90vw;max-height:90vh;border-radius:10px;box-shadow:0 8px 40px rgba(0,0,0,.6);">`;
   overlay.style.display = 'flex';
 }
+// ── PWA (instalar como app / tela cheia) ──────────────────
+// Injeta manifesto + meta tags e registra o service worker.
+// Feito por JS para NÃO precisar editar os arquivos .html.
+(function setupPWA() {
+  try {
+    const head = document.head;
+    if (head && !document.querySelector('link[rel="manifest"]')) {
+      const add = (tag, attrs) => {
+        const el = document.createElement(tag);
+        for (const k in attrs) el.setAttribute(k, attrs[k]);
+        head.appendChild(el);
+      };
+      add('link', { rel: 'manifest', href: 'manifest.json' });
+      add('meta', { name: 'theme-color', content: '#042D4D' });
+      // iOS: abrir em tela cheia + ícone na tela inicial
+      add('meta', { name: 'apple-mobile-web-app-capable', content: 'yes' });
+      add('meta', { name: 'apple-mobile-web-app-status-bar-style', content: 'black-translucent' });
+      add('meta', { name: 'apple-mobile-web-app-title', content: 'ERP' });
+      add('meta', { name: 'mobile-web-app-capable', content: 'yes' });
+      add('link', { rel: 'apple-touch-icon', href: 'icons/icon-180.png' });
+    }
+  } catch (e) { /* sem PWA não quebra o sistema */ }
+
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('sw.js').catch(() => {});
+    });
+  }
+})();
