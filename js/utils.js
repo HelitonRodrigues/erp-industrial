@@ -42,6 +42,7 @@ const MODULO_MAP = [
   { id:'abastecimento',  page:'abastecimento.html',   label:'Abastecimento',        group:'operacoes',    icon:'⛽' },
   // SUPRIMENTOS
   { id:'almoxarifado',   page:'almoxarifado.html',    label:'Almoxarifado',         group:'suprimentos',  icon:'📦' },
+  { id:'solicitacoes',   page:'solicitacoes.html',    label:'Solicitações',         group:'suprimentos',  icon:'📝' },
   { id:'compras',        page:'compras.html',         label:'Compras',              group:'suprimentos',  icon:'🛒' },
   // CUSTOS
   { id:'custos',         page:'custos.html',          label:'Gestão de Custos',     group:'custos',       icon:'💰' },
@@ -145,8 +146,9 @@ const MODULO_FUNCIONALIDADES = {
     { id:'movimentos', label:'🔄 Movimentos' },
     { id:'relatorio', label:'📊 Relatório' },
     { id:'previsao', label:'🔮 Previsão' },
-    { id:'solicitacoes', label:'📝 Solicitações' },
-    { id:'fornecedores', label:'🏢 Fornecedores' },
+  ],
+  solicitacoes: [
+    { id:'lista', label:'📝 Solicitações' },
   ],
   compras: [
     { id:'painel', label:'📊 Painel' },
