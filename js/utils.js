@@ -91,6 +91,7 @@ const MODULO_ACOES_EXTRAS = {
   almoxarifado: ['cancelar', 'finalizar'],
   compras:      ['cancelar', 'finalizar'],
   aprovacoes:   ['cancelar', 'finalizar'],
+  solicitacoes: ['aprovar', 'cancelar'],
 };
 // Ações disponíveis para as abas de um módulo (base de aba + extras).
 function acoesDaAba(moduloId) {
@@ -148,7 +149,8 @@ const MODULO_FUNCIONALIDADES = {
     { id:'previsao', label:'🔮 Previsão' },
   ],
   solicitacoes: [
-    { id:'lista', label:'📝 Solicitações' },
+    { id:'solicitacao', label:'📝 Solicitação' },
+    { id:'aprovacao', label:'✅ Aprovação' },
   ],
   compras: [
     { id:'painel', label:'📊 Painel' },
