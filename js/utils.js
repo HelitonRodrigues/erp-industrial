@@ -185,9 +185,30 @@ const MODULO_FUNCIONALIDADES = {
     { id:'relatorio', label:'📊 Relatório' },
   ],
   epi: [
+    { id:'tab-fichas', label:'📋 Fichas por Funcionário' },
     { id:'tab-cadastro', label:'📦 Cadastro de EPIs' },
     { id:'tab-alertas', label:'⚠️ Painel de Alertas' },
     { id:'tab-treinamentos', label:'🎓 Treinamentos' },
+  ],
+  producao: [
+    { id:'tab-linhas', label:'🏭 Por Linha' },
+    { id:'tab-metas', label:'🎯 Meta por Encarregado' },
+    { id:'tab-indicadores', label:'📊 Indicadores' },
+  ],
+  aferidor: [
+    { id:'rotulos', label:'🏷️ Rótulos' },
+    { id:'amostras', label:'🧪 Amostras' },
+    { id:'aditivacao', label:'🧾 Registro Diário — Aditivação' },
+  ],
+  carregamento: [
+    { id:'estoque', label:'🏭 Estoque' },
+    { id:'ordens', label:'📋 Carregamento' },
+    { id:'carregados', label:'✅ Carregados' },
+    { id:'barracoes', label:'⚙️ Barracões' },
+  ],
+  rh: [
+    { id:'tab-escala', label:'📅 Escala Mensal' },
+    { id:'tab-ferias', label:'🏖️ Férias' },
   ],
 };
 
