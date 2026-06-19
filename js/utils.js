@@ -151,6 +151,7 @@ const MODULO_FUNCIONALIDADES = {
   solicitacoes: [
     { id:'solicitacao', label:'📝 Solicitação' },
     { id:'aprovacao', label:'✅ Aprovação' },
+    { id:'monitor', label:'📺 Monitor' },
   ],
   compras: [
     { id:'painel', label:'📊 Painel' },
