@@ -1,0 +1,1264 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ERP Industrial — Escala de Equipe</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/supabase.js"></script>
+<script src="js/utils.js"></script>
+<style>
+/* ── Cards de escala (lista) ── */
+.esc-card{background:#fff;border:1.5px solid #e2e8f0;border-radius:14px;padding:16px 18px;margin-bottom:14px;transition:box-shadow .15s,border-color .15s;}
+.esc-card:hover{box-shadow:0 4px 18px rgba(4,45,77,.10);border-color:#93c5fd;}
+.esc-card-top{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;}
+.esc-card-title{font-size:16px;font-weight:800;color:var(--primary);}
+.esc-card-meta{display:flex;gap:16px;flex-wrap:wrap;margin-top:6px;font-size:12px;color:#64748b;}
+.esc-card-meta b{color:var(--primary);}
+.esc-card-counts{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;}
+.esc-count{background:#f1f5f9;border-radius:8px;padding:5px 10px;font-size:11px;font-weight:700;color:#475569;display:flex;gap:5px;align-items:center;}
+.esc-card-actions{display:flex;gap:6px;flex-wrap:wrap;}
+
+/* ── Avatares ── */
+.esc-avatar{border-radius:50%;overflow:hidden;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;flex-shrink:0;background:var(--primary);box-shadow:0 2px 6px rgba(0,0,0,.18);}
+.esc-avatar img{width:100%;height:100%;object-fit:cover;display:block;}
+
+/* ── Builder (modal) ── */
+.esc-slot{display:flex;align-items:center;gap:12px;border:1.4px dashed #cbd5e1;border-radius:12px;padding:12px;background:#f8fafc;min-height:72px;}
+.esc-slot.filled{border-style:solid;border-color:#93c5fd;background:#fff;}
+.esc-line-block{border:1.4px solid #e2e8f0;border-radius:12px;padding:14px;margin-bottom:10px;background:#fff;}
+.esc-line-head{display:flex;align-items:center;gap:10px;margin-bottom:10px;}
+.esc-chips{display:flex;flex-wrap:wrap;gap:8px;}
+.esc-chip{display:flex;align-items:center;gap:8px;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:30px;padding:4px 10px 4px 4px;font-size:12px;font-weight:600;color:var(--primary);}
+.esc-chip button{background:none;border:none;cursor:pointer;color:#ef4444;font-size:14px;line-height:1;padding:0 2px;}
+.esc-add-mini{background:transparent;border:1.3px dashed #94a3b8;color:#475569;border-radius:30px;padding:6px 14px;font-size:12px;font-weight:700;cursor:pointer;}
+.esc-add-mini:hover{border-color:var(--primary);color:var(--primary);}
+
+/* ── Picker ── */
+.esc-pick-row{display:flex;align-items:center;gap:12px;padding:9px 10px;border-radius:10px;cursor:pointer;border:1px solid transparent;}
+.esc-pick-row:hover{background:#f1f5f9;}
+.esc-pick-row.added{background:#ecfdf5;border-color:#86efac;}
+
+/* ── Escalação: tokens e seções usam estilos inline (layout neutro/corporativo) ── */
+
+/* histórico */
+.hist-item{display:flex;gap:10px;font-size:12px;color:#475569;padding:7px 0;border-bottom:1px solid #f1f5f9;}
+.hist-item b{color:var(--primary);}
+
+/* ── Turnos lado a lado (2 turnos) ── */
+.esc-turnos-wrap{display:flex;gap:16px;align-items:flex-start;}
+.esc-turno-col{flex:1;min-width:0;border:1.5px solid #e2e8f0;border-radius:14px;padding:16px;background:#fbfdff;display:flex;flex-direction:column;gap:16px;}
+.esc-turno-col-head{display:flex;align-items:center;justify-content:space-between;gap:10px;border-bottom:1.5px solid #e2e8f0;padding-bottom:10px;}
+.esc-turno-col-title{font-size:14px;font-weight:800;color:var(--primary);display:flex;align-items:center;gap:8px;}
+.esc-turno-tag{background:#0E3B62;color:#fff;border-radius:7px;padding:2px 9px;font-size:11px;font-weight:800;}
+@media (max-width:840px){.esc-turnos-wrap{flex-direction:column;}}
+</style>
+</head>
+<body>
+<div id="sidebar-container"></div>
+<header class="topbar" id="topbar">
+  <button class="topbar-open-sidebar" onclick="toggleSidebar()">☰</button>
+  <div class="topbar-title">Escala de Equipe</div>
+  <div class="topbar-right">
+    <div class="topbar-user">
+      <div class="user-avatar" style="width:32px;height:32px;font-size:12px;" id="top-avatar">SA</div>
+      <div><div class="topbar-user-name" id="top-user-name">Super Admin</div><div class="topbar-user-profile" id="top-user-perfil">SADM</div></div>
+    </div>
+    <button class="btn btn-ghost btn-sm" onclick="doLogout()" style="color:#64748b;">Sair</button>
+  </div>
+</header>
+
+<main class="main-content" id="main-content">
+  <div class="page-header">
+    <div class="page-header-left"><h1>Escala de Equipe</h1><p>Montagem visual da equipe por período, em formato de escalação</p></div>
+    <button class="btn btn-primary" onclick="abrirNovaEscala()">+ Nova Escala</button>
+  </div>
+
+  <!-- FILTROS -->
+  <div class="card" style="margin-bottom:16px;">
+    <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;">
+      <div class="form-group" style="margin:0;flex:1;min-width:200px;">
+        <label class="form-label">Buscar</label>
+        <input type="text" id="esc-busca" class="form-input" placeholder="Nome da escala ou colaborador..." oninput="renderLista()" autocomplete="off">
+      </div>
+      <div class="form-group" style="margin:0;">
+        <label class="form-label">Status</label>
+        <select id="esc-filtro-status" class="form-input" style="width:160px;" onchange="renderLista()">
+          <option value="">Todos</option>
+          <option value="rascunho">Rascunho</option>
+          <option value="ativa">Ativa</option>
+          <option value="finalizada">Finalizada</option>
+        </select>
+      </div>
+      <div class="form-group" style="margin:0;">
+        <label class="form-label">Turno</label>
+        <select id="esc-filtro-turno" class="form-input" style="width:170px;" onchange="renderLista()"><option value="">Todos</option></select>
+      </div>
+    </div>
+  </div>
+
+  <div id="esc-lista"></div>
+  <div id="esc-empty" class="empty-state hidden"><div class="empty-icon">🧤</div><h3>Nenhuma escala cadastrada</h3><p>Clique em "+ Nova Escala" para montar a primeira equipe.</p></div>
+</main>
+
+<!-- ══════════════════════════════════════════════
+     MODAL CRIAR / EDITAR ESCALA
+══════════════════════════════════════════════ -->
+<div id="modal-escala" class="modal-overlay hidden">
+  <div class="modal modal-lg" id="modal-escala-box" style="max-width:880px;max-height:92vh;overflow-y:auto;">
+    <div class="modal-header"><div class="modal-title" id="modal-escala-title">Nova Escala</div><button class="modal-close" onclick="closeModal('modal-escala')">✕</button></div>
+
+    <div style="display:flex;flex-direction:column;gap:18px;">
+      <!-- DADOS BÁSICOS -->
+      <div class="form-grid-2">
+        <div class="form-group" style="margin:0;"><label class="form-label">Nome da Escala <span class="req">*</span></label><input id="esc-nome" type="text" class="form-input" placeholder="Ex: Escala Semana 24"></div>
+        <div class="form-group" style="margin:0;"><label class="form-label">Status</label>
+          <select id="esc-status" class="form-input">
+            <option value="rascunho">Rascunho</option>
+            <option value="ativa">Ativa</option>
+            <option value="finalizada">Finalizada</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-grid-2">
+        <div class="form-group" style="margin:0;"><label class="form-label">Período — De <span class="req">*</span></label><input id="esc-inicio" type="date" class="form-input"></div>
+        <div class="form-group" style="margin:0;"><label class="form-label">Período — Até <span class="req">*</span></label><input id="esc-fim" type="date" class="form-input"></div>
+      </div>
+
+      <!-- TOGGLE 2º TURNO -->
+      <div style="display:flex;justify-content:flex-end;">
+        <button class="btn btn-secondary btn-sm" id="btn-add-turno2" onclick="toggleTurno2(true)">➕ Adicionar 2º Turno</button>
+      </div>
+
+      <!-- TURNOS LADO A LADO -->
+      <div class="esc-turnos-wrap">
+
+        <!-- ══ COLUNA TURNO 1 ══ -->
+        <div class="esc-turno-col">
+          <div class="esc-turno-col-head">
+            <div class="esc-turno-col-title"><span class="esc-turno-tag">1º</span> Turno</div>
+          </div>
+
+          <div class="form-group" style="margin:0;"><label class="form-label">Turno</label>
+            <select id="esc-turno" class="form-input"><option value="">Selecione o turno...</option></select>
+          </div>
+
+          <div class="form-grid-2">
+            <div>
+              <label class="form-label" style="display:block;margin-bottom:6px;">👔 Encarregado</label>
+              <div id="slot-encarregado" class="esc-slot"></div>
+            </div>
+            <div>
+              <label class="form-label" style="display:block;margin-bottom:6px;">🛠️ Operador de Máquina</label>
+              <div id="slot-operador" class="esc-slot"></div>
+            </div>
+          </div>
+
+          <div>
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+              <label class="form-label" style="margin:0;">🏭 Linhas</label>
+              <button class="btn btn-secondary btn-sm" onclick="addLinha('t1')">+ Adicionar Linha</button>
+            </div>
+            <div id="esc-linhas"></div>
+          </div>
+
+          <div>
+            <label class="form-label" style="display:block;margin-bottom:6px;">🧹 Limpeza <span style="font-weight:400;color:#94a3b8;font-size:11px;">(opcional)</span></label>
+            <div id="esc-limpeza" class="esc-chips" style="margin-bottom:8px;"></div>
+            <button class="esc-add-mini" onclick="openPicker('limpeza',null,'t1')">+ Adicionar colaborador</button>
+          </div>
+
+          <div>
+            <label class="form-label" style="display:block;margin-bottom:6px;">🏖️ Férias <span style="font-weight:400;color:#94a3b8;font-size:11px;">(opcional)</span></label>
+            <div id="esc-ferias" class="esc-chips" style="margin-bottom:8px;"></div>
+            <button class="esc-add-mini" onclick="openPicker('ferias',null,'t1')">+ Adicionar colaborador</button>
+          </div>
+
+          <div>
+            <label class="form-label" style="display:block;margin-bottom:6px;">🚷 Controle de Ausências <span style="font-weight:400;color:#94a3b8;font-size:11px;">(opcional)</span></label>
+            <div id="esc-ausencias" style="display:flex;flex-direction:column;gap:8px;margin-bottom:8px;"></div>
+            <button class="esc-add-mini" onclick="openPicker('ausencias',null,'t1')">+ Registrar ausência</button>
+          </div>
+        </div>
+
+        <!-- ══ COLUNA TURNO 2 ══ -->
+        <div class="esc-turno-col hidden" id="esc-turno-col-2">
+          <div class="esc-turno-col-head">
+            <div class="esc-turno-col-title"><span class="esc-turno-tag" style="background:#7c3aed;">2º</span> Turno</div>
+            <button class="btn btn-ghost btn-sm" style="color:#ef4444;" onclick="toggleTurno2(false)">✕ Remover</button>
+          </div>
+
+          <div class="form-group" style="margin:0;"><label class="form-label">Turno</label>
+            <select id="esc-turno-2" class="form-input"><option value="">Selecione o turno...</option></select>
+          </div>
+
+          <div class="form-grid-2">
+            <div>
+              <label class="form-label" style="display:block;margin-bottom:6px;">👔 Encarregado</label>
+              <div id="slot-encarregado-2" class="esc-slot"></div>
+            </div>
+            <div>
+              <label class="form-label" style="display:block;margin-bottom:6px;">🛠️ Operador de Máquina</label>
+              <div id="slot-operador-2" class="esc-slot"></div>
+            </div>
+          </div>
+
+          <div>
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+              <label class="form-label" style="margin:0;">🏭 Linhas</label>
+              <button class="btn btn-secondary btn-sm" onclick="addLinha('t2')">+ Adicionar Linha</button>
+            </div>
+            <div id="esc-linhas-2"></div>
+          </div>
+
+          <div>
+            <label class="form-label" style="display:block;margin-bottom:6px;">🧹 Limpeza <span style="font-weight:400;color:#94a3b8;font-size:11px;">(opcional)</span></label>
+            <div id="esc-limpeza-2" class="esc-chips" style="margin-bottom:8px;"></div>
+            <button class="esc-add-mini" onclick="openPicker('limpeza',null,'t2')">+ Adicionar colaborador</button>
+          </div>
+
+          <div>
+            <label class="form-label" style="display:block;margin-bottom:6px;">🏖️ Férias <span style="font-weight:400;color:#94a3b8;font-size:11px;">(opcional)</span></label>
+            <div id="esc-ferias-2" class="esc-chips" style="margin-bottom:8px;"></div>
+            <button class="esc-add-mini" onclick="openPicker('ferias',null,'t2')">+ Adicionar colaborador</button>
+          </div>
+
+          <div>
+            <label class="form-label" style="display:block;margin-bottom:6px;">🚷 Controle de Ausências <span style="font-weight:400;color:#94a3b8;font-size:11px;">(opcional)</span></label>
+            <div id="esc-ausencias-2" style="display:flex;flex-direction:column;gap:8px;margin-bottom:8px;"></div>
+            <button class="esc-add-mini" onclick="openPicker('ausencias',null,'t2')">+ Registrar ausência</button>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- OBSERVAÇÕES -->
+      <div class="form-group" style="margin:0;"><label class="form-label">Observações</label><textarea id="esc-obs" class="form-input" rows="2" placeholder="Informações adicionais..."></textarea></div>
+
+      <!-- ASSINATURA — PLANEJAMENTO -->
+      <div>
+        <label class="form-label" style="display:block;margin-bottom:6px;">✍️ Assinatura — Planejamento</label>
+        <div class="form-grid-2">
+          <div class="form-group" style="margin:0;">
+            <label class="form-label">Responsável (Funcionário)</label>
+            <select id="esc-ass-resp" class="form-input"><option value="">Selecione...</option></select>
+          </div>
+          <div class="form-group" style="margin:0;">
+            <label class="form-label">Assinatura digital</label>
+            <div id="esc-ass-box" onclick="abrirAssinatura()" style="border:1.4px dashed #cbd5e1;border-radius:10px;min-height:64px;display:flex;align-items:center;justify-content:center;cursor:pointer;background:#f8fafc;color:#64748b;font-size:13px;font-weight:600;text-align:center;padding:6px;">Clique para assinar</div>
+          </div>
+        </div>
+      </div>
+
+      <div id="esc-error" class="hidden" style="color:var(--danger);font-size:13px;font-weight:600;"></div>
+      <div style="display:flex;justify-content:flex-end;gap:10px;">
+        <button class="btn btn-ghost" onclick="closeModal('modal-escala')">Cancelar</button>
+        <button class="btn btn-primary" id="btn-salvar-escala" onclick="salvarEscala()">💾 Salvar Escala</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════
+     MODAL PICKER DE COLABORADOR
+══════════════════════════════════════════════ -->
+<div id="modal-picker" class="modal-overlay hidden">
+  <div class="modal" style="max-width:480px;max-height:80vh;display:flex;flex-direction:column;">
+    <div class="modal-header"><div class="modal-title" id="picker-title">Selecionar</div><button class="modal-close" onclick="closeModal('modal-picker')">✕</button></div>
+    <input type="text" id="picker-busca" class="form-input" placeholder="Buscar funcionário..." oninput="renderPicker()" style="margin-bottom:12px;" autocomplete="off">
+    <div id="picker-list" style="overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:2px;"></div>
+    <div style="margin-top:12px;text-align:right;"><button class="btn btn-secondary btn-sm" onclick="closeModal('modal-picker')">Concluir</button></div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════
+     MODAL VISUALIZAR ESCALA (escalação)
+══════════════════════════════════════════════ -->
+<div id="modal-view" class="modal-overlay hidden">
+  <div class="modal" style="max-width:860px;max-height:94vh;overflow-y:auto;">
+    <div class="modal-header"><div class="modal-title" id="view-title">Escalação</div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <button class="btn btn-secondary btn-sm" id="view-pdf-btn" onclick="gerarPDFAtual()">📄 PDF</button>
+        <button class="modal-close" onclick="closeModal('modal-view')">✕</button>
+      </div>
+    </div>
+    <div id="view-body"></div>
+    <div style="margin-top:18px;">
+      <h4 style="font-size:12px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px;">🕓 Histórico de Alterações</h4>
+      <div id="view-hist"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════
+     MODAL CONFIRMAR EXCLUSÃO
+══════════════════════════════════════════════ -->
+<div id="modal-confirm" class="modal-overlay hidden">
+  <div class="modal" style="max-width:420px;">
+    <div class="modal-header"><div class="modal-title">Confirmar</div><button class="modal-close" onclick="closeModal('modal-confirm')">✕</button></div>
+    <p id="confirm-msg" style="font-size:14px;color:#475569;margin-bottom:20px;"></p>
+    <div style="display:flex;justify-content:flex-end;gap:10px;">
+      <button class="btn btn-ghost" onclick="closeModal('modal-confirm')">Cancelar</button>
+      <button class="btn btn-primary" id="confirm-ok-btn" style="background:var(--danger);color:#fff;">Excluir</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════
+     MODAL ASSINATURA DIGITAL
+══════════════════════════════════════════════ -->
+<div id="modal-assinatura" class="modal-overlay hidden">
+  <div class="modal" style="max-width:560px;">
+    <div class="modal-header"><div class="modal-title">Assinatura Digital</div><button class="modal-close" onclick="closeModal('modal-assinatura')">✕</button></div>
+    <p style="font-size:13px;color:#64748b;margin-bottom:10px;">Assine no quadro abaixo usando o mouse ou o toque.</p>
+    <canvas id="sign-canvas" width="500" height="200" style="border:1.5px dashed #94a3b8;border-radius:10px;width:100%;height:200px;touch-action:none;background:#fff;cursor:crosshair;display:block;"></canvas>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:14px;">
+      <button class="btn btn-ghost btn-sm" onclick="limparAssinatura()">🧽 Limpar</button>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-ghost" onclick="closeModal('modal-assinatura')">Cancelar</button>
+        <button class="btn btn-primary" onclick="salvarAssinatura()">Salvar assinatura</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+<script>
+// ============================================================
+// ERP INDUSTRIAL — ESCALA DE EQUIPE
+// Montagem visual da equipe em formato de escalação de futebol
+// ============================================================
+
+let _escalas = [];
+let _turnos = [];
+let _funcionarios = [];
+let _linhas = [];
+let _fotoMap = { id: {}, cpf: {}, nome: {}, email: {} };
+let _empresa = {};
+let _editId = null;
+let _draft = null;
+let _pickerCtx = null;     // { type:'encarregado'|'operador'|'linha'|'limpeza'|'ferias'|'ausencias', lineIdx }
+let _viewEscala = null;
+let _signCtx = null, _signing = false, _signLast = null, _signBlank = true;
+
+const TIPO_AUSENCIA = { afastamento: 'Afastamento', licenca: 'Licença médica', folga: 'Folga' };
+
+// ── BOOT ───────────────────────────────────────────────────
+fetch('partials/sidebar.html').then(r => r.text()).then(html => {
+  document.getElementById('sidebar-container').innerHTML = html;
+  document.querySelector('[href="escala.html"]')?.classList.add('active');
+  openGroup('producao');
+});
+initSidebar('escala.html');
+
+async function init() {
+  try {
+    const [emp, turnos, funcs, linhas] = await Promise.all([
+      _supabase.from('empresa_config').select('*').limit(1).maybeSingle(),
+      _supabase.from('turnos').select('id,nome,status').order('nome'),
+      _supabase.from('funcionarios').select('id,nome,cpf,email,funcao,setor,foto,status').order('nome'),
+      _supabase.from('linhas_producao').select('id,nome,status').order('nome'),
+    ]);
+    _empresa = emp.data || {};
+    _turnos = (turnos.data || []).filter(t => !t.status || t.status === 'ativo');
+    _funcionarios = (funcs.data || []).filter(f => !f.status || f.status === 'ativo');
+    _linhas = (linhas.data || []).filter(l => !l.status || l.status === 'ativo');
+    buildFotoMap();
+    preencherSelectsTurno();
+    fillResponsavelSelect();
+    await loadEscalas();
+  } catch (e) {
+    console.warn('[escala] init:', e);
+    toast('Erro ao carregar dados: ' + (e.message || e), 'danger');
+  }
+}
+
+function buildFotoMap() {
+  _fotoMap = { id: {}, cpf: {}, nome: {}, email: {} };
+  _funcionarios.forEach(f => {
+    if (!f.foto) return;
+    if (f.id) _fotoMap.id[f.id] = f.foto;
+    const cpf = (f.cpf || '').replace(/\D/g, '');
+    if (cpf) _fotoMap.cpf[cpf] = f.foto;
+    if (f.nome) _fotoMap.nome[norm(f.nome)] = f.foto;
+    if (f.email) _fotoMap.email[norm(f.email)] = f.foto;
+  });
+}
+
+function preencherSelectsTurno() {
+  const opts = '<option value="">Selecione o turno...</option>' +
+    _turnos.map(t => `<option value="${t.id}">${escapeHtml(t.nome)}</option>`).join('');
+  const sel = document.getElementById('esc-turno');
+  if (sel) sel.innerHTML = opts;
+  const sel2 = document.getElementById('esc-turno-2');
+  if (sel2) sel2.innerHTML = opts;
+  const fil = document.getElementById('esc-filtro-turno');
+  if (fil) fil.innerHTML = '<option value="">Todos</option>' +
+    _turnos.map(t => `<option value="${t.id}">${escapeHtml(t.nome)}</option>`).join('');
+}
+
+async function loadEscalas() {
+  const { data, error } = await _supabase.from('escalas').select('*').order('criado_em', { ascending: false });
+  if (error) { console.warn('[escala] load:', error.message); _escalas = []; }
+  else _escalas = (data || []).map(normalizaEscala);
+  renderLista();
+}
+
+// Garante que campos JSON existam como arrays/objetos
+function normalizaEscala(e) {
+  return {
+    ...e,
+    encarregado: e.encarregado || null,
+    operador: e.operador || null,
+    linhas: Array.isArray(e.linhas) ? e.linhas : [],
+    limpeza: Array.isArray(e.limpeza) ? e.limpeza : [],
+    ferias: Array.isArray(e.ferias) ? e.ferias : [],
+    ausencias: Array.isArray(e.ausencias) ? e.ausencias : [],
+    historico: Array.isArray(e.historico) ? e.historico : [],
+    turno2: (e.turno2 && typeof e.turno2 === 'object') ? e.turno2 : null,
+  };
+}
+
+// Existe 2º turno com algum conteúdo?
+function temT2(e) {
+  const t = e && e.turno2;
+  return !!(t && (t.encarregado || t.operador || (t.linhas || []).length ||
+    (t.limpeza || []).length || (t.ferias || []).length || (t.ausencias || []).length || t.turno_id));
+}
+
+// ── HELPERS ─────────────────────────────────────────────────
+function norm(s) { return (s || '').toString().trim().toLowerCase(); }
+
+function escapeHtml(s) {
+  return (s == null ? '' : String(s)).replace(/[&<>"']/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function membroFoto(m) {
+  if (!m) return null;
+  if (m.funcionario_id && _fotoMap.id[m.funcionario_id]) return _fotoMap.id[m.funcionario_id];
+  const cpf = (m.cpf || '').replace(/\D/g, '');
+  if (cpf && _fotoMap.cpf[cpf]) return _fotoMap.cpf[cpf];
+  if (m.email && _fotoMap.email[norm(m.email)]) return _fotoMap.email[norm(m.email)];
+  if (m.nome && _fotoMap.nome[norm(m.nome)]) return _fotoMap.nome[norm(m.nome)];
+  return null;
+}
+
+function iniciais(nome) {
+  return (nome || '?').split(' ').filter(Boolean).map(x => x[0]).join('').substring(0, 2).toUpperCase();
+}
+
+function primeiroENome(nome) {
+  const p = (nome || '').trim().split(/\s+/);
+  if (p.length <= 1) return p[0] || '';
+  return p[0] + ' ' + p[p.length - 1];
+}
+
+const _CORES = ['#0E3B62', '#2563eb', '#7c3aed', '#db2777', '#ea580c', '#16a34a', '#0891b2', '#9333ea', '#dc2626', '#0d9488'];
+function corDeNome(nome) {
+  let h = 0; const s = nome || 'x';
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  return _CORES[h % _CORES.length];
+}
+
+function fmtData(d) {
+  if (!d) return '—';
+  const p = String(d).slice(0, 10).split('-');
+  return p.length === 3 ? `${p[2]}/${p[1]}/${p[0]}` : d;
+}
+
+function statusBadge(s) {
+  const map = { rascunho: ['badge-gray', 'Rascunho'], ativa: ['badge-success', 'Ativa'], finalizada: ['badge-info', 'Finalizada'] };
+  const [cls, lbl] = map[s] || map.rascunho;
+  return `<span class="badge ${cls}">${lbl}</span>`;
+}
+
+function totalColaboradores(e) {
+  const cont = (t) => {
+    let n = 0;
+    if (t.encarregado) n++;
+    if (t.operador) n++;
+    (t.linhas || []).forEach(l => n += (l.membros || []).length);
+    n += (t.limpeza || []).length + (t.ferias || []).length;
+    return n;
+  };
+  let n = cont(e);
+  if (temT2(e)) n += cont(e.turno2);
+  return n;
+}
+
+// Avatar para chips/cards (usa classe da página)
+function avatarMini(m, size) {
+  const foto = membroFoto(m);
+  const fs = Math.round(size / 2.6);
+  const inner = foto
+    ? `<img src="${foto}" alt="" style="width:100%;height:100%;object-fit:cover;display:block;">`
+    : `<span style="color:#fff;font-weight:800;font-size:${fs}px;">${iniciais(m.nome)}</span>`;
+  const bg = foto ? '#e2e8f0' : corDeNome(m.nome);
+  return `<div style="width:${size}px;height:${size}px;border-radius:50%;overflow:hidden;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;background:${bg};">${inner}</div>`;
+}
+
+// ── LISTA ───────────────────────────────────────────────────
+function renderLista() {
+  const cont = document.getElementById('esc-lista');
+  const empty = document.getElementById('esc-empty');
+  const busca = norm(document.getElementById('esc-busca')?.value);
+  const fStatus = document.getElementById('esc-filtro-status')?.value || '';
+  const fTurno = document.getElementById('esc-filtro-turno')?.value || '';
+
+  let lista = _escalas.slice();
+  if (fStatus) lista = lista.filter(e => (e.status || 'rascunho') === fStatus);
+  if (fTurno) lista = lista.filter(e => String(e.turno_id || '') === String(fTurno) || (temT2(e) && String(e.turno2.turno_id || '') === String(fTurno)));
+  if (busca) lista = lista.filter(e => {
+    if (norm(e.nome).includes(busca)) return true;
+    const nomes = [e.encarregado, e.operador].filter(Boolean).map(m => m.nome)
+      .concat((e.linhas || []).flatMap(l => (l.membros || []).map(m => m.nome)))
+      .concat((e.limpeza || []).map(m => m.nome), (e.ferias || []).map(m => m.nome));
+    return nomes.some(n => norm(n).includes(busca));
+  });
+
+  if (!lista.length) { cont.innerHTML = ''; empty.classList.remove('hidden'); return; }
+  empty.classList.add('hidden');
+
+  cont.innerHTML = lista.map(e => {
+    const nLinhas = (e.linhas || []).length + (temT2(e) ? (e.turno2.linhas || []).length : 0);
+    const t2 = temT2(e);
+    return `<div class="esc-card">
+      <div class="esc-card-top">
+        <div>
+          <div class="esc-card-title">${escapeHtml(e.nome || 'Sem nome')} ${statusBadge(e.status || 'rascunho')}</div>
+          <div class="esc-card-meta">
+            <span>📅 <b>${fmtData(e.periodo_inicio)}</b> até <b>${fmtData(e.periodo_fim)}</b></span>
+            <span>🕐 Turno${t2 ? 's' : ''}: <b>${escapeHtml(e.turno_nome || '—')}</b>${t2 ? ` <span class="badge badge-info" style="margin-left:2px;">+ ${escapeHtml(e.turno2.turno_nome || '2º turno')}</span>` : ''}</span>
+          </div>
+          <div class="esc-card-counts">
+            <span class="esc-count">👔 ${e.encarregado ? '1 encarregado' : 'sem encarregado'}</span>
+            <span class="esc-count">🛠️ ${e.operador ? '1 operador' : 'sem operador'}</span>
+            <span class="esc-count">🏭 ${nLinhas} linha(s)</span>
+            <span class="esc-count">👥 ${totalColaboradores(e)} no total</span>
+          </div>
+        </div>
+        <div class="esc-card-actions">
+          <button class="btn btn-secondary btn-sm" onclick="abrirView('${e.id}')">👁️ Visualizar</button>
+          <button class="btn btn-ghost btn-sm" onclick="abrirEditar('${e.id}')">✏️ Editar</button>
+          <button class="btn btn-ghost btn-sm" onclick="duplicarEscala('${e.id}')">📑 Duplicar</button>
+          <button class="btn btn-ghost btn-sm" onclick="gerarPDFById('${e.id}')">📄 PDF</button>
+          <button class="btn btn-ghost btn-sm" style="color:#dc2626;" onclick="confirmarExclusao('${e.id}')">🗑️</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ── DRAFT (criar/editar) ────────────────────────────────────
+function novoTurnoVazio() {
+  return { encarregado: null, operador: null, linhas: [{ linha_id: '', nome: '', membros: [] }], limpeza: [], ferias: [], ausencias: [] };
+}
+function novoDraft() {
+  return { encarregado: null, operador: null, linhas: [{ linha_id: '', nome: '', membros: [] }], limpeza: [], ferias: [], ausencias: [], assinatura_img: null, doisTurnos: false, t2: novoTurnoVazio() };
+}
+
+// Container do turno ('t1' = raiz do draft, 't2' = draft.t2)
+function tD(tk) { return tk === 't2' ? _draft.t2 : _draft; }
+// Sufixo dos elementos do turno
+function sfx(tk) { return tk === 't2' ? '-2' : ''; }
+
+// Aplica o estado visual do 2º turno (coluna, botão, largura do modal)
+function aplicarEstadoTurno2() {
+  const on = !!(_draft && _draft.doisTurnos);
+  document.getElementById('esc-turno-col-2')?.classList.toggle('hidden', !on);
+  document.getElementById('btn-add-turno2')?.classList.toggle('hidden', on);
+  const box = document.getElementById('modal-escala-box');
+  if (box) box.style.maxWidth = on ? '1320px' : '880px';
+}
+function toggleTurno2(on) {
+  _draft.doisTurnos = !!on;
+  aplicarEstadoTurno2();
+  renderTurno('t2');
+}
+
+function abrirNovaEscala() {
+  if (!guardAction('escala', 'create')) return;
+  _editId = null;
+  _draft = novoDraft();
+  document.getElementById('modal-escala-title').textContent = 'Nova Escala';
+  document.getElementById('esc-nome').value = '';
+  document.getElementById('esc-status').value = 'rascunho';
+  document.getElementById('esc-inicio').value = '';
+  document.getElementById('esc-fim').value = '';
+  document.getElementById('esc-turno').value = '';
+  const sel2New = document.getElementById('esc-turno-2'); if (sel2New) sel2New.value = '';
+  document.getElementById('esc-obs').value = '';
+  document.getElementById('esc-ass-resp').value = '';
+  _draft.assinatura_img = null;
+  renderAssinaturaBox();
+  document.getElementById('esc-error').classList.add('hidden');
+  renderDraft();
+  aplicarEstadoTurno2();
+  document.getElementById('modal-escala').classList.remove('hidden');
+}
+
+function abrirEditar(id) {
+  if (!guardAction('escala', 'edit')) return;
+  const e = _escalas.find(x => x.id === id);
+  if (!e) return;
+  _editId = id;
+  const t2 = temT2(e) ? e.turno2 : null;
+  _draft = {
+    encarregado: e.encarregado ? { ...e.encarregado } : null,
+    operador: e.operador ? { ...e.operador } : null,
+    linhas: (e.linhas || []).map(l => ({ linha_id: l.linha_id || '', nome: l.nome || '', membros: (l.membros || []).map(m => ({ ...m })) })),
+    limpeza: (e.limpeza || []).map(m => ({ ...m })),
+    ferias: (e.ferias || []).map(m => ({ ...m })),
+    ausencias: (e.ausencias || []).map(m => ({ ...m })),
+    doisTurnos: !!t2,
+    t2: {
+      encarregado: t2 && t2.encarregado ? { ...t2.encarregado } : null,
+      operador: t2 && t2.operador ? { ...t2.operador } : null,
+      linhas: (t2 ? (t2.linhas || []) : []).map(l => ({ linha_id: l.linha_id || '', nome: l.nome || '', membros: (l.membros || []).map(m => ({ ...m })) })),
+      limpeza: (t2 ? (t2.limpeza || []) : []).map(m => ({ ...m })),
+      ferias: (t2 ? (t2.ferias || []) : []).map(m => ({ ...m })),
+      ausencias: (t2 ? (t2.ausencias || []) : []).map(m => ({ ...m })),
+    },
+  };
+  if (!_draft.linhas.length) _draft.linhas = [{ linha_id: '', nome: '', membros: [] }];
+  if (!_draft.t2.linhas.length) _draft.t2.linhas = [{ linha_id: '', nome: '', membros: [] }];
+  document.getElementById('modal-escala-title').textContent = 'Editar Escala';
+  document.getElementById('esc-nome').value = e.nome || '';
+  document.getElementById('esc-status').value = e.status || 'rascunho';
+  document.getElementById('esc-inicio').value = (e.periodo_inicio || '').slice(0, 10);
+  document.getElementById('esc-fim').value = (e.periodo_fim || '').slice(0, 10);
+  document.getElementById('esc-turno').value = e.turno_id || '';
+  const sel2Edit = document.getElementById('esc-turno-2'); if (sel2Edit) sel2Edit.value = (t2 && t2.turno_id) || '';
+  document.getElementById('esc-obs').value = e.observacoes || '';
+  document.getElementById('esc-ass-resp').value = e.assinatura_resp_id || '';
+  _draft.assinatura_img = e.assinatura_img || null;
+  renderAssinaturaBox();
+  document.getElementById('esc-error').classList.add('hidden');
+  renderDraft();
+  aplicarEstadoTurno2();
+  document.getElementById('modal-escala').classList.remove('hidden');
+}
+
+function duplicarEscala(id) {
+  if (!guardAction('escala', 'create')) return;
+  const e = _escalas.find(x => x.id === id);
+  if (!e) return;
+  abrirNovaEscala();
+  const t2d = temT2(e) ? e.turno2 : null;
+  _draft = {
+    encarregado: e.encarregado ? { ...e.encarregado } : null,
+    operador: e.operador ? { ...e.operador } : null,
+    linhas: (e.linhas || []).map(l => ({ linha_id: l.linha_id || '', nome: l.nome || '', membros: (l.membros || []).map(m => ({ ...m })) })),
+    limpeza: (e.limpeza || []).map(m => ({ ...m })),
+    ferias: (e.ferias || []).map(m => ({ ...m })),
+    ausencias: (e.ausencias || []).map(m => ({ ...m })),
+    doisTurnos: !!t2d,
+    t2: {
+      encarregado: t2d && t2d.encarregado ? { ...t2d.encarregado } : null,
+      operador: t2d && t2d.operador ? { ...t2d.operador } : null,
+      linhas: (t2d ? (t2d.linhas || []) : []).map(l => ({ linha_id: l.linha_id || '', nome: l.nome || '', membros: (l.membros || []).map(m => ({ ...m })) })),
+      limpeza: (t2d ? (t2d.limpeza || []) : []).map(m => ({ ...m })),
+      ferias: (t2d ? (t2d.ferias || []) : []).map(m => ({ ...m })),
+      ausencias: (t2d ? (t2d.ausencias || []) : []).map(m => ({ ...m })),
+    },
+  };
+  if (!_draft.linhas.length) _draft.linhas = [{ linha_id: '', nome: '', membros: [] }];
+  if (!_draft.t2.linhas.length) _draft.t2.linhas = [{ linha_id: '', nome: '', membros: [] }];
+  document.getElementById('modal-escala-title').textContent = 'Nova Escala (cópia)';
+  document.getElementById('esc-nome').value = (e.nome || '') + ' (cópia)';
+  document.getElementById('esc-status').value = 'rascunho';
+  document.getElementById('esc-turno').value = e.turno_id || '';
+  const sel2Dup = document.getElementById('esc-turno-2'); if (sel2Dup) sel2Dup.value = (t2d && t2d.turno_id) || '';
+  document.getElementById('esc-obs').value = e.observacoes || '';
+  document.getElementById('esc-ass-resp').value = e.assinatura_resp_id || '';
+  _draft.assinatura_img = e.assinatura_img || null;
+  renderAssinaturaBox();
+  renderDraft();
+  aplicarEstadoTurno2();
+}
+
+function renderDraft() {
+  renderTurno('t1');
+  renderTurno('t2');
+}
+
+// Renderiza todos os blocos de um turno
+function renderTurno(tk) {
+  renderSlot(tk, 'encarregado', 'Selecionar encarregado');
+  renderSlot(tk, 'operador', 'Selecionar operador');
+  renderLinhasDraft(tk);
+  renderChipsDraft(tk, 'limpeza');
+  renderChipsDraft(tk, 'ferias');
+  renderAusenciasDraft(tk);
+}
+
+function renderSlot(tk, type, placeholder) {
+  const base = type === 'encarregado' ? 'slot-encarregado' : 'slot-operador';
+  const el = document.getElementById(base + sfx(tk));
+  if (!el) return;
+  const m = tD(tk)[type];
+  if (!m) {
+    el.classList.remove('filled');
+    el.innerHTML = `<button class="esc-add-mini" onclick="openPicker('${type}',null,'${tk}')">+ ${placeholder}</button>`;
+    return;
+  }
+  el.classList.add('filled');
+  el.innerHTML = `${avatarMini(m, 48)}
+    <div style="flex:1;min-width:0;">
+      <div style="font-weight:700;color:var(--primary);font-size:14px;">${escapeHtml(m.nome)}</div>
+      <div style="font-size:11px;color:#94a3b8;">${escapeHtml(m.funcao || '—')}</div>
+    </div>
+    <button class="btn btn-ghost btn-sm" onclick="removerSlot('${type}','${tk}')" style="color:#ef4444;">Trocar</button>`;
+}
+
+function removerSlot(type, tk) {
+  tD(tk)[type] = null;
+  renderSlot(tk, type, type === 'encarregado' ? 'Selecionar encarregado' : 'Selecionar operador');
+}
+
+function renderLinhasDraft(tk) {
+  const d = tD(tk);
+  const cont = document.getElementById('esc-linhas' + sfx(tk));
+  if (!cont) return;
+  cont.innerHTML = d.linhas.map((l, idx) => `
+    <div class="esc-line-block">
+      <div class="esc-line-head">
+        <select class="form-input" style="max-width:260px;font-size:13px;padding:7px 10px;" onchange="setLinha('${tk}',${idx}, this.value)">${linhaOptions(l.linha_id)}</select>
+        <div style="flex:1;"></div>
+        ${d.linhas.length > 1 ? `<button class="btn btn-ghost btn-sm" style="color:#ef4444;" onclick="removeLinha('${tk}',${idx})">🗑️ Remover linha</button>` : ''}
+      </div>
+      <div class="esc-chips" style="margin-bottom:8px;">${chipsHTML(tk, 'linha', idx)}</div>
+      <button class="esc-add-mini" onclick="openPicker('linha', ${idx}, '${tk}')">+ Adicionar colaborador</button>
+    </div>`).join('');
+}
+
+function chipsHTML(tk, type, lineIdx) {
+  const d = tD(tk);
+  const arr = type === 'linha' ? d.linhas[lineIdx].membros : d[type];
+  if (!arr.length) return '<span style="font-size:11px;color:#94a3b8;font-style:italic;">Nenhum colaborador</span>';
+  return arr.map(m => `<span class="esc-chip">${avatarMini(m, 26)}${escapeHtml(primeiroENome(m.nome))}<button onclick="removeMembro('${tk}','${type}','${m.funcionario_id}',${lineIdx == null ? 'null' : lineIdx})" title="Remover">✕</button></span>`).join('');
+}
+
+function renderChipsDraft(tk, type) {
+  const elId = (type === 'limpeza' ? 'esc-limpeza' : 'esc-ferias') + sfx(tk);
+  const el = document.getElementById(elId);
+  if (el) el.innerHTML = chipsHTML(tk, type, null);
+}
+
+function renderAusenciasDraft(tk) {
+  const d = tD(tk);
+  const cont = document.getElementById('esc-ausencias' + sfx(tk));
+  if (!cont) return;
+  if (!d.ausencias.length) { cont.innerHTML = '<span style="font-size:11px;color:#94a3b8;font-style:italic;">Nenhuma ausência registrada</span>'; return; }
+  cont.innerHTML = d.ausencias.map(m => `
+    <div style="display:flex;align-items:center;gap:10px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:8px 10px;">
+      ${avatarMini(m, 30)}
+      <div style="flex:1;min-width:0;font-size:13px;font-weight:600;color:var(--primary);">${escapeHtml(m.nome)}</div>
+      <select class="form-input" style="width:160px;padding:6px 8px;font-size:12px;" onchange="setAusenciaTipo('${tk}','${m.funcionario_id}', this.value)">
+        ${Object.entries(TIPO_AUSENCIA).map(([k, v]) => `<option value="${k}" ${m.tipo === k ? 'selected' : ''}>${v}</option>`).join('')}
+      </select>
+      <button class="btn btn-ghost btn-sm" style="color:#ef4444;" onclick="removeMembro('${tk}','ausencias','${m.funcionario_id}',null)">✕</button>
+    </div>`).join('');
+}
+
+function addLinha(tk) { tD(tk).linhas.push({ linha_id: '', nome: '', membros: [] }); renderLinhasDraft(tk); }
+function removeLinha(tk, idx) { const d = tD(tk); d.linhas.splice(idx, 1); if (!d.linhas.length) d.linhas.push({ linha_id: '', nome: '', membros: [] }); renderLinhasDraft(tk); }
+function setLinha(tk, idx, linhaId) { const d = tD(tk); const l = _linhas.find(x => String(x.id) === String(linhaId)); d.linhas[idx].linha_id = linhaId; d.linhas[idx].nome = l ? l.nome : ''; }
+function linhaOptions(selId) { return '<option value="">Selecione a linha...</option>' + _linhas.map(l => `<option value="${l.id}" ${String(l.id) === String(selId) ? 'selected' : ''}>${escapeHtml(l.nome)}</option>`).join(''); }
+function setAusenciaTipo(tk, uid, tipo) { const a = tD(tk).ausencias.find(x => x.funcionario_id === uid); if (a) a.tipo = tipo; }
+
+function removeMembro(tk, type, uid, lineIdx) {
+  const d = tD(tk);
+  if (type === 'linha') {
+    const arr = d.linhas[lineIdx].membros;
+    const i = arr.findIndex(m => m.funcionario_id === uid); if (i >= 0) arr.splice(i, 1);
+    renderLinhasDraft(tk);
+  } else {
+    const arr = d[type];
+    const i = arr.findIndex(m => m.funcionario_id === uid); if (i >= 0) arr.splice(i, 1);
+    if (type === 'ausencias') renderAusenciasDraft(tk);
+    else renderChipsDraft(tk, type);
+  }
+}
+
+// ── PICKER ──────────────────────────────────────────────────
+function openPicker(type, lineIdx, tk) {
+  _pickerCtx = { type, lineIdx: (lineIdx == null ? null : lineIdx), tk: tk || 't1' };
+  const titulos = { encarregado: 'Selecionar Encarregado', operador: 'Selecionar Operador', linha: 'Adicionar à Linha', limpeza: 'Adicionar à Limpeza', ferias: 'Adicionar a Férias', ausencias: 'Registrar Ausência' };
+  const suf = (tk === 't2') ? ' — 2º Turno' : '';
+  document.getElementById('picker-title').textContent = (titulos[type] || 'Selecionar') + suf;
+  document.getElementById('picker-busca').value = '';
+  renderPicker();
+  document.getElementById('modal-picker').classList.remove('hidden');
+  setTimeout(() => document.getElementById('picker-busca')?.focus(), 50);
+}
+
+function alvoArray() {
+  const t = _pickerCtx.type;
+  const d = tD(_pickerCtx.tk);
+  if (t === 'linha') return d.linhas[_pickerCtx.lineIdx].membros;
+  if (t === 'limpeza' || t === 'ferias' || t === 'ausencias') return d[t];
+  return null; // slots únicos
+}
+
+function jaAdicionado(uid) {
+  const t = _pickerCtx.type;
+  const d = tD(_pickerCtx.tk);
+  if (t === 'encarregado' || t === 'operador') return d[t] && d[t].funcionario_id === uid;
+  const arr = alvoArray();
+  return arr && arr.some(m => m.funcionario_id === uid);
+}
+
+function renderPicker() {
+  const busca = norm(document.getElementById('picker-busca')?.value);
+  const lista = _funcionarios.filter(u => !busca || norm(u.nome).includes(busca) || norm(u.email).includes(busca) || norm(u.funcao).includes(busca));
+  const cont = document.getElementById('picker-list');
+  if (!lista.length) { cont.innerHTML = '<div style="padding:16px;text-align:center;color:#94a3b8;font-size:13px;">Nenhum funcionário encontrado.</div>'; return; }
+  cont.innerHTML = lista.map(u => {
+    const added = jaAdicionado(u.id);
+    return `<div class="esc-pick-row ${added ? 'added' : ''}" onclick="pickFuncionario('${u.id}')">
+      ${avatarMini({ funcionario_id: u.id, nome: u.nome, cpf: u.cpf, email: u.email }, 36)}
+      <div style="flex:1;min-width:0;">
+        <div style="font-weight:700;color:var(--primary);font-size:13px;">${escapeHtml(u.nome)}</div>
+        <div style="font-size:11px;color:#94a3b8;">${escapeHtml(u.funcao || u.setor || u.email || '—')}</div>
+      </div>
+      <span style="font-size:12px;font-weight:700;color:${added ? '#16a34a' : '#2563eb'};">${added ? '✓ Adicionado' : '+ Adicionar'}</span>
+    </div>`;
+  }).join('');
+}
+
+function pickFuncionario(uid) {
+  const u = _funcionarios.find(x => x.id === uid);
+  if (!u) return;
+  const membro = { funcionario_id: u.id, nome: u.nome, funcao: u.funcao || u.setor || '', cpf: u.cpf || '', email: u.email || '' };
+  const t = _pickerCtx.type;
+  const tk = _pickerCtx.tk;
+  const d = tD(tk);
+
+  if (t === 'encarregado' || t === 'operador') {
+    d[t] = membro;
+    renderSlot(tk, t, t === 'encarregado' ? 'Selecionar encarregado' : 'Selecionar operador');
+    closeModal('modal-picker');
+    return;
+  }
+
+  const arr = alvoArray();
+  if (arr.some(m => m.funcionario_id === uid)) {
+    // toggle: remover se já existe
+    const i = arr.findIndex(m => m.funcionario_id === uid); arr.splice(i, 1);
+  } else {
+    if (t === 'ausencias') membro.tipo = 'folga';
+    arr.push(membro);
+  }
+  if (t === 'linha') renderLinhasDraft(tk);
+  else if (t === 'ausencias') renderAusenciasDraft(tk);
+  else renderChipsDraft(tk, t);
+  renderPicker();
+}
+
+// ── SALVAR ──────────────────────────────────────────────────
+async function salvarEscala() {
+  const errEl = document.getElementById('esc-error');
+  const nome = document.getElementById('esc-nome').value.trim();
+  const inicio = document.getElementById('esc-inicio').value;
+  const fim = document.getElementById('esc-fim').value;
+  const turnoId = document.getElementById('esc-turno').value;
+
+  const erro = (msg) => { errEl.textContent = msg; errEl.classList.remove('hidden'); };
+  if (!nome) return erro('Informe o nome da escala.');
+  if (!inicio || !fim) return erro('Informe o período (início e fim).');
+  if (fim < inicio) return erro('A data final não pode ser anterior à inicial.');
+
+  const acao = _editId ? 'edit' : 'create';
+  if (!guardAction('escala', acao)) return;
+
+  // limpa linhas sem membros e sem uso
+  const linhas = _draft.linhas.filter(l => (l.membros || []).length > 0 || (l.nome || '').trim());
+  const turno = _turnos.find(t => String(t.id) === String(turnoId));
+
+  // 2º turno (somente se ativado)
+  let turno2 = null;
+  if (_draft.doisTurnos) {
+    const turno2Id = document.getElementById('esc-turno-2').value;
+    const turno2Obj = _turnos.find(t => String(t.id) === String(turno2Id));
+    turno2 = {
+      turno_id: turno2Id || null,
+      turno_nome: turno2Obj ? turno2Obj.nome : null,
+      encarregado: _draft.t2.encarregado,
+      operador: _draft.t2.operador,
+      linhas: _draft.t2.linhas.filter(l => (l.membros || []).length > 0 || (l.nome || '').trim()),
+      limpeza: _draft.t2.limpeza,
+      ferias: _draft.t2.ferias,
+      ausencias: _draft.t2.ausencias,
+    };
+  }
+
+  const user = getUser();
+  const quem = user ? `${user.nome || ''}${user.perfil ? ' (' + user.perfil + ')' : ''}` : 'sistema';
+  const historico = (_editId ? (_escalas.find(x => x.id === _editId)?.historico || []) : []).slice();
+  historico.push({ usuario: quem, data: new Date().toISOString(), acao: _editId ? 'Editada' : 'Criada' });
+
+  const dados = {
+    nome,
+    periodo_inicio: inicio,
+    periodo_fim: fim,
+    turno_id: turnoId || null,
+    turno_nome: turno ? turno.nome : null,
+    status: document.getElementById('esc-status').value,
+    encarregado: _draft.encarregado,
+    operador: _draft.operador,
+    linhas,
+    limpeza: _draft.limpeza,
+    ferias: _draft.ferias,
+    ausencias: _draft.ausencias,
+    turno2,
+    observacoes: document.getElementById('esc-obs').value || null,
+    assinatura_resp_id: document.getElementById('esc-ass-resp').value || null,
+    assinatura_responsavel: (function () { const id = document.getElementById('esc-ass-resp').value; const f = _funcionarios.find(x => String(x.id) === String(id)); return f ? f.nome : null; })(),
+    assinatura_img: _draft.assinatura_img || null,
+    historico,
+    atualizado_em: new Date().toISOString(),
+  };
+
+  const btn = document.getElementById('btn-salvar-escala');
+  btn.disabled = true; btn.innerHTML = '<span class="spin"></span> Salvando...';
+  try {
+    if (_editId) {
+      const { res, stripped2 } = await persistEscala(dados);
+      if (res.error) throw res.error;
+      await addLog('UPDATE', 'ESCALA', _editId, 'Escala atualizada: ' + nome);
+      toast('Escala atualizada!', 'success');
+      if (stripped2) toast('O 2º turno não pôde ser gravado. Adicione a coluna "turno2" (tipo jsonb) na tabela "escalas".', 'warning');
+    } else {
+      dados.criado_em = new Date().toISOString();
+      const { res, stripped2 } = await persistEscala(dados);
+      if (res.error) throw res.error;
+      await addLog('CREATE', 'ESCALA', res.data?.id || 'novo', 'Nova escala: ' + nome);
+      toast('Escala criada!', 'success');
+      if (stripped2) toast('O 2º turno não pôde ser gravado. Adicione a coluna "turno2" (tipo jsonb) na tabela "escalas".', 'warning');
+    }
+    closeModal('modal-escala');
+    await loadEscalas();
+  } catch (e) {
+    erro('Erro ao salvar: ' + (e.message || e));
+  } finally {
+    btn.disabled = false; btn.innerHTML = '💾 Salvar Escala';
+  }
+}
+
+// Salva a escala; se a coluna "turno2" ainda não existir no banco,
+// remove apenas esse campo e tenta de novo (não quebra o salvamento do 1º turno).
+async function persistEscala(dados) {
+  let payload = { ...dados };
+  let stripped2 = false;
+  for (let i = 0; i < 2; i++) {
+    let res;
+    if (_editId) res = await _supabase.from('escalas').update(payload).eq('id', _editId);
+    else res = await _supabase.from('escalas').insert(payload).select().single();
+    if (!res.error) return { res, stripped2 };
+    const msg = ((res.error.message || '') + ' ' + (res.error.details || '') + ' ' + (res.error.hint || '')).toLowerCase();
+    if (('turno2' in payload) && msg.includes('turno2')) { delete payload.turno2; stripped2 = true; continue; }
+    return { res, stripped2 };
+  }
+  return { res: { error: { message: 'Falha ao salvar após múltiplas tentativas.' } }, stripped2 };
+}
+
+// ── EXCLUIR ─────────────────────────────────────────────────
+function confirmarExclusao(id) {
+  if (!guardAction('escala', 'delete')) return;
+  const e = _escalas.find(x => x.id === id);
+  if (!e) return;
+  document.getElementById('confirm-msg').innerHTML = `Deseja excluir a escala <strong>${escapeHtml(e.nome || '')}</strong>? Esta ação não pode ser desfeita.`;
+  document.getElementById('confirm-ok-btn').onclick = async () => {
+    await _supabase.from('escalas').delete().eq('id', id);
+    await addLog('DELETE', 'ESCALA', id, 'Escala excluída: ' + (e.nome || ''));
+    toast('Escala excluída.', 'warning');
+    closeModal('modal-confirm');
+    await loadEscalas();
+  };
+  document.getElementById('modal-confirm').classList.remove('hidden');
+}
+
+// ── VISUALIZAÇÃO (escalação) ────────────────────────────────
+function abrirView(id) {
+  const e = _escalas.find(x => x.id === id);
+  if (!e) return;
+  _viewEscala = e;
+  document.getElementById('view-title').textContent = e.nome || 'Escala de Equipe';
+  document.getElementById('view-body').innerHTML = escalacaoHTML(e);
+  document.getElementById('view-hist').innerHTML = historicoHTML(e);
+  document.getElementById('modal-view').classList.remove('hidden');
+}
+
+function historicoHTML(e) {
+  if (!(e.historico || []).length) return '<p style="font-size:12px;color:#94a3b8;font-style:italic;">Sem registros de alteração.</p>';
+  return e.historico.slice().reverse().map(h =>
+    `<div class="hist-item"><span>🕓</span><span><b>${escapeHtml(h.acao || '—')}</b> por ${escapeHtml(h.usuario || 'sistema')} — ${h.data ? new Date(h.data).toLocaleString('pt-BR') : '—'}</span></div>`
+  ).join('');
+}
+
+// Token de jogador totalmente inline (idêntico em tela e PDF)
+function playerToken(m, roleLabel, staff, compact) {
+  const foto = membroFoto(m);
+  const sz = compact ? (staff ? 44 : 40) : (staff ? 60 : 54);
+  const w = compact ? 74 : 90;
+  const nameFs = compact ? 10 : 11;
+  const roleFs = compact ? 8 : 9;
+  const initFs = compact ? (staff ? 14 : 13) : (staff ? 18 : 16);
+  const ring = staff ? '3px solid #042D4D' : '2px solid #cbd5e1';
+  const inner = foto
+    ? `<img src="${foto}" style="width:100%;height:100%;object-fit:cover;display:block;">`
+    : `<span style="color:#fff;font-weight:800;font-size:${initFs}px;">${iniciais(m.nome)}</span>`;
+  return `<div style="display:flex;flex-direction:column;align-items:center;gap:${compact ? 3 : 5}px;width:${w}px;text-align:center;">
+    <div style="width:${sz}px;height:${sz}px;border-radius:50%;overflow:hidden;display:flex;align-items:center;justify-content:center;background:${foto ? '#e2e8f0' : corDeNome(m.nome)};border:${ring};box-shadow:0 1px 5px rgba(4,45,77,.18);">${inner}</div>
+    <div style="color:#042D4D;font-size:${nameFs}px;font-weight:800;line-height:1.2;max-width:${w}px;">${escapeHtml(primeiroENome(m.nome))}</div>
+    <div style="color:#64748b;font-size:${roleFs}px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;">${escapeHtml(roleLabel || m.funcao || '')}</div>
+  </div>`;
+}
+
+function rowHTML(label, players, destaque, compact) {
+  if (!players.length) return '';
+  const barCor = destaque ? '#042D4D' : '#7aa3c0';
+  const headPad = compact ? '5px 12px' : '8px 14px';
+  const bodyPad = compact ? '10px 12px' : '18px 14px';
+  const gap = compact ? '8px 14px' : '18px 22px';
+  return `<div style="border-bottom:1px solid #eef2f6;">
+    <div style="background:#f1f5f9;color:#042D4D;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.8px;padding:${headPad};border-left:4px solid ${barCor};">${escapeHtml(label)}</div>
+    <div style="display:flex;flex-wrap:wrap;justify-content:center;gap:${gap};padding:${bodyPad};">${players.join('')}</div>
+  </div>`;
+}
+
+function escalacaoHTML(e, opts) {
+  opts = opts || {};
+  // Cabeçalho da empresa
+  const emp = _empresa || {};
+  const logo = emp.logo ? `<img src="${emp.logo}" style="height:54px;width:54px;object-fit:contain;border-radius:8px;background:#fff;padding:2px;">` : '';
+  let cab = `<div style="display:flex;align-items:center;gap:14px;border-bottom:2px solid #042D4D;padding-bottom:12px;margin-bottom:14px;">${logo}<div>`;
+  if (emp.nome_fantasia) cab += `<div style="font-size:17px;font-weight:900;color:#042D4D;">${escapeHtml(emp.nome_fantasia)}</div>`;
+  if (emp.razao_social) cab += `<div style="font-size:11px;color:#64748b;">${escapeHtml(emp.razao_social)}</div>`;
+  if (emp.cnpj) cab += `<div style="font-size:11px;color:#64748b;">CNPJ: ${escapeHtml(emp.cnpj)}</div>`;
+  cab += `</div></div>`;
+
+  // Faixa de informações da escala
+  const info = `<div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:8px;margin-bottom:14px;">
+    <div>
+      <div style="font-size:16px;font-weight:900;color:#042D4D;text-transform:uppercase;">${escapeHtml(e.nome || 'Escala de Equipe')}</div>
+      <div style="font-size:12px;color:#475569;margin-top:2px;">Período: <b>${fmtData(e.periodo_inicio)}</b> até <b>${fmtData(e.periodo_fim)}</b> · Turno${temT2(e) ? 's' : ''}: <b>${escapeHtml(e.turno_nome || '—')}${temT2(e) ? ' + ' + escapeHtml(e.turno2.turno_nome || '2º') : ''}</b></div>
+    </div>
+    <div>${statusBadge(e.status || 'rascunho')}</div>
+  </div>`;
+
+  const c = !!opts.compact;
+
+  // Bloco (campo + banco) de um turno
+  function turnoBloco(t) {
+    const staffPlayers = [];
+    if (t.encarregado) staffPlayers.push(playerToken(t.encarregado, 'Encarregado', true, c));
+    if (t.operador) staffPlayers.push(playerToken(t.operador, 'Operador', true, c));
+
+    let rows = '';
+    if (staffPlayers.length) rows += rowHTML('Coordenação', staffPlayers, true, c);
+    (t.linhas || []).forEach(l => {
+      const ps = (l.membros || []).map(m => playerToken(m, m.funcao, false, c));
+      if (ps.length) rows += rowHTML(l.nome || 'Linha', ps, false, c);
+    });
+    if (!rows) rows = `<div style="text-align:center;color:#94a3b8;font-weight:600;padding:${c ? 16 : 30}px;">Nenhum colaborador escalado.</div>`;
+
+    const campo = `<div style="background:#ffffff;border-radius:14px 14px 0 0;overflow:hidden;">${rows}</div>`;
+
+    const benchCol = (titulo, arr, vazio) => {
+      const items = (arr || []).length
+        ? arr.map(m => `<div style="display:flex;align-items:center;gap:${c ? 7 : 9}px;font-size:${c ? 11 : 12}px;color:#042D4D;font-weight:600;margin-bottom:${c ? 5 : 7}px;">${avatarMini(m, c ? 28 : 34)}<div><div>${escapeHtml(m.nome)}</div>${m.tipo ? `<div style="font-size:${c ? 9 : 10}px;color:#94a3b8;font-weight:700;text-transform:uppercase;">${TIPO_AUSENCIA[m.tipo] || m.tipo}</div>` : (m.funcao ? `<div style="font-size:${c ? 9 : 10}px;color:#94a3b8;">${escapeHtml(m.funcao)}</div>` : '')}</div></div>`).join('')
+        : `<div style="font-size:11px;color:#94a3b8;font-style:italic;">${vazio}</div>`;
+      return `<div style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:${c ? 9 : 12}px;"><div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.6px;color:#475569;margin-bottom:${c ? 7 : 10}px;">${titulo}</div>${items}</div>`;
+    };
+    const banco = `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:${c ? 9 : 12}px;padding:${c ? '10px 12px' : '14px 16px'};background:#f8fafc;border-radius:0 0 14px 14px;">
+      ${benchCol('🧹 Limpeza', t.limpeza, 'Ninguém escalado')}
+      ${benchCol('🏖️ Férias', t.ferias, 'Ninguém de férias')}
+      ${benchCol('🚷 Ausências', t.ausencias, 'Nenhuma ausência')}
+    </div>`;
+
+    return `<div style="border:1px solid #e2e8f0;border-radius:14px;overflow:hidden;">${campo}${banco}</div>`;
+  }
+
+  // Cabeçalho de turno (usado quando há 2 turnos)
+  const turnoHead = (num, nome, cor) => `<div style="display:flex;align-items:center;gap:10px;margin:${c ? '10px 0 6px' : '18px 0 8px'};">
+    <span style="background:${cor};color:#fff;border-radius:8px;padding:4px 12px;font-size:12px;font-weight:800;letter-spacing:.5px;">${num}º TURNO</span>
+    <span style="font-size:13px;font-weight:800;color:#042D4D;">${escapeHtml(nome || '—')}</span>
+  </div>`;
+
+  const bloco1 = turnoBloco({ encarregado: e.encarregado, operador: e.operador, linhas: e.linhas, limpeza: e.limpeza, ferias: e.ferias, ausencias: e.ausencias });
+
+  let corpo = bloco1;
+  if (temT2(e)) {
+    const col1 = turnoHead(1, e.turno_nome, '#0E3B62') + bloco1;
+    const col2 = turnoHead(2, e.turno2.turno_nome, '#7c3aed') + turnoBloco(e.turno2);
+    if (opts.ladoALado) {
+      corpo = `<div style="display:flex;gap:16px;align-items:flex-start;">
+        <div style="flex:1;min-width:0;">${col1}</div>
+        <div style="flex:1;min-width:0;">${col2}</div>
+      </div>`;
+    } else {
+      corpo = col1 + col2;
+    }
+  }
+
+  // Observações
+  const obs = e.observacoes ? `<div style="margin-top:${c ? 10 : 14}px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:${c ? 9 : 12}px;font-size:12px;color:#475569;"><b>Observações:</b> ${escapeHtml(e.observacoes)}</div>` : '';
+
+  // Assinatura — Planejamento (única)
+  const assImg = e.assinatura_img ? `<img src="${e.assinatura_img}" style="max-height:${c ? 56 : 72}px;max-width:240px;object-fit:contain;display:block;margin:0 auto 2px;">` : `<div style="height:${c ? 30 : 42}px;"></div>`;
+  const sign = `<div style="display:flex;justify-content:center;padding:${c ? '12px 24px 4px' : '24px 24px 6px'};">
+    <div style="text-align:center;width:300px;">
+      ${assImg}
+      <div style="border-top:1.5px solid #94a3b8;padding-top:6px;font-size:12px;color:#475569;font-weight:700;">${escapeHtml(e.assinatura_responsavel || '')}</div>
+      <div style="font-size:10px;color:#94a3b8;">Planejamento</div>
+    </div>
+  </div>`;
+
+  return cab + info + corpo + obs + sign;
+}
+
+// ── PDF ─────────────────────────────────────────────────────
+function gerarPDFById(id) { const e = _escalas.find(x => x.id === id); if (e) gerarPDF(e); }
+function gerarPDFAtual() { if (_viewEscala) gerarPDF(_viewEscala); }
+
+function gerarPDF(e) {
+  if (!guardAction('escala', 'export')) return;
+  const w = window.open('', '_blank');
+  if (!w) { toast('Permita pop-ups para gerar o PDF.', 'warning'); return; }
+
+  // Área útil aproximada de uma folha A4 paisagem com margem de 10mm (em px @96dpi)
+  const PW = 1056; // largura útil ≈ 277mm
+  const PH = 718;  // altura útil  ≈ 190mm
+
+  const css = `*{margin:0;padding:0;box-sizing:border-box;font-family:'Segoe UI',Arial,sans-serif;}
+    @page{size:A4 landscape;margin:10mm;}
+    html,body{margin:0;padding:0;color:#032036;background:#fff;}
+    body{text-align:center;}            /* centraliza o bloco (inline-block) */
+    #pdf-wrap{display:inline-block;text-align:left;transform-origin:top center;}
+    @media print{body{padding:0;}}`;
+
+  let inner = escalacaoHTML(e, { ladoALado: true, compact: true });
+  inner += `<div style="margin-top:12px;font-size:10px;color:#94a3b8;border-top:1px solid #e2e8f0;padding-top:8px;">${escapeHtml(_empresa.nome_fantasia || 'ERP Industrial')} · Escala gerada em ${new Date().toLocaleString('pt-BR')}</div>`;
+
+  let doc = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Escala — ${escapeHtml(e.nome || '')}</title><style>${css}</style></head><body>`;
+  doc += `<div id="pdf-wrap">${inner}</div>`;
+  doc += `<script>
+    (function(){
+      var PW = ${PW}, PH = ${PH};
+      function ajustar(){
+        var wrap = document.getElementById('pdf-wrap');
+        if(!wrap) return;
+        // 1ª passada: largura cheia da página
+        wrap.style.width = PW + 'px';
+        var h1 = wrap.scrollHeight;
+        var fator = 1;
+        if(h1 > PH){
+          // alarga o conteúdo para que, ao reduzir para caber na altura, ele preencha a largura
+          var f = PH / h1;
+          var novaLarg = Math.min(PW / f, PW * 1.8);
+          wrap.style.width = novaLarg + 'px';
+          var h2 = wrap.scrollHeight;
+          fator = Math.min(PH / h2, PW / novaLarg) * 0.99;
+        }
+        if(fator < 1){
+          if('zoom' in wrap.style){ wrap.style.zoom = fator; }
+          else { wrap.style.transform = 'scale(' + fator.toFixed(4) + ')'; wrap.style.height = (wrap.scrollHeight * fator) + 'px'; }
+        }
+        setTimeout(function(){ try{ window.focus(); window.print(); }catch(err){} }, 150);
+      }
+      var imgs = Array.prototype.slice.call(document.images || []);
+      var pend = imgs.filter(function(im){ return !im.complete; });
+      if(!pend.length){ setTimeout(ajustar, 150); return; }
+      var done = 0;
+      pend.forEach(function(im){ im.addEventListener('load', check); im.addEventListener('error', check); });
+      function check(){ if(++done >= pend.length) setTimeout(ajustar, 100); }
+      setTimeout(ajustar, 1500); // fallback caso alguma imagem trave
+    })();
+  <\/script>`;
+  doc += `</body></html>`;
+  w.document.write(doc); w.document.close();
+}
+
+// ── ASSINATURA DIGITAL ──────────────────────────────────────
+function fillResponsavelSelect() {
+  const sel = document.getElementById('esc-ass-resp');
+  if (!sel) return;
+  const atual = sel.value;
+  sel.innerHTML = '<option value="">Selecione...</option>' +
+    _funcionarios.map(f => `<option value="${f.id}">${escapeHtml(f.nome)}</option>`).join('');
+  sel.value = atual;
+}
+
+function renderAssinaturaBox() {
+  const box = document.getElementById('esc-ass-box');
+  if (!box) return;
+  if (_draft && _draft.assinatura_img) {
+    box.innerHTML = `<img src="${_draft.assinatura_img}" style="max-height:56px;max-width:100%;object-fit:contain;">`;
+    box.style.borderStyle = 'solid'; box.style.background = '#fff';
+  } else {
+    box.innerHTML = 'Clique para assinar';
+    box.style.borderStyle = 'dashed'; box.style.background = '#f8fafc';
+  }
+}
+
+function signPos(cv, e) {
+  const r = cv.getBoundingClientRect();
+  const cx = e.touches ? e.touches[0].clientX : e.clientX;
+  const cy = e.touches ? e.touches[0].clientY : e.clientY;
+  return { x: (cx - r.left) * (cv.width / r.width), y: (cy - r.top) * (cv.height / r.height) };
+}
+
+function wireSignCanvas(cv) {
+  const start = e => { e.preventDefault(); _signing = true; _signLast = signPos(cv, e); };
+  const move = e => {
+    if (!_signing) return; e.preventDefault();
+    const pnt = signPos(cv, e);
+    _signCtx.beginPath(); _signCtx.moveTo(_signLast.x, _signLast.y); _signCtx.lineTo(pnt.x, pnt.y); _signCtx.stroke();
+    _signLast = pnt; _signBlank = false;
+  };
+  const end = () => { _signing = false; };
+  cv.addEventListener('mousedown', start); cv.addEventListener('mousemove', move); window.addEventListener('mouseup', end);
+  cv.addEventListener('touchstart', start, { passive: false }); cv.addEventListener('touchmove', move, { passive: false }); cv.addEventListener('touchend', end);
+}
+
+function abrirAssinatura() {
+  const modal = document.getElementById('modal-assinatura');
+  modal.classList.remove('hidden');
+  const cv = document.getElementById('sign-canvas');
+  const ctx = cv.getContext('2d'); _signCtx = ctx;
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  ctx.lineWidth = 2.4; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = '#0b2540';
+  _signBlank = true;
+  if (_draft && _draft.assinatura_img) {
+    const img = new Image();
+    img.onload = () => { ctx.drawImage(img, 0, 0, cv.width, cv.height); _signBlank = false; };
+    img.src = _draft.assinatura_img;
+  }
+  if (!cv._wired) { wireSignCanvas(cv); cv._wired = true; }
+}
+
+function limparAssinatura() {
+  const cv = document.getElementById('sign-canvas');
+  if (_signCtx) _signCtx.clearRect(0, 0, cv.width, cv.height);
+  _signBlank = true;
+}
+
+function salvarAssinatura() {
+  const cv = document.getElementById('sign-canvas');
+  if (!_draft) return;
+  _draft.assinatura_img = _signBlank ? null : cv.toDataURL('image/png');
+  renderAssinaturaBox();
+  closeModal('modal-assinatura');
+  toast(_signBlank ? 'Assinatura removida.' : 'Assinatura salva!', 'success');
+}
+
+init();
+
+</script>
+</body>
+</html>
