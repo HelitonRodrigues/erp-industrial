@@ -40,6 +40,7 @@ const MODULO_MAP = [
   { id:'manutencao',     page:'manutencao.html',      label:'Manutenção',           group:'operacoes',    icon:'🔧' },
   { id:'frota',          page:'frota.html',           label:'Frota',                group:'operacoes',    icon:'🚜' },
   { id:'abastecimento',  page:'abastecimento.html',   label:'Abastecimento',        group:'operacoes',    icon:'⛽' },
+  { id:'terceiros',      page:'terceiros.html',       label:'Serviços de Terceiros',group:'operacoes',    icon:'🤝' },
   // SUPRIMENTOS
   { id:'almoxarifado',   page:'almoxarifado.html',    label:'Almoxarifado',         group:'suprimentos',  icon:'📦' },
   { id:'solicitacoes',   page:'solicitacoes.html',    label:'Solicitações',         group:'suprimentos',  icon:'📝' },
@@ -133,6 +134,12 @@ const MODULO_FUNCIONALIDADES = {
     { id:'cadastro', label:'🚜 Equipamentos' },
     { id:'empresas', label:'🏢 Empresas / Mecânicos' },
     { id:'os', label:'📋 Ordens de Serviço' },
+  ],
+  terceiros: [
+    { id:'prestadores', label:'🤝 Prestadores' },
+    { id:'remessas', label:'📤 Remessas' },
+    { id:'servicos', label:'🧾 Serviços' },
+    { id:'fechamento', label:'📅 Fechamento Mensal' },
   ],
   abastecimento: [
     { id:'dashboard', label:'📊 Dashboard' },
