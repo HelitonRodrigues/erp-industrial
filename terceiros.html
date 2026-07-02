@@ -1,0 +1,858 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Serviços de Terceiros — ERP Industrial</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/supabase.js"></script>
+<script src="js/utils.js"></script>
+<style>
+.tab-btn{padding:10px 16px;background:none;border:none;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;color:#64748b;border-bottom:3px solid transparent;margin-bottom:-2px;transition:all .15s;white-space:nowrap;}
+.tab-btn.active{color:var(--accent);border-bottom-color:var(--primary);}
+.kpi-t{background:#fff;border-radius:12px;padding:14px;border:1.5px solid #e2e8f0;}
+.card-t{background:#fff;border-radius:14px;border:1.5px solid #e2e8f0;padding:14px;transition:.15s;}
+.card-t:hover{box-shadow:0 4px 20px rgba(4,45,77,.10);border-color:var(--primary);}
+.pill{font-size:10px;font-weight:800;padding:3px 9px;border-radius:20px;white-space:nowrap;}
+.sign-cv{display:block;width:100%;height:100px;border:1.5px solid #e2e8f0;border-radius:8px;background:#fff;cursor:crosshair;touch-action:none;}
+.item-peca,.item-mo{background:#f8fafc;border:1.5px solid #e2e8f0;border-radius:10px;padding:10px;}
+</style>
+</head>
+<body>
+<div id="sidebar-container"></div>
+<header class="topbar" id="topbar">
+  <button class="topbar-open-sidebar" onclick="toggleSidebar()">☰</button>
+  <div class="topbar-title">Serviços de Terceiros</div>
+  <div class="topbar-right">
+    <div class="topbar-user">
+      <div class="user-avatar" style="width:32px;height:32px;font-size:12px;" id="top-avatar">SA</div>
+      <div><div class="topbar-user-name" id="top-user-name">Super Admin</div><div class="topbar-user-profile" id="top-user-perfil">SADM</div></div>
+    </div>
+    <button class="btn btn-ghost btn-sm" onclick="doLogout()" style="color:#64748b;">Sair</button>
+  </div>
+</header>
+<div id="toast-container" style="position:fixed;top:16px;right:16px;z-index:99999;display:flex;flex-direction:column;gap:8px;pointer-events:none;"></div>
+<main class="main-content" id="main-content">
+  <div class="page-header">
+    <div class="page-header-left"><h1>SERVIÇOS DE TERCEIROS</h1><p style="color:#64748b;font-size:13px;margin-top:2px;">Prestadores externos, saídas formalizadas, serviços com valores e fechamento mensal</p></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+      <button class="btn btn-secondary" onclick="abrirNovaRemessa()">📤 Nova Remessa</button>
+      <button class="btn btn-primary" onclick="abrirNovoServico()">🧾 Novo Serviço</button>
+    </div>
+  </div>
+
+  <div id="t-kpis" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-bottom:18px;"></div>
+
+  <div style="display:flex;border-bottom:2px solid #e2e8f0;margin-bottom:18px;overflow-x:auto;">
+    <button class="tab-btn active" id="tbtn-prestadores" onclick="showTab('prestadores')">🤝 Prestadores</button>
+    <button class="tab-btn" id="tbtn-remessas" onclick="showTab('remessas')">📤 Remessas</button>
+    <button class="tab-btn" id="tbtn-servicos" onclick="showTab('servicos')">🧾 Serviços</button>
+    <button class="tab-btn" id="tbtn-fechamento" onclick="showTab('fechamento')">📅 Fechamento Mensal</button>
+  </div>
+
+  <!-- PRESTADORES -->
+  <div id="tab-prestadores">
+    <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+      <input type="text" id="f-prest" class="form-input" style="max-width:280px;" placeholder="🔍 Buscar prestador..." oninput="renderPrestadores()">
+      <button class="btn btn-primary btn-sm" onclick="abrirNovoPrest()">+ Novo Prestador</button>
+    </div>
+    <div id="prest-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;"></div>
+    <div id="prest-empty" style="text-align:center;color:#94a3b8;padding:30px;">Nenhum prestador cadastrado ainda.</div>
+  </div>
+
+  <!-- REMESSAS -->
+  <div id="tab-remessas" style="display:none;">
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+      <select id="f-rem-prest" class="form-input" style="width:200px;" onchange="renderRemessas()"><option value="">Todos os prestadores</option></select>
+      <select id="f-rem-status" class="form-input" style="width:170px;" onchange="renderRemessas()">
+        <option value="">Todos os status</option><option value="enviado">Enviado</option><option value="em_execucao">Em execução</option><option value="retornado">Retornado</option><option value="cancelado">Cancelado</option>
+      </select>
+      <button class="btn btn-primary btn-sm" style="margin-left:auto;" onclick="abrirNovaRemessa()">+ Nova Remessa</button>
+    </div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>#</th><th>Saída</th><th>Prestador</th><th>Item / Descrição</th><th>Origem</th><th>Prev. retorno</th><th>Status</th><th>Ações</th></tr></thead>
+      <tbody id="tbody-rem"></tbody>
+    </table></div>
+  </div>
+
+  <!-- SERVIÇOS -->
+  <div id="tab-servicos" style="display:none;">
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+      <select id="f-sv-prest" class="form-input" style="width:200px;" onchange="renderServicos()"><option value="">Todos os prestadores</option></select>
+      <input type="month" id="f-sv-comp" class="form-input" style="width:170px;" onchange="renderServicos()">
+      <select id="f-sv-status" class="form-input" style="width:160px;" onchange="renderServicos()">
+        <option value="">Todos os status</option><option value="aberto">Aberto</option><option value="medido">Medido</option><option value="faturado">Faturado</option><option value="pago">Pago</option>
+      </select>
+      <button class="btn btn-primary btn-sm" style="margin-left:auto;" onclick="abrirNovoServico()">+ Novo Serviço</button>
+    </div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>#</th><th>Data</th><th>Prestador</th><th>Descrição</th><th>Requisição/NF</th><th>Valor</th><th>Status</th><th>Ações</th></tr></thead>
+      <tbody id="tbody-sv"></tbody>
+    </table></div>
+  </div>
+
+  <!-- FECHAMENTO -->
+  <div id="tab-fechamento" style="display:none;">
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px;">
+      <label class="form-label" style="margin:0;">Competência:</label>
+      <input type="month" id="fec-comp" class="form-input" style="width:170px;" onchange="renderFechamento()">
+      <div id="fec-total" style="margin-left:auto;font-weight:800;color:#1e3a5f;"></div>
+    </div>
+    <div id="fec-body"></div>
+  </div>
+</main>
+
+<!-- ══════════ MODAL PRESTADOR ══════════ -->
+<div id="m-prest" class="modal-overlay hidden" onclick="if(event.target===this)fecharModal('m-prest')">
+  <div class="modal" style="max-width:560px;max-height:92vh;overflow-y:auto;">
+    <div class="modal-header"><div class="modal-title" id="m-prest-tit">Novo Prestador</div><button class="modal-close" onclick="fecharModal('m-prest')">✕</button></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+      <div class="form-group" style="grid-column:1/-1"><label class="form-label">Nome / Razão Social *</label><input id="pr-nome" class="form-input" placeholder="Ex: Diogo Rebobinamentos"></div>
+      <div class="form-group"><label class="form-label">Tipo de serviço</label>
+        <select id="pr-tipo" class="form-input">
+          <option value="rebobinamento">Rebobinamento de motores</option>
+          <option value="tornearia">Tornearia</option>
+          <option value="fabricacao">Fabricação de peças</option>
+          <option value="mecanica">Mecânica</option>
+          <option value="outros">Outros</option>
+        </select></div>
+      <div class="form-group"><label class="form-label">Especialidade / detalhe</label><input id="pr-esp" class="form-input" placeholder="Ex: motores até 100cv"></div>
+      <div class="form-group"><label class="form-label">CNPJ / CPF</label><input id="pr-doc" class="form-input" placeholder="00.000.000/0000-00"></div>
+      <div class="form-group"><label class="form-label">Telefone</label><input id="pr-tel" class="form-input" oninput="mascaraTel(this)" placeholder="(00) 00000-0000"></div>
+      <div class="form-group" style="grid-column:1/-1"><label class="form-label">E-mail</label><input id="pr-email" class="form-input" placeholder="contato@..."></div>
+      <div class="form-group" style="grid-column:1/-1"><label class="form-label">Endereço</label><input id="pr-end" class="form-input" placeholder="Rua, nº, bairro, cidade"></div>
+      <div class="form-group" style="grid-column:1/-1"><label class="form-label">Observações</label><textarea id="pr-obs" class="form-input" rows="2"></textarea></div>
+    </div>
+    <div id="pr-error" class="hidden" style="background:#fef2f2;border:1.5px solid #fca5a5;border-radius:8px;padding:10px;color:#dc2626;font-size:13px;margin-top:8px;"></div>
+    <div class="modal-footer"><button class="btn btn-secondary" onclick="fecharModal('m-prest')">Cancelar</button><button class="btn btn-primary" id="btn-prest" onclick="salvarPrest()">💾 Salvar</button></div>
+  </div>
+</div>
+
+<!-- ══════════ MODAL REMESSA ══════════ -->
+<div id="m-remessa" class="modal-overlay hidden" onclick="if(event.target===this)fecharModal('m-remessa')">
+  <div class="modal modal-lg" style="max-width:640px;max-height:92vh;overflow-y:auto;">
+    <div class="modal-header"><div class="modal-title" id="m-rem-tit">Nova Remessa</div><button class="modal-close" onclick="fecharModal('m-remessa')">✕</button></div>
+    <div style="font-size:12px;color:#64748b;margin-bottom:12px;">Registre tudo que sai da empresa para um prestador. Gera comprovante numerado com assinatura.</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+      <div class="form-group" style="grid-column:1/-1"><label class="form-label">Prestador *</label><select id="rm-prest" class="form-input"><option value="">Selecione...</option></select></div>
+      <div class="form-group" style="grid-column:1/-1"><label class="form-label">Item / Descrição do que está saindo *</label><textarea id="rm-desc" class="form-input" rows="2" placeholder="Ex: Motor elétrico WEG 5cv, nº série 12345"></textarea></div>
+      <div class="form-group"><label class="form-label">Quantidade</label><input id="rm-qtd" type="number" class="form-input" min="0" step="1" value="1"></div>
+      <div class="form-group"><label class="form-label">Origem</label>
+        <select id="rm-origem" class="form-input"><option value="Manutenção">Manutenção</option><option value="Almoxarifado">Almoxarifado</option><option value="Frota">Frota</option><option value="Linhas">Linhas</option><option value="Outros">Outros</option></select></div>
+      <div class="form-group" style="grid-column:1/-1"><label class="form-label">Referência (OS / equipamento / peça)</label><input id="rm-ref" class="form-input" placeholder="Ex: OS-0012 / Linha 3 / cód. 4501"></div>
+      <div class="form-group"><label class="form-label">Data de saída *</label><input id="rm-data" type="date" class="form-input"></div>
+      <div class="form-group"><label class="form-label">Previsão de retorno</label><input id="rm-prev" type="date" class="form-input"></div>
+      <div class="form-group"><label class="form-label">Autorizado por</label><input id="rm-autor" class="form-input" placeholder="Quem liberou a saída"></div>
+      <div class="form-group"><label class="form-label">Transportado por</label><input id="rm-transp" class="form-input" placeholder="Quem levou"></div>
+      <div class="form-group"><label class="form-label">Status</label>
+        <select id="rm-status" class="form-input"><option value="enviado">Enviado</option><option value="em_execucao">Em execução</option><option value="retornado">Retornado</option><option value="cancelado">Cancelado</option></select></div>
+      <div class="form-group"><label class="form-label">Data de retorno</label><input id="rm-retorno" type="date" class="form-input"></div>
+      <div class="form-group" style="grid-column:1/-1"><label class="form-label">Observações</label><textarea id="rm-obs" class="form-input" rows="2"></textarea></div>
+      <div class="form-group" style="grid-column:1/-1">
+        <label class="form-label">📷 Fotos do item</label>
+        <div id="rm-foto-prev" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;"></div>
+        <input type="file" id="rm-foto-inp" accept="image/*" multiple style="display:none;" onchange="addFotosRem(this)">
+        <input type="file" id="rm-foto-cam" accept="image/*" capture="environment" style="display:none;" onchange="addFotosRem(this)">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('rm-foto-cam').click()">📷 Tirar foto</button>
+          <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('rm-foto-inp').click()">🖼️ Da galeria</button>
+        </div>
+        <input type="hidden" id="rm-fotos-data" value="[]">
+      </div>
+      <div class="form-group" style="grid-column:1/-1">
+        <label class="form-label">✍️ Assinatura de quem retirou</label>
+        <canvas id="rm-assin-cv" class="sign-cv" width="600" height="100"></canvas>
+        <input type="hidden" id="rm-assin-data" value="">
+        <button type="button" class="btn btn-ghost btn-sm" style="font-size:11px;margin-top:4px;" onclick="limparSign('rm-assin-cv','rm-assin-data')">🗑️ Limpar assinatura</button>
+      </div>
+    </div>
+    <div id="rm-error" class="hidden" style="background:#fef2f2;border:1.5px solid #fca5a5;border-radius:8px;padding:10px;color:#dc2626;font-size:13px;margin-top:8px;"></div>
+    <div class="modal-footer"><button class="btn btn-secondary" onclick="fecharModal('m-remessa')">Cancelar</button><button class="btn btn-primary" id="btn-rem" onclick="salvarRemessa()">💾 Salvar Remessa</button></div>
+  </div>
+</div>
+
+<!-- ══════════ MODAL SERVIÇO ══════════ -->
+<div id="m-servico" class="modal-overlay hidden" onclick="if(event.target===this)fecharModal('m-servico')">
+  <div class="modal modal-lg" style="max-width:680px;max-height:92vh;overflow-y:auto;">
+    <div class="modal-header"><div class="modal-title" id="m-sv-tit">Novo Serviço</div><button class="modal-close" onclick="fecharModal('m-servico')">✕</button></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+      <div class="form-group"><label class="form-label">Prestador *</label><select id="sv-prest" class="form-input"><option value="">Selecione...</option></select></div>
+      <div class="form-group"><label class="form-label">Data *</label><input id="sv-data" type="date" class="form-input" onchange="_svSyncComp()"></div>
+      <div class="form-group" style="grid-column:1/-1"><label class="form-label">Vincular à remessa (opcional)</label><select id="sv-remessa" class="form-input"><option value="">Nenhuma</option></select></div>
+      <div class="form-group" style="grid-column:1/-1"><label class="form-label">Descrição do serviço *</label><textarea id="sv-desc" class="form-input" rows="2" placeholder="Ex: Rebobinamento do motor WEG 5cv"></textarea></div>
+
+      <div class="form-group" style="grid-column:1/-1">
+        <label class="form-label">🔧 Peças</label>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;">
+          <button type="button" class="btn btn-secondary btn-sm" onclick="abrirBuscaAlmox()">🔍 Buscar do Almoxarifado</button>
+          <button type="button" class="btn btn-secondary btn-sm" onclick="itensAddPeca('sv')">➕ Peça avulsa</button>
+        </div>
+        <div id="sv-pecas-body" style="display:flex;flex-direction:column;gap:8px;"></div>
+        <div id="sv-pecas-vazio" style="text-align:center;color:#94a3b8;font-size:12px;padding:10px;border:1.5px dashed #e2e8f0;border-radius:10px;">Nenhuma peça adicionada.</div>
+        <div style="text-align:right;margin-top:8px;font-size:13px;">Total peças: <strong id="sv-tot-pecas" style="color:#1e3a5f;">R$ 0,00</strong></div>
+      </div>
+      <div class="form-group" style="grid-column:1/-1">
+        <label class="form-label">👷 Mão de obra</label>
+        <div style="margin-bottom:8px;"><button type="button" class="btn btn-secondary btn-sm" onclick="itensAddMO('sv')">➕ Adicionar mão de obra</button></div>
+        <div id="sv-mo-body" style="display:flex;flex-direction:column;gap:8px;"></div>
+        <div id="sv-mo-vazio" style="text-align:center;color:#94a3b8;font-size:12px;padding:10px;border:1.5px dashed #e2e8f0;border-radius:10px;">Nenhuma mão de obra adicionada.</div>
+        <div style="text-align:right;margin-top:8px;font-size:13px;">Total mão de obra: <strong id="sv-tot-mo" style="color:#1e3a5f;">R$ 0,00</strong></div>
+      </div>
+      <div class="form-group" style="grid-column:1/-1">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;background:#f0fdf4;border:1.5px solid #bbf7d0;border-radius:10px;padding:10px 14px;">
+          <span style="font-size:13px;font-weight:700;color:#166534;">Valor total do serviço:</span>
+          <div style="display:flex;align-items:center;gap:6px;"><span style="font-weight:800;color:#15803d;">Total: <span id="sv-tot-geral">R$ 0,00</span></span></div>
+        </div>
+      </div>
+      <div class="form-group"><label class="form-label">Valor total (R$) *</label><input id="sv-custo" type="number" class="form-input" min="0" step="0.01" oninput="document.getElementById('sv-tot-geral').textContent=_brl(this.value)"></div>
+      <div class="form-group"><label class="form-label">Competência (mês de fechamento) *</label><input id="sv-comp" type="month" class="form-input"></div>
+      <div class="form-group"><label class="form-label">Nº da requisição</label><input id="sv-req" class="form-input" placeholder="Req. do prestador"></div>
+      <div class="form-group"><label class="form-label">Nota Fiscal</label><input id="sv-nf" class="form-input"></div>
+      <div class="form-group"><label class="form-label">Status</label>
+        <select id="sv-status" class="form-input"><option value="aberto">Aberto</option><option value="medido">Medido</option><option value="faturado">Faturado</option><option value="pago">Pago</option></select></div>
+      <div class="form-group" style="grid-column:1/-1">
+        <label class="form-label">📎 Requisições / Notas (foto ou PDF)</label>
+        <div id="sv-req-prev" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;"></div>
+        <input type="file" id="sv-req-inp" accept="image/*,application/pdf" multiple style="display:none;" onchange="addReqs('sv',this)">
+        <input type="file" id="sv-req-cam" accept="image/*" capture="environment" style="display:none;" onchange="addReqs('sv',this)">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('sv-req-cam').click()">📷 Foto</button>
+          <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('sv-req-inp').click()">📎 Arquivo</button>
+        </div>
+        <input type="hidden" id="sv-req-data" value="[]">
+      </div>
+      <div class="form-group" style="grid-column:1/-1"><label class="form-label">Observações</label><textarea id="sv-obs" class="form-input" rows="2"></textarea></div>
+    </div>
+    <div id="sv-error" class="hidden" style="background:#fef2f2;border:1.5px solid #fca5a5;border-radius:8px;padding:10px;color:#dc2626;font-size:13px;margin-top:8px;"></div>
+    <div class="modal-footer"><button class="btn btn-secondary" onclick="fecharModal('m-servico')">Cancelar</button><button class="btn btn-primary" id="btn-sv" onclick="salvarServico()">💾 Salvar Serviço</button></div>
+  </div>
+</div>
+
+<!-- ══════════ MODAL BUSCA ALMOXARIFADO ══════════ -->
+<div id="m-busca-almox" class="modal-overlay hidden" onclick="if(event.target===this)fecharModal('m-busca-almox')" style="z-index:16000;">
+  <div class="modal" style="max-width:600px;max-height:88vh;overflow-y:auto;">
+    <div class="modal-header"><div class="modal-title">🔍 Buscar peça do Almoxarifado</div><button class="modal-close" onclick="fecharModal('m-busca-almox')">✕</button></div>
+    <input type="text" id="ba-busca" class="form-input" placeholder="🔍 Nome ou código..." oninput="renderBuscaAlmox()" style="margin-bottom:10px;">
+    <div id="ba-lista" style="display:flex;flex-direction:column;gap:6px;"></div>
+  </div>
+</div>
+
+<!-- LIGHTBOX -->
+<div id="m-lb" class="modal-overlay hidden" style="z-index:20000;background:rgba(0,0,0,.92);" onclick="this.classList.add('hidden')">
+  <img id="m-lb-img" src="" style="max-width:94vw;max-height:94vh;border-radius:8px;">
+</div>
+
+<script>
+let _prestadores=[],_remessas=[],_servicos=[],_almox=[],_emp={};
+let _ePrestId=null,_eRemId=null,_eSvId=null;
+
+function fecharModal(id){const el=document.getElementById(id);if(el)el.classList.add('hidden');}
+function _brl(v){return (Number(v)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});}
+function lb(src){document.getElementById('m-lb-img').src=src;document.getElementById('m-lb').classList.remove('hidden');}
+function _mes(){const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');}
+
+/* ── INIT ─────────────────────────────────────────────────── */
+async function init(){
+  fetch('partials/sidebar.html').then(r=>r.text()).then(html=>{
+    document.getElementById('sidebar-container').innerHTML=html;
+    if(typeof initSidebar==='function')initSidebar('terceiros.html');
+    if(typeof openGroup==='function')openGroup('operacoes');
+  }).catch(()=>{});
+  try{
+    const{data:{session}}=await _supabase.auth.getSession();
+    if(session){
+      const{data:usr}=await _supabase.from('usuarios').select('nome,perfil').eq('auth_id',session.user.id).maybeSingle();
+      if(usr){
+        const n=usr.nome||session.user.email||'Usuário';
+        const ini=n.split(' ').slice(0,2).map(p=>p[0]).join('').toUpperCase();
+        const av=document.getElementById('top-avatar');if(av)av.textContent=ini;
+        const un=document.getElementById('top-user-name');if(un)un.textContent=n;
+        const up=document.getElementById('top-user-perfil');if(up)up.textContent=usr.perfil||'';
+      }
+    }
+  }catch(e){console.warn('auth:',e.message);}
+  const safe=async(q,n)=>{try{const r=await q;if(r.error){console.warn(n,r.error.message);return[];}return r.data||[];}catch(e){console.warn(n,e.message);return[];}};
+  try{const{data:ea}=await _supabase.from('empresa_config').select('*').limit(1);const em=Array.isArray(ea)?ea[0]:ea;if(em)_emp=em;}catch(e){}
+  const[pr,rm,sv,al]=await Promise.all([
+    safe(_supabase.from('terceiros_prestadores').select('*').order('nome'),'prestadores'),
+    safe(_supabase.from('terceiros_remessas').select('*').order('data_saida',{ascending:false}),'remessas'),
+    safe(_supabase.from('terceiros_servicos').select('*').order('data',{ascending:false}),'servicos'),
+    safe(_supabase.from('almoxarifado').select('*').order('nome'),'almox'),
+  ]);
+  _prestadores=pr;_remessas=rm;_servicos=sv;_almox=al||[];
+  // Aviso se as tabelas ainda não existem
+  if(!pr.length){try{const{error}=await _supabase.from('terceiros_prestadores').select('id').limit(1);
+    if(error&&(error.message.includes('does not exist')||error.code==='42P01')){
+      document.getElementById('tab-prestadores').insertAdjacentHTML('afterbegin',
+        '<div style="background:#fef9c3;border:1.5px solid #fcd34d;border-radius:12px;padding:16px;margin-bottom:14px;color:#92400e;font-size:13px;">⚠️ As tabelas do módulo ainda não foram criadas no Supabase. Rode o script <strong>terceiros_schema.sql</strong> no SQL Editor e recarregue a página.</div>');
+    }}catch(e){}}
+  const compFil=document.getElementById('f-sv-comp');if(compFil&&!compFil.value)compFil.value='';
+  const fecComp=document.getElementById('fec-comp');if(fecComp&&!fecComp.value)fecComp.value=_mes();
+  popularSelectsPrest();
+  renderKpis();renderPrestadores();renderRemessas();renderServicos();renderFechamento();
+}
+
+function popularSelectsPrest(){
+  const opts='<option value="">Selecione...</option>'+_prestadores.filter(p=>p.status!=='inativo').map(p=>`<option value="${p.id}">${p.nome}${p.tipo?' · '+_tipoLabel(p.tipo):''}</option>`).join('');
+  ['rm-prest','sv-prest'].forEach(id=>{const el=document.getElementById(id);if(el)el.innerHTML=opts;});
+  const fOpts='<option value="">Todos os prestadores</option>'+_prestadores.map(p=>`<option value="${p.id}">${p.nome}</option>`).join('');
+  ['f-rem-prest','f-sv-prest'].forEach(id=>{const el=document.getElementById(id);if(el)el.innerHTML=fOpts;});
+}
+function _tipoLabel(t){return ({rebobinamento:'Rebobinamento',tornearia:'Tornearia',fabricacao:'Fabricação',mecanica:'Mecânica',outros:'Outros'})[t]||t||'';}
+function _prestNome(id){const p=_prestadores.find(x=>x.id===id);return p?p.nome:'';}
+
+/* ── TABS ─────────────────────────────────────────────────── */
+function showTab(t){
+  ['prestadores','remessas','servicos','fechamento'].forEach(x=>{
+    const el=document.getElementById('tab-'+x);if(el)el.style.display=x===t?'block':'none';
+    const b=document.getElementById('tbtn-'+x);if(b)b.classList.toggle('active',x===t);
+  });
+  if(t==='fechamento')renderFechamento();
+}
+
+/* ── KPIs ─────────────────────────────────────────────────── */
+function renderKpis(){
+  const mes=_mes();
+  const svMes=_servicos.filter(s=>(s.competencia||(s.data||'').slice(0,7))===mes);
+  const totMes=svMes.reduce((a,s)=>a+(Number(s.valor_total)||0),0);
+  const aPagar=_servicos.filter(s=>s.status==='aberto'||s.status==='medido'||s.status==='faturado').reduce((a,s)=>a+(Number(s.valor_total)||0),0);
+  const fora=_remessas.filter(r=>r.status==='enviado'||r.status==='em_execucao').length;
+  const ativos=_prestadores.filter(p=>p.status!=='inativo').length;
+  const cards=[
+    ['Serviços no mês',_brl(totMes),'#1e3a5f'],
+    ['A pagar (não quitado)',_brl(aPagar),'#b45309'],
+    ['Itens fora da empresa',String(fora),fora>0?'#dc2626':'#16a34a'],
+    ['Prestadores ativos',String(ativos),'#0369a1'],
+  ];
+  document.getElementById('t-kpis').innerHTML=cards.map(c=>`<div class="kpi-t"><div style="font-size:11px;color:#64748b;font-weight:600;">${c[0]}</div><div style="font-size:${String(c[1]).length>10?'16':'20'}px;font-weight:800;color:${c[2]};margin-top:4px;">${c[1]}</div></div>`).join('');
+}
+
+/* ── PRESTADORES ──────────────────────────────────────────── */
+function renderPrestadores(){
+  const q=(document.getElementById('f-prest')?.value||'').toLowerCase().trim();
+  let lista=_prestadores;
+  if(q)lista=lista.filter(p=>((p.nome||'')+' '+(p.especialidade||'')+' '+_tipoLabel(p.tipo)).toLowerCase().includes(q));
+  const grid=document.getElementById('prest-grid');const empty=document.getElementById('prest-empty');
+  empty.style.display=lista.length?'none':'block';
+  grid.innerHTML=lista.map(p=>{
+    const nServ=_servicos.filter(s=>s.prestador_id===p.id).length;
+    const inativo=p.status==='inativo';
+    return `<div class="card-t" style="${inativo?'opacity:.6;':''}">
+      <div style="display:flex;justify-content:space-between;gap:8px;">
+        <div style="min-width:0;"><div style="font-weight:800;color:#1e3a5f;font-size:15px;">${p.nome||'—'}</div>
+          <div style="font-size:12px;color:#64748b;">${_tipoLabel(p.tipo)}${p.especialidade?' · '+p.especialidade:''}</div></div>
+        <span class="pill" style="background:${inativo?'#f1f5f9':'#dcfce7'};color:${inativo?'#64748b':'#166534'};">${inativo?'Inativo':'Ativo'}</span>
+      </div>
+      <div style="font-size:12px;color:#64748b;margin-top:8px;line-height:1.6;">
+        ${p.telefone?`📞 ${p.telefone}<br>`:''}${p.documento?`🧾 ${p.documento}<br>`:''}${p.email?`✉️ ${p.email}<br>`:''}
+        <span style="color:#94a3b8;">${nServ} serviço(s) registrado(s)</span>
+      </div>
+      <div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap;">
+        <button class="btn btn-secondary btn-sm" onclick="editarPrest('${p.id}')">✏️ Editar</button>
+        <button class="btn btn-ghost btn-sm" onclick="toggleStatusPrest('${p.id}')">${inativo?'✅ Reativar':'🚫 Inativar'}</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+function abrirNovoPrest(){
+  _ePrestId=null;document.getElementById('m-prest-tit').textContent='Novo Prestador';
+  ['pr-nome','pr-esp','pr-doc','pr-tel','pr-email','pr-end','pr-obs'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('pr-tipo').value='rebobinamento';
+  document.getElementById('pr-error').classList.add('hidden');
+  document.getElementById('m-prest').classList.remove('hidden');
+}
+function editarPrest(id){
+  const p=_prestadores.find(x=>x.id===id);if(!p)return;
+  _ePrestId=id;document.getElementById('m-prest-tit').textContent='Editar Prestador';
+  document.getElementById('pr-nome').value=p.nome||'';document.getElementById('pr-tipo').value=p.tipo||'outros';
+  document.getElementById('pr-esp').value=p.especialidade||'';document.getElementById('pr-doc').value=p.documento||'';
+  document.getElementById('pr-tel').value=p.telefone||'';document.getElementById('pr-email').value=p.email||'';
+  document.getElementById('pr-end').value=p.endereco||'';document.getElementById('pr-obs').value=p.obs||'';
+  document.getElementById('pr-error').classList.add('hidden');
+  document.getElementById('m-prest').classList.remove('hidden');
+}
+function mascaraTel(el){
+  let v=(el.value||'').replace(/\D/g,'').slice(0,11);
+  if(v.length>10)v=v.replace(/(\d{2})(\d{5})(\d{0,4}).*/,'($1) $2-$3');
+  else if(v.length>6)v=v.replace(/(\d{2})(\d{4})(\d{0,4}).*/,'($1) $2-$3');
+  else if(v.length>2)v=v.replace(/(\d{2})(\d{0,5})/,'($1) $2');
+  else if(v.length>0)v='('+v;
+  el.value=v;
+}
+async function salvarPrest(){
+  if(!guardAction('terceiros','edit'))return;
+  const nome=document.getElementById('pr-nome').value.trim();
+  const err=document.getElementById('pr-error');
+  if(!nome){err.textContent='O nome é obrigatório.';err.classList.remove('hidden');return;}
+  const btn=document.getElementById('btn-prest');btn.disabled=true;btn.textContent='⏳...';
+  const payload={nome,tipo:document.getElementById('pr-tipo').value,especialidade:document.getElementById('pr-esp').value.trim()||null,
+    documento:document.getElementById('pr-doc').value.trim()||null,telefone:document.getElementById('pr-tel').value.trim()||null,
+    email:document.getElementById('pr-email').value.trim()||null,endereco:document.getElementById('pr-end').value.trim()||null,
+    obs:document.getElementById('pr-obs').value.trim()||null,atualizado_em:new Date().toISOString()};
+  try{
+    if(_ePrestId){const{error}=await _supabase.from('terceiros_prestadores').update(payload).eq('id',_ePrestId);if(error)throw error;}
+    else{payload.status='ativo';const{error}=await _supabase.from('terceiros_prestadores').insert(payload);if(error)throw error;}
+    addLog(_ePrestId?'UPDATE':'CREATE','TERCEIROS',_ePrestId||'novo','Prestador salvo');
+    await recarregar();fecharModal('m-prest');toast('Prestador salvo!','success');
+  }catch(e){err.textContent='Erro: '+(e.message||e);err.classList.remove('hidden');}
+  finally{btn.disabled=false;btn.textContent='💾 Salvar';}
+}
+async function toggleStatusPrest(id){
+  if(!guardAction('terceiros','edit'))return;
+  const p=_prestadores.find(x=>x.id===id);if(!p)return;
+  const novo=p.status==='inativo'?'ativo':'inativo';
+  try{await _supabase.from('terceiros_prestadores').update({status:novo,atualizado_em:new Date().toISOString()}).eq('id',id);
+    await recarregar();toast('Prestador '+(novo==='ativo'?'reativado':'inativado')+'.','success');}catch(e){toast('Erro: '+e.message,'error');}
+}
+
+/* ── REMESSAS ─────────────────────────────────────────────── */
+const REM_ST={enviado:['Enviado','#fef3c7','#b45309'],em_execucao:['Em execução','#dbeafe','#1e40af'],retornado:['Retornado','#dcfce7','#166534'],cancelado:['Cancelado','#f1f5f9','#64748b']};
+function renderRemessas(){
+  const fp=document.getElementById('f-rem-prest')?.value||'';const fs=document.getElementById('f-rem-status')?.value||'';
+  let lista=_remessas.filter(r=>(!fp||r.prestador_id===fp)&&(!fs||r.status===fs));
+  const tb=document.getElementById('tbody-rem');
+  if(!lista.length){tb.innerHTML='<tr><td colspan="8" style="text-align:center;color:#94a3b8;padding:24px;">Nenhuma remessa.</td></tr>';return;}
+  tb.innerHTML=lista.map(r=>{
+    const st=REM_ST[r.status]||REM_ST.enviado;
+    const d=r.data_saida?new Date(r.data_saida+'T00:00:00').toLocaleDateString('pt-BR'):'—';
+    const pv=r.previsao_retorno?new Date(r.previsao_retorno+'T00:00:00').toLocaleDateString('pt-BR'):'—';
+    return `<tr>
+      <td>${String(r.numero||0).padStart(4,'0')}</td><td>${d}</td>
+      <td>${r.prestador_nome||_prestNome(r.prestador_id)||'—'}</td>
+      <td>${r.descricao||'—'}${r.quantidade?` <span style="color:#94a3b8;">(${r.quantidade})</span>`:''}</td>
+      <td>${r.origem||'—'}${r.referencia?'<br><span style="font-size:11px;color:#94a3b8;">'+r.referencia+'</span>':''}</td>
+      <td>${pv}</td>
+      <td><span class="pill" style="background:${st[1]};color:${st[2]};">${st[0]}</span></td>
+      <td style="white-space:nowrap;">
+        <button class="btn btn-ghost btn-sm" title="Editar" onclick="editarRemessa('${r.id}')">✏️</button>
+        ${(r.status!=='retornado'&&r.status!=='cancelado')?`<button class="btn btn-ghost btn-sm" title="Marcar retornado" onclick="marcarRetorno('${r.id}')">📥</button>`:''}
+        <button class="btn btn-ghost btn-sm" title="Imprimir comprovante" onclick="imprimirRemessa('${r.id}')">🖨️</button>
+      </td></tr>`;
+  }).join('');
+}
+async function _proxNumero(tabela){try{const{data}=await _supabase.from(tabela).select('numero').order('numero',{ascending:false}).limit(1);return((data&&data[0]&&data[0].numero)||0)+1;}catch(e){return 1;}}
+
+function abrirNovaRemessa(){
+  _eRemId=null;document.getElementById('m-rem-tit').textContent='Nova Remessa';
+  popularSelectsPrest();
+  ['rm-desc','rm-ref','rm-autor','rm-transp','rm-obs','rm-prev','rm-retorno'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('rm-prest').value='';document.getElementById('rm-qtd').value='1';
+  document.getElementById('rm-origem').value='Manutenção';document.getElementById('rm-status').value='enviado';
+  document.getElementById('rm-data').value=new Date().toISOString().slice(0,10);
+  document.getElementById('rm-fotos-data').value='[]';document.getElementById('rm-foto-prev').innerHTML='';
+  limparSign('rm-assin-cv','rm-assin-data');
+  document.getElementById('rm-error').classList.add('hidden');
+  setTimeout(()=>iniSign('rm-assin-cv','rm-assin-data'),150);
+  document.getElementById('m-remessa').classList.remove('hidden');
+}
+function editarRemessa(id){
+  const r=_remessas.find(x=>x.id===id);if(!r)return;
+  _eRemId=id;document.getElementById('m-rem-tit').textContent='Editar Remessa #'+String(r.numero||0).padStart(4,'0');
+  popularSelectsPrest();
+  document.getElementById('rm-prest').value=r.prestador_id||'';document.getElementById('rm-desc').value=r.descricao||'';
+  document.getElementById('rm-qtd').value=r.quantidade||'';document.getElementById('rm-origem').value=r.origem||'Outros';
+  document.getElementById('rm-ref').value=r.referencia||'';document.getElementById('rm-data').value=r.data_saida||'';
+  document.getElementById('rm-prev').value=r.previsao_retorno||'';document.getElementById('rm-autor').value=r.autorizado_por||'';
+  document.getElementById('rm-transp').value=r.transportado_por||'';document.getElementById('rm-status').value=r.status||'enviado';
+  document.getElementById('rm-retorno').value=r.data_retorno||'';document.getElementById('rm-obs').value=r.obs||'';
+  document.getElementById('rm-fotos-data').value=JSON.stringify(r.fotos||[]);renderFotosRem();
+  document.getElementById('rm-error').classList.add('hidden');
+  const cv=document.getElementById('rm-assin-cv');cv.getContext('2d').clearRect(0,0,cv.width,cv.height);cv.dataset.desenhado='0';
+  document.getElementById('rm-assin-data').value=r.assinatura||'';
+  if(r.assinatura){const img=new Image();img.onload=()=>cv.getContext('2d').drawImage(img,0,0,cv.width,cv.height);img.src=r.assinatura;cv.dataset.desenhado='1';}
+  setTimeout(()=>iniSign('rm-assin-cv','rm-assin-data'),150);
+  document.getElementById('m-remessa').classList.remove('hidden');
+}
+async function salvarRemessa(){
+  if(!guardAction('terceiros','edit'))return;
+  const prestId=document.getElementById('rm-prest').value;const desc=document.getElementById('rm-desc').value.trim();
+  const data=document.getElementById('rm-data').value;const err=document.getElementById('rm-error');
+  if(!prestId||!desc||!data){err.textContent='Prestador, descrição e data de saída são obrigatórios.';err.classList.remove('hidden');return;}
+  const btn=document.getElementById('btn-rem');btn.disabled=true;btn.textContent='⏳...';
+  const cv=document.getElementById('rm-assin-cv');
+  const assin=(cv&&cv.dataset.desenhado==='1')?cv.toDataURL('image/png'):(document.getElementById('rm-assin-data').value||null);
+  const fotos=JSON.parse(document.getElementById('rm-fotos-data').value||'[]').filter(Boolean);
+  const payload={prestador_id:prestId,prestador_nome:_prestNome(prestId),descricao:desc,
+    quantidade:parseFloat(document.getElementById('rm-qtd').value)||null,origem:document.getElementById('rm-origem').value,
+    referencia:document.getElementById('rm-ref').value.trim()||null,data_saida:data,
+    previsao_retorno:document.getElementById('rm-prev').value||null,autorizado_por:document.getElementById('rm-autor').value.trim()||null,
+    transportado_por:document.getElementById('rm-transp').value.trim()||null,status:document.getElementById('rm-status').value,
+    data_retorno:document.getElementById('rm-retorno').value||null,obs:document.getElementById('rm-obs').value.trim()||null,
+    fotos,assinatura:assin,atualizado_em:new Date().toISOString()};
+  try{
+    if(_eRemId){const{error}=await _supabase.from('terceiros_remessas').update(payload).eq('id',_eRemId);if(error)throw error;}
+    else{payload.numero=await _proxNumero('terceiros_remessas');const{error}=await _supabase.from('terceiros_remessas').insert(payload);if(error)throw error;}
+    addLog(_eRemId?'UPDATE':'CREATE','TERCEIROS',_eRemId||'novo','Remessa salva');
+    await recarregar();fecharModal('m-remessa');toast('Remessa salva!','success');
+  }catch(e){err.textContent='Erro: '+(e.message||e);err.classList.remove('hidden');}
+  finally{btn.disabled=false;btn.textContent='💾 Salvar Remessa';}
+}
+async function marcarRetorno(id){
+  if(!guardAction('terceiros','edit'))return;
+  try{await _supabase.from('terceiros_remessas').update({status:'retornado',data_retorno:new Date().toISOString().slice(0,10),atualizado_em:new Date().toISOString()}).eq('id',id);
+    await recarregar();toast('Remessa marcada como retornada.','success');}catch(e){toast('Erro: '+e.message,'error');}
+}
+
+/* fotos remessa */
+function addFotosRem(input){
+  const arr=JSON.parse(document.getElementById('rm-fotos-data').value||'[]');
+  Array.from(input.files||[]).forEach(file=>{if(!file.type.startsWith('image/'))return;
+    const rd=new FileReader();rd.onload=ev=>{const img=new Image();img.onload=()=>{
+      const m=1200;let w=img.width,h=img.height;if(w>m||h>m){if(w>h){h=Math.round(h*m/w);w=m;}else{w=Math.round(w*m/h);h=m;}}
+      const c=document.createElement('canvas');c.width=w;c.height=h;c.getContext('2d').drawImage(img,0,0,w,h);
+      arr.push(c.toDataURL('image/jpeg',0.78));document.getElementById('rm-fotos-data').value=JSON.stringify(arr);renderFotosRem();
+    };img.src=ev.target.result;};rd.readAsDataURL(file);});input.value='';
+}
+function renderFotosRem(){
+  const arr=JSON.parse(document.getElementById('rm-fotos-data').value||'[]');const prev=document.getElementById('rm-foto-prev');
+  prev.innerHTML=arr.map((f,i)=>`<div style="position:relative;display:inline-block;"><img src="${f}" style="width:56px;height:56px;object-fit:cover;border-radius:6px;cursor:pointer;" onclick="lb('${f}')"><button type="button" onclick="_delFotoRem(${i})" style="position:absolute;top:-4px;right:-4px;background:#dc2626;color:#fff;border:none;border-radius:50%;width:16px;height:16px;font-size:10px;cursor:pointer;padding:0;">✕</button></div>`).join('');
+}
+function _delFotoRem(i){const arr=JSON.parse(document.getElementById('rm-fotos-data').value||'[]');arr.splice(i,1);document.getElementById('rm-fotos-data').value=JSON.stringify(arr);renderFotosRem();}
+
+/* ── SERVIÇOS ─────────────────────────────────────────────── */
+const SV_ST={aberto:['Aberto','#fef3c7','#b45309'],medido:['Medido','#dbeafe','#1e40af'],faturado:['Faturado','#ede9fe','#6d28d9'],pago:['Pago','#dcfce7','#166534']};
+function renderServicos(){
+  const fp=document.getElementById('f-sv-prest')?.value||'';const fc=document.getElementById('f-sv-comp')?.value||'';const fs=document.getElementById('f-sv-status')?.value||'';
+  let lista=_servicos.filter(s=>(!fp||s.prestador_id===fp)&&(!fc||(s.competencia||(s.data||'').slice(0,7))===fc)&&(!fs||s.status===fs));
+  const tb=document.getElementById('tbody-sv');
+  if(!lista.length){tb.innerHTML='<tr><td colspan="8" style="text-align:center;color:#94a3b8;padding:24px;">Nenhum serviço.</td></tr>';return;}
+  tb.innerHTML=lista.map(s=>{
+    const st=SV_ST[s.status]||SV_ST.aberto;
+    const d=s.data?new Date(s.data+'T00:00:00').toLocaleDateString('pt-BR'):'—';
+    const rnf=[s.requisicao?'Req '+s.requisicao:'',s.nota_fiscal?'NF '+s.nota_fiscal:''].filter(Boolean).join(' · ')||'—';
+    return `<tr>
+      <td>${String(s.numero||0).padStart(4,'0')}</td><td>${d}</td>
+      <td>${s.prestador_nome||_prestNome(s.prestador_id)||'—'}</td>
+      <td>${s.descricao||'—'}</td><td style="font-size:12px;">${rnf}</td>
+      <td style="font-weight:700;">${_brl(s.valor_total)}</td>
+      <td><span class="pill" style="background:${st[1]};color:${st[2]};">${st[0]}</span></td>
+      <td style="white-space:nowrap;">
+        <button class="btn btn-ghost btn-sm" title="Editar" onclick="editarServico('${s.id}')">✏️</button>
+        <button class="btn btn-ghost btn-sm" title="Imprimir" onclick="imprimirServico('${s.id}')">🖨️</button>
+      </td></tr>`;
+  }).join('');
+}
+function _svSyncComp(){const d=document.getElementById('sv-data').value;const c=document.getElementById('sv-comp');if(d&&c&&!c.value)c.value=d.slice(0,7);}
+function _popRemessasSel(prestId){
+  const sel=document.getElementById('sv-remessa');if(!sel)return;
+  const rems=_remessas.filter(r=>!prestId||r.prestador_id===prestId);
+  sel.innerHTML='<option value="">Nenhuma</option>'+rems.map(r=>`<option value="${r.id}">#${String(r.numero||0).padStart(4,'0')} — ${r.descricao||''}</option>`).join('');
+}
+function abrirNovoServico(){
+  _eSvId=null;document.getElementById('m-sv-tit').textContent='Novo Serviço';
+  popularSelectsPrest();
+  ['sv-desc','sv-req','sv-nf','sv-obs','sv-custo'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('sv-prest').value='';document.getElementById('sv-status').value='aberto';
+  document.getElementById('sv-data').value=new Date().toISOString().slice(0,10);
+  document.getElementById('sv-comp').value=_mes();
+  document.getElementById('sv-tot-geral').textContent='R$ 0,00';
+  _popRemessasSel('');document.getElementById('sv-remessa').value='';
+  itensClear('sv');_reqWrite('sv',[]);
+  document.getElementById('sv-error').classList.add('hidden');
+  document.getElementById('sv-prest').onchange=function(){_popRemessasSel(this.value);};
+  document.getElementById('m-servico').classList.remove('hidden');
+}
+function editarServico(id){
+  const s=_servicos.find(x=>x.id===id);if(!s)return;
+  _eSvId=id;document.getElementById('m-sv-tit').textContent='Editar Serviço #'+String(s.numero||0).padStart(4,'0');
+  popularSelectsPrest();
+  document.getElementById('sv-prest').value=s.prestador_id||'';document.getElementById('sv-data').value=s.data||'';
+  _popRemessasSel(s.prestador_id);document.getElementById('sv-remessa').value=s.remessa_id||'';
+  document.getElementById('sv-desc').value=s.descricao||'';document.getElementById('sv-custo').value=s.valor_total||'';
+  document.getElementById('sv-comp').value=s.competencia||(s.data||'').slice(0,7);
+  document.getElementById('sv-req').value=s.requisicao||'';document.getElementById('sv-nf').value=s.nota_fiscal||'';
+  document.getElementById('sv-status').value=s.status||'aberto';document.getElementById('sv-obs').value=s.obs||'';
+  itensLoad('sv',s.itens);_reqWrite('sv',s.anexos||[]);
+  document.getElementById('sv-tot-geral').textContent=_brl(s.valor_total);
+  document.getElementById('sv-error').classList.add('hidden');
+  document.getElementById('sv-prest').onchange=function(){_popRemessasSel(this.value);};
+  document.getElementById('m-servico').classList.remove('hidden');
+}
+async function salvarServico(){
+  if(!guardAction('terceiros','edit'))return;
+  const prestId=document.getElementById('sv-prest').value;const desc=document.getElementById('sv-desc').value.trim();
+  const data=document.getElementById('sv-data').value;const valor=parseFloat(document.getElementById('sv-custo').value)||0;
+  const comp=document.getElementById('sv-comp').value;const err=document.getElementById('sv-error');
+  if(!prestId||!desc||!data||!comp){err.textContent='Prestador, descrição, data e competência são obrigatórios.';err.classList.remove('hidden');return;}
+  const btn=document.getElementById('btn-sv');btn.disabled=true;btn.textContent='⏳...';
+  const itens=itensGet('sv');const anexos=_reqRead('sv');
+  const payload={prestador_id:prestId,prestador_nome:_prestNome(prestId),remessa_id:document.getElementById('sv-remessa').value||null,
+    descricao:desc,itens,valor_total:valor,data,competencia:comp,requisicao:document.getElementById('sv-req').value.trim()||null,
+    nota_fiscal:document.getElementById('sv-nf').value.trim()||null,status:document.getElementById('sv-status').value,
+    anexos,obs:document.getElementById('sv-obs').value.trim()||null,atualizado_em:new Date().toISOString()};
+  try{
+    let error;
+    if(_eSvId){({error}=await _supabase.from('terceiros_servicos').update(payload).eq('id',_eSvId));
+      if(error){delete payload.anexos;({error}=await _supabase.from('terceiros_servicos').update(payload).eq('id',_eSvId));}}
+    else{payload.numero=await _proxNumero('terceiros_servicos');({error}=await _supabase.from('terceiros_servicos').insert(payload));
+      if(error){delete payload.anexos;({error}=await _supabase.from('terceiros_servicos').insert(payload));}}
+    if(error)throw error;
+    addLog(_eSvId?'UPDATE':'CREATE','TERCEIROS',_eSvId||'novo','Serviço salvo');
+    await recarregar();fecharModal('m-servico');toast('Serviço salvo!','success');
+  }catch(e){err.textContent='Erro: '+(e.message||e);err.classList.remove('hidden');}
+  finally{btn.disabled=false;btn.textContent='💾 Salvar Serviço';}
+}
+
+/* ── FECHAMENTO MENSAL ────────────────────────────────────── */
+function renderFechamento(){
+  const comp=document.getElementById('fec-comp')?.value||_mes();
+  const lista=_servicos.filter(s=>(s.competencia||(s.data||'').slice(0,7))===comp);
+  const body=document.getElementById('fec-body');
+  const totalEl=document.getElementById('fec-total');
+  if(!lista.length){body.innerHTML='<div style="text-align:center;color:#94a3b8;padding:30px;">Nenhum serviço nesta competência.</div>';totalEl.textContent='';return;}
+  // agrupar por prestador
+  const grupos={};
+  lista.forEach(s=>{const k=s.prestador_id||s.prestador_nome||'—';(grupos[k]=grupos[k]||{nome:s.prestador_nome||_prestNome(s.prestador_id)||'—',id:s.prestador_id,itens:[],total:0}).itens.push(s);grupos[k].total+=Number(s.valor_total)||0;});
+  const totalGeral=lista.reduce((a,s)=>a+(Number(s.valor_total)||0),0);
+  totalEl.textContent='Total do mês: '+_brl(totalGeral);
+  body.innerHTML=Object.values(grupos).sort((a,b)=>b.total-a.total).map(g=>{
+    const linhas=g.itens.map(s=>{const st=SV_ST[s.status]||SV_ST.aberto;return `<tr>
+      <td style="padding:6px 8px;">#${String(s.numero||0).padStart(4,'0')}</td>
+      <td style="padding:6px 8px;">${s.descricao||'—'}</td>
+      <td style="padding:6px 8px;font-size:11px;">${[s.requisicao?'Req '+s.requisicao:'',s.nota_fiscal?'NF '+s.nota_fiscal:''].filter(Boolean).join(' · ')||'—'}</td>
+      <td style="padding:6px 8px;text-align:right;font-weight:700;">${_brl(s.valor_total)}</td>
+      <td style="padding:6px 8px;"><span class="pill" style="background:${st[1]};color:${st[2]};">${st[0]}</span></td></tr>`;}).join('');
+    const pend=g.itens.some(s=>s.status!=='pago');
+    return `<div class="card-t" style="margin-bottom:14px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px;">
+        <div style="font-weight:800;color:#1e3a5f;font-size:15px;">🤝 ${g.nome}</div>
+        <div style="font-weight:800;color:#15803d;">${_brl(g.total)}</div>
+      </div>
+      <div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;">
+        <thead><tr style="background:#f8fafc;color:#64748b;"><th style="padding:6px 8px;text-align:left;">#</th><th style="padding:6px 8px;text-align:left;">Descrição</th><th style="padding:6px 8px;text-align:left;">Req/NF</th><th style="padding:6px 8px;text-align:right;">Valor</th><th style="padding:6px 8px;text-align:left;">Status</th></tr></thead>
+        <tbody>${linhas}</tbody></table></div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;">
+        <button class="btn btn-secondary btn-sm" onclick="imprimirMedicao('${g.id||''}','${comp}')">🖨️ Imprimir medição</button>
+        ${pend?`<button class="btn btn-secondary btn-sm" onclick="marcarFechamento('${g.id||''}','${comp}','faturado')">🧾 Marcar faturado</button>
+        <button class="btn btn-primary btn-sm" onclick="marcarFechamento('${g.id||''}','${comp}','pago')" style="background:#16a34a;border-color:#16a34a;">✅ Marcar pago</button>`:'<span class="pill" style="background:#dcfce7;color:#166534;">Tudo pago ✓</span>'}
+      </div>
+    </div>`;
+  }).join('');
+}
+async function marcarFechamento(prestId,comp,status){
+  if(!guardAction('terceiros','edit'))return;
+  const alvos=_servicos.filter(s=>((s.competencia||(s.data||'').slice(0,7))===comp)&&((s.prestador_id||'')===prestId));
+  if(!alvos.length)return;
+  if(!confirm(`Marcar ${alvos.length} serviço(s) como "${status}"?`))return;
+  try{for(const s of alvos){await _supabase.from('terceiros_servicos').update({status,atualizado_em:new Date().toISOString()}).eq('id',s.id);}
+    await recarregar();toast('Fechamento atualizado.','success');}catch(e){toast('Erro: '+e.message,'error');}
+}
+
+/* ── ITENS (peças + mão de obra) — reutilizável ───────────── */
+function itensAddPeca(prefix,item){
+  item=item||{};const body=document.getElementById(prefix+'-pecas-body');if(!body)return;
+  const div=document.createElement('div');div.className='item-peca';div.dataset.insumo=item.insumo_id||'';
+  const nome=(item.nome||'').replace(/"/g,'&quot;');const qtd=item.qtd!=null?item.qtd:1;
+  const vu=item.valor_unitario!=null?item.valor_unitario:(item.custo_unitario!=null?item.custo_unitario:'');
+  div.innerHTML=`<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">
+      <input type="text" class="form-input pc-nome" value="${nome}" placeholder="Peça / material" style="font-size:13px;font-weight:600;flex:1;">
+      <button type="button" class="btn btn-ghost btn-sm" style="flex-shrink:0;" onclick="this.closest('.item-peca').remove();itensRecalc('${prefix}')">✕</button></div>
+    <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;">
+      <div style="flex:1;min-width:64px;"><label style="font-size:11px;color:#64748b;display:block;">Qtd</label><input type="number" class="form-input pc-qtd" value="${qtd}" min="0" step="0.01" oninput="itensRecalc('${prefix}')" style="font-size:13px;text-align:center;"></div>
+      <div style="flex:1.4;min-width:96px;"><label style="font-size:11px;color:#64748b;display:block;">Vlr unit. (R$)</label><input type="number" class="form-input pc-vu" value="${vu}" min="0" step="0.01" oninput="itensRecalc('${prefix}')" style="font-size:13px;"></div>
+      <div style="flex:1.2;min-width:96px;text-align:right;"><label style="font-size:11px;color:#64748b;display:block;">Total peça</label><div class="pc-tot" style="font-weight:800;color:#1e3a5f;font-size:15px;padding:7px 0;">R$ 0,00</div></div>
+    </div>`;
+  body.appendChild(div);itensRecalc(prefix);
+}
+function itensAddMO(prefix,item){
+  item=item||{};const body=document.getElementById(prefix+'-mo-body');if(!body)return;
+  const div=document.createElement('div');div.className='item-mo';
+  const desc=(item.descricao||item.nome||'').replace(/"/g,'&quot;');const terc=(item.terceiro||'').replace(/"/g,'&quot;');
+  const val=item.valor!=null?item.valor:(item.mao_obra!=null?item.mao_obra:'');
+  div.innerHTML=`<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">
+      <input type="text" class="form-input mo-desc" value="${desc}" placeholder="Descrição do serviço" style="font-size:13px;font-weight:600;flex:1;">
+      <button type="button" class="btn btn-ghost btn-sm" style="flex-shrink:0;" onclick="this.closest('.item-mo').remove();itensRecalc('${prefix}')">✕</button></div>
+    <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;">
+      <div style="flex:2;min-width:150px;"><label style="font-size:11px;color:#64748b;display:block;">Detalhe / requisição</label><input type="text" class="form-input mo-terceiro" value="${terc}" placeholder="Nº requisição / detalhe" style="font-size:13px;"></div>
+      <div style="flex:1;min-width:96px;"><label style="font-size:11px;color:#64748b;display:block;">Valor (R$)</label><input type="number" class="form-input mo-valor" value="${val}" min="0" step="0.01" oninput="itensRecalc('${prefix}')" style="font-size:13px;"></div>
+    </div>`;
+  body.appendChild(div);itensRecalc(prefix);
+}
+function itensRecalc(prefix){
+  let pecas=0,mo=0;
+  document.querySelectorAll('#'+prefix+'-pecas-body .item-peca').forEach(d=>{
+    const q=parseFloat(d.querySelector('.pc-qtd')?.value)||0;const vu=parseFloat(d.querySelector('.pc-vu')?.value)||0;
+    const tot=q*vu;pecas+=tot;const te=d.querySelector('.pc-tot');if(te)te.textContent=_brl(tot);});
+  document.querySelectorAll('#'+prefix+'-mo-body .item-mo').forEach(d=>{mo+=parseFloat(d.querySelector('.mo-valor')?.value)||0;});
+  const geral=pecas+mo;
+  const set=(id,v)=>{const e=document.getElementById(id);if(e)e.textContent=_brl(v);};
+  set(prefix+'-tot-pecas',pecas);set(prefix+'-tot-mo',mo);set(prefix+'-tot-geral',geral);
+  const nP=document.querySelectorAll('#'+prefix+'-pecas-body .item-peca').length;
+  const nM=document.querySelectorAll('#'+prefix+'-mo-body .item-mo').length;
+  const pv=document.getElementById(prefix+'-pecas-vazio');if(pv)pv.style.display=nP?'none':'block';
+  const mv=document.getElementById(prefix+'-mo-vazio');if(mv)mv.style.display=nM?'none':'block';
+  if(nP+nM>0){const c=document.getElementById(prefix+'-custo');if(c)c.value=geral.toFixed(2);}
+}
+function itensGet(prefix){
+  const arr=[];
+  document.querySelectorAll('#'+prefix+'-pecas-body .item-peca').forEach(d=>{
+    const nome=(d.querySelector('.pc-nome')?.value||'').trim();const qtd=parseFloat(d.querySelector('.pc-qtd')?.value)||0;const vu=parseFloat(d.querySelector('.pc-vu')?.value)||0;
+    if(!nome&&!qtd&&!vu)return;arr.push({tipo:'peca',nome,insumo_id:d.dataset.insumo||null,qtd,valor_unitario:vu||null,total_peca:(qtd*vu)||null});});
+  document.querySelectorAll('#'+prefix+'-mo-body .item-mo').forEach(d=>{
+    const descricao=(d.querySelector('.mo-desc')?.value||'').trim();const terceiro=(d.querySelector('.mo-terceiro')?.value||'').trim();const valor=parseFloat(d.querySelector('.mo-valor')?.value)||0;
+    if(!descricao&&!terceiro&&!valor)return;arr.push({tipo:'mao_obra',descricao,terceiro:terceiro||null,valor:valor||null});});
+  return arr;
+}
+function itensLoad(prefix,its){
+  const pb=document.getElementById(prefix+'-pecas-body');const mb=document.getElementById(prefix+'-mo-body');
+  if(pb)pb.innerHTML='';if(mb)mb.innerHTML='';
+  if(typeof its==='string'){try{its=JSON.parse(its||'[]');}catch(e){its=[];}}if(!Array.isArray(its))its=[];
+  its.forEach(it=>{if(it.tipo==='mao_obra')itensAddMO(prefix,it);else if(it.tipo==='peca')itensAddPeca(prefix,it);
+    else{if(it.nome||it.qtd||it.valor_unitario)itensAddPeca(prefix,it);if(it.mao_obra)itensAddMO(prefix,{descricao:'Mão de obra'+(it.nome?' — '+it.nome:''),valor:it.mao_obra});}});
+  itensRecalc(prefix);
+}
+function itensClear(prefix){const pb=document.getElementById(prefix+'-pecas-body');const mb=document.getElementById(prefix+'-mo-body');if(pb)pb.innerHTML='';if(mb)mb.innerHTML='';itensRecalc(prefix);}
+
+/* buscar peça do almoxarifado */
+function abrirBuscaAlmox(){const b=document.getElementById('ba-busca');if(b)b.value='';renderBuscaAlmox();document.getElementById('m-busca-almox').classList.remove('hidden');}
+function renderBuscaAlmox(){
+  const q=(document.getElementById('ba-busca')?.value||'').toLowerCase().trim();
+  let lista=_almox||[];if(q)lista=lista.filter(i=>((i.nome||'')+' '+(i.codigo||'')).toLowerCase().includes(q));lista=lista.slice(0,80);
+  const el=document.getElementById('ba-lista');if(!el)return;
+  if(!lista.length){el.innerHTML='<div style="text-align:center;color:#94a3b8;padding:16px;font-size:13px;">'+((_almox||[]).length?'Nenhum item encontrado.':'Nenhum item cadastrado no almoxarifado.')+'</div>';return;}
+  el.innerHTML=lista.map(i=>{const meta=[i.codigo,(i.fabricante||i.marca),(i.unidade||'un')].filter(Boolean).join(' · ');
+    const j=JSON.stringify({nome:i.nome,custo_unitario:i.custo_unitario,insumo_id:i.id}).replace(/'/g,'&#39;');
+    return `<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;background:#f8fafc;border:1.5px solid #e2e8f0;border-radius:10px;padding:10px 12px;">
+      <div style="min-width:0;"><div style="font-weight:700;font-size:13px;color:#1e3a5f;">${i.nome||'—'}</div><div style="font-size:11px;color:#94a3b8;">${meta||''}</div></div>
+      <button type="button" class="btn btn-primary btn-sm" style="flex-shrink:0;" onclick='addPecaAlmox(${j})'>+ Adicionar</button></div>`;}).join('');
+}
+function addPecaAlmox(item){itensAddPeca('sv',{nome:item.nome,valor_unitario:item.custo_unitario,insumo_id:item.insumo_id,qtd:1});toast('Peça adicionada.','success');}
+
+/* ── REQUISIÇÕES / ANEXOS (foto ou PDF) — reutilizável ────── */
+function _reqRead(prefix){try{return JSON.parse(document.getElementById(prefix+'-req-data').value||'[]').filter(Boolean);}catch(e){return [];}}
+function _reqWrite(prefix,arr){const el=document.getElementById(prefix+'-req-data');if(el)el.value=JSON.stringify(arr);renderReqPrev(prefix);}
+function renderReqPrev(prefix){
+  const arr=_reqRead(prefix);const prev=document.getElementById(prefix+'-req-prev');if(!prev)return;
+  prev.innerHTML=arr.map((r,i)=>{const isImg=((r.tipo||'').startsWith('image'))||((r.data||'').startsWith('data:image'));
+    const inner=isImg?`<img src="${r.data}" style="width:56px;height:56px;object-fit:cover;border-radius:6px;cursor:pointer;" onclick="lb('${r.data}')">`
+      :`<div onclick="_reqOpen('${prefix}',${i})" title="${(r.nome||'arquivo').replace(/"/g,'&quot;')}" style="max-width:130px;height:56px;display:flex;align-items:center;gap:5px;padding:0 8px;background:#eef2ff;border:1px solid #c7d2fe;border-radius:6px;cursor:pointer;font-size:11px;color:#3730a3;">📄 <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${r.nome||'arquivo'}</span></div>`;
+    return `<div style="position:relative;display:inline-block;">${inner}<button type="button" onclick="_reqDel('${prefix}',${i})" style="position:absolute;top:-4px;right:-4px;background:#dc2626;color:#fff;border:none;border-radius:50%;width:16px;height:16px;font-size:10px;cursor:pointer;padding:0;">✕</button></div>`;}).join('');
+}
+function _reqDel(prefix,i){const arr=_reqRead(prefix);arr.splice(i,1);_reqWrite(prefix,arr);}
+function _reqOpen(prefix,i){const r=_reqRead(prefix)[i];if(!r)return;const w=window.open('','_blank');if(w)w.document.write('<title>'+(r.nome||'anexo')+'</title><iframe src="'+r.data+'" style="position:fixed;inset:0;width:100%;height:100%;border:none;"></iframe>');}
+function addReqs(prefix,input){
+  const arr=_reqRead(prefix);
+  Array.from(input.files||[]).forEach(file=>{const reader=new FileReader();reader.onload=ev=>{
+    if(file.type.startsWith('image/')){const img=new Image();img.onload=()=>{const m=1400;let w=img.width,h=img.height;if(w>m||h>m){if(w>h){h=Math.round(h*m/w);w=m;}else{w=Math.round(w*m/h);h=m;}}
+      const cv=document.createElement('canvas');cv.width=w;cv.height=h;cv.getContext('2d').drawImage(img,0,0,w,h);
+      arr.push({nome:file.name||'foto.jpg',tipo:'image/jpeg',data:cv.toDataURL('image/jpeg',0.8)});_reqWrite(prefix,arr);};img.src=ev.target.result;}
+    else{arr.push({nome:file.name||'arquivo',tipo:file.type||'application/octet-stream',data:ev.target.result});_reqWrite(prefix,arr);}
+  };reader.readAsDataURL(file);});input.value='';
+}
+
+/* ── ASSINATURA (canvas) ──────────────────────────────────── */
+function iniSign(cvId,dataId){
+  const cv=document.getElementById(cvId);if(!cv||cv.dataset.bound==='1')return;cv.dataset.bound='1';
+  const ctx=cv.getContext('2d');ctx.strokeStyle='#042D4D';ctx.lineWidth=2;ctx.lineCap='round';
+  let draw=false;
+  const xy=e=>{const r=cv.getBoundingClientRect();const s=e.touches?e.touches[0]:e;return{x:(s.clientX-r.left)*(cv.width/r.width),y:(s.clientY-r.top)*(cv.height/r.height)};};
+  const st=e=>{e.preventDefault();draw=true;const p=xy(e);ctx.beginPath();ctx.moveTo(p.x,p.y);};
+  const mv=e=>{e.preventDefault();if(!draw)return;const p=xy(e);ctx.lineTo(p.x,p.y);ctx.stroke();cv.dataset.desenhado='1';};
+  const en=()=>{draw=false;};
+  cv.addEventListener('mousedown',st);cv.addEventListener('mousemove',mv);cv.addEventListener('mouseup',en);
+  cv.addEventListener('touchstart',st,{passive:false});cv.addEventListener('touchmove',mv,{passive:false});cv.addEventListener('touchend',en);
+}
+function limparSign(cvId,dataId){const cv=document.getElementById(cvId);if(cv){cv.getContext('2d').clearRect(0,0,cv.width,cv.height);cv.dataset.desenhado='0';}const d=document.getElementById(dataId);if(d)d.value='';}
+
+/* ── IMPRESSÃO ────────────────────────────────────────────── */
+function _cab(){
+  const ne=_emp.nome_fantasia||_emp.nome||_emp.razao_social||'Empresa';
+  const logo=_emp.logo?`<img src="${_emp.logo}" style="height:46px;border-radius:6px;">`:`<div style="width:46px;height:46px;background:#1e3a5f;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#C9FF64;font-weight:900;font-size:20px;">${ne.charAt(0)}</div>`;
+  const cnpj=_emp.cnpj?'CNPJ: '+_emp.cnpj:'';
+  return {ne,logo,cnpj};
+}
+function _abrirImpr(html){const w=window.open('','_blank','width=900,height=760');if(!w){toast('Permita pop-ups para imprimir','warning');return;}
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><style>*{box-sizing:border-box;}body{font-family:Arial,sans-serif;padding:24px;font-size:13px;color:#1e293b;}table{width:100%;border-collapse:collapse;}th,td{border:1px solid #cbd5e1;padding:6px 8px;text-align:left;font-size:12px;}th{background:#1e3a5f;color:#fff;}.hd{display:flex;gap:14px;align-items:center;border-bottom:3px solid #1e3a5f;padding-bottom:12px;margin-bottom:16px;}.f{background:#f8fafc;border-left:3px solid #cbd5e1;padding:7px 10px;border-radius:0 6px 6px 0;margin-bottom:8px;}.lb{font-size:9px;color:#94a3b8;text-transform:uppercase;font-weight:700;}.vl{font-size:13px;font-weight:600;}@media print{@page{margin:1.2cm;}}</style></head><body>${html}</body></html>`);
+  w.document.close();setTimeout(()=>w.print(),500);
+}
+function imprimirRemessa(id){
+  const r=_remessas.find(x=>x.id===id);if(!r)return;const{ne,logo,cnpj}=_cab();
+  const d=r.data_saida?new Date(r.data_saida+'T00:00:00').toLocaleDateString('pt-BR'):'—';
+  const pv=r.previsao_retorno?new Date(r.previsao_retorno+'T00:00:00').toLocaleDateString('pt-BR'):'—';
+  const fotos=(r.fotos||[]).filter(Boolean);
+  _abrirImpr(`
+    <div class="hd">${logo}<div style="flex:1;"><div style="font-size:17px;font-weight:900;color:#1e3a5f;">${ne}</div>${cnpj?`<div style="font-size:11px;color:#64748b;">${cnpj}</div>`:''}</div>
+      <div style="text-align:right;"><div style="font-size:20px;font-weight:900;color:#1e3a5f;">REMESSA #${String(r.numero||0).padStart(4,'0')}</div><div style="font-size:12px;color:#64748b;">Saída em ${d}</div></div></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px 14px;">
+      <div class="f"><div class="lb">Prestador</div><div class="vl">${r.prestador_nome||_prestNome(r.prestador_id)||'—'}</div></div>
+      <div class="f"><div class="lb">Origem</div><div class="vl">${r.origem||'—'}${r.referencia?' — '+r.referencia:''}</div></div>
+      <div class="f" style="grid-column:1/-1;"><div class="lb">Item / Descrição</div><div class="vl">${r.descricao||'—'}${r.quantidade?' (Qtd: '+r.quantidade+')':''}</div></div>
+      <div class="f"><div class="lb">Previsão de retorno</div><div class="vl">${pv}</div></div>
+      <div class="f"><div class="lb">Status</div><div class="vl">${(REM_ST[r.status]||REM_ST.enviado)[0]}</div></div>
+      <div class="f"><div class="lb">Autorizado por</div><div class="vl">${r.autorizado_por||'—'}</div></div>
+      <div class="f"><div class="lb">Transportado por</div><div class="vl">${r.transportado_por||'—'}</div></div>
+      ${r.obs?`<div class="f" style="grid-column:1/-1;"><div class="lb">Observações</div><div class="vl">${r.obs}</div></div>`:''}
+    </div>
+    ${fotos.length?`<div style="margin-top:14px;"><div class="lb">Fotos do item</div><div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;">${fotos.map(f=>`<img src="${f}" style="width:130px;height:130px;object-fit:cover;border-radius:8px;">`).join('')}</div></div>`:''}
+    <div style="display:flex;gap:40px;margin-top:40px;">
+      <div style="flex:1;text-align:center;">${r.assinatura?`<img src="${r.assinatura}" style="height:56px;">`:''}<div style="border-top:1.5px solid #1e3a5f;margin-top:4px;padding-top:4px;font-size:11px;color:#64748b;">Quem retirou</div></div>
+      <div style="flex:1;text-align:center;"><div style="border-top:1.5px solid #1e3a5f;margin-top:60px;padding-top:4px;font-size:11px;color:#64748b;">Responsável pela liberação</div></div>
+    </div>
+    <div style="margin-top:20px;font-size:10px;color:#94a3b8;text-align:center;border-top:1px solid #e2e8f0;padding-top:8px;">Emitido em ${new Date().toLocaleString('pt-BR')} — ${ne} — Serviços de Terceiros</div>`);
+}
+function _itensImprHTML(itens){
+  if(typeof itens==='string'){try{itens=JSON.parse(itens||'[]');}catch(e){itens=[];}}if(!Array.isArray(itens))itens=[];
+  const pec=[],mo=[];itens.forEach(it=>{if(it.tipo==='mao_obra')mo.push(it);else pec.push(it);});
+  let tp=0,tm=0;pec.forEach(p=>tp+=(Number(p.qtd)||0)*(Number(p.valor_unitario)||0));mo.forEach(m=>tm+=(Number(m.valor)||Number(m.mao_obra)||0));
+  const pt=pec.length?`<table style="margin-bottom:10px;"><thead><tr><th>Peça</th><th style="width:44px;">Qtd</th><th style="width:90px;">Vlr Unit.</th><th style="width:96px;">Total</th></tr></thead><tbody>${pec.map(p=>{const q=Number(p.qtd)||0,vu=Number(p.valor_unitario)||0;return `<tr><td>${p.nome||'—'}</td><td style="text-align:center;">${q||''}</td><td style="text-align:right;">${vu?_brl(vu):'—'}</td><td style="text-align:right;font-weight:700;">${(q*vu)?_brl(q*vu):'—'}</td></tr>`;}).join('')}<tr><td colspan="3" style="text-align:right;font-weight:700;">Total peças</td><td style="text-align:right;font-weight:700;">${_brl(tp)}</td></tr></tbody></table>`:'';
+  const mt=mo.length?`<table style="margin-bottom:10px;"><thead><tr><th>Mão de obra / Serviço</th><th>Detalhe / requisição</th><th style="width:96px;">Valor</th></tr></thead><tbody>${mo.map(m=>`<tr><td>${m.descricao||m.nome||'—'}</td><td>${m.terceiro||'—'}</td><td style="text-align:right;font-weight:700;">${_brl(Number(m.valor)||Number(m.mao_obra)||0)}</td></tr>`).join('')}<tr><td colspan="2" style="text-align:right;font-weight:700;">Total mão de obra</td><td style="text-align:right;font-weight:700;">${_brl(tm)}</td></tr></tbody></table>`:'';
+  return pt+mt;
+}
+function imprimirServico(id){
+  const s=_servicos.find(x=>x.id===id);if(!s)return;const{ne,logo,cnpj}=_cab();
+  const d=s.data?new Date(s.data+'T00:00:00').toLocaleDateString('pt-BR'):'—';
+  const anexos=(s.anexos||[]).filter(Boolean);
+  _abrirImpr(`
+    <div class="hd">${logo}<div style="flex:1;"><div style="font-size:17px;font-weight:900;color:#1e3a5f;">${ne}</div>${cnpj?`<div style="font-size:11px;color:#64748b;">${cnpj}</div>`:''}</div>
+      <div style="text-align:right;"><div style="font-size:20px;font-weight:900;color:#1e3a5f;">SERVIÇO #${String(s.numero||0).padStart(4,'0')}</div><div style="font-size:12px;color:#64748b;">${d}</div></div></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px 14px;margin-bottom:12px;">
+      <div class="f"><div class="lb">Prestador</div><div class="vl">${s.prestador_nome||_prestNome(s.prestador_id)||'—'}</div></div>
+      <div class="f"><div class="lb">Competência</div><div class="vl">${s.competencia||'—'}</div></div>
+      <div class="f" style="grid-column:1/-1;"><div class="lb">Descrição</div><div class="vl">${s.descricao||'—'}</div></div>
+      <div class="f"><div class="lb">Requisição</div><div class="vl">${s.requisicao||'—'}</div></div>
+      <div class="f"><div class="lb">Nota Fiscal</div><div class="vl">${s.nota_fiscal||'—'}</div></div>
+    </div>
+    ${_itensImprHTML(s.itens)}
+    <div style="border:1.5px solid #15803d;border-radius:6px;padding:8px 12px;text-align:right;font-weight:800;background:#f0fdf4;color:#15803d;font-size:15px;">Valor total: ${_brl(s.valor_total)}</div>
+    ${anexos.length?`<div style="margin-top:14px;"><div class="lb">Requisições / Notas anexadas</div><div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;">${anexos.map(a=>{const isImg=((a.tipo||'').startsWith('image'))||((a.data||'').startsWith('data:image'));return isImg?`<img src="${a.data}" style="width:150px;max-height:210px;object-fit:contain;border:1px solid #e2e8f0;border-radius:8px;">`:`<div style="border:1px solid #c7d2fe;background:#eef2ff;border-radius:8px;padding:8px 12px;font-size:11px;color:#3730a3;">📄 ${a.nome||'arquivo'}</div>`;}).join('')}</div></div>`:''}
+    <div style="margin-top:20px;font-size:10px;color:#94a3b8;text-align:center;border-top:1px solid #e2e8f0;padding-top:8px;">Emitido em ${new Date().toLocaleString('pt-BR')} — ${ne} — Serviços de Terceiros</div>`);
+}
+function imprimirMedicao(prestId,comp){
+  const{ne,logo,cnpj}=_cab();
+  const lista=_servicos.filter(s=>((s.competencia||(s.data||'').slice(0,7))===comp)&&((s.prestador_id||'')===prestId));
+  if(!lista.length){toast('Sem serviços para imprimir.','info');return;}
+  const nome=lista[0].prestador_nome||_prestNome(prestId)||'—';
+  const total=lista.reduce((a,s)=>a+(Number(s.valor_total)||0),0);
+  const linhas=lista.map(s=>`<tr><td>#${String(s.numero||0).padStart(4,'0')}</td><td>${s.data?new Date(s.data+'T00:00:00').toLocaleDateString('pt-BR'):'—'}</td><td>${s.descricao||'—'}</td><td>${[s.requisicao?'Req '+s.requisicao:'',s.nota_fiscal?'NF '+s.nota_fiscal:''].filter(Boolean).join(' · ')||'—'}</td><td style="text-align:right;font-weight:700;">${_brl(s.valor_total)}</td></tr>`).join('');
+  const [ano,mes]=comp.split('-');
+  _abrirImpr(`
+    <div class="hd">${logo}<div style="flex:1;"><div style="font-size:17px;font-weight:900;color:#1e3a5f;">${ne}</div>${cnpj?`<div style="font-size:11px;color:#64748b;">${cnpj}</div>`:''}</div>
+      <div style="text-align:right;"><div style="font-size:18px;font-weight:900;color:#1e3a5f;">MEDIÇÃO MENSAL</div><div style="font-size:12px;color:#64748b;">Competência ${mes}/${ano}</div></div></div>
+    <div class="f" style="margin-bottom:12px;"><div class="lb">Prestador</div><div class="vl">${nome}</div></div>
+    <table><thead><tr><th>Serviço</th><th style="width:90px;">Data</th><th>Descrição</th><th>Req/NF</th><th style="width:110px;">Valor</th></tr></thead>
+      <tbody>${linhas}<tr><td colspan="4" style="text-align:right;font-weight:800;background:#f0fdf4;">TOTAL A PAGAR</td><td style="text-align:right;font-weight:800;background:#f0fdf4;color:#15803d;">${_brl(total)}</td></tr></tbody></table>
+    <div style="display:flex;gap:40px;margin-top:48px;">
+      <div style="flex:1;text-align:center;"><div style="border-top:1.5px solid #1e3a5f;padding-top:4px;font-size:11px;color:#64748b;">${nome}</div></div>
+      <div style="flex:1;text-align:center;"><div style="border-top:1.5px solid #1e3a5f;padding-top:4px;font-size:11px;color:#64748b;">Responsável — ${ne}</div></div>
+    </div>
+    <div style="margin-top:20px;font-size:10px;color:#94a3b8;text-align:center;border-top:1px solid #e2e8f0;padding-top:8px;">Emitido em ${new Date().toLocaleString('pt-BR')} — Serviços de Terceiros</div>`);
+}
+
+/* ── RELOAD ───────────────────────────────────────────────── */
+async function recarregar(){
+  const safe=async(q)=>{try{const r=await q;return r.error?[]:(r.data||[]);}catch(e){return[];}};
+  const[pr,rm,sv]=await Promise.all([
+    safe(_supabase.from('terceiros_prestadores').select('*').order('nome')),
+    safe(_supabase.from('terceiros_remessas').select('*').order('data_saida',{ascending:false})),
+    safe(_supabase.from('terceiros_servicos').select('*').order('data',{ascending:false})),
+  ]);
+  _prestadores=pr;_remessas=rm;_servicos=sv;
+  popularSelectsPrest();renderKpis();renderPrestadores();renderRemessas();renderServicos();renderFechamento();
+}
+
+init();
+</script>
+</body>
+</html>
