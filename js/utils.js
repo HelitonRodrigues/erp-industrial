@@ -119,6 +119,10 @@ const MODULO_FUNCIONALIDADES = {
     { id:'afericoes', label:'⚙️ Aferições' },
     { id:'composicao', label:'🧱 Composições' },
     { id:'pallets', label:'📦 Análise de Pallets' },
+    { id:'fluxo', label:'🔬 Fluxo Automatizado' },
+    { id:'ensaios', label:'🧪 Ensaios & Limites' },
+    { id:'correcoes', label:'🛠️ Correções' },
+    { id:'caulim', label:'🪨 Caulim' },
   ],
   manutencao: [
     { id:'monitor', label:'🖥️ Monitor' },
