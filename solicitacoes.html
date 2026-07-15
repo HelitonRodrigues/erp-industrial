@@ -1,0 +1,1487 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ERP Industrial — Solicitações</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/supabase.js"></script>
+<script src="js/utils.js"></script>
+<style>
+.tab-btn{padding:10px 16px;background:none;border:none;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;color:#64748b;border-bottom:3px solid transparent;margin-bottom:-2px;transition:all .15s;white-space:nowrap;}
+.tab-btn.active{color:var(--accent);border-bottom-color:var(--primary);}
+.kpi-alm{background:#fff;border-radius:12px;padding:14px 12px;border:1.5px solid #e2e8f0;text-align:center;}
+.sb{display:inline-block;padding:2px 9px;border-radius:6px;font-size:11px;font-weight:700;}
+.sb-pend{background:#fffbeb;color:#b45309;}
+.sb-cot{background:#ede9fe;color:#7c3aed;}
+.sb-comprado{background:#dcfce7;color:#16a34a;}
+.sb-receb{background:#e0f2fe;color:#0369a1;}
+.sb-concl{background:#dcfce7;color:#15803d;}
+.sb-canc{background:#fee2e2;color:#dc2626;}
+.sol-card{background:#fff;border:1.5px solid #e2e8f0;border-radius:12px;padding:14px 16px;}
+.rs-nota-card.rs-nota-dragover{border-color:#2563eb !important;background:#eff6ff !important;transform:scale(1.03);}
+</style>
+</head>
+<body>
+<div id="sidebar-container"></div>
+<header class="topbar" id="topbar">
+  <button class="topbar-open-sidebar" onclick="toggleSidebar()">☰</button>
+  <div class="topbar-title">Solicitações</div>
+  <div class="topbar-right">
+    <div class="topbar-user">
+      <div class="user-avatar" style="width:32px;height:32px;font-size:12px;" id="top-avatar">SA</div>
+      <div><div class="topbar-user-name" id="top-user-name">Super Admin</div><div class="topbar-user-profile" id="top-user-perfil">SADM</div></div>
+    </div>
+    <button class="btn btn-ghost btn-sm" onclick="doLogout()" style="color:#64748b;">Sair</button>
+  </div>
+</header>
+
+<main class="main-content" id="main-content">
+  <div class="page-header">
+    <div class="page-header-left"><h1>SOLICITAÇÕES</h1><p style="color:#64748b;font-size:13px;margin-top:2px;">Solicitação · Aprovação · Integração com Compras</p></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+      <button class="btn btn-secondary btn-sm" onclick="init()" title="Atualizar status">🔄 Atualizar</button>
+      <a class="btn btn-secondary btn-sm" href="almoxarifado.html">📦 Almoxarifado</a>
+      <button class="btn btn-primary" data-perm="solicitacoes.solicitacao:create" onclick="abrirSolicitacao()">+ Nova Solicitação</button>
+    </div>
+  </div>
+
+  <div id="sol-kpis" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-bottom:16px;"></div>
+
+  <!-- TABS -->
+  <div style="display:flex;border-bottom:2px solid #e2e8f0;margin-bottom:18px;gap:0;">
+    <button class="tab-btn active" id="tbtn-solicitacao" onclick="showTab('solicitacao')">📝 Solicitação</button>
+    <button class="tab-btn" id="tbtn-aprovacao" onclick="showTab('aprovacao')">✅ Aprovação <span id="aprov-badge" class="sb sb-pend" style="display:none;margin-left:4px;">0</span></button>
+    <button class="tab-btn" id="tbtn-monitor" onclick="showTab('monitor')">📺 Monitor</button>
+    <button class="tab-btn" id="tbtn-recebimentos" onclick="showTab('recebimentos')">📥 Recebimentos</button>
+  </div>
+
+  <!-- ABA SOLICITAÇÃO -->
+  <div id="tab-solicitacao">
+    <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;">
+      <input type="text" id="sol-busca" class="form-input" style="min-width:200px;flex:1;" placeholder="🔍 Buscar (nº, solicitante, produto)..." oninput="renderSolicitacoes()">
+      <select id="sol-f-status" class="form-input" style="width:200px;" onchange="renderSolicitacoes()">
+        <option value="">Todos os status</option>
+        <option value="pendente">⏳ Aguardando Aprovação</option>
+        <option value="aprovada">✅ Aprovada</option>
+        <option value="reprovada">❌ Reprovada</option>
+        <option value="cancelada">🚫 Cancelada</option>
+      </select>
+      <select id="sol-f-prior" class="form-input" style="width:160px;" onchange="renderSolicitacoes()">
+        <option value="">Todas as prioridades</option>
+        <option value="urgente">🔴 Urgente</option><option value="alta">🟠 Alta</option>
+        <option value="normal">🟡 Normal</option><option value="baixa">🟢 Baixa</option>
+      </select>
+    </div>
+    <div id="sol-grid" style="display:flex;flex-direction:column;gap:10px;"></div>
+    <div id="sol-empty" class="hidden" style="text-align:center;padding:48px;color:#94a3b8;">
+      <div style="font-size:48px;margin-bottom:12px;">📝</div>
+      <div style="font-size:15px;font-weight:700;color:#475569;">Nenhuma solicitação encontrada</div>
+      <button class="btn btn-primary" style="margin-top:12px;" data-perm="solicitacoes.solicitacao:create" onclick="abrirSolicitacao()">+ Nova Solicitação</button>
+    </div>
+  </div>
+
+  <!-- ABA APROVAÇÃO -->
+  <div id="tab-aprovacao" style="display:none;">
+    <div style="font-size:13px;color:#64748b;margin-bottom:12px;">Solicitações aguardando aprovação do responsável. Ao aprovar, a solicitação entra automaticamente no módulo <strong>Compras</strong> já aprovada.</div>
+    <div id="aprov-grid" style="display:flex;flex-direction:column;gap:10px;"></div>
+    <div id="aprov-empty" class="hidden" style="text-align:center;padding:48px;color:#94a3b8;">
+      <div style="font-size:48px;margin-bottom:12px;">✅</div>
+      <div style="font-size:15px;font-weight:700;color:#475569;">Nenhuma solicitação aguardando aprovação</div>
+    </div>
+  </div>
+
+  <!-- ABA MONITOR (para print/compartilhar) -->
+  <div id="tab-monitor" style="display:none;">
+    <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:10px;margin-bottom:12px;">
+      <div>
+        <div style="font-size:17px;font-weight:800;color:var(--primary);">📺 Monitor de Solicitações</div>
+        <div id="monitor-ts" style="font-size:11px;color:#94a3b8;margin-top:2px;"></div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <select id="mon-f-status" class="form-input" style="width:230px;" onchange="renderMonitor()">
+          <option value="ativas">🔆 Em andamento (padrão)</option>
+          <option value="">Todas</option>
+          <option value="pendente">⏳ Aguardando Aprovação</option>
+          <option value="aberto">📝 Solicitação em Aberto</option>
+          <option value="em_cotacao">💬 Em Cotação</option>
+          <option value="pedido">📦 Pedido Emitido</option>
+          <option value="parcial">📥 Recebimento Parcial</option>
+          <option value="concluido">✔️ Concluído</option>
+          <option value="reprovada">❌ Reprovada</option>
+          <option value="cancelado">🚫 Cancelado</option>
+        </select>
+        <button class="btn btn-secondary btn-sm" onclick="renderMonitor()">🔄 Atualizar</button>
+        <button class="btn btn-secondary btn-sm" onclick="corrigirQuantidades()" title="Corrige quantidades fracionadas antigas (×1000)">🔧 Corrigir Quantidades</button>
+        <button class="btn btn-primary btn-sm" onclick="imprimirMonitor()">🖨️ Imprimir / Print</button>
+      </div>
+    </div>
+    <div id="monitor-wrap" style="overflow-x:auto;background:#fff;border:1.5px solid #e2e8f0;border-radius:12px;"></div>
+  </div>
+
+  <!-- ABA RECEBIMENTOS (acompanhamento de status no Compras) -->
+  <div id="tab-recebimentos" style="display:none;">
+    <div style="font-size:13px;color:#64748b;margin-bottom:12px;">Área de recebimento de materiais. Confirme o recebimento dos pedidos — isso atualiza o estoque e o status da solicitação. Pedidos e histórico vêm do módulo <strong>Compras</strong>.</div>
+    <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
+      <input type="text" id="rec-busca" class="form-input" style="min-width:200px;flex:1;" placeholder="🔍 Buscar (nº, solicitante)..." oninput="renderRecebimentosSol()">
+      <button class="btn btn-secondary btn-sm" onclick="init()" title="Atualizar status">🔄 Atualizar</button>
+    </div>
+    <div id="rec-wrap" style="overflow-x:auto;background:#fff;border:1.5px solid #e2e8f0;border-radius:12px;"></div>
+  </div>
+</main>
+
+<!-- MODAL NOVA/EDITAR SOLICITAÇÃO -->
+<div id="m-solicitacao" class="modal-overlay hidden" onclick="if(event.target===this)closeModal('m-solicitacao')" style="z-index:10050;">
+  <div class="modal modal-lg" style="max-height:92vh;overflow-y:auto;max-width:820px;">
+    <div class="modal-header"><div class="modal-title" id="m-sol-tit">Nova Solicitação</div><button class="modal-close" onclick="closeModal('m-solicitacao')">✕</button></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px;">
+      <div class="form-group"><label class="form-label">Data *</label><input id="sol-data" type="date" class="form-input"></div>
+      <div class="form-group"><label class="form-label">Solicitante *</label><select id="sol-solic" class="form-input func-select"><option value="">Selecione...</option></select></div>
+      <div class="form-group"><label class="form-label">Responsável da solicitação *</label><select id="sol-resp" class="form-input func-select" onchange="preencherResponsavel(this.value)"><option value="">Selecione...</option></select></div>
+      <div class="form-group"><label class="form-label">Prioridade</label>
+        <select id="sol-prior" class="form-input">
+          <option value="normal">🟡 Normal</option><option value="alta">🟠 Alta</option>
+          <option value="urgente">🔴 Urgente</option><option value="baixa">🟢 Baixa</option>
+        </select>
+      </div>
+      <div class="form-group" style="grid-column:span 2;">
+        <label class="form-label">Programado para *</label>
+        <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;">
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="radio" name="sol-prog" value="dias" checked onchange="toggleProgData()"> Em dias</label>
+          <div id="wrap-prog-dias" style="display:flex;align-items:center;gap:6px;">
+            <input id="sol-prog-dias" type="number" min="0" step="1" class="form-input" style="width:90px;" placeholder="0"> <span style="font-size:13px;color:#64748b;">dia(s)</span>
+          </div>
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;"><input type="radio" name="sol-prog" value="data" onchange="toggleProgData()"> Por data</label>
+          <input id="sol-prog-data" type="date" class="form-input" style="width:170px;display:none;">
+        </div>
+      </div>
+      <div class="form-group" style="grid-column:1/-1;"><label class="form-label">Justificativa</label><textarea id="sol-obs" class="form-input" rows="2"></textarea></div>
+    </div>
+
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+      <div style="font-size:13px;font-weight:700;color:#1e3a5f;">Produtos Solicitados</div>
+      <button type="button" class="btn btn-secondary btn-sm" onclick="abrirAddProduto()">+ Adicionar Produto</button>
+    </div>
+    <div id="sol-produtos-list" style="display:flex;flex-direction:column;gap:6px;margin-bottom:6px;"></div>
+    <div id="sol-prod-empty" style="font-size:12px;color:#94a3b8;padding:10px;text-align:center;border:1.5px dashed #e2e8f0;border-radius:10px;">Nenhum produto adicionado. Clique em "+ Adicionar Produto".</div>
+
+    <!-- Assinatura do Responsável da solicitação -->
+    <div style="margin-top:14px;padding:12px;background:#f8fafc;border-radius:10px;border:1.5px solid #e2e8f0;">
+      <div style="font-size:12px;font-weight:700;color:#475569;margin-bottom:8px;">✍️ Responsável da solicitação</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:8px;">
+        <div class="form-group" style="margin:0;"><label class="form-label" style="font-size:11px;">Nome</label><input id="sol-assin-nome" type="text" class="form-input" placeholder="Nome do responsável"></div>
+        <div class="form-group" style="margin:0;"><label class="form-label" style="font-size:11px;">Cargo / Setor</label><input id="sol-assin-cargo" type="text" class="form-input" placeholder="Ex: Encarregado de Manutenção"></div>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <button type="button" class="btn btn-secondary btn-sm" onclick="abrirAssinaturaGrande('sol-assin-data','sol-assin-thumb','Assinatura do Responsável da solicitação')">✍️ Assinar</button>
+        <img id="sol-assin-thumb" style="display:none;height:40px;border:1px solid #e2e8f0;border-radius:6px;background:#fff;">
+        <button type="button" id="sol-assin-clear" class="btn btn-ghost btn-sm" style="display:none;color:#dc2626;font-size:11px;" onclick="limparAssinaturaCampo('sol-assin-data','sol-assin-thumb')">remover</button>
+        <input type="hidden" id="sol-assin-data" value="">
+      </div>
+    </div>
+    <div id="sol-error" class="hidden" style="background:#fef2f2;border:1.5px solid #fca5a5;border-radius:8px;padding:10px;color:#dc2626;font-size:13px;margin-top:8px;"></div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('m-solicitacao')">Cancelar</button>
+      <button class="btn btn-primary" id="btn-salvar-sol" onclick="salvarSolicitacao()">📤 Enviar Solicitação</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL ADICIONAR PRODUTO -->
+<div id="m-add-produto" class="modal-overlay hidden" onclick="if(event.target===this)closeModal('m-add-produto')" style="z-index:10070;">
+  <div class="modal" style="max-width:560px;max-height:88vh;display:flex;flex-direction:column;">
+    <div class="modal-header"><div class="modal-title" id="add-prod-title">📦 Adicionar Produto</div><button class="modal-close" onclick="closeModal('m-add-produto')">✕</button></div>
+    <input id="add-prod-busca" type="text" class="form-input" placeholder="🔍 Buscar por código ou nome..." oninput="filtrarAddProduto()" style="margin-bottom:8px;">
+    <div id="add-prod-list" style="overflow-y:auto;max-height:34vh;display:flex;flex-direction:column;gap:6px;padding-right:4px;margin-bottom:10px;"></div>
+    <div style="background:#f8fafc;border-radius:10px;padding:10px;border:1.5px solid #e2e8f0;">
+      <div id="add-prod-sel" style="font-size:13px;font-weight:700;color:#1e3a5f;margin-bottom:8px;">Selecione um produto acima</div>
+      <div style="display:grid;grid-template-columns:1fr 1.4fr;gap:8px;">
+        <div class="form-group" style="margin:0;"><label class="form-label" style="font-size:11px;">Quantidade *</label><input id="add-prod-qtd" type="number" min="1" step="1" class="form-input"></div>
+        <div class="form-group" style="margin:0;"><label class="form-label" style="font-size:11px;">Centro de Custo *</label><select id="add-prod-cc" class="form-input"></select></div>
+      </div>
+      <div class="form-group" style="margin:8px 0 0;"><label class="form-label" style="font-size:11px;">Natureza *</label><select id="add-prod-nat" class="form-input"></select></div>
+      <div class="form-group" style="margin:8px 0 0;"><label class="form-label" style="font-size:11px;">Observação</label><input id="add-prod-obs" type="text" class="form-input" placeholder="Opcional"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" type="button" onclick="closeModal('m-add-produto')">Cancelar</button>
+      <button class="btn btn-primary" type="button" id="add-prod-confirm-btn" onclick="confirmarAddProduto()">+ Adicionar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL ASSINATURA GRANDE -->
+<div id="m-assinar-grande" class="modal-overlay hidden" onclick="if(event.target===this)closeModal('m-assinar-grande')" style="z-index:10092;">
+  <div class="modal" style="max-width:820px;width:96vw;">
+    <div class="modal-header"><div class="modal-title" id="m-assinar-tit">✍️ Assinatura</div><button class="modal-close" onclick="closeModal('m-assinar-grande')">✕</button></div>
+    <p style="font-size:12px;color:#64748b;margin:0 0 8px;">Assine no quadro abaixo (dedo no toque ou mouse). Use toda a área para uma assinatura nítida.</p>
+    <canvas id="assinar-cv" width="1000" height="320" style="display:block;width:100%;height:300px;border:1.5px solid #e2e8f0;border-radius:10px;background:#fff;cursor:crosshair;touch-action:none;"></canvas>
+    <div class="modal-footer">
+      <button class="btn btn-ghost btn-sm" type="button" onclick="limparPadAssinar()">🗑️ Limpar</button>
+      <button class="btn btn-secondary" type="button" onclick="closeModal('m-assinar-grande')">Cancelar</button>
+      <button class="btn btn-primary" type="button" onclick="confirmarAssinatura()">✅ Confirmar Assinatura</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL APROVAÇÃO -->
+<div id="m-aprovar" class="modal-overlay hidden" onclick="if(event.target===this)closeModal('m-aprovar')" style="z-index:10060;">
+  <div class="modal modal-lg" style="max-width:680px;max-height:92vh;overflow-y:auto;">
+    <div class="modal-header"><div class="modal-title">✅ Aprovação da Solicitação</div><button class="modal-close" onclick="closeModal('m-aprovar')">✕</button></div>
+    <div id="aprov-corpo"></div>
+    <div class="form-group"><label class="form-label">Observação do aprovador</label><textarea id="aprov-obs" class="form-input" rows="2" placeholder="Opcional"></textarea></div>
+    <div style="padding:12px;background:#f8fafc;border-radius:10px;border:1.5px solid #e2e8f0;">
+      <div style="font-size:12px;font-weight:700;color:#475569;margin-bottom:8px;">✍️ Assinatura do Aprovador <span style="font-weight:400;color:#94a3b8;">(opcional)</span></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:8px;">
+        <div class="form-group" style="margin:0;"><label class="form-label" style="font-size:11px;">Nome do aprovador</label><select id="aprov-nome" class="form-input func-select" onchange="preencherAprovador(this.value)"><option value="">Selecione...</option></select></div>
+        <div class="form-group" style="margin:0;"><label class="form-label" style="font-size:11px;">Cargo / Setor</label><input id="aprov-cargo" type="text" class="form-input"></div>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <button type="button" class="btn btn-secondary btn-sm" onclick="abrirAssinaturaGrande('aprov-assin-data','aprov-assin-thumb','Assinatura do Aprovador')">✍️ Assinar</button>
+        <img id="aprov-assin-thumb" style="display:none;height:40px;border:1px solid #e2e8f0;border-radius:6px;background:#fff;">
+        <button type="button" id="aprov-assin-clear" class="btn btn-ghost btn-sm" style="display:none;color:#dc2626;font-size:11px;" onclick="limparAssinaturaCampo('aprov-assin-data','aprov-assin-thumb')">remover</button>
+        <input type="hidden" id="aprov-assin-data" value="">
+      </div>
+    </div>
+    <div id="aprov-error" class="hidden" style="background:#fef2f2;border:1.5px solid #fca5a5;border-radius:8px;padding:10px;color:#dc2626;font-size:13px;margin-top:8px;"></div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('m-aprovar')">Cancelar</button>
+      <button class="btn" style="background:#fee2e2;color:#dc2626;" data-perm="solicitacoes.aprovacao:aprovar" onclick="decidirSolicitacao('reprovada')">✕ Reprovar</button>
+      <button class="btn btn-primary" style="background:#16a34a;" data-perm="solicitacoes.aprovacao:aprovar" onclick="decidirSolicitacao('aprovada')">✓ Aprovar e enviar p/ Compras</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL VISUALIZAR -->
+<div id="m-vis-sol" class="modal-overlay hidden" onclick="if(event.target===this)closeModal('m-vis-sol')" style="z-index:10080;">
+  <div class="modal modal-lg" style="max-width:740px;max-height:92vh;overflow-y:auto;">
+    <div class="modal-header"><div class="modal-title">👁️ Detalhes da Solicitação</div><button class="modal-close" onclick="closeModal('m-vis-sol')">✕</button></div>
+    <div id="m-vis-sol-corpo"></div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('m-vis-sol')">Fechar</button>
+      <button class="btn btn-secondary" id="btn-vis-sol-print" onclick="">🖨️ Imprimir</button>
+      <button class="btn btn-primary" id="btn-vis-sol-editar" data-perm="solicitacoes.solicitacao:edit" onclick="">✏️ Editar</button>
+    </div>
+  </div>
+</div>
+
+<!-- CONFIRMAÇÃO -->
+<div id="m-receb-sol" class="modal-overlay hidden" onclick="if(event.target===this)closeModal('m-receb-sol')" style="z-index:10090;">
+  <div class="modal modal-lg" style="max-width:680px;max-height:92vh;overflow-y:auto;">
+    <div class="modal-header"><div class="modal-title" id="rs-tit">📥 Registrar Recebimento</div><button class="modal-close" onclick="closeModal('m-receb-sol')">✕</button></div>
+    <div id="rs-info" style="font-size:12px;color:#64748b;margin-bottom:8px;"></div>
+    <div id="rs-nf-single-wrap" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:8px;">
+      <div class="form-group" id="rs-nf-wrap" style="margin:0;"><label class="form-label">Nota Fiscal</label><input id="rs-nf" class="form-input"></div>
+      <div class="form-group" style="margin:0;"><label class="form-label">Data</label><input id="rs-data" type="date" class="form-input"></div>
+    </div>
+    <!-- MULTI-NOTA (só na conclusão de pedido parcial): quando o restante chega em mais de uma
+         nota fiscal, arraste o pedido para a nota correspondente antes de lançar as quantidades. -->
+    <div id="rs-notas-wrap" style="display:none;margin-bottom:12px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <div style="font-size:12px;font-weight:700;color:#475569;">🏷️ Nota(s) Fiscal(is) do restante</div>
+        <button type="button" class="btn btn-secondary btn-sm" style="padding:4px 10px;font-size:11px;" onclick="adicionarNotaConcluir()">+ Adicionar Nota</button>
+      </div>
+      <div id="rs-pedido-chip" draggable="true" ondragstart="_dragPedidoStart(event)" ondragend="_dragPedidoEnd(event)"
+        style="display:inline-flex;align-items:center;gap:8px;background:#eff6ff;border:2px dashed #2563eb;border-radius:10px;padding:9px 16px;margin-bottom:12px;cursor:grab;font-size:12px;font-weight:700;color:#1d4ed8;user-select:none;">
+        🖐️ <span id="rs-pedido-chip-txt">Pedido</span>
+      </div>
+      <div id="rs-notas-lista" style="display:flex;gap:10px;overflow-x:auto;padding-bottom:8px;"></div>
+      <div id="rs-notas-dica" style="font-size:11px;color:#94a3b8;margin-top:4px;">Arraste o pedido acima até a nota fiscal correspondente para liberar o lançamento das quantidades.</div>
+    </div>
+    <div id="rs-itens"></div>
+    <div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:8px;padding:10px 12px;margin:8px 2px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;font-size:14px;margin-bottom:8px;"><span style="font-weight:700;">Valor Total (produtos)</span><span id="rs-total-geral" style="font-weight:800;color:#15803d;">R$ 0,00</span></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
+        <div><label class="form-label" style="font-size:11px;">Desconto (R$)</label><input type="number" id="rs-desconto" class="form-input" min="0" step="0.01" oninput="recalcRecebTotais()"></div>
+        <div><label class="form-label" style="font-size:11px;">Frete (R$)</label><input type="number" id="rs-frete" class="form-input" min="0" step="0.01" oninput="recalcRecebTotais()"></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;font-size:16px;border-top:1px dashed #86efac;padding-top:8px;"><span style="font-weight:800;">Valor Final (NF)</span><span id="rs-valor-final" style="font-weight:900;color:#15803d;">R$ 0,00</span></div>
+    </div>
+    <label style="display:flex;gap:8px;align-items:center;font-size:13px;margin:6px 0;"><input type="checkbox" id="rs-nc"> Registrar não conformidade neste recebimento</label>
+    <div class="form-group"><label class="form-label">Observações</label><textarea id="rs-obs" class="form-input" rows="2"></textarea></div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('m-receb-sol')">Cancelar</button>
+      <button class="btn btn-primary" id="btn-rs-salvar" style="background:#16a34a;" onclick="salvarRecebimentoSol()">📥 Confirmar recebimento</button>
+    </div>
+  </div>
+</div>
+
+
+<div id="m-confirm" class="modal-overlay hidden" onclick="if(event.target===this)closeModal('m-confirm')" style="z-index:10095;">
+  <div class="modal" style="max-width:440px;">
+    <div class="modal-header"><div class="modal-title">Confirmar</div><button class="modal-close" onclick="closeModal('m-confirm')">✕</button></div>
+    <div id="confirm-msg" style="font-size:14px;color:#475569;padding:6px 0 12px;"></div>
+    <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('m-confirm')">Cancelar</button><button class="btn btn-danger" id="confirm-ok">Confirmar</button></div>
+  </div>
+</div>
+
+<div id="toast-container" style="position:fixed;top:20px;right:20px;z-index:99999;display:flex;flex-direction:column;gap:8px;pointer-events:none;"></div>
+
+<script>
+'use strict';
+/* ═══ ESTADO ════════════════════════════════════════════ */
+let _solicitacoes=[],_comprasSols=[],_comprasPeds=[],_comprasRecs=[],_itens=[],_centrosCusto=[],_naturezas=[],_funcionarios=[],_empresa={},_user=null;
+let _pedReceb=null;
+let _editRecId=null;
+let _recebModo='novo'; // 'novo' | 'concluir' | 'editar'
+let _notasConcluir=[]; // [{id, numero}] — cards de nota exibidos no modal de Concluir
+let _notaAtivaId=null; // id da nota em que o pedido foi solto (drag-and-drop)
+async function _dedupRecebimentosDB(){
+  // Mantém 1 recebimento por solicitação+fornecedor+itens; remove duplicados antigos direto no banco.
+  try{
+    const _pedidoDe=r=>(_comprasPeds||[]).find(p=>p.id===r.pedido_id);
+    const _key=r=>{const p=_pedidoDe(r);const sol=(p&&p.solicitacao_id)||r.pedido_id||('id:'+(r.id||''));const forn=((p&&p.fornecedor)||'').toLowerCase();const sig=(r.itens||[]).map(i=>(i.nome||'')).sort().join(',');return sol+'|'+forn+'|'+sig;};
+    const grupos={};
+    (_comprasRecs||[]).forEach(r=>{if(!r)return;(grupos[_key(r)]=grupos[_key(r)]||[]).push(r);});
+    const remover=[];
+    Object.values(grupos).forEach(list=>{
+      if(list.length<2)return;
+      const score=r=>(r.nota_fiscal?4:0)+(Number(r.valor_total_geral)?2:0)+((r.itens||[]).length?1:0);
+      list.sort((a,b)=>score(b)-score(a)||(new Date(a.created_at||0)-new Date(b.created_at||0)));
+      list.slice(1).forEach(r=>{if(r.id)remover.push(r.id);});
+    });
+    if(remover.length){
+      for(const id of remover){try{await _supabase.from('compras_recebimentos').delete().eq('id',id);}catch(e){}}
+      _comprasRecs=(_comprasRecs||[]).filter(r=>!remover.includes(r.id));
+    }
+  }catch(e){}
+}
+let _editSolId=null,_solProdutos=[],_aprovId=null;
+const LINK_KEY='almox_sol_compras_link';
+
+/* ═══ SIDEBAR / INIT ════════════════════════════════════ */
+fetch('partials/sidebar.html').then(r=>r.text()).then(html=>{
+  document.getElementById('sidebar-container').innerHTML=html;
+  document.querySelector('[href="solicitacoes.html"]')?.classList.add('active');
+  if(typeof openGroup==='function')openGroup('solicitacoes');
+});
+initSidebar('solicitacoes.html');
+
+function toast(msg,tipo='info'){
+  const c=document.getElementById('toast-container');if(!c)return;
+  const cores={success:'#16a34a',danger:'#dc2626',warning:'#b45309',info:'#2563eb'};
+  const d=document.createElement('div');
+  d.style.cssText=`background:${cores[tipo]||cores.info};color:#fff;padding:12px 18px;border-radius:10px;font-size:13px;font-weight:600;box-shadow:0 4px 16px rgba(0,0,0,.2);max-width:360px;pointer-events:all;`;
+  d.textContent=msg;c.appendChild(d);setTimeout(()=>d.remove(),4000);
+}
+function closeModal(id){const el=document.getElementById(id);if(el)el.classList.add('hidden');}
+function nomeItem(id){return _itens.find(i=>i.id===id)?.nome||'—';}
+function ccLabel(id){const c=_centrosCusto.find(x=>x.id===id);if(!c)return '';return (c.codigo?c.codigo+'-':'')+c.nome;}
+function natLabel(id){const n=_naturezas.find(x=>x.id===id);if(!n)return '';return (n.codigo?n.codigo+'-':'')+n.nome;}
+// Normaliza quantidades antigas gravadas como milésimos (< 1 vira x1000). Idempotente: valores >= 1 não mudam.
+function qShow(q){const n=Number(q)||0;return (n>0&&n<1)?Math.round(n*1000):n;}
+// Vínculo Solicitação↔Compras agora é a coluna almoxarifado_solicitacoes.compras_sol_id (sem localStorage).
+const EXTRAS_KEY='almox_sol_extras';
+function saveExtras(id,obj){if(id&&obj&&typeof _supabase!=="undefined"){const upd={};if(obj.responsavel_solic!=null)upd.responsavel_solic=obj.responsavel_solic;if(obj.programado!=null)upd.programado=obj.programado;if(obj.programado_dias!=null)upd.programado_dias=obj.programado_dias;if(obj.programado_data!=null)upd.programado_data=obj.programado_data;if(obj.assin_nome!=null)upd.assin_nome=obj.assin_nome;if(obj.assin_cargo!=null)upd.assin_cargo=obj.assin_cargo;if(Object.keys(upd).length)_supabase.from("almoxarifado_solicitacoes").update(upd).eq("id",id).then(()=>{}).catch(()=>{});}}
+// Salva no Supabase removendo automaticamente colunas inexistentes no schema (retry)
+async function resilientSave(table,payload,id){
+  let p=Object.assign({},payload);
+  for(let i=0;i<20;i++){
+    const res=id?await _supabase.from(table).update(p).eq('id',id).select().single():await _supabase.from(table).insert(p).select().single();
+    if(!res.error)return{data:res.data,removidos:Object.keys(payload).filter(k=>!(k in p))};
+    const msg=res.error.message||res.error.details||'';
+    const col=(/Could not find the '([^']+)' column/.exec(msg)||/column "([^"]+)"/.exec(msg)||/column ([a-zA-Z0-9_]+) of/.exec(msg)||[])[1];
+    if(col&&Object.prototype.hasOwnProperty.call(p,col)){delete p[col];continue;}
+    throw res.error;
+  }
+  throw new Error('Não foi possível salvar em '+table+' (colunas).');
+}
+
+async function init(){
+  _user=(typeof getUser==='function')?getUser():null;
+  const safe=async(q)=>{try{const r=await q;return r.error?[]:(r.data||[]);}catch(e){return[];}};
+  try{const{data:ea}=await _supabase.from('empresa_config').select('*').limit(1);const em=Array.isArray(ea)?ea[0]:ea;if(em)_empresa=em;}catch(e){}
+  // Os campos extras (responsável, programado, assinatura) agora vêm direto das colunas
+  // de almoxarifado_solicitacoes — sem espelho em localStorage.
+  const[sols,comprasSols,comprasPeds,comprasRecs,itens,ccs,nats,funcs,epis]=await Promise.all([
+    safe(_supabase.from('almoxarifado_solicitacoes').select('*').order('data',{ascending:false})),
+    safe(_supabase.from('compras_solicitacoes').select('*').order('created_at',{ascending:false})),
+    safe(_supabase.from('compras_pedidos').select('*').order('created_at',{ascending:false})),
+    safe(_supabase.from('compras_recebimentos').select('*').order('created_at',{ascending:false})),
+    safe(_supabase.from('almoxarifado').select('*').order('nome')),
+    safe(_supabase.from('centros_custo').select('id,nome,codigo').order('nome')),
+    safe(_supabase.from('naturezas_custo').select('id,nome,codigo').order('nome')),
+    safe(_supabase.from('funcionarios').select('id,nome,funcao,setor').eq('status','ativo').order('nome')),
+    safe(_supabase.from('epi_cadastro').select('*').order('nome')),
+  ]);
+  // EPIs do cadastro entram na lista de "+ Adicionar Produto" das solicitações
+  const episItens=(epis||[]).map(e=>({
+    id:e.id,
+    nome:e.nome,
+    codigo:e.ca?('CA '+e.ca):'',
+    marca:'EPI',
+    unidade:e.unidade||'un',
+    estoque_atual:e.estoque_atual||0,
+    status:'ativo',
+    _epi:true,
+  }));
+  _solicitacoes=sols;_comprasSols=comprasSols;_comprasPeds=comprasPeds||[];_comprasRecs=comprasRecs||[];_itens=[...itens,...episItens];_centrosCusto=ccs;_naturezas=nats;_funcionarios=funcs;
+  await _dedupRecebimentosDB();
+  const optsFunc='<option value="">Selecione...</option>'+_funcionarios.map(f=>`<option value="${(f.nome||'').replace(/"/g,'&quot;')}">${f.nome}</option>`).join('');
+  document.querySelectorAll('.func-select').forEach(sel=>{const cur=sel.value;sel.innerHTML=optsFunc;sel.value=cur;});
+  renderKPIs();renderSolicitacoes();renderAprovacao();renderRecebimentosSol();
+  if(typeof applyPermUI==='function')applyPermUI();
+}
+
+/* ═══ TABS ══════════════════════════════════════════════ */
+function showTab(t){
+  ['solicitacao','aprovacao','monitor','recebimentos'].forEach(x=>{
+    const el=document.getElementById('tab-'+x);if(el)el.style.display=x===t?'block':'none';
+    const b=document.getElementById('tbtn-'+x);if(b)b.classList.toggle('active',x===t);
+  });
+  if(t==='aprovacao')renderAprovacao();else if(t==='monitor')renderMonitor();else if(t==='recebimentos')renderRecebimentosSol();else renderSolicitacoes();
+}
+
+/* ═══ RECEBIMENTOS (confirmação de recebimento pelo responsável) ═══ */
+function _pedSolNumero(p){
+  // tenta achar o código/numero da solicitação de origem para exibição
+  const c=_comprasSols.find(x=>x.id===p.solicitacao_id);
+  return c?(c.numero!=null?('#'+String(c.numero).padStart(4,'0')):''):'';
+}
+function renderRecebimentosSol(){
+  const wrap=document.getElementById('rec-wrap');if(!wrap)return;
+  const busca=(document.getElementById('rec-busca')?.value||'').toLowerCase();
+  let hist=(_comprasRecs||[]).slice();
+  // 1 recebimento por solicitação+fornecedor+itens (mantem o melhor na exibicao)
+  {
+    const _pedidoDe=r=>(_comprasPeds||[]).find(p=>p.id===r.pedido_id);
+    const _key=r=>{const p=_pedidoDe(r);const sol=(p&&p.solicitacao_id)||r.pedido_id||('id:'+(r.id||''));const forn=((p&&p.fornecedor)||'').toLowerCase();const sig=(r.itens||[]).map(i=>(i.nome||'')).sort().join(',');return sol+'|'+forn+'|'+sig;};
+    const _best=new Map();
+    const _score=r=>(r.nota_fiscal?4:0)+(Number(r.valor_total_geral)?2:0)+((r.itens||[]).length?1:0);
+    hist.forEach(r=>{const k=_key(r);const prev=_best.get(k);if(!prev||_score(r)>_score(prev))_best.set(k,r);});
+    hist=hist.filter(r=>_best.get(_key(r))===r);
+  }
+  const recPorPedido={};hist.forEach(r=>{if(r.pedido_id)recPorPedido[r.pedido_id]=r;});
+  // pendentes = pedidos que ainda NAO tem recebimento
+  let pend=(_comprasPeds||[]).filter(p=>['emitido','aguardando_entrega','recebido_parcial'].includes(p.status)&&!recPorPedido[p.id]);
+  if(busca){
+    pend=pend.filter(p=>((p.fornecedor||'')+' '+_pedSolNumero(p)+' '+(p.itens||[]).map(i=>i.nome).join(' ')).toLowerCase().includes(busca));
+    hist=hist.filter(r=>{const p=_comprasPeds.find(x=>x.id===r.pedido_id);return (((p&&p.fornecedor)||'')+' '+(r.nota_fiscal||'')+' '+(r.itens||[]).map(i=>i.nome).join(' ')).toLowerCase().includes(busca);});
+  }
+  pend.sort((a,b)=>(a.numero||0)-(b.numero||0));
+  hist.sort((a,b)=>(a.numero||0)-(b.numero||0));
+  const _completo=p=>p&&(p.itens||[]).length>0&&(p.itens||[]).every(i=>(Number(i.qtd_recebida)||0)>=(Number(i.qtd)||0));
+  const cab='<style>#rec-wrap td{padding:9px 12px;border-bottom:1px solid #eef2f6;vertical-align:middle;}#rec-wrap th{padding:9px 12px;text-align:left;background:#1e3a5f;color:#fff;font-size:12px;}</style>';
+  const pendRows=pend.length?pend.map(p=>{
+    const sb=statusBadgeCompras(p.status);
+    return `<tr>
+      <td style="font-weight:800;color:var(--primary);white-space:nowrap;">#${String(p.numero||0).padStart(4,'0')}${_pedSolNumero(p)?`<div style="font-size:11px;color:#94a3b8;font-weight:600;">Sol ${_pedSolNumero(p)}</div>`:''}</td>
+      <td>${p.fornecedor||'—'}</td>
+      <td style="white-space:nowrap;">${p.prazo_entrega||'—'}</td>
+      <td style="font-size:12px;">${(p.itens||[]).map(i=>`${i.nome} (${qShow(i.qtd)})`).join(', ')||'—'}</td>
+      <td><span class="sb ${sb.cls}">${sb.txt}</span></td>
+      <td><button class="btn btn-primary btn-sm" style="background:#16a34a;" onclick="abrirRecebimentoSol('${p.id}')">📥 Receber</button></td>
+    </tr>`;
+  }).join(''):'<tr><td colspan="6" style="text-align:center;padding:18px;color:#94a3b8;">Nenhum pedido aguardando recebimento.</td></tr>';
+  const histRows=hist.length?hist.map(r=>{
+    const p=_comprasPeds.find(x=>x.id===r.pedido_id);
+    const completo=_completo(p);
+    const base=(p&&(p.itens||[]).length)?p.itens:(r.itens||[]);
+    const itensTxt=base.map(i=>{const rec=Number(i.qtd_recebida!=null?i.qtd_recebida:i.qtd)||0;const ped=Number(i.qtd)||rec;return `${i.nome} (${qShow(rec)}${(ped&&ped!==rec)?('/'+qShow(ped)):''})`;}).join(', ')||'—';
+    return `<tr>
+      <td style="white-space:nowrap;">Rec #${String(r.numero||0).padStart(4,'0')}${_pedSolNumero(p)?`<div style="font-size:11px;color:#94a3b8;font-weight:600;">Sol ${_pedSolNumero(p)}</div>`:''}</td>
+      <td>${p?p.fornecedor||'—':'—'}</td>
+      <td style="white-space:nowrap;">${r.data||'—'}</td>
+      <td style="font-size:12px;">${itensTxt}${Number(r.valor_total_geral)?`<div style="font-size:11px;color:#15803d;font-weight:700;margin-top:2px;">Total: ${Number(r.valor_total_geral).toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}</div>`:''}</td>
+      <td style="white-space:nowrap;">${r.nota_fiscal?'NF '+r.nota_fiscal+' ':''}${!completo?`<button class="btn btn-primary btn-sm" style="background:#b45309;" title="Concluir / receber o restante" onclick="concluirRecebimentoSol('${r.id}')">✅ Concluir</button> `:''}<button class="btn btn-ghost btn-sm" title="Editar recebimento" onclick="editarRecebimentoSol('${r.id}')">✏️</button><button class="btn btn-ghost btn-sm" title="Termo de recebimento" onclick="imprimirRecebimentoSol('${r.id}')">🖨️</button></td>
+      <td style="white-space:nowrap;">${completo?'<span class="sb sb-concl">✅ Completo</span>':'<span class="sb sb-receb">📥 Parcial</span>'}${r.nao_conforme?' <span class="sb sb-canc">NC</span>':''}</td>
+    </tr>`;
+  }).join(''):'<tr><td colspan="6" style="text-align:center;padding:18px;color:#94a3b8;">Sem histórico de recebimentos.</td></tr>';
+  wrap.innerHTML=`${cab}<table style="width:100%;border-collapse:collapse;font-size:13px;">
+    <thead><tr><th colspan="6" style="background:#b45309;">📥 Pedidos aguardando recebimento (${pend.length})</th></tr>
+      <tr><th>Pedido</th><th>Fornecedor</th><th>Entrega</th><th>Itens</th><th>Status</th><th>Ações</th></tr></thead>
+    <tbody>${pendRows}</tbody>
+    <thead><tr><th colspan="6" style="background:#16a34a;">✅ Histórico de recebimentos (${hist.length})</th></tr>
+      <tr><th>Recebimento</th><th>Fornecedor</th><th>Data</th><th>Itens (recebido/pedido)</th><th>NF / Ações</th><th>Status</th></tr></thead>
+    <tbody>${histRows}</tbody></table>`;
+}
+function statusBadgeCompras(st){
+  const m={emitido:{cls:'sb-receb',txt:'📦 Pedido Emitido'},aguardando_entrega:{cls:'sb-receb',txt:'🚚 Aguard. Entrega'},recebido_parcial:{cls:'sb-receb',txt:'📥 Receb. Parcial'},recebido_total:{cls:'sb-concl',txt:'✔️ Recebido'},cancelado:{cls:'sb-canc',txt:'✕ Cancelado'}};
+  return m[st]||{cls:'sb-pend',txt:st||'—'};
+}
+
+/* ── Modal/registro de recebimento (mesma lógica do módulo Compras) ── */
+function _recebItemRow(insumoId,nome,idx,maxQ,qtd,vu,info){
+  return `<div style="display:grid;grid-template-columns:1.8fr .9fr 1fr 1fr;gap:8px;align-items:end;background:#f8fafc;border:1.5px solid #e2e8f0;border-radius:10px;padding:10px;margin-bottom:8px;">
+      <div><strong>${nome}</strong><div style="font-size:11px;color:#94a3b8;">${info}</div></div>
+      <div><label class="form-label" style="font-size:11px;">Receber</label><input type="number" class="form-input rs-qtd" data-idx="${idx}" data-insumo="${insumoId||''}" data-nome="${(nome||'').replace(/"/g,'&quot;')}" min="0"${maxQ!=null?` max="${maxQ}"`:''} step="0.01" value="${qtd}" oninput="recalcRecebTotais()"></div>
+      <div><label class="form-label" style="font-size:11px;">Valor Unit. (R$)</label><input type="number" class="form-input rs-vu" data-idx="${idx}" min="0" step="0.01" value="${vu||''}" oninput="recalcRecebTotais()"></div>
+      <div><label class="form-label" style="font-size:11px;">Valor Total (R$)</label><input type="text" class="form-input rs-vt" data-idx="${idx}" readonly style="background:#f1f5f9;font-weight:700;color:#15803d;" value="—"></div></div>`;
+}
+function recalcRecebTotais(){
+  let geral=0;
+  document.querySelectorAll('#rs-itens .rs-qtd').forEach(inp=>{
+    const idx=inp.dataset.idx;
+    const q=parseFloat(inp.value)||0;
+    const vu=parseFloat(document.querySelector(`.rs-vu[data-idx="${idx}"]`)?.value)||0;
+    const vt=q*vu;geral+=vt;
+    const vtEl=document.querySelector(`.rs-vt[data-idx="${idx}"]`);
+    if(vtEl)vtEl.value=vt>0?vt.toLocaleString('pt-BR',{style:'currency',currency:'BRL'}):'—';
+  });
+  const gEl=document.getElementById('rs-total-geral');
+  if(gEl)gEl.textContent=geral.toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+  const desc=parseFloat(document.getElementById('rs-desconto')?.value)||0;
+  const frete=parseFloat(document.getElementById('rs-frete')?.value)||0;
+  const final=geral-desc+frete;
+  const fEl=document.getElementById('rs-valor-final');
+  if(fEl)fEl.textContent=final.toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+}
+
+/* ── MULTI-NOTA no "Concluir" (arrastar o pedido até a nota certa) ──
+   Usado quando o restante de um pedido parcial vai chegar em mais de
+   uma nota fiscal: cada nota fica um "card" e o pedido é arrastado até
+   o card correspondente para liberar o lançamento das quantidades. */
+function _uidNota(){ return 'n'+Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
+function adicionarNotaConcluir(){
+  _notasConcluir.push({id:_uidNota(),numero:''});
+  renderNotasConcluir();
+}
+function removerNotaConcluir(id){
+  _notasConcluir=_notasConcluir.filter(n=>n.id!==id);
+  if(_notaAtivaId===id)_notaAtivaId=null;
+  renderNotasConcluir();
+  atualizarEstadoReceberBtn();
+}
+function _notaNumeroChange(id,val){
+  const n=_notasConcluir.find(x=>x.id===id);if(n)n.numero=val;
+  if(_notaAtivaId===id)atualizarEstadoReceberBtn();
+}
+function _dragPedidoStart(ev){
+  ev.dataTransfer.setData('text/plain','pedido');
+  ev.dataTransfer.effectAllowed='move';
+  ev.currentTarget.style.opacity='0.5';
+}
+function _dragPedidoEnd(ev){
+  ev.currentTarget.style.opacity='1';
+}
+function _dragOverNota(ev){
+  ev.preventDefault();
+  ev.currentTarget.classList.add('rs-nota-dragover');
+}
+function _dragLeaveNota(ev){
+  ev.currentTarget.classList.remove('rs-nota-dragover');
+}
+function _dropNota(ev,notaId){
+  ev.preventDefault();
+  ev.currentTarget.classList.remove('rs-nota-dragover');
+  _notaAtivaId=notaId;
+  renderNotasConcluir();
+  atualizarEstadoReceberBtn();
+}
+function renderNotasConcluir(){
+  const wrap=document.getElementById('rs-notas-lista');if(!wrap)return;
+  wrap.innerHTML=_notasConcluir.map(n=>{
+    const ativo=n.id===_notaAtivaId;
+    return `<div class="rs-nota-card" data-nota-id="${n.id}" ondragover="_dragOverNota(event)" ondragleave="_dragLeaveNota(event)" ondrop="_dropNota(event,'${n.id}')"
+      style="min-width:190px;border:2px dashed ${ativo?'#16a34a':'#cbd5e1'};border-radius:10px;padding:10px;background:${ativo?'#f0fdf4':'#f8fafc'};flex-shrink:0;transition:all .15s;">
+      <input type="text" class="form-input rs-nota-numero" placeholder="Nº da Nota Fiscal" value="${(n.numero||'').replace(/"/g,'&quot;')}" style="font-size:12px;margin-bottom:6px;" oninput="_notaNumeroChange('${n.id}',this.value)">
+      <div style="font-size:11px;text-align:center;padding:8px;border-radius:6px;font-weight:${ativo?'700':'400'};color:${ativo?'#16a34a':'#94a3b8'};">
+        ${ativo?'✅ Pedido vinculado aqui':'⬇️ Arraste o pedido aqui'}
+      </div>
+      <button type="button" class="btn btn-ghost btn-sm" style="color:#dc2626;font-size:11px;margin-top:2px;width:100%;justify-content:center;" onclick="removerNotaConcluir('${n.id}')">🗑 Remover</button>
+    </div>`;
+  }).join('')||'<div style="font-size:12px;color:#94a3b8;padding:10px;border:1.5px dashed #e2e8f0;border-radius:10px;">Nenhuma nota adicionada. Clique em "+ Adicionar Nota".</div>';
+}
+function atualizarEstadoReceberBtn(){
+  if(_recebModo!=='concluir')return;
+  const btn=document.getElementById('btn-rs-salvar');if(!btn)return;
+  const itensPreenchidos=[...document.querySelectorAll('#rs-itens .rs-qtd')].some(i=>(parseFloat(i.value)||0)>0);
+  if(_notasConcluir.length===0){
+    // ninguém adicionou nota nenhuma: comportamento simples de sempre (sem exigir nota)
+    btn.disabled=false;btn.textContent='✅ Receber o restante';return;
+  }
+  if(!_notaAtivaId){
+    btn.disabled=true;btn.textContent='Arraste o pedido até uma nota';return;
+  }
+  const n=_notasConcluir.find(x=>x.id===_notaAtivaId);
+  btn.disabled=false;
+  btn.textContent='✅ Receber o restante'+(n&&n.numero?' — NF '+n.numero:'');
+}
+
+function abrirRecebimentoSol(pedId){
+  _pedReceb=(_comprasPeds||[]).find(p=>p.id===pedId);if(!_pedReceb)return;
+  _editRecId=null;_recebModo='novo';
+  const p=_pedReceb;
+  const tit=document.getElementById('rs-tit');if(tit)tit.textContent='📥 Registrar Recebimento';
+  const bt=document.getElementById('btn-rs-salvar');if(bt)bt.textContent='📥 Confirmar recebimento';
+  document.getElementById('rs-info').innerHTML=`Pedido #${String(p.numero||0).padStart(4,'0')} — ${p.fornecedor||''}${_pedSolNumero(p)?(' · Solicitação '+_pedSolNumero(p)):''}`;
+  document.getElementById('rs-nf-wrap').style.display='';document.getElementById('rs-notas-wrap').style.display='none';
+  document.getElementById('rs-nf').value='';document.getElementById('rs-obs').value='';document.getElementById('rs-nc').checked=false;
+  {const _d=document.getElementById('rs-desconto');if(_d)_d.value='';const _f=document.getElementById('rs-frete');if(_f)_f.value='';}
+  document.getElementById('rs-data').value=new Date().toISOString().slice(0,10);
+  document.getElementById('rs-itens').innerHTML=(p.itens||[]).map((i,idx)=>{
+    const rest=Math.max(0,(Number(i.qtd)||0)-(Number(i.qtd_recebida)||0));
+    const it=_itens.find(x=>x.id===i.insumo_id)||{};
+    const vu=Number(it.custo_unitario)||0;
+    return _recebItemRow(i.insumo_id,i.nome,idx,rest,rest,vu,`Pedido: ${qShow(i.qtd)} · recebido: ${qShow(i.qtd_recebida||0)} · restante: ${qShow(rest)}`);
+  }).join('');
+  recalcRecebTotais();
+  document.getElementById('m-receb-sol').classList.remove('hidden');
+}
+function editarRecebimentoSol(recId){
+  const r=(_comprasRecs||[]).find(x=>x.id===recId);if(!r)return;
+  _editRecId=recId;_recebModo='editar';
+  _pedReceb=(_comprasPeds||[]).find(p=>p.id===r.pedido_id)||null;
+  const tit=document.getElementById('rs-tit');if(tit)tit.textContent='✏️ Editar Recebimento #'+String(r.numero||0).padStart(4,'0');
+  const bt=document.getElementById('btn-rs-salvar');if(bt)bt.textContent='💾 Salvar alterações';
+  document.getElementById('rs-info').innerHTML=`Editando dados do recebimento #${String(r.numero||0).padStart(4,'0')} (não altera o estoque)`;
+  document.getElementById('rs-nf-wrap').style.display='';document.getElementById('rs-notas-wrap').style.display='none';
+  document.getElementById('rs-nf').value=r.nota_fiscal||'';
+  document.getElementById('rs-obs').value=r.obs||'';
+  document.getElementById('rs-nc').checked=!!r.nao_conforme;
+  document.getElementById('rs-data').value=r.data||new Date().toISOString().slice(0,10);
+  {const _d=document.getElementById('rs-desconto');if(_d)_d.value=r.desconto||'';const _f=document.getElementById('rs-frete');if(_f)_f.value=r.frete||'';}
+  document.getElementById('rs-itens').innerHTML=(r.itens||[]).map((i,idx)=>{
+    const it=_itens.find(x=>x.id===i.insumo_id)||{};
+    const vu=Number(i.valor_unitario)||Number(it.custo_unitario)||0;
+    return _recebItemRow(i.insumo_id,i.nome,idx,null,Number(i.qtd)||0,vu,'Quantidade registrada (não altera estoque)');
+  }).join('');
+  recalcRecebTotais();
+  document.getElementById('m-receb-sol').classList.remove('hidden');
+}
+function concluirRecebimentoSol(recId){
+  const r=(_comprasRecs||[]).find(x=>x.id===recId);if(!r)return;
+  const p=(_comprasPeds||[]).find(x=>x.id===r.pedido_id);
+  if(!p){toast('Pedido de origem não encontrado.','warning');return;}
+  _editRecId=recId;_recebModo='concluir';_pedReceb=p;
+  const tit=document.getElementById('rs-tit');if(tit)tit.textContent='✅ Concluir Recebimento #'+String(r.numero||0).padStart(4,'0');
+  const bt=document.getElementById('btn-rs-salvar');
+  document.getElementById('rs-info').innerHTML=`Concluindo o pedido #${String(p.numero||0).padStart(4,'0')} — informe o que chegou agora (será somado ao estoque)`;
+  // Multi-nota: some notas passadas ficam como histórico informativo; a lista
+  // desta sessão começa com 1 card pré-preenchido com a última nota conhecida,
+  // e o usuário pode adicionar mais cards se o restante vier em notas diferentes.
+  document.getElementById('rs-nf-wrap').style.display='none';document.getElementById('rs-notas-wrap').style.display='';
+  _notasConcluir=[{id:_uidNota(),numero:r.nota_fiscal||''}];_notaAtivaId=null;
+  const chipTxt=document.getElementById('rs-pedido-chip-txt');
+  if(chipTxt)chipTxt.textContent=`Pedido #${String(p.numero||0).padStart(4,'0')} — ${p.fornecedor||''}`;
+  renderNotasConcluir();
+  document.getElementById('rs-obs').value=r.obs||'';
+  document.getElementById('rs-nc').checked=!!r.nao_conforme;
+  document.getElementById('rs-data').value=new Date().toISOString().slice(0,10);
+  {const _d=document.getElementById('rs-desconto');if(_d)_d.value=r.desconto||'';const _f=document.getElementById('rs-frete');if(_f)_f.value=r.frete||'';}
+  document.getElementById('rs-itens').innerHTML=(p.itens||[]).map((i,idx)=>{
+    const rest=Math.max(0,(Number(i.qtd)||0)-(Number(i.qtd_recebida)||0));
+    const it=_itens.find(x=>x.id===i.insumo_id)||{};
+    const recItem=(r.itens||[]).find(x=>x.insumo_id===i.insumo_id);
+    const vu=Number(recItem&&recItem.valor_unitario)||Number(it.custo_unitario)||0;
+    return _recebItemRow(i.insumo_id,i.nome,idx,rest,rest,vu,`Pedido: ${qShow(i.qtd)} · já recebido: ${qShow(i.qtd_recebida||0)} · falta: ${qShow(rest)}`);
+  }).join('');
+  recalcRecebTotais();
+  atualizarEstadoReceberBtn();
+  document.getElementById('m-receb-sol').classList.remove('hidden');
+}
+async function salvarRecebimentoSol(){
+  if(typeof guardAction==='function'&&!guardAction('solicitacoes','edit'))return;
+  const modo=_recebModo;
+  // Em "concluir" com notas adicionadas, a nota vem do card em que o pedido foi solto (drag-and-drop).
+  // Sem nenhuma nota adicionada, mantém o comportamento simples de sempre (sem exigir nota).
+  let nf;
+  if(modo==='concluir'&&_notasConcluir.length){
+    if(!_notaAtivaId){toast('Arraste o pedido até a nota fiscal correspondente antes de receber.','warning');return;}
+    const notaAtiva=_notasConcluir.find(n=>n.id===_notaAtivaId);
+    nf=(notaAtiva&&notaAtiva.numero.trim())||null;
+  } else {
+    nf=document.getElementById('rs-nf').value.trim()||null;
+  }
+  const p=_pedReceb;
+  const itensRec=[];let algum=false,geral=0;
+  document.querySelectorAll('#rs-itens .rs-qtd').forEach(inp=>{
+    const q=parseFloat(inp.value)||0;
+    const vu=parseFloat(document.querySelector(`.rs-vu[data-idx="${inp.dataset.idx}"]`)?.value)||0;
+    const insumo_id=inp.dataset.insumo||null, nome=inp.dataset.nome||'';
+    if(q>0){algum=true;const vt=q*vu;geral+=vt;itensRec.push({insumo_id,nome,qtd:q,valor_unitario:vu||null,valor_total:vt||null});}
+  });
+  const obs=document.getElementById('rs-obs').value.trim()||null;
+  const dataR=document.getElementById('rs-data').value||new Date().toISOString().slice(0,10);
+  const naoConf=document.getElementById('rs-nc').checked;
+  const desconto=parseFloat(document.getElementById('rs-desconto')?.value)||0;
+  const frete=parseFloat(document.getElementById('rs-frete')?.value)||0;
+  if(modo!=='editar'&&!algum){toast('Informe ao menos uma quantidade a receber.','warning');return;}
+  const btn=document.getElementById('btn-rs-salvar');if(btn){btn.disabled=true;btn.textContent='\u23f3 Salvando...';}
+  try{
+    if(modo==='editar'){
+      // ===== EDITAR: só atualiza os dados do recebimento e o custo unitário; NÃO mexe no estoque =====
+      const rec=(_comprasRecs||[]).find(x=>x.id===_editRecId);
+      const final=geral-desconto+frete;
+      for(const r of itensRec){if(r.valor_unitario!=null){const it=_itens.find(x=>x.id===r.insumo_id);if(it){try{await _supabase.from('almoxarifado').update({custo_unitario:r.valor_unitario}).eq('id',it.id);it.custo_unitario=r.valor_unitario;}catch(e){}}}}
+      try{await resilientSave('compras_recebimentos',{data:dataR,itens:itensRec,nota_fiscal:nf,obs,nao_conforme:naoConf,desconto,frete,valor_total_geral:geral,valor_final:final},_editRecId);}catch(e){}
+      try{await addLog('UPDATE','SOLICITACOES','rec-'+((rec&&rec.numero)||''),'Edicao do recebimento #'+((rec&&rec.numero)||''));}catch(e){}
+      toast('\u2705 Recebimento atualizado (o estoque não foi alterado).','success');
+    } else if(modo==='concluir'){
+      // ===== CONCLUIR: soma o que chegou agora ao estoque e mescla no MESMO recebimento =====
+      if(!p)return;
+      const rec=(_comprasRecs||[]).find(x=>x.id===_editRecId);
+      // estoque + custo + movimento (delta = o que chegou agora)
+      for(const r of itensRec){
+        const it=_itens.find(x=>x.id===r.insumo_id);
+        try{await _supabase.from('almoxarifado_movimentos').insert({insumo_id:r.insumo_id,tipo:'entrada',quantidade:r.qtd,data:dataR,valor_unitario:r.valor_unitario,observacao:'Conclusao recebimento pedido #'+String(p.numero).padStart(4,'0')+(nf?' NF '+nf:'')});}catch(e){}
+        if(it){const upd={estoque_atual:(Number(it.estoque_atual)||0)+r.qtd};if(r.valor_unitario!=null)upd.custo_unitario=r.valor_unitario;try{await _supabase.from('almoxarifado').update(upd).eq('id',it.id);it.estoque_atual=upd.estoque_atual;if(r.valor_unitario!=null)it.custo_unitario=r.valor_unitario;}catch(e){}}
+      }
+      // pedido: soma qtd_recebida
+      const novosItens=(p.itens||[]).map(i=>{const r=itensRec.find(x=>x.insumo_id===i.insumo_id);return r?{...i,qtd_recebida:(Number(i.qtd_recebida)||0)+r.qtd}:i;});
+      const tudo=novosItens.every(i=>(Number(i.qtd_recebida)||0)>=(Number(i.qtd)||0));
+      const novoStatus=tudo?'recebido_total':'recebido_parcial';
+      try{await _supabase.from('compras_pedidos').update({itens:novosItens,status:novoStatus,atualizado_em:new Date().toISOString()}).eq('id',p.id);}catch(e){}
+      p.itens=novosItens;p.status=novoStatus;
+      // mescla itens no recebimento (acumula quantidade)
+      const merged=((rec&&rec.itens)||[]).map(x=>({...x}));
+      itensRec.forEach(r=>{const ex=merged.find(m=>m.insumo_id===r.insumo_id);if(ex){ex.qtd=(Number(ex.qtd)||0)+r.qtd;if(r.valor_unitario!=null)ex.valor_unitario=r.valor_unitario;}else merged.push({insumo_id:r.insumo_id,nome:r.nome,qtd:r.qtd,valor_unitario:r.valor_unitario});});
+      let geralCum=0;merged.forEach(it=>{it.valor_total=(Number(it.qtd)||0)*(Number(it.valor_unitario)||0);geralCum+=it.valor_total;});
+      const finalCum=geralCum-desconto+frete;
+      // Histórico de notas: acumula esta nota (se houver) junto das anteriores, sem perder nenhuma —
+      // é o que resolve o caso do restante chegando em mais de uma nota fiscal.
+      const notasAnteriores=Array.isArray(rec&&rec.notas)?rec.notas.slice():(rec&&rec.nota_fiscal?[{numero:rec.nota_fiscal,data:rec.data||null}]:[]);
+      const notasHistorico=nf?[...notasAnteriores.filter(n=>n.numero!==nf),...[{numero:nf,data:dataR,itens:itensRec.map(r=>({insumo_id:r.insumo_id,nome:r.nome,qtd:r.qtd}))}]]:notasAnteriores;
+      const nfExibicao=notasHistorico.map(n=>n.numero).filter(Boolean).join(', ')||nf;
+      try{await resilientSave('compras_recebimentos',{data:dataR,itens:merged,nota_fiscal:nfExibicao,notas:notasHistorico,obs,nao_conforme:naoConf,desconto,frete,valor_total_geral:geralCum,valor_final:finalCum},_editRecId);}catch(e){}
+      if(p.solicitacao_id){const novoSt=tudo?'atendida':'em_pedido';try{await _supabase.from('compras_solicitacoes').update({status:novoSt,atualizado_em:new Date().toISOString()}).eq('id',p.solicitacao_id);}catch(e){}const c=_comprasSols.find(x=>x.id===p.solicitacao_id);if(c)c.status=novoSt;}
+      try{await addLog('UPDATE','SOLICITACOES','rec-'+((rec&&rec.numero)||''),'Conclusao do recebimento #'+((rec&&rec.numero)||'')+' ('+novoStatus+')');}catch(e){}
+      toast(tudo?'\u2705 Recebimento concluído e estoque atualizado!':'\u2705 Parcial recebido. Estoque atualizado; ainda falta receber.','success');
+    } else {
+      // ===== NOVO: cria o recebimento e adiciona ao estoque =====
+      if(!p)return;
+      const final=geral-desconto+frete;
+      const numero=((_comprasRecs||[]).length?Math.max(...(_comprasRecs||[]).map(x=>Number(x.numero)||0)):0)+1;
+      const hist=[{acao:'recebido',por:(_user&&_user.nome)||'',em:new Date().toISOString(),obs:'Recebimento registrado pelo solicitante'}];
+      const reg={pedido_id:p.id,numero,data:dataR,recebido_por:(_user&&_user.nome)||'',itens:itensRec,nota_fiscal:nf,obs,nao_conforme:naoConf,desconto,frete,valor_total_geral:geral,valor_final:final,historico:hist};
+      await resilientSave('compras_recebimentos',reg,null);
+      const novosItens=(p.itens||[]).map(i=>{const r=itensRec.find(x=>x.insumo_id===i.insumo_id);return r?{...i,qtd_recebida:(Number(i.qtd_recebida)||0)+r.qtd}:i;});
+      const tudo=novosItens.every(i=>(Number(i.qtd_recebida)||0)>=(Number(i.qtd)||0));
+      const novoStatus=tudo?'recebido_total':'recebido_parcial';
+      try{await _supabase.from('compras_pedidos').update({itens:novosItens,status:novoStatus,atualizado_em:new Date().toISOString()}).eq('id',p.id);}catch(e){}
+      p.itens=novosItens;p.status=novoStatus;
+      for(const r of itensRec){
+        const it=_itens.find(x=>x.id===r.insumo_id);
+        try{await _supabase.from('almoxarifado_movimentos').insert({insumo_id:r.insumo_id,tipo:'entrada',quantidade:r.qtd,data:dataR,valor_unitario:r.valor_unitario,observacao:'Entrada recebimento pedido #'+String(p.numero).padStart(4,'0')+(nf?' NF '+nf:'')});}catch(e){}
+        if(it){const upd={estoque_atual:(Number(it.estoque_atual)||0)+r.qtd};if(r.valor_unitario!=null)upd.custo_unitario=r.valor_unitario;try{await _supabase.from('almoxarifado').update(upd).eq('id',it.id);it.estoque_atual=upd.estoque_atual;if(r.valor_unitario!=null)it.custo_unitario=r.valor_unitario;}catch(e){}}
+      }
+      if(p.solicitacao_id){const novoSt=tudo?'atendida':'em_pedido';try{await _supabase.from('compras_solicitacoes').update({status:novoSt,atualizado_em:new Date().toISOString()}).eq('id',p.solicitacao_id);}catch(e){}const c=_comprasSols.find(x=>x.id===p.solicitacao_id);if(c)c.status=novoSt;}
+      if(naoConf){const desc=obs||'Nao conformidade no recebimento';try{await _supabase.from('compras_nc').insert({pedido_id:p.id,fornecedor_id:p.fornecedor_id||null,fornecedor:p.fornecedor||null,data:dataR,descricao:desc,gravidade:'media',status:'aberta'});}catch(e){}}
+      try{await addLog('CREATE','SOLICITACOES','rec-'+numero,'Recebimento do pedido #'+p.numero+' ('+novoStatus+')'+(naoConf?' [NC]':''));}catch(e){}
+      toast(tudo?'\u2705 Recebimento confirmado e estoque atualizado!':'\u2705 Recebimento parcial registrado. Use "Concluir" quando o restante chegar.','success');
+    }
+    closeModal('m-receb-sol');
+    _editRecId=null;_recebModo='novo';_notasConcluir=[];_notaAtivaId=null;
+    await init();showTab('recebimentos');
+  }catch(e){toast('Erro ao salvar recebimento: '+(e.message||e),'danger');}
+  finally{if(btn){btn.disabled=false;btn.textContent=modo==='editar'?'\ud83d\udcbe Salvar altera\u00e7\u00f5es':(modo==='concluir'?'\u2705 Receber o restante':'\ud83d\udce5 Confirmar recebimento');}}
+}
+function imprimirRecebimentoSol(id){
+  const r=(_comprasRecs||[]).find(x=>x.id===id);if(!r)return;
+  const p=(_comprasPeds||[]).find(x=>x.id===r.pedido_id);
+  const w=window.open('','_blank');if(!w){toast('Permita pop-ups para gerar o termo.','warning');return;}
+  const brl=v=>(Number(v)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+  const itens=(r.itens||[]).map(i=>`<tr><td>${i.nome}</td><td style="text-align:center;">${qShow(i.qtd)}</td><td style="text-align:right;">${brl(i.valor_unitario)}</td><td style="text-align:right;">${brl(i.valor_total!=null?i.valor_total:(Number(i.qtd)||0)*(Number(i.valor_unitario)||0))}</td></tr>`).join('');
+  const totalGeral=Number(r.valor_total_geral)||(r.itens||[]).reduce((s,i)=>s+(Number(i.valor_total)||((Number(i.qtd)||0)*(Number(i.valor_unitario)||0))),0);
+  const descV=Number(r.desconto)||0, freteV=Number(r.frete)||0, finalV=Number(r.valor_final)||(totalGeral-descV+freteV);
+  w.document.write(`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>TERMO DE RECEBIMENTO ${String(r.numero||0).padStart(4,'0')}</title>
+  <style>*{box-sizing:border-box;}body{font-family:Arial,sans-serif;font-size:12px;padding:20px;color:#1e293b;}table{width:100%;border-collapse:collapse;margin-top:8px;}th{background:#1e3a5f;color:#fff;padding:6px 8px;text-align:left;}td{padding:5px 8px;border-bottom:1px solid #e2e8f0;}@media print{@page{margin:1cm;}}</style></head><body>
+  ${empHeader()}
+  <h2 style="color:#1e3a5f;margin:0 0 4px;">TERMO DE RECEBIMENTO — Nº ${String(r.numero||0).padStart(4,'0')}</h2>
+  <div style="font-size:11px;color:#94a3b8;margin-bottom:8px;">Pedido ${p?'#'+String(p.numero||0).padStart(4,'0'):'—'} · Fornecedor: ${p?.fornecedor||'—'} · Data: ${r.data||'—'} · NF: ${r.nota_fiscal||'—'}</div>
+  <table><thead><tr><th>Item</th><th style="text-align:center;">Qtd</th><th style="text-align:right;">Valor Unit.</th><th style="text-align:right;">Valor Total</th></tr></thead><tbody>${itens}</tbody>
+  <tfoot><tr><td colspan="3" style="text-align:right;padding:4px 8px;">Valor Total (produtos)</td><td style="text-align:right;padding:4px 8px;">${brl(totalGeral)}</td></tr>
+  <tr><td colspan="3" style="text-align:right;padding:4px 8px;">Desconto</td><td style="text-align:right;padding:4px 8px;">- ${brl(descV)}</td></tr>
+  <tr><td colspan="3" style="text-align:right;padding:4px 8px;">Frete</td><td style="text-align:right;padding:4px 8px;">+ ${brl(freteV)}</td></tr>
+  <tr><td colspan="3" style="text-align:right;font-weight:800;padding:6px 8px;border-top:2px solid #1e3a5f;">Valor Final (NF)</td><td style="text-align:right;font-weight:800;padding:6px 8px;border-top:2px solid #1e3a5f;">${brl(finalV)}</td></tr></tfoot></table>
+  ${r.obs?`<div style="margin-top:10px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:8px 10px;"><strong>Observações:</strong> ${r.obs}</div>`:''}
+  ${r.nao_conforme?'<div style="margin-top:8px;color:#b91c1c;">⚠️ Recebimento com não conformidade registrada.</div>':''}
+  <div style="margin-top:30px;font-size:11px;">Recebido por: <strong>${r.recebido_por||'—'}</strong></div>
+  </body></html>`);
+  w.document.close();setTimeout(()=>w.print(),400);
+}
+
+/* ═══ MONITOR (visão para print/compartilhar) ═══════════ */
+function monAprovacaoInfo(sol){
+  const st=sol.status||'pendente';
+  const dt=sol.aprovado_em?(' · '+new Date(sol.aprovado_em).toLocaleDateString('pt-BR')):'';
+  if(st==='aprovada')  return{cls:'sb-comprado',txt:'✅ Aprovado'+dt};
+  if(st==='reprovada') return{cls:'sb-canc',txt:'❌ Reprovada'+dt};
+  if(st==='cancelada') return{cls:'sb-canc',txt:'🚫 Cancelada'};
+  return{cls:'sb-pend',txt:'⏳ Aguardando aprovação'};
+}
+function monComprasInfo(sol){
+  if((sol.status||'pendente')!=='aprovada')return{cls:'',txt:'—'};
+  const c=comprasVinculada(sol);
+  const map={aprovada:{cls:'sb-pend',txt:'🆕 Aberto p/ Compras'},aguardando_cotacao:{cls:'sb-cot',txt:'✅ Aguardando Cotação'},em_cotacao:{cls:'sb-cot',txt:'💬 Em Cotação'},em_pedido:{cls:'sb-receb',txt:'📦 Em Pedido'},emitido:{cls:'sb-receb',txt:'📦 Pedido Emitido'},aguardando_entrega:{cls:'sb-receb',txt:'🚚 Aguard. Entrega'},recebido_parcial:{cls:'sb-receb',txt:'📥 Receb. Parcial'},recebido_total:{cls:'sb-concl',txt:'🎉 Recebido'},atendida:{cls:'sb-concl',txt:'🎉 Atendida'},reprovada:{cls:'sb-canc',txt:'❌ Reprovada'},cancelada:{cls:'sb-canc',txt:'🚫 Cancelada'},devolvida:{cls:'sb-pend',txt:'↩️ Devolvida'}};
+  if(c&&map[c.status])return map[c.status];
+  return{cls:'sb-pend',txt:'🆕 Aberto p/ Compras'};
+}
+function monPrioridade(p){
+  const m={urgente:{c:'#dc2626',t:'🔴 Urgente'},alta:{c:'#ea580c',t:'🟠 Alta'},normal:{c:'#b45309',t:'🟡 Normal'},baixa:{c:'#16a34a',t:'🟢 Baixa'}};
+  return m[p]||{c:'#64748b',t:p||'—'};
+}
+function monDescricao(sol){
+  const prods=prodsDe(sol);
+  if(!prods.length)return '—';
+  return prods.map(p=>`<div style="padding:1px 0;">${p.quantidade?'<strong>'+qShow(p.quantidade)+'×</strong> ':''}${p.nome_item||(typeof nomeItem==='function'?nomeItem(p.item_id):'Item')}</div>`).join('');
+}
+function monCentroCusto(sol){
+  const ccs=[...new Set(prodsDe(sol).map(p=>ccLabel(p.centro_custo_id)).filter(Boolean))];
+  return ccs.length?ccs.join(' · '):'—';
+}
+function monNatureza(sol){
+  const nats=[...new Set(prodsDe(sol).map(p=>p.natureza_nome||natLabel(p.natureza_id)).filter(Boolean))];
+  return nats.length?nats.join(' · '):'—';
+}
+// Chave de status unificada — igual à exibida na coluna Status do Monitor:
+// antes da aprovação usa o status próprio; depois de aprovada, a coluna do Kanban do Compras.
+function monStatusKey(sol){
+  const st=sol.status||'pendente';
+  if(st==='reprovada')return 'reprovada';
+  if(st==='cancelada')return 'cancelado';
+  if(st!=='aprovada')return 'pendente';
+  return kanbanColDe(sol); // aberto, em_cotacao, pedido, parcial, concluido, cancelado
+}
+function monLista(){
+  const f=document.getElementById('mon-f-status')?.value??'ativas';
+  let lista=_solicitacoes.slice();
+  if(f==='ativas') lista=lista.filter(s=>!['concluido','cancelado','reprovada'].includes(monStatusKey(s)));
+  else if(f) lista=lista.filter(s=>monStatusKey(s)===f);
+  return lista.sort((a,b)=>String(a.numero||'').localeCompare(String(b.numero||''),'pt',{numeric:true}));
+}
+function monitorTabelaHTML(){
+  const lista=monLista();
+  const linhas=lista.map(sol=>{
+    const st=statusDisplay(sol),pr=monPrioridade(sol.prioridade);
+    return `<tr>
+      <td style="font-weight:800;color:var(--primary);white-space:nowrap;">${sol.numero||'—'}</td>
+      <td style="min-width:200px;">${monDescricao(sol)}</td>
+      <td style="white-space:nowrap;font-family:monospace;font-size:11px;">${monCentroCusto(sol)}</td>
+      <td style="white-space:nowrap;font-family:monospace;font-size:11px;">${monNatureza(sol)}</td>
+      <td style="white-space:nowrap;">${sol.data?new Date(sol.data+'T00:00').toLocaleDateString('pt-BR'):'—'}</td>
+      <td><span class="sb ${st.cls}">${st.txt}</span></td>
+      <td style="white-space:nowrap;">${progLabel(sol)}</td>
+      <td style="white-space:nowrap;font-weight:700;color:${pr.c};">${pr.t}</td>
+    </tr>`;
+  }).join('');
+  return `<table style="width:100%;border-collapse:collapse;font-size:13px;">
+    <thead><tr style="background:#1e3a5f;color:#fff;">
+      <th style="padding:9px 10px;text-align:left;">Nº</th>
+      <th style="padding:9px 10px;text-align:left;">Descrição</th>
+      <th style="padding:9px 10px;text-align:left;">Centro de Custo</th>
+      <th style="padding:9px 10px;text-align:left;">Natureza</th>
+      <th style="padding:9px 10px;text-align:left;">Data Solic.</th>
+      <th style="padding:9px 10px;text-align:left;">Status</th>
+      <th style="padding:9px 10px;text-align:left;">Programado p/</th>
+      <th style="padding:9px 10px;text-align:left;">Prioridade</th>
+    </tr></thead>
+    <tbody>${linhas||'<tr><td colspan="8" style="text-align:center;padding:30px;color:#94a3b8;">Nenhuma solicitação.</td></tr>'}</tbody>
+  </table>`;
+}
+function renderMonitor(){
+  const wrap=document.getElementById('monitor-wrap');if(!wrap)return;
+  // estilo zebra/linhas para leitura no print
+  wrap.innerHTML=`<style>#monitor-wrap td{padding:8px 10px;border-bottom:1px solid #eef2f6;vertical-align:middle;}#monitor-wrap tbody tr:nth-child(even){background:#f8fafc;}</style>`+monitorTabelaHTML();
+  const ts=document.getElementById('monitor-ts');if(ts)ts.textContent='Atualizado em '+new Date().toLocaleString('pt-BR');
+}
+/* Correção única: multiplica por 1000 as quantidades fracionadas (< 1) gravadas
+   antigamente como milésimos (ex: 0.002 -> 2). Idempotente: valores já inteiros
+   não são tocados, então rodar de novo não causa nova multiplicação. */
+async function corrigirQuantidades(){
+  if(typeof guardAction==='function' && !guardAction('solicitacoes','edit'))return;
+  const alvos=[];let totalItens=0;
+  _solicitacoes.forEach(s=>{
+    const prods=prodsDe(s);let mudou=false;
+    const novos=prods.map(p=>{
+      const q=Number(p.quantidade);
+      if(q>0&&q<1){mudou=true;return Object.assign({},p,{quantidade:Math.round(q*1000)});}
+      return p;
+    });
+    if(mudou){const n=novos.filter((x,i)=>x.quantidade!==Number(prods[i].quantidade)).length;totalItens+=n;alvos.push({id:s.id,numero:s.numero,novos});}
+  });
+  if(!alvos.length){toast('Nenhuma quantidade fracionada encontrada. Nada a corrigir.','success');return;}
+  document.getElementById('confirm-msg').innerHTML=`Corrigir <strong>${totalItens}</strong> quantidade(s) fracionada(s) em <strong>${alvos.length}</strong> solicitação(ões)?<br><span style="font-size:12px;color:#64748b;">Ex.: 0.002 → 2. Valores já inteiros não serão alterados. Esta ação grava no banco.</span>`;
+  document.getElementById('confirm-ok').onclick=async()=>{
+    const btn=document.getElementById('confirm-ok');btn.disabled=true;const txt=btn.textContent;btn.textContent='⏳ Corrigindo...';
+    let ok=0;const erros=[];
+    for(const a of alvos){
+      try{
+        await resilientSave('almoxarifado_solicitacoes',{produtos:JSON.stringify(a.novos),atualizado_em:new Date().toISOString()},a.id);
+        ok++;
+      }catch(e){erros.push((a.numero||a.id)+': '+(e.message||e));}
+    }
+    try{await addLog('UPDATE','SOLICITACOES','corrigir-qtd','Correção de quantidades: '+ok+' solicitação(ões), '+totalItens+' item(ns)');}catch(e){}
+    closeModal('m-confirm');
+    if(ok>0)toast('✅ '+ok+' solicitação(ões) corrigida(s).','success');
+    if(erros.length){console.warn('Falhas na correção:',erros);toast('⚠️ '+erros.length+' falha(s). Veja o console.','warning');}
+    btn.disabled=false;btn.textContent=txt;
+    await init();showTab('monitor');
+  };
+  document.getElementById('m-confirm').classList.remove('hidden');
+}
+function imprimirMonitor(){
+  const w=window.open('','_blank');if(!w){toast('Permita pop-ups para imprimir.','warning');return;}
+  const nf=_empresa.nome_fantasia||_empresa.razao_social||'ERP Industrial';
+  w.document.write(`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>Monitor de Solicitações</title>
+  <style>
+    *{box-sizing:border-box;}body{font-family:Arial,sans-serif;font-size:12px;color:#1e293b;padding:18px;margin:0;}
+    h2{color:#1e3a5f;margin:0 0 2px;font-size:17px;}
+    .sub{font-size:11px;color:#94a3b8;margin-bottom:12px;}
+    table{width:100%;border-collapse:collapse;font-size:11px;}
+    th{background:#1e3a5f;color:#fff;padding:7px 8px;text-align:left;}
+    td{padding:6px 8px;border-bottom:1px solid #e2e8f0;}
+    tbody tr:nth-child(even){background:#f8fafc;}
+    .sb{display:inline-block;padding:2px 8px;border-radius:6px;font-size:10px;font-weight:700;}
+    .sb-pend{background:#fffbeb;color:#b45309;}.sb-cot{background:#ede9fe;color:#7c3aed;}
+    .sb-comprado{background:#dcfce7;color:#16a34a;}.sb-receb{background:#e0f2fe;color:#0369a1;}
+    .sb-concl{background:#dcfce7;color:#15803d;}.sb-canc{background:#fee2e2;color:#dc2626;}
+    @media print{@page{size:A4 landscape;margin:8mm;}body{padding:0;}}
+  </style></head><body>
+    <h2>📺 Monitor de Solicitações — ${nf}</h2>
+    <div class="sub">Atualizado em ${new Date().toLocaleString('pt-BR')}</div>
+    ${monitorTabelaHTML()}
+  </body></html>`);
+  w.document.close();setTimeout(()=>w.print(),400);
+}
+
+/* ═══ STATUS (espelha exatamente as colunas do Kanban do Compras) ═══ */
+function comprasVinculada(sol){
+  if(!sol)return null;
+  const link=sol.compras_sol_id;
+  // Vínculo reconstruído pelo banco, em ordem de confiança:
+  // compras_sol_id (direto) → codigo (= numero da solicitação, é o que sobrevive no banco) → origem_id/origem_ref.
+  return (_comprasSols||[]).find(c=>
+    (link&&c.id===link) ||
+    (c.codigo!=null&&sol.numero!=null&&String(c.codigo)===String(sol.numero)) ||
+    (c.origem_id&&c.origem_id===sol.id) ||
+    (c.origem_ref&&(c.origem_ref===sol.id||String(c.origem_ref)===String(sol.numero)))
+  )||null;
+}
+function comprasPedidoDe(sol){
+  const c=comprasVinculada(sol);if(!c)return null;
+  const peds=(_comprasPeds||[]).filter(p=>p.solicitacao_id===c.id);
+  if(!peds.length)return null;
+  // prioriza um pedido não-cancelado (o que de fato representa o andamento no Kanban)
+  return peds.find(p=>p.status!=='cancelado')||peds[0];
+}
+// Rótulos idênticos aos das colunas do Kanban (compras.html KB_COLS)
+const KANBAN_LABEL={
+  aberto:{cls:'sb-pend',txt:'📝 Solicitação em Aberto'},
+  em_cotacao:{cls:'sb-cot',txt:'💬 Em Cotação'},
+  pedido:{cls:'sb-receb',txt:'📦 Pedido Emitido'},
+  parcial:{cls:'sb-receb',txt:'📥 Recebimento Parcial'},
+  concluido:{cls:'sb-concl',txt:'✔️ Concluído'},
+  cancelado:{cls:'sb-canc',txt:'✕ Cancelado'},
+};
+// Determina a coluna do Kanban de Compras para uma solicitação (mesma lógica de renderKanban)
+function kanbanColDe(sol){
+  const c=comprasVinculada(sol);
+  const cStatus=c?c.status:'aprovada';
+  const ped=comprasPedidoDe(sol);
+  if(ped&&ped.status!=='cancelado'){
+    if(ped.status==='recebido_total')return 'concluido';
+    if(ped.status==='recebido_parcial')return 'parcial';
+    return 'pedido'; // emitido / aguardando_entrega
+  }
+  if(['aprovada','pendente','devolvida','aguardando_cotacao'].includes(cStatus))return 'aberto';
+  if(cStatus==='em_cotacao')return 'em_cotacao';
+  if(cStatus==='em_pedido')return 'pedido';
+  if(cStatus==='recebido_parcial')return 'parcial';
+  if(cStatus==='atendida'||cStatus==='recebido_total')return 'concluido';
+  if(cStatus==='reprovada'||cStatus==='cancelada')return 'cancelado';
+  return 'aberto';
+}
+function statusDisplay(sol){
+  // Solicitações que não foram para o Compras mantêm o status próprio
+  if(sol.status==='reprovada')return{cls:'sb-canc',txt:'❌ Reprovada'};
+  if(sol.status==='cancelada')return{cls:'sb-canc',txt:'🚫 Cancelada'};
+  if(sol.status!=='aprovada')return{cls:'sb-pend',txt:'⏳ Aguardando Aprovação'};
+  // Aprovadas: exibe exatamente o status (coluna) do Kanban de Compras
+  return KANBAN_LABEL[kanbanColDe(sol)]||KANBAN_LABEL.aberto;
+}
+
+/* ═══ KPIs ══════════════════════════════════════════════ */
+function renderKPIs(){
+  const total=_solicitacoes.length;
+  const pend=_solicitacoes.filter(s=>(s.status||'pendente')==='pendente').length;
+  const aprov=_solicitacoes.filter(s=>s.status==='aprovada').length;
+  const urg=_solicitacoes.filter(s=>s.prioridade==='urgente'&&(s.status||'pendente')==='pendente').length;
+  document.getElementById('sol-kpis').innerHTML=[
+    ['📝 Total',total,'#475569'],
+    ['⏳ Aguardando Aprov.',pend,pend?'#b45309':'#94a3b8'],
+    ['✅ Aprovadas',aprov,aprov?'#16a34a':'#94a3b8'],
+    ['🔴 Urgentes (pend.)',urg,urg?'#dc2626':'#94a3b8'],
+  ].map(([t,v,cor])=>`<div class="kpi-alm"><div style="font-size:18px;font-weight:800;color:${cor};">${v}</div><div style="font-size:11px;color:#64748b;margin-top:2px;">${t}</div></div>`).join('');
+  const badge=document.getElementById('aprov-badge');if(badge){badge.textContent=pend;badge.style.display=pend?'inline-block':'none';}
+}
+
+/* ═══ LISTA SOLICITAÇÃO ═════════════════════════════════ */
+function prodsDe(s){return Array.isArray(s.produtos)?s.produtos:(()=>{try{return JSON.parse(s.produtos||'[]');}catch(e){return[];}})();}
+function progLabel(s){
+  let modo=s.programado,dias=s.programado_dias,data=s.programado_data;
+  if((modo==='data')&&data)return '📅 '+new Date(data+'T00:00').toLocaleDateString('pt-BR');
+  const d=Number(dias)||0;
+  return d>0?('⚡ Em '+d+' dia(s)'):'⚡ Em dia';
+}
+function renderSolicitacoes(){
+  const busca=(document.getElementById('sol-busca')?.value||'').toLowerCase();
+  const stF=document.getElementById('sol-f-status')?.value||'',priorF=document.getElementById('sol-f-prior')?.value||'';
+  const lista=_solicitacoes.filter(s=>{
+    const stBase=s.status||'pendente';
+    if(stF&&stBase!==stF)return false;
+    if(priorF&&s.prioridade!==priorF)return false;
+    if(busca){const hay=((s.numero||'')+' '+(s.solicitante||'')+' '+(s.responsavel_solic||'')+' '+prodsDe(s).map(p=>p.nome_item||'').join(' ')).toLowerCase();if(!hay.includes(busca))return false;}
+    return true;
+  });
+  lista.sort((a,b)=>String(a.numero||'').localeCompare(String(b.numero||''),'pt',{numeric:true}));
+  const grid=document.getElementById('sol-grid'),empty=document.getElementById('sol-empty');
+  if(!grid)return;
+  if(!lista.length){grid.innerHTML='';empty.classList.remove('hidden');return;}
+  empty.classList.add('hidden');
+  const prCfg={urgente:{cor:'#dc2626',txt:'🔴 Urgente'},alta:{cor:'#ea580c',txt:'🟠 Alta'},normal:{cor:'#b45309',txt:'🟡 Normal'},baixa:{cor:'#16a34a',txt:'🟢 Baixa'}};
+  grid.innerHTML=lista.map(sol=>{
+    const prods=prodsDe(sol);const st=statusDisplay(sol);const pr=prCfg[sol.prioridade]||{cor:'#64748b',txt:sol.prioridade||'—'};
+    const podeEditar=(sol.status||'pendente')==='pendente';
+    return `<div class="sol-card">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;">
+        <div>
+          <div style="font-size:15px;font-weight:800;color:var(--primary);">${sol.numero||'SOL'} <span class="sb ${st.cls}">${st.txt}</span></div>
+          <div style="font-size:12px;color:#64748b;margin-top:3px;">${sol.data?new Date(sol.data+'T00:00').toLocaleDateString('pt-BR'):'—'} · 👤 ${sol.solicitante||'—'}${sol.responsavel_solic?' · 🧑‍💼 '+sol.responsavel_solic:''} · <span style="color:${pr.cor};font-weight:700;">${pr.txt}</span> · ${progLabel(sol)}</div>
+          <div style="font-size:12px;color:#475569;margin-top:4px;">${prods.length} item(ns): ${prods.slice(0,3).map(p=>p.nome_item||nomeItem(p.item_id)).join(', ')}${prods.length>3?' …':''}</div>
+          ${sol.obs?`<div style="font-size:11px;color:#94a3b8;margin-top:3px;">📝 ${sol.obs}</div>`:''}
+        </div>
+        <div class="table-actions" style="display:flex;gap:6px;flex-wrap:wrap;">
+          <button class="btn btn-secondary btn-sm" data-perm="solicitacoes.solicitacao:view" onclick="visualizarSolicitacao('${sol.id}')" title="Detalhes">👁️</button>
+          <button class="btn btn-secondary btn-sm" data-perm="solicitacoes.solicitacao:imprimir" onclick="imprimirSolicitacao('${sol.id}')" title="Imprimir PDF">🖨️</button>
+          ${podeEditar?`<button class="btn btn-secondary btn-sm" data-perm="solicitacoes.solicitacao:edit" onclick="abrirSolicitacao('${sol.id}')" title="Editar">✏️</button>`:''}
+          ${(sol.status||'pendente')==='pendente'?`<button class="btn btn-secondary btn-sm" style="color:#16a34a;" data-perm="solicitacoes.aprovacao:aprovar" onclick="abrirAprovacao('${sol.id}')" title="Aprovar">✅</button>`:''}
+          <button class="btn btn-danger btn-sm" data-perm="solicitacoes.solicitacao:delete" onclick="excluirSolicitacao('${sol.id}')" title="Excluir">🗑️</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+  if(typeof applyPermUI==='function')applyPermUI();
+}
+
+/* ═══ ABA APROVAÇÃO ═════════════════════════════════════ */
+function renderAprovacao(){
+  const lista=_solicitacoes.filter(s=>(s.status||'pendente')==='pendente');
+  const grid=document.getElementById('aprov-grid'),empty=document.getElementById('aprov-empty');
+  if(!grid)return;
+  if(!lista.length){grid.innerHTML='';empty.classList.remove('hidden');return;}
+  empty.classList.add('hidden');
+  grid.innerHTML=lista.map(sol=>{
+    const prods=prodsDe(sol);
+    return `<div class="sol-card" style="border-left:4px solid #f59e0b;cursor:pointer;transition:box-shadow .15s;" onclick="if(!event.target.closest('button'))abrirAprovacao('${sol.id}')" onmouseover="this.style.boxShadow='0 4px 14px rgba(0,0,0,.08)'" onmouseout="this.style.boxShadow='none'" title="Clique para avaliar">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;">
+        <div>
+          <div style="font-size:15px;font-weight:800;color:var(--primary);">${sol.numero||'SOL'} <span class="sb sb-pend">⏳ Aguardando Aprovação</span></div>
+          <div style="font-size:12px;color:#64748b;margin-top:3px;">${sol.data?new Date(sol.data+'T00:00').toLocaleDateString('pt-BR'):'—'} · 👤 ${sol.solicitante||'—'}${sol.responsavel_solic?' · 🧑‍💼 '+sol.responsavel_solic:''} · ${progLabel(sol)}</div>
+          <div style="font-size:12px;color:#475569;margin-top:4px;">${prods.map(p=>`${p.nome_item||nomeItem(p.item_id)} (${qShow(p.quantidade)})`).join(', ')}</div>
+          ${sol.obs?`<div style="font-size:11px;color:#94a3b8;margin-top:3px;">📝 ${sol.obs}</div>`:''}
+        </div>
+        <div class="table-actions" style="display:flex;gap:6px;flex-wrap:wrap;">
+          <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();visualizarSolicitacao('${sol.id}')" title="Detalhes">👁️</button>
+          <button class="btn btn-primary btn-sm" data-perm="solicitacoes.aprovacao:aprovar" onclick="event.stopPropagation();abrirAprovacao('${sol.id}')">Avaliar</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+  if(typeof applyPermUI==='function')applyPermUI();
+}
+
+/* ═══ VISUALIZAR ════════════════════════════════════════ */
+function detalheSolicitacaoHTML(sol){
+  const prods=prodsDe(sol);const st=statusDisplay(sol);
+  const prCfg={urgente:'🔴 Urgente',alta:'🟠 Alta',normal:'🟡 Normal',baixa:'🟢 Baixa'};
+  const campo=(rot,val)=>`<div><div style="font-size:10px;color:#94a3b8;text-transform:uppercase;font-weight:700;">${rot}</div><div style="font-weight:700;">${val||'—'}</div></div>`;
+  return `
+    <div style="background:linear-gradient(135deg,#1e3a5f,#2d5a8f);color:#fff;border-radius:10px;padding:12px 14px;margin-bottom:12px;">
+      <div style="font-size:11px;opacity:.85;letter-spacing:.04em;">SOLICITAÇÃO DE COMPRAS</div>
+      <div style="font-size:20px;font-weight:800;">${sol.numero||'—'} <span class="sb ${st.cls}" style="font-size:11px;vertical-align:middle;">${st.txt}</span></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:12px;">
+      ${campo('Data',sol.data?new Date(sol.data+'T00:00').toLocaleDateString('pt-BR'):'—')}
+      ${campo('Solicitante',sol.solicitante)}
+      ${campo('Responsável da solicitação',sol.responsavel_solic||sol.assin_nome||sol.solicitante)}
+      ${campo('Prioridade',prCfg[sol.prioridade]||sol.prioridade)}
+      ${campo('Programado para',progLabel(sol))}
+      ${sol.aprovado_por?campo('Aprovado por',(sol.aprovado_por||'')+(sol.aprovador_cargo?' · '+sol.aprovador_cargo:'')):campo('Status',st.txt)}
+    </div>
+    ${sol.obs?`<div style="background:#f8fafc;border-radius:8px;padding:8px 10px;font-size:12px;margin-bottom:10px;"><strong>Justificativa:</strong> ${sol.obs}</div>`:''}
+    ${sol.obs_aprovacao?`<div style="background:#f0fdf4;border-radius:8px;padding:8px 10px;font-size:12px;margin-bottom:10px;"><strong>Obs. do aprovador:</strong> ${sol.obs_aprovacao}</div>`:''}
+    <div style="font-size:11px;font-weight:700;color:#1e3a5f;margin:6px 0 4px;">Produtos solicitados (${prods.length})</div>
+    <div class="table-wrap"><table><thead><tr><th>Código</th><th>Produto</th><th>Qtd</th><th>Unid.</th><th>Centro de Custo</th><th>Natureza</th><th>Obs.</th></tr></thead><tbody>
+      ${prods.map(p=>{const it=_itens.find(x=>x.id===p.item_id)||{};return `<tr><td style="font-family:monospace;font-size:11px;">${it.codigo||'—'}</td><td><strong>${p.nome_item||nomeItem(p.item_id)}</strong></td><td style="text-align:center;">${qShow(p.quantidade)}</td><td style="text-align:center;">${it.unidade||'—'}</td><td style="font-size:11px;">${ccLabel(p.centro_custo_id)||'—'}</td><td style="font-size:11px;">${p.natureza_nome||natLabel(p.natureza_id)||'—'}</td><td>${p.obs||'—'}</td></tr>`;}).join('')}
+    </tbody></table></div>
+    <div style="display:flex;gap:30px;flex-wrap:wrap;margin-top:14px;">
+      ${sol.assinatura?`<div style="text-align:center;"><img src="${sol.assinatura}" style="height:54px;border:1px solid #e2e8f0;border-radius:6px;"><div style="font-size:12px;font-weight:700;margin-top:2px;">${sol.assin_nome||sol.responsavel_solic||''}</div><div style="font-size:10px;color:#94a3b8;">Responsável da solicitação${sol.assin_cargo?' · '+sol.assin_cargo:''}</div></div>`:''}
+      ${sol.aprovador_assinatura?`<div style="text-align:center;"><img src="${sol.aprovador_assinatura}" style="height:54px;border:1px solid #86efac;border-radius:6px;"><div style="font-size:12px;font-weight:700;margin-top:2px;">${sol.aprovado_por||''}</div><div style="font-size:10px;color:#94a3b8;">Aprovador${sol.aprovador_cargo?' · '+sol.aprovador_cargo:''}</div></div>`:''}
+    </div>`;
+}
+function visualizarSolicitacao(id){
+  const sol=_solicitacoes.find(s=>s.id===id);if(!sol)return;
+  document.getElementById('m-vis-sol-corpo').innerHTML=detalheSolicitacaoHTML(sol);
+  document.getElementById('btn-vis-sol-editar').onclick=()=>{closeModal('m-vis-sol');abrirSolicitacao(id);};
+  document.getElementById('btn-vis-sol-print').onclick=()=>imprimirSolicitacao(id);
+  document.getElementById('btn-vis-sol-editar').style.display='';
+  document.getElementById('m-vis-sol').classList.remove('hidden');
+  if(typeof applyPermUI==='function')applyPermUI();
+}
+
+/* ═══ NOVA / EDITAR ═════════════════════════════════════ */
+function preencherResponsavel(nome){
+  const f=_funcionarios.find(x=>(x.nome||'').toLowerCase()===(nome||'').toLowerCase());
+  const elNome=document.getElementById('sol-assin-nome');if(elNome)elNome.value=nome||'';
+  const elCargo=document.getElementById('sol-assin-cargo');
+  if(elCargo&&f){elCargo.value=f.funcao||f.setor||'';}
+}
+function preencherAprovador(nome){
+  const f=_funcionarios.find(x=>(x.nome||'').toLowerCase()===(nome||'').toLowerCase());
+  const elCargo=document.getElementById('aprov-cargo');
+  if(elCargo&&f){elCargo.value=f.funcao||f.setor||'';}
+}
+function autoFillAssinNome(nome){preencherResponsavel(nome);}
+function toggleProgData(){
+  const v=document.querySelector('input[name="sol-prog"]:checked')?.value;
+  document.getElementById('sol-prog-data').style.display=v==='data'?'':'none';
+  document.getElementById('wrap-prog-dias').style.display=v==='data'?'none':'flex';
+}
+async function gerarNumeroSol(){let max=0;(_solicitacoes||[]).forEach(s=>{const mt=/^SOL0*(\d+)$/i.exec(String(s.numero||'').trim());if(mt){const n=parseInt(mt[1]);if(n>max)max=n;}});return 'SOL'+String(max+1).padStart(3,'0');}
+
+function renderSolProdutos(){
+  const list=document.getElementById('sol-produtos-list');const empty=document.getElementById('sol-prod-empty');
+  if(!_solProdutos.length){list.innerHTML='';empty.style.display='';return;}
+  empty.style.display='none';
+  list.innerHTML=_solProdutos.map((p,idx)=>{
+    const it=_itens.find(i=>i.id===p.item_id)||{};const ccTxt=ccLabel(p.centro_custo_id);const natTxt=p.natureza_nome||natLabel(p.natureza_id);
+    return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;border:1.5px solid #e2e8f0;border-radius:10px;padding:8px 12px;background:#f8fafc;">
+      <div style="min-width:0;"><strong style="color:var(--primary);">${p.nome_item}</strong> <span style="font-size:12px;color:#475569;">· ${p.quantidade} ${it.unidade||''}</span>${ccTxt?`<div style="font-size:11px;color:#94a3b8;">CC: ${ccTxt}</div>`:''}${natTxt?`<div style="font-size:11px;color:#94a3b8;">Natureza: ${natTxt}</div>`:''}${p.obs?`<div style="font-size:11px;color:#94a3b8;">📝 ${p.obs}</div>`:''}</div>
+      <div style="display:flex;gap:4px;flex-shrink:0;">
+        <button class="btn btn-ghost btn-sm" style="color:var(--primary);" onclick="editarSolProduto(${idx})" title="Editar">✏️</button>
+        <button class="btn btn-ghost btn-sm" style="color:#dc2626;" onclick="removerSolProduto(${idx})" title="Excluir">🗑️</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+function removerSolProduto(idx){_solProdutos.splice(idx,1);renderSolProdutos();}
+
+function abrirSolicitacao(id){
+  _editSolId=id||null;_solProdutos=[];
+  const sol=_solicitacoes.find(s=>s.id===id);
+  document.getElementById('m-sol-tit').textContent=id?'Editar Solicitação':'Nova Solicitação';
+  document.getElementById('sol-data').value=sol?.data||new Date().toISOString().slice(0,10);
+  document.getElementById('sol-solic').value=sol?.solicitante||'';
+  document.getElementById('sol-resp').value=sol?.responsavel_solic||'';
+  document.getElementById('sol-prior').value=sol?.prioridade||'normal';
+  document.getElementById('sol-obs').value=sol?.obs||'';
+  document.getElementById('sol-assin-nome').value=sol?.assin_nome||sol?.responsavel_solic||'';
+  document.getElementById('sol-assin-cargo').value=sol?.assin_cargo||'';
+  // programado
+  const prog=sol?.programado==='data'?'data':'dias';
+  document.querySelectorAll('input[name="sol-prog"]').forEach(r=>r.checked=(r.value===prog));
+  document.getElementById('sol-prog-dias').value=(sol&&sol.programado!=='data'&&sol.programado_dias)?sol.programado_dias:'';
+  document.getElementById('sol-prog-data').value=sol?.programado_data||'';
+  toggleProgData();
+  // assinatura
+  limparAssinaturaCampo('sol-assin-data','sol-assin-thumb');
+  if(sol?.assinatura){const inp=document.getElementById('sol-assin-data');inp.value=sol.assinatura;const th=document.getElementById('sol-assin-thumb');th.src=sol.assinatura;th.style.display='inline-block';document.getElementById('sol-assin-clear').style.display='inline-block';}
+  // produtos
+  if(sol)prodsDe(sol).forEach(p=>_solProdutos.push({item_id:p.item_id,quantidade:qShow(p.quantidade),centro_custo_id:p.centro_custo_id||null,natureza_id:p.natureza_id||null,natureza_nome:p.natureza_nome||null,obs:p.obs||null,nome_item:p.nome_item||nomeItem(p.item_id)}));
+  renderSolProdutos();
+  document.getElementById('sol-error').classList.add('hidden');
+  document.getElementById('m-solicitacao').classList.remove('hidden');
+  if(typeof applyPermUI==='function')applyPermUI();
+}
+
+/* ── Modal adicionar produto ──────────────────────────── */
+let _addProdSel=null,_editProdIdx=null;
+function abrirAddProduto(){
+  _addProdSel=null;_editProdIdx=null;
+  document.getElementById('add-prod-title').textContent='📦 Adicionar Produto';
+  document.getElementById('add-prod-confirm-btn').textContent='+ Adicionar';
+  document.getElementById('add-prod-busca').value='';
+  document.getElementById('add-prod-qtd').value='';
+  document.getElementById('add-prod-obs').value='';
+  document.getElementById('add-prod-sel').textContent='Selecione um produto acima';
+  document.getElementById('add-prod-cc').innerHTML='<option value="">Centro de Custo</option>'+_centrosCusto.map(c=>`<option value="${c.id}">${c.codigo?c.codigo+' - ':''}${c.nome}</option>`).join('');
+  document.getElementById('add-prod-nat').innerHTML='<option value="">Natureza</option>'+_naturezas.map(n=>`<option value="${n.id}">${n.codigo?n.codigo+' - ':''}${n.nome}</option>`).join('');
+  filtrarAddProduto();
+  document.getElementById('m-add-produto').classList.remove('hidden');
+  setTimeout(()=>document.getElementById('add-prod-busca').focus(),100);
+}
+function editarSolProduto(idx){
+  const p=_solProdutos[idx];if(!p)return;
+  _editProdIdx=idx;_addProdSel=p.item_id;
+  const it=_itens.find(i=>i.id===p.item_id);
+  document.getElementById('add-prod-title').textContent='✏️ Editar Produto';
+  document.getElementById('add-prod-confirm-btn').textContent='💾 Salvar';
+  document.getElementById('add-prod-busca').value='';
+  document.getElementById('add-prod-qtd').value=(p.quantidade!=null?p.quantidade:'');
+  document.getElementById('add-prod-obs').value=p.obs||'';
+  document.getElementById('add-prod-sel').textContent='✓ '+(it?it.nome:(p.nome_item||''));
+  document.getElementById('add-prod-cc').innerHTML='<option value="">Centro de Custo</option>'+_centrosCusto.map(c=>`<option value="${c.id}">${c.codigo?c.codigo+' - ':''}${c.nome}</option>`).join('');
+  document.getElementById('add-prod-nat').innerHTML='<option value="">Natureza</option>'+_naturezas.map(n=>`<option value="${n.id}">${n.codigo?n.codigo+' - ':''}${n.nome}</option>`).join('');
+  document.getElementById('add-prod-cc').value=p.centro_custo_id||'';
+  document.getElementById('add-prod-nat').value=p.natureza_id||'';
+  filtrarAddProduto();
+  document.getElementById('m-add-produto').classList.remove('hidden');
+}
+function filtrarAddProduto(){
+  const q=(document.getElementById('add-prod-busca')?.value||'').toLowerCase().trim();
+  const lista=_itens.filter(i=>i.status!=='inativo').filter(i=>!q||(i.nome||'').toLowerCase().includes(q)||(i.codigo||'').toLowerCase().includes(q)||(i.marca||'').toLowerCase().includes(q)).slice(0,200);
+  const box=document.getElementById('add-prod-list');
+  if(!lista.length){box.innerHTML='<div style="text-align:center;color:#94a3b8;padding:18px;font-size:13px;">Nenhum produto encontrado.</div>';return;}
+  box.innerHTML=lista.map(i=>`<button type="button" onclick="selAddProduto('${i.id}')" style="display:flex;justify-content:space-between;gap:8px;text-align:left;border:1.5px solid ${_addProdSel===i.id?'#16a34a':'#e2e8f0'};border-radius:10px;padding:8px 12px;background:${_addProdSel===i.id?'#f0fdf4':'#fff'};cursor:pointer;font-family:inherit;">
+    <span style="min-width:0;"><strong style="color:var(--primary);">${i.nome}</strong>${i._epi?'<span style="font-size:10px;font-weight:700;background:#fef3c7;color:#b45309;border-radius:6px;padding:1px 6px;margin-left:6px;">🦺 EPI</span>':''}${i.marca&&!i._epi?`<span style="font-size:11px;color:#94a3b8;"> · ${i.marca}</span>`:''}<br><span style="font-size:11px;font-family:monospace;color:#64748b;">${i.codigo||'—'}</span></span>
+    <span style="font-size:11px;color:#64748b;white-space:nowrap;">${(i.estoque_atual||0).toLocaleString('pt-BR',{maximumFractionDigits:3})} ${i.unidade||''}</span>
+  </button>`).join('');
+}
+function selAddProduto(id){_addProdSel=id;const it=_itens.find(i=>i.id===id);document.getElementById('add-prod-sel').textContent='✓ '+(it?it.nome:'');filtrarAddProduto();}
+function confirmarAddProduto(){
+  if(!_addProdSel){toast('Selecione um produto.','warning');return;}
+  const qtd=Math.round(parseFloat(document.getElementById('add-prod-qtd').value)||0);
+  if(qtd<=0){toast('Informe a quantidade.','warning');return;}
+  const ccId=document.getElementById('add-prod-cc').value||null;
+  if(!ccId){toast('Selecione o Centro de Custo.','warning');return;}
+  const it=_itens.find(i=>i.id===_addProdSel);
+  const natEl=document.getElementById('add-prod-nat');
+  const natId=natEl?natEl.value||null:null;
+  if(!natId){toast('Selecione a Natureza.','warning');return;}
+  const natNome=(natId&&natEl&&natEl.selectedOptions[0])?natEl.selectedOptions[0].textContent:null;
+  const prod={item_id:_addProdSel,quantidade:qtd,centro_custo_id:ccId,natureza_id:natId,natureza_nome:natNome,obs:document.getElementById('add-prod-obs').value.trim()||null,nome_item:it?it.nome:nomeItem(_addProdSel)};
+  if(_editProdIdx!=null&&_solProdutos[_editProdIdx])_solProdutos[_editProdIdx]=prod;else _solProdutos.push(prod);
+  _editProdIdx=null;
+  renderSolProdutos();closeModal('m-add-produto');
+}
+
+async function salvarSolicitacao(){
+  if(!guardAction('solicitacoes','edit'))return;
+  const data=document.getElementById('sol-data').value;
+  const solic=document.getElementById('sol-solic').value.trim();
+  const resp=document.getElementById('sol-resp').value.trim();
+  const errEl=document.getElementById('sol-error');
+  if(!data||!solic){errEl.textContent='Data e Solicitante são obrigatórios!';errEl.classList.remove('hidden');return;}
+  if(!resp){errEl.textContent='Informe o Responsável da solicitação!';errEl.classList.remove('hidden');return;}
+  if(!_solProdutos.length){errEl.textContent='Adicione ao menos um produto!';errEl.classList.remove('hidden');return;}
+  const prog=document.querySelector('input[name="sol-prog"]:checked')?.value||'dias';
+  const progDias=prog==='dias'?(parseInt(document.getElementById('sol-prog-dias').value)||0):null;
+  const progData=prog==='data'?(document.getElementById('sol-prog-data').value||null):null;
+  if(prog==='data'&&!progData){errEl.textContent='Selecione a data em "Programado para".';errEl.classList.remove('hidden');return;}
+  if(prog==='dias'&&(!progDias||progDias<=0)){errEl.textContent='Preencha o "Programado para": informe o nº de dias (maior que 0) ou selecione uma data.';errEl.classList.remove('hidden');return;}
+  const btn=document.getElementById('btn-salvar-sol');btn.disabled=true;btn.textContent='⏳ Enviando...';errEl.classList.add('hidden');
+  const produtos=_solProdutos.map(p=>({item_id:p.item_id,quantidade:p.quantidade,nome_item:p.nome_item||nomeItem(p.item_id),obs:p.obs||null,centro_custo_id:p.centro_custo_id||null,natureza_id:p.natureza_id||null,natureza_nome:p.natureza_nome||null}));
+  const dados={
+    data,solicitante:solic,responsavel_solic:resp,prioridade:document.getElementById('sol-prior').value,
+    programado:prog,programado_dias:progDias,programado_data:progData,
+    obs:document.getElementById('sol-obs').value.trim()||null,
+    produtos:JSON.stringify(produtos),
+    status:_editSolId?(_solicitacoes.find(s=>s.id===_editSolId)?.status||'pendente'):'pendente',
+    numero:_editSolId?(_solicitacoes.find(s=>s.id===_editSolId)?.numero||null):await gerarNumeroSol(),
+    assinatura:document.getElementById('sol-assin-data').value||null,
+    assin_nome:document.getElementById('sol-assin-nome').value.trim()||resp,
+    assin_cargo:document.getElementById('sol-assin-cargo').value.trim()||null,
+    atualizado_em:new Date().toISOString()
+  };
+  try{
+    const{data:saved}=await resilientSave('almoxarifado_solicitacoes',dados,_editSolId);
+    const sid=saved?.id||_editSolId;
+    saveExtras(sid,{responsavel_solic:resp,programado:prog,programado_dias:progDias,programado_data:progData,assin_cargo:dados.assin_cargo,assin_nome:dados.assin_nome});
+    try{await addLog(_editSolId?'UPDATE':'CREATE','SOLICITACOES',dados.numero||sid,_editSolId?'Solicitação atualizada':`Solicitação ${dados.numero} criada`);}catch(e){}
+    toast(_editSolId?'✅ Solicitação atualizada!':'📤 Solicitação enviada para aprovação!','success');
+    closeModal('m-solicitacao');
+    await init();
+    showTab('aprovacao');
+  }catch(e){errEl.textContent='Erro: '+(e.message||e);errEl.classList.remove('hidden');}
+  finally{btn.disabled=false;btn.textContent='📤 Enviar Solicitação';}
+}
+
+function excluirSolicitacao(id){
+  if(!guardAction('solicitacoes','delete'))return;
+  const sol=_solicitacoes.find(s=>s.id===id);if(!sol)return;
+  document.getElementById('confirm-msg').innerHTML=`Excluir a solicitação <strong>${sol.numero||''}</strong>?`;
+  document.getElementById('confirm-ok').onclick=async()=>{
+    try{await _supabase.from('almoxarifado_solicitacoes').delete().eq('id',id);}catch(e){}
+    // Remove o registro vinculado no Compras (sai da Central de Pendências / Kanban do compras.html)
+    const cid=sol.compras_sol_id;
+    if(cid){try{await _supabase.from('compras_solicitacoes').delete().eq('id',cid);}catch(e){}}
+    try{await addLog('DELETE','SOLICITACOES',id,'Solicitação excluída'+(cid?' (registro do Compras removido)':''));}catch(e){}
+    _solicitacoes=_solicitacoes.filter(s=>s.id!==id);
+    _comprasSols=_comprasSols.filter(c=>c.id!==cid);
+    renderKPIs();renderSolicitacoes();renderAprovacao();renderRecebimentosSol();closeModal('m-confirm');toast('Solicitação excluída.','warning');
+  };
+  document.getElementById('m-confirm').classList.remove('hidden');
+}
+
+/* ═══ APROVAÇÃO ═════════════════════════════════════════ */
+function abrirAprovacao(id){
+  if(!guardAction('solicitacoes','edit'))return;
+  _aprovId=id;
+  const sol=_solicitacoes.find(s=>s.id===id);if(!sol)return;
+  const prods=prodsDe(sol);
+  document.getElementById('aprov-corpo').innerHTML=detalheSolicitacaoHTML(sol);
+  document.getElementById('aprov-obs').value='';
+  const aprovSel=document.getElementById('aprov-nome');
+  aprovSel.value=_user?.nome||'';
+  if(aprovSel.value!==(_user?.nome||''))aprovSel.value='';
+  document.getElementById('aprov-cargo').value='';
+  preencherAprovador(aprovSel.value);
+  limparAssinaturaCampo('aprov-assin-data','aprov-assin-thumb');
+  document.getElementById('aprov-error').classList.add('hidden');
+  closeModal('m-vis-sol');
+  document.getElementById('m-aprovar').classList.remove('hidden');
+  if(typeof applyPermUI==='function')applyPermUI();
+}
+
+async function decidirSolicitacao(decisao){
+  if(!guardAction('solicitacoes','edit'))return;
+  const sol=_solicitacoes.find(s=>s.id===_aprovId);if(!sol)return;
+  const errEl=document.getElementById('aprov-error');errEl.classList.add('hidden');
+  const obs=document.getElementById('aprov-obs').value.trim()||null;
+  const aprovNome=document.getElementById('aprov-nome').value.trim()||_user?.nome||'';
+  const aprovCargo=document.getElementById('aprov-cargo').value.trim()||null;
+  const aprovAssin=document.getElementById('aprov-assin-data').value||null;
+  const upd={status:decisao,obs_aprovacao:obs,aprovado_por:aprovNome,aprovado_em:new Date().toISOString(),aprovador_cargo:aprovCargo,aprovador_assinatura:aprovAssin,atualizado_em:new Date().toISOString()};
+  try{
+    await resilientSave('almoxarifado_solicitacoes',upd,sol.id);
+    saveExtras(sol.id,{status:decisao,obs_aprovacao:obs,aprovado_por:aprovNome,aprovador_cargo:aprovCargo,aprovador_assinatura:aprovAssin});
+    Object.assign(sol,upd);
+    if(decisao==='aprovada'){
+      const comprasId=await enviarParaCompras(sol,aprovNome,aprovCargo,aprovAssin);
+      if(comprasId){saveExtras(sol.id,{compras_sol_id:comprasId});try{await _supabase.from('almoxarifado_solicitacoes').update({compras_sol_id:comprasId}).eq('id',sol.id);sol.compras_sol_id=comprasId;}catch(e){}}
+      toast('✅ Aprovada e enviada para Compras!','success');
+    }else{
+      toast('Solicitação reprovada.','warning');
+    }
+    try{await addLog('UPDATE','SOLICITACOES',sol.numero||sol.id,'Solicitação '+decisao);}catch(e){}
+    closeModal('m-aprovar');
+    await init();
+  }catch(e){errEl.textContent='Erro: '+(e.message||e);errEl.classList.remove('hidden');}
+}
+
+// Cria/insere a solicitação aprovada no módulo Compras (compras_solicitacoes)
+async function enviarParaCompras(sol,aprovNome,aprovCargo,aprovAssin){
+  const prods=prodsDe(sol);
+  const itens=prods.map(p=>{const it=_itens.find(i=>i.id===p.item_id)||{};return{insumo_id:p.item_id,nome:it.nome||p.nome_item||'Item',unidade:it.unidade||'un',quantidade:p.quantidade,estoque_atual:Number(it.estoque_atual)||0,estoque_maximo:Number(it.estoque_maximo)||0,custo_estimado:(Number(it.custo_unitario)||0)*(p.quantidade||0),natureza:p.natureza_nome||natLabel(p.natureza_id)||'',centro_custo:ccLabel(p.centro_custo_id)||''};});
+  // número sequencial numérico para o Compras
+  const numero=(_comprasSols.length?Math.max(..._comprasSols.map(x=>Number(x.numero)||0)):0)+1;
+  const agora=new Date().toISOString();
+  const hist=[
+    {acao:'criada',por:sol.solicitante||'—',cargo:null,em:sol.data?new Date(sol.data+'T00:00').toISOString():agora,assinatura:sol.assinatura||null,obs:'Solicitação criada no módulo Solicitações'},
+    {acao:'aprovada',por:aprovNome||'—',cargo:aprovCargo||null,em:agora,assinatura:aprovAssin||null,obs:'Aprovada e enviada ao Compras'}
+  ];
+  const reg={numero,codigo:sol.numero||null,data:sol.data||agora.slice(0,10),solicitante:sol.solicitante||'—',responsavel_solic:sol.responsavel_solic||null,prioridade:sol.prioridade||'normal',
+    justificativa:sol.obs||null,itens,status:'aprovada',aprovador:aprovNome||'',aprovado_em:agora,
+    origem:'solicitacoes',origem_id:sol.id,origem_ref:sol.numero||sol.id,programado:sol.programado||'dias',programado_dias:sol.programado_dias||null,programado_data:sol.programado_data||null,
+    historico:hist,atualizado_em:agora};
+  // snapshot completo para o módulo Compras exibir/imprimir idêntico a solicitacoes.html
+  const snapshot={
+    codigo:sol.numero||'',data:sol.data||'',solicitante:sol.solicitante||'',responsavel_solic:sol.responsavel_solic||'',
+    prioridade:sol.prioridade||'normal',programado:sol.programado||'dias',programado_dias:sol.programado_dias||null,programado_data:sol.programado_data||null,
+    obs:sol.obs||'',obs_aprovacao:sol.obs_aprovacao||'',
+    assinatura:sol.assinatura||'',assin_nome:sol.assin_nome||sol.responsavel_solic||'',assin_cargo:sol.assin_cargo||'',
+    aprovado_por:aprovNome||'',aprovador_cargo:aprovCargo||'',aprovador_assinatura:aprovAssin||'',
+    produtos:prods.map(p=>{const it=_itens.find(i=>i.id===p.item_id)||{};return{nome:it.nome||p.nome_item||'Item',codigo:it.codigo||'',unidade:it.unidade||'',quantidade:p.quantidade,cc:ccLabel(p.centro_custo_id),natureza:p.natureza_nome||natLabel(p.natureza_id)||'',obs:p.obs||''};})
+  };
+  try{
+    reg.snapshot=snapshot; // gravado na própria linha de compras_solicitacoes (jsonb), sem localStorage
+    const{data}=await resilientSave('compras_solicitacoes',reg,null);
+    _comprasSols.unshift({id:data.id,numero:data.numero,status:data.status,aprovado_em:data.aprovado_em,atualizado_em:data.atualizado_em});
+    return data.id;
+  }catch(e){toast('Aprovada, mas não foi possível enviar ao Compras: '+(e.message||e),'warning');return null;}
+}
+
+/* ═══ ASSINATURA (modal grande, genérico) ═══════════════ */
+let _assinTarget={input:null,thumb:null},_assinPadOk=false;
+function _iniPadAssinar(){
+  const cv=document.getElementById('assinar-cv');if(!cv)return;
+  if(_assinPadOk)return;_assinPadOk=true;
+  const ctx=cv.getContext('2d');ctx.strokeStyle='#1e3a5f';ctx.lineWidth=3;ctx.lineCap='round';
+  let draw=false;
+  const xy=e=>{const r=cv.getBoundingClientRect();const s=e.touches?e.touches[0]:e;return{x:(s.clientX-r.left)*(cv.width/r.width),y:(s.clientY-r.top)*(cv.height/r.height)};};
+  cv.addEventListener('mousedown',e=>{e.preventDefault();draw=true;const p=xy(e);ctx.beginPath();ctx.moveTo(p.x,p.y);});
+  cv.addEventListener('mousemove',e=>{if(!draw)return;const p=xy(e);ctx.lineTo(p.x,p.y);ctx.stroke();cv.dataset.desenhado='1';});
+  window.addEventListener('mouseup',()=>draw=false);
+  cv.addEventListener('touchstart',e=>{e.preventDefault();draw=true;const p=xy(e);ctx.beginPath();ctx.moveTo(p.x,p.y);},{passive:false});
+  cv.addEventListener('touchmove',e=>{e.preventDefault();if(!draw)return;const p=xy(e);ctx.lineTo(p.x,p.y);ctx.stroke();cv.dataset.desenhado='1';},{passive:false});
+  cv.addEventListener('touchend',()=>draw=false);
+}
+function limparPadAssinar(){const cv=document.getElementById('assinar-cv');if(cv){cv.getContext('2d').clearRect(0,0,cv.width,cv.height);cv.dataset.desenhado='0';}}
+function abrirAssinaturaGrande(inputId,thumbId,titulo){
+  _assinTarget={input:inputId,thumb:thumbId};
+  const tit=document.getElementById('m-assinar-tit');if(tit)tit.textContent='✍️ '+(titulo||'Assinatura');
+  limparPadAssinar();
+  document.getElementById('m-assinar-grande').classList.remove('hidden');
+  setTimeout(_iniPadAssinar,120);
+}
+function confirmarAssinatura(){
+  const cv=document.getElementById('assinar-cv');
+  if(!cv||cv.dataset.desenhado!=='1'){toast('Assine no quadro antes de confirmar.','warning');return;}
+  const dataURL=cv.toDataURL('image/png');
+  const inp=document.getElementById(_assinTarget.input);if(inp)inp.value=dataURL;
+  const thumb=document.getElementById(_assinTarget.thumb);if(thumb){thumb.src=dataURL;thumb.style.display='inline-block';}
+  const baseId=(_assinTarget.input||'').replace('-data','');
+  const clr=document.getElementById(baseId+'-clear');if(clr)clr.style.display='inline-block';
+  closeModal('m-assinar-grande');toast('✅ Assinatura registrada.','success');
+}
+function limparAssinaturaCampo(inputId,thumbId){
+  const inp=document.getElementById(inputId);if(inp)inp.value='';
+  const thumb=document.getElementById(thumbId);if(thumb){thumb.src='';thumb.style.display='none';}
+  const baseId=(inputId||'').replace('-data','');
+  const clr=document.getElementById(baseId+'-clear');if(clr)clr.style.display='none';
+}
+
+/* ═══ PDF ═══════════════════════════════════════════════ */
+function empHeader(){
+  const nf=_empresa.nome_fantasia||_empresa.razao_social||'ERP Industrial';
+  const razao=_empresa.razao_social&&_empresa.razao_social!==nf?_empresa.razao_social:'';
+  const cnpj=_empresa.cnpj?`CNPJ: ${_empresa.cnpj}`:'';
+  const logo=_empresa.logo?`<img src="${_empresa.logo}" style="height:44px;border-radius:6px;">`:`<div style="width:44px;height:44px;background:#1e3a5f;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#C9FF64;font-weight:900;font-size:20px;">${nf.charAt(0)}</div>`;
+  return`<div style="display:flex;align-items:center;gap:14px;border-bottom:2px solid #1e3a5f;padding-bottom:12px;margin-bottom:16px;">${logo}<div><div style="font-size:16px;font-weight:900;color:#1e3a5f;">${nf}</div>${razao?`<div style="font-size:11px;color:#64748b;">${razao}</div>`:''}${cnpj?`<div style="font-size:11px;color:#64748b;">${cnpj}</div>`:''}</div></div>`;
+}
+function imprimirSolicitacao(id){
+  const sol=_solicitacoes.find(s=>s.id===id);if(!sol)return;
+  const prods=prodsDe(sol);const st=statusDisplay(sol);
+  const prLabel={urgente:'🔴 URGENTE',alta:'🟠 ALTA',normal:'🟡 NORMAL',baixa:'🟢 BAIXA'};
+  const w=window.open('','_blank');if(!w){toast('Permita pop-ups para gerar o PDF.','warning');return;}
+  const assinBox=(titulo,nome,cargo,img)=>`<div class="assin-col">${img?`<img src="${img}" style="height:54px;border:1px solid #e2e8f0;border-radius:4px;display:block;margin:0 auto 4px;">`:'<div class="linha-assin"></div>'}<div class="assin-label">${nome||'—'}</div><div class="assin-sub">${titulo}${cargo?' · '+cargo:''}</div></div>`;
+  w.document.write(`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>SOLICITAÇÃO DE COMPRAS ${sol.numero||''}</title>
+  <style>
+    *{box-sizing:border-box;}body{font-family:Arial,sans-serif;font-size:11px;padding:20px;color:#1e293b;margin:0;}
+    table{width:100%;border-collapse:collapse;margin-top:6px;}th{background:#1e3a5f;color:#fff;padding:6px 8px;text-align:left;font-size:11px;}td{padding:5px 8px;border-bottom:1px solid #e2e8f0;font-size:11px;}
+    .campo{background:#f8fafc;border-left:3px solid #cbd5e1;padding:7px 10px;border-radius:0 5px 5px 0;margin-bottom:6px;}
+    .cl{font-size:8px;color:#94a3b8;text-transform:uppercase;font-weight:700;letter-spacing:.05em;}.cv{font-size:12px;font-weight:600;margin-top:1px;}
+    .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px;}.full{grid-column:1/-1;}
+    .sec{border:1.5px solid #e2e8f0;border-radius:10px;padding:14px;margin-bottom:16px;}
+    .sec-title{font-size:13px;font-weight:800;color:#1e3a5f;margin-bottom:10px;padding-bottom:6px;border-bottom:1.5px solid #e2e8f0;}
+    .assin-box{display:flex;gap:40px;flex-wrap:wrap;margin-top:22px;justify-content:space-around;}
+    .assin-col{text-align:center;min-width:200px;}
+    .linha-assin{height:54px;border-bottom:1.5px solid #1e3a5f;width:220px;margin:0 auto 4px;}
+    .assin-label{font-size:12px;color:#1e293b;font-weight:700;}.assin-sub{font-size:10px;color:#94a3b8;}
+    @media print{@page{margin:1cm;}body{padding:0;}}
+  </style></head><body>
+  ${empHeader()}
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+    <h2 style="color:#1e3a5f;margin:0;font-size:16px;">SOLICITAÇÃO DE COMPRAS ${sol.numero?'— '+sol.numero:''}</h2>
+    <div style="text-align:right;font-size:10px;color:#94a3b8;">${st.txt} · Emitido em ${new Date().toLocaleString('pt-BR')}</div>
+  </div>
+  <div class="sec">
+    <div class="grid3">
+      <div class="campo"><div class="cl">Data</div><div class="cv">${sol.data?new Date(sol.data+'T00:00').toLocaleDateString('pt-BR'):'—'}</div></div>
+      <div class="campo"><div class="cl">Solicitante</div><div class="cv">${sol.solicitante||'—'}</div></div>
+      <div class="campo"><div class="cl">Responsável</div><div class="cv">${sol.responsavel_solic||sol.assin_nome||sol.solicitante||'—'}</div></div>
+      <div class="campo"><div class="cl">Prioridade</div><div class="cv">${prLabel[sol.prioridade]||sol.prioridade||'—'}</div></div>
+      <div class="campo"><div class="cl">Programado para</div><div class="cv">${progLabel(sol)}</div></div>
+      <div class="campo"><div class="cl">Status</div><div class="cv">${st.txt}</div></div>
+    </div>
+    ${sol.obs?`<div class="campo full"><div class="cl">Justificativa</div><div class="cv">${sol.obs}</div></div>`:''}
+    ${sol.obs_aprovacao?`<div class="campo full"><div class="cl">Observação do Aprovador</div><div class="cv">${sol.obs_aprovacao}</div></div>`:''}
+    <table><thead><tr><th>Código</th><th>Produto</th><th>Qtd</th><th>Unid.</th><th>Centro de Custo</th><th>Natureza</th><th>Observação</th></tr></thead><tbody>
+      ${prods.map(p=>`<tr><td style="font-family:monospace;">${_itens.find(x=>x.id===p.item_id)?.codigo||'—'}</td><td><strong>${p.nome_item||nomeItem(p.item_id)}</strong></td><td style="text-align:center;">${qShow(p.quantidade)}</td><td style="text-align:center;">${_itens.find(x=>x.id===p.item_id)?.unidade||'—'}</td><td>${ccLabel(p.centro_custo_id)||'—'}</td><td>${p.natureza_nome||natLabel(p.natureza_id)||'—'}</td><td>${p.obs||'—'}</td></tr>`).join('')}
+    </tbody></table>
+    <div class="assin-box">
+      ${assinBox('Responsável da solicitação',sol.assin_nome||sol.responsavel_solic,sol.assin_cargo,sol.assinatura)}
+      ${(sol.status==='aprovada'||sol.aprovador_assinatura||sol.aprovado_por)?assinBox('Aprovador',sol.aprovado_por,sol.aprovador_cargo,sol.aprovador_assinatura):''}
+    </div>
+  </div>
+  <div style="margin-top:12px;font-size:10px;color:#94a3b8;border-top:1px solid #e2e8f0;padding-top:8px;">${_empresa.nome_fantasia||'ERP Industrial'} · Documento gerado automaticamente</div>
+  </body></html>`);
+  w.document.close();setTimeout(()=>w.print(),500);
+}
+
+init();
+</script>
+</body>
+</html>
