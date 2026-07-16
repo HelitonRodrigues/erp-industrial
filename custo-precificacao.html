@@ -1,0 +1,1107 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ERP Industrial — Custo &amp; Precificação</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/supabase.js"></script>
+<script src="js/utils.js"></script>
+<style>
+/* ── Custo & Precificação — estilos específicos do módulo (cp-*) ── */
+.cp-resumo-topo{display:flex;flex-wrap:wrap;gap:0;background:var(--primary);color:#fff;border-radius:14px;padding:14px 20px;margin-bottom:18px;}
+.cp-resumo-item{display:flex;flex-direction:column;gap:2px;padding:4px 22px;border-right:1px solid rgba(255,255,255,.15);}
+.cp-resumo-item:last-child{border-right:none;}
+.cp-resumo-item span{font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:#7aa3c0;}
+.cp-resumo-item strong{font-size:16px;font-weight:800;}
+.cp-destaque{color:var(--accent);}
+
+.cp-h3{font-size:13px;font-weight:800;color:var(--primary);text-transform:uppercase;letter-spacing:.03em;margin-bottom:12px;}
+.cp-ajuda{color:#64748b;font-size:12.5px;margin:4px 0 14px;}
+.cp-muted{color:#94a3b8;font-weight:400;text-transform:none;font-size:.85em;}
+.cp-unid{font-size:12px;color:#64748b;}
+
+.cp-grid-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:14px;}
+@media (max-width:720px){ .cp-grid-2{grid-template-columns:1fr !important;} }
+
+.cp-card{padding:18px;}
+.cp-card-header{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:12px;}
+.cp-card-header strong{font-size:13px;text-transform:uppercase;letter-spacing:.02em;color:var(--primary);}
+.cp-card-destaque{border-left:4px solid var(--accent);}
+
+.cp-field-row{flex-direction:row !important;align-items:center;gap:8px;margin:8px 0 !important;flex-wrap:wrap;}
+.cp-field-row .form-label{flex:1 1 auto;min-width:150px;margin:0;}
+.cp-field-row .form-input{width:120px;flex:none;}
+.cp-input-sm{width:70px !important;}
+.cp-input-tabela{width:90px !important;padding:5px 7px !important;font-size:12.5px;}
+
+.cp-turno-row{display:flex;align-items:center;gap:8px;margin:6px 0;font-size:12.5px;}
+.cp-check{display:flex;align-items:center;gap:6px;flex:1;font-size:12.5px;}
+.cp-mini-resultado{margin-top:10px;padding-top:10px;border-top:1px dashed var(--border);font-size:12.5px;color:#64748b;}
+.cp-mini-resultado strong{color:var(--text);}
+
+.cp-kpi-linha{display:flex;justify-content:space-between;align-items:baseline;padding:5px 0;font-size:12.5px;border-bottom:1px dotted #eef2f6;}
+.cp-kpi-linha span{color:#64748b;}
+.cp-kpi-linha strong{font-size:14px;font-variant-numeric:tabular-nums;}
+
+.cp-num{text-align:right;font-variant-numeric:tabular-nums;}
+.cp-num-forte{font-weight:800;}
+
+.cp-gauge{margin:10px 0 2px;}
+.cp-gauge-track{position:relative;height:10px;background:#e2e8f0;border-radius:5px;}
+.cp-gauge-fill{height:100%;border-radius:5px;transition:width .2s ease;}
+.cp-gauge-marker{position:absolute;top:-3px;width:2px;height:16px;background:var(--primary);}
+
+.cp-barra-classif{display:flex;height:10px;border-radius:5px;overflow:hidden;margin-top:10px;background:#e2e8f0;}
+.cp-seg-abs{background:var(--primary);}
+.cp-seg-ajust{background:#7aa3c0;}
+.cp-seg-fixo{background:#94a3b8;}
+.cp-legenda{display:flex;gap:12px;margin-top:6px;font-size:11px;color:#64748b;flex-wrap:wrap;}
+.cp-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px;}
+.cp-dot-abs{background:var(--primary);} .cp-dot-ajust{background:#7aa3c0;} .cp-dot-fixo{background:#94a3b8;}
+
+.cp-calendario{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;max-width:520px;}
+.cp-dia{display:flex;flex-direction:column;align-items:center;gap:2px;border:1px solid var(--border);border-radius:8px;padding:6px 2px;font-size:11px;cursor:pointer;background:#fff;}
+.cp-dia input{margin:0;}
+.cp-dia-domingo{background:#f1f5f9;color:#94a3b8;cursor:default;}
+.cp-dia-feriado{background:#ffe4e6;border-color:var(--danger);}
+
+.cp-resposta-grande{font-size:15px;padding:6px 0 14px;line-height:1.6;}
+.cp-resposta-grande strong{color:var(--primary);}
+
+.cp-lista-alertas{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px;}
+.cp-alerta-item{padding:10px 14px;border-radius:8px;font-size:12.5px;border-left:3px solid var(--border);}
+.cp-alerta-success{background:#dcfce7;border-left-color:var(--success);}
+.cp-alerta-warning{background:#fef9c3;border-left-color:var(--warning);}
+.cp-alerta-danger{background:#ffe4e6;border-left-color:var(--danger);}
+
+.cp-table-scroll{overflow-x:auto;}
+</style>
+</head>
+<body>
+<div id="sidebar-container"></div>
+<header class="topbar" id="topbar">
+  <button class="topbar-open-sidebar" onclick="toggleSidebar()">☰</button>
+  <div class="topbar-title">Custo &amp; Precificação</div>
+  <div class="topbar-right">
+    <div class="topbar-user">
+      <div class="user-avatar" style="width:32px;height:32px;font-size:12px;" id="top-avatar">SA</div>
+      <div><div class="topbar-user-name" id="top-user-name">Super Admin</div><div class="topbar-user-profile" id="top-user-perfil">SADM</div></div>
+    </div>
+    <button class="btn btn-ghost btn-sm" onclick="doLogout()" style="color:#64748b;">Sair</button>
+  </div>
+</header>
+<main class="main-content" id="main-content">
+  <div class="page-header">
+    <div class="page-header-left">
+      <h1>Custo &amp; Precificação</h1>
+      <p>Simulador de capacidade, custo e margem — planeje o mês, veja o custo por linha e o preço de venda antes de fechar nada.</p>
+    </div>
+    <div style="display:flex;gap:10px;">
+      <button class="btn btn-secondary" onclick="carregarBaselineReal()">↺ Carregar Maio/2026 (real)</button>
+    </div>
+  </div>
+
+  <div class="card" style="padding:0;margin-bottom:18px;overflow:hidden;">
+    <div class="tabs" style="margin:0;padding:0 12px;">
+      <button class="tab-btn active" id="tbtn-config" onclick="showTab('config')">📅 Capacidade</button>
+      <button class="tab-btn" id="tbtn-metas" onclick="showTab('metas')">🎯 Metas &amp; Produção</button>
+      <button class="tab-btn" id="tbtn-insumos" onclick="showTab('insumos')">🧾 Insumos &amp; Custos</button>
+      <button class="tab-btn" id="tbtn-resultado" onclick="showTab('resultado')">📊 Resultado por Linha</button>
+      <button class="tab-btn" id="tbtn-precificacao" onclick="showTab('precificacao')">💵 Precificação</button>
+      <button class="tab-btn" id="tbtn-painel" onclick="showTab('painel')">🚦 Painel Executivo</button>
+    </div>
+  </div>
+
+  <div id="cp-app"></div>
+
+  <p class="cp-ajuda" style="margin-top:18px;">Protótipo de simulação — os valores não são salvos no banco; ao recarregar a página, voltam ao padrão de Maio/2026.</p>
+</main>
+
+<script>
+/* ============================================================================
+   SILICATE — MOTOR DE PLANEJAMENTO E CUSTO (protótipo standalone)
+   Baseado na aba "CUSTO REAL" (MAIO/2026) da planilha de controle de produção.
+   Este arquivo é puro JS (sem DOM) para poder ser testado no Node e depois
+   embutido, sem alterações, dentro do <script> do index.html.
+   ========================================================================== */
+
+/* ----------------------------------------------------------------------------
+   1) CATÁLOGO DE INSUMOS — extraído linha a linha da aba CUSTO REAL (bloco GERAL).
+   Cada item guarda o valor REAL observado em Maio/2026 só como ponto de
+   partida editável — nada aqui é fórmula fixa, é o "chute inicial" que o
+   usuário pode mudar.
+
+   tipoRateio:
+     'direto'        -> custo pertence 100% a UM produto (embalagem, MP, aditivo)
+     'compartilhado' -> custo é da fábrica toda e é rateado entre as 3 linhas
+                        de custo (L20 / CONC / CAULIM) proporcional à tonelagem
+
+   produtoBase (somente para 'direto'):
+     'L20'         -> Linha 20 Kg
+     'CONC'        -> Concentrado (10 Kg)
+     'CAULIM25'    -> Caulim ensacado 25 Kg
+     'CAULIMBB'    -> Caulim Big Bag
+     'CAULIM_TOTAL'-> depende da tonelagem total de Caulim (25kg + BigBag)
+
+   Para itens 'compartilhado':
+     temPrecoQtd: true  -> tem preço unitário real e uma taxa de consumo por
+                            tonelada (ex.: litros de diesel por tonelada produzida)
+     temPrecoQtd: false -> é um valor de fábrica (R$) direto, ex.: folha, aluguel
+     escala: 'FIXO'   -> não muda com o volume produzido (ex.: arrendamento)
+               'VOLUME' -> escala com a tonelagem total planejada (ex.: energia)
+---------------------------------------------------------------------------- */
+
+const INSUMOS_BASE = [
+  // ---------- DIRETOS: LINHA 20 Kg (base real: 28.091 sacos) ----------
+  { id: 'emb20', classe: 'EMBALAGEM', insumo: 'EMBALAGEM 20 Kg', classificacao: 'VARIAVEL ABSOLUTO',
+    tipoRateio: 'direto', produtoBase: 'L20', unidade: 'SC', precoUnitario: 1.36, qtdBaseReal: 28091, baseReal: 28091 },
+  { id: 'emb20perda', classe: 'EMBALAGEM', insumo: 'EMBALAGEM 20 Kg — perda', classificacao: 'VARIAVEL AJUSTÁVEL',
+    tipoRateio: 'direto', produtoBase: 'L20', unidade: 'SC', precoUnitario: 1.36, qtdBaseReal: 118, baseReal: 28091 },
+  { id: 'emb20cliente', classe: 'EMBALAGEM', insumo: 'EMBALAGEM 20 Kg — para cliente', classificacao: 'VARIAVEL AJUSTÁVEL',
+    tipoRateio: 'direto', produtoBase: 'L20', unidade: 'SC', precoUnitario: 1.26, qtdBaseReal: 0, baseReal: 28091 },
+  { id: 'mpcinza20', classe: 'MP MINERAL', insumo: 'MP (CINZA) — 20 Kg', classificacao: 'VARIAVEL ABSOLUTO',
+    tipoRateio: 'direto', produtoBase: 'L20', unidade: 'TON', precoUnitario: 32.8, qtdBaseReal: 561.82, baseReal: 28091 },
+  { id: 'adit1_20', classe: 'MP QUÍMICA', insumo: '20 Kg — Aditivo 1', classificacao: 'VARIAVEL ABSOLUTO',
+    tipoRateio: 'direto', produtoBase: 'L20', unidade: 'Kg', precoUnitario: 0.09, qtdBaseReal: 28091, baseReal: 28091 },
+  { id: 'adit2_20', classe: 'MP QUÍMICA', insumo: '20 Kg — Aditivo 2', classificacao: 'VARIAVEL ABSOLUTO',
+    tipoRateio: 'direto', produtoBase: 'L20', unidade: 'Kg', precoUnitario: 0.06, qtdBaseReal: 28091, baseReal: 28091 },
+
+  // ---------- DIRETOS: CONCENTRADO (base real: 355.261 sacos) ----------
+  { id: 'emb10', classe: 'EMBALAGEM', insumo: 'EMBALAGEM 10 Kg', classificacao: 'VARIAVEL ABSOLUTO',
+    tipoRateio: 'direto', produtoBase: 'CONC', unidade: 'SC', precoUnitario: 0.98, qtdBaseReal: 355261, baseReal: 355261 },
+  { id: 'emb10perda', classe: 'EMBALAGEM', insumo: 'EMBALAGEM 10 Kg — perda', classificacao: 'VARIAVEL AJUSTÁVEL',
+    tipoRateio: 'direto', produtoBase: 'CONC', unidade: 'SC', precoUnitario: 0.98, qtdBaseReal: 2369, baseReal: 355261 },
+  { id: 'emb10cliente', classe: 'EMBALAGEM', insumo: 'EMBALAGEM 10 Kg — para cliente', classificacao: 'VARIAVEL AJUSTÁVEL',
+    tipoRateio: 'direto', produtoBase: 'CONC', unidade: 'SC', precoUnitario: 0.98, qtdBaseReal: 201, baseReal: 355261 },
+  { id: 'mpcinza10', classe: 'MP MINERAL', insumo: 'MP (CINZA) — 10 Kg', classificacao: 'VARIAVEL ABSOLUTO',
+    tipoRateio: 'direto', produtoBase: 'CONC', unidade: 'TON', precoUnitario: 32.8, qtdBaseReal: 3552.61, baseReal: 355261 },
+  { id: 'adit1_conc', classe: 'MP QUÍMICA', insumo: 'Concentrado — Aditivo 1', classificacao: 'VARIAVEL ABSOLUTO',
+    tipoRateio: 'direto', produtoBase: 'CONC', unidade: 'Kg', precoUnitario: 0.32, qtdBaseReal: 355261, baseReal: 355261 },
+  { id: 'adit2_conc', classe: 'MP QUÍMICA', insumo: 'Concentrado — Aditivo 2', classificacao: 'VARIAVEL ABSOLUTO',
+    tipoRateio: 'direto', produtoBase: 'CONC', unidade: 'Kg', precoUnitario: 0.06, qtdBaseReal: 355261, baseReal: 355261 },
+
+  // ---------- DIRETOS: CAULIM ----------
+  { id: 'caulim25', classe: 'EMBALAGEM', insumo: 'CAULIM 25 Kg', classificacao: 'VARIAVEL ABSOLUTO',
+    tipoRateio: 'direto', produtoBase: 'CAULIM25', unidade: 'SC', precoUnitario: 1.6, qtdBaseReal: 16424, baseReal: 16424 },
+  { id: 'caulim25perda', classe: 'EMBALAGEM', insumo: 'CAULIM 25 Kg — perda', classificacao: 'VARIAVEL ABSOLUTO',
+    tipoRateio: 'direto', produtoBase: 'CAULIM25', unidade: 'SC', precoUnitario: 1.6, qtdBaseReal: 1407, baseReal: 16424 },
+  { id: 'caulimbb', classe: 'EMBALAGEM', insumo: 'CAULIM BIG BAG', classificacao: 'VARIAVEL ABSOLUTO',
+    tipoRateio: 'direto', produtoBase: 'CAULIMBB', unidade: 'UNID', precoUnitario: 25, qtdBaseReal: 1535, baseReal: 1535 },
+  { id: 'mpcaulim', classe: 'MP MINERAL', insumo: 'MP (CAULIM)', classificacao: 'VARIAVEL ABSOLUTO',
+    tipoRateio: 'direto', produtoBase: 'CAULIM_TOTAL', unidade: 'TON', precoUnitario: 32.8, qtdBaseReal: 2252.6, baseReal: 1945.6 },
+
+  // ---------- COMPARTILHADOS com preço x quantidade real (rateio por tonelagem) ----------
+  { id: 'pallet1', classe: 'PALLET', insumo: 'Pallet 1,05 x 1,20 m', classificacao: 'VARIAVEL ABSOLUTO',
+    tipoRateio: 'compartilhado', temPrecoQtd: true, unidade: 'UNID', precoUnitario: 28, qtdBaseReal: 2518.9127, escala: 'VOLUME' },
+  { id: 'pallet2', classe: 'PALLET', insumo: 'Pallet 1,05 x 1,05 m', classificacao: 'VARIAVEL ABSOLUTO',
+    tipoRateio: 'compartilhado', temPrecoQtd: true, unidade: 'UNID', precoUnitario: 28, qtdBaseReal: 0, escala: 'VOLUME' },
+  { id: 'diesel', classe: 'COMBUSTIVEL', insumo: 'Diesel', classificacao: 'VARIAVEL AJUSTÁVEL',
+    tipoRateio: 'compartilhado', temPrecoQtd: true, unidade: 'L', precoUnitario: 6.45, qtdBaseReal: 3470.7, escala: 'VOLUME' },
+  { id: 'dieselterc', classe: 'COMBUSTIVEL', insumo: 'Diesel terceiros', classificacao: 'VARIAVEL ABSOLUTO',
+    tipoRateio: 'compartilhado', temPrecoQtd: true, unidade: 'L', precoUnitario: 6.45, qtdBaseReal: 241.2, escala: 'VOLUME' },
+  { id: 'lenha', classe: 'LENHA', insumo: 'Lenha', classificacao: 'VARIAVEL AJUSTÁVEL',
+    tipoRateio: 'compartilhado', temPrecoQtd: true, unidade: 'm³', precoUnitario: 130, qtdBaseReal: 329.75, escala: 'VOLUME' },
+  { id: 'martelo', classe: 'MAT. MOINHO', insumo: 'Martelo', classificacao: 'VARIAVEL AJUSTÁVEL',
+    tipoRateio: 'compartilhado', temPrecoQtd: true, unidade: 'PÇ', precoUnitario: 278.33, qtdBaseReal: 54, escala: 'VOLUME' },
+  { id: 'gaveta', classe: 'MAT. MOINHO', insumo: 'Gaveta', classificacao: 'VARIAVEL AJUSTÁVEL',
+    tipoRateio: 'compartilhado', temPrecoQtd: true, unidade: 'PÇ', precoUnitario: 890, qtdBaseReal: 1, escala: 'VOLUME' },
+  { id: 'grelha', classe: 'MAT. MOINHO', insumo: 'Grelha', classificacao: 'VARIAVEL AJUSTÁVEL',
+    tipoRateio: 'compartilhado', temPrecoQtd: true, unidade: 'PÇ', precoUnitario: 278.33, qtdBaseReal: 29, escala: 'VOLUME' },
+  { id: 'eixos', classe: 'MAT. MOINHO', insumo: 'Eixos', classificacao: 'VARIAVEL AJUSTÁVEL',
+    tipoRateio: 'compartilhado', temPrecoQtd: true, unidade: 'PÇ', precoUnitario: 70, qtdBaseReal: 15, escala: 'VOLUME' },
+  { id: 'stretch', classe: 'MAT. CONSUMO', insumo: 'Plástico stretch', classificacao: 'VARIAVEL AJUSTÁVEL',
+    tipoRateio: 'compartilhado', temPrecoQtd: true, unidade: 'PC', precoUnitario: 33.9, qtdBaseReal: 65, escala: 'VOLUME' },
+  { id: 'mangabico', classe: 'MAT. MOINHO', insumo: 'Manga p/ bico da ensacadeira', classificacao: 'VARIAVEL AJUSTÁVEL',
+    tipoRateio: 'compartilhado', temPrecoQtd: true, unidade: 'PÇ', precoUnitario: 0, qtdBaseReal: 0, escala: 'VOLUME' },
+  { id: 'matconsumo', classe: 'ADM', insumo: 'Mat. consumo (limpeza)', classificacao: 'VARIAVEL AJUSTÁVEL',
+    tipoRateio: 'compartilhado', temPrecoQtd: false, unidade: 'R$', valorBaseReal: 255.9, escala: 'VOLUME' },
+
+  // ---------- COMPARTILHADOS lump-sum (sem preço x qtd unitária) ----------
+  { id: 'frete', classe: 'MP QUÍMICA', insumo: 'Frete', classificacao: 'VARIAVEL ABSOLUTO',
+    tipoRateio: 'compartilhado', temPrecoQtd: false, unidade: 'R$', valorBaseReal: 4000, escala: 'VOLUME' },
+  { id: 'folha', classe: 'FOLHA', insumo: 'Folha (colaboradores) — verbas, férias, INSS, FGTS, IRRF', classificacao: 'VARIAVEL AJUSTÁVEL',
+    tipoRateio: 'compartilhado', temPrecoQtd: false, unidade: 'R$', valorBaseReal: 138992.45, escala: 'VOLUME' },
+  { id: 'maqequip', classe: 'MAT.', insumo: 'Máquinas e equipamentos', classificacao: 'VARIAVEL AJUSTÁVEL',
+    tipoRateio: 'compartilhado', temPrecoQtd: false, unidade: 'R$', valorBaseReal: 2793.82, escala: 'VOLUME' },
+  { id: 'valealim', classe: 'BENEFICIO', insumo: 'Cartão alimentação', classificacao: 'VARIAVEL AJUSTÁVEL',
+    tipoRateio: 'compartilhado', temPrecoQtd: false, unidade: 'R$', valorBaseReal: 0, escala: 'VOLUME' },
+  { id: 'refeicao', classe: 'BENEFICIO', insumo: 'Refeição', classificacao: 'VARIAVEL AJUSTÁVEL',
+    tipoRateio: 'compartilhado', temPrecoQtd: false, unidade: 'R$', valorBaseReal: 19810, escala: 'VOLUME' },
+  { id: 'oficina', classe: 'MANUTENÇÃO', insumo: 'Oficina (gás, acetileno)', classificacao: 'VARIAVEL AJUSTÁVEL',
+    tipoRateio: 'compartilhado', temPrecoQtd: false, unidade: 'R$', valorBaseReal: 2312, escala: 'VOLUME' },
+  { id: 'filtromanga', classe: 'MAT. MOINHO', insumo: 'Filtro de manga', classificacao: 'FIXO',
+    tipoRateio: 'compartilhado', temPrecoQtd: false, unidade: 'R$', valorBaseReal: 10000, escala: 'FIXO' },
+  { id: 'energia', classe: 'ENERGIA', insumo: 'Energia elétrica', classificacao: 'VARIAVEL AJUSTÁVEL',
+    tipoRateio: 'compartilhado', temPrecoQtd: false, unidade: 'R$', valorBaseReal: 116125.4, escala: 'VOLUME' },
+  { id: 'manutfab', classe: 'MANUTENÇÃO', insumo: 'Manutenção fábrica', classificacao: 'VARIAVEL ABSOLUTO',
+    tipoRateio: 'compartilhado', temPrecoQtd: false, unidade: 'R$', valorBaseReal: 28009, escala: 'VOLUME' },
+  { id: 'manutelet', classe: 'MANUTENÇÃO', insumo: 'Manutenção elétrica', classificacao: 'VARIAVEL AJUSTÁVEL',
+    tipoRateio: 'compartilhado', temPrecoQtd: false, unidade: 'R$', valorBaseReal: 720, escala: 'VOLUME' },
+  { id: 'manutmaq', classe: 'MANUTENÇÃO', insumo: 'Manutenção das máquinas', classificacao: 'VARIAVEL AJUSTÁVEL',
+    tipoRateio: 'compartilhado', temPrecoQtd: false, unidade: 'R$', valorBaseReal: 76684, escala: 'VOLUME' },
+  { id: 'epi', classe: '—', insumo: 'EPI', classificacao: 'VARIAVEL AJUSTÁVEL',
+    tipoRateio: 'compartilhado', temPrecoQtd: false, unidade: 'R$', valorBaseReal: 902, escala: 'VOLUME' },
+  { id: 'arrend', classe: 'ARREND.', insumo: 'Arrendamento', classificacao: 'FIXO',
+    tipoRateio: 'compartilhado', temPrecoQtd: false, unidade: 'R$', valorBaseReal: 47500, escala: 'FIXO' },
+  { id: 'aguamineral', classe: 'ADM', insumo: 'Água mineral', classificacao: 'FIXO',
+    tipoRateio: 'compartilhado', temPrecoQtd: false, unidade: 'R$', valorBaseReal: 0, escala: 'FIXO' },
+];
+
+// Tonelagem total real (Maio/2026), usada como denominador de referência
+// das taxas por tonelada dos itens compartilhados (preço x quantidade real).
+const TONELAGEM_TOTAL_REAL_MAIO = 561.82 + 3552.61 + 1945.6; // = 6060.03
+
+// Referências reais para comparação (âncoras fixas da planilha, não recalculadas)
+const REFERENCIAS = {
+  realizadoMaio: {
+    total: 1416682.905068, faturamento: 2954258, custoPorTon: 233.7749,
+    absoluto: 905409.850068, ajustavel: 452871.055, fixo: 57500,
+  },
+  programadoMaio: {
+    total: 1512720.9152952603, faturamento: 3388462.5, custoPorTon: 245.75110312651455,
+    absoluto: 1002267.2002952604, ajustavel: 452051.7150000001, fixo: 57500,
+  },
+};
+
+/* ----------------------------------------------------------------------------
+   2) CALENDÁRIO / CAPACIDADE — dias úteis, feriados e horas disponíveis.
+   Escala real observada: SEG a SAB (só domingo é sempre não útil).
+---------------------------------------------------------------------------- */
+
+function diasDoMes(ano, mes) { // mes: 1-12
+  return new Date(ano, mes, 0).getDate();
+}
+
+function calcularDiasUteis(ano, mes, feriados /* array de 'YYYY-MM-DD' */) {
+  const total = diasDoMes(ano, mes);
+  const feriadosSet = new Set(feriados || []);
+  let uteis = 0, domingos = 0, feriadosUteis = 0;
+  for (let d = 1; d <= total; d++) {
+    const dt = new Date(ano, mes - 1, d);
+    const iso = `${ano}-${String(mes).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    const isDomingo = dt.getDay() === 0;
+    const isFeriado = feriadosSet.has(iso);
+    if (isDomingo) domingos++;
+    else if (isFeriado) feriadosUteis++;
+    else uteis++;
+  }
+  return { totalDias: total, diasUteis: uteis, domingos, feriadosUteis };
+}
+
+// Horas disponíveis de uma linha física no mês, dado dias úteis, turnos ativos
+// (array de horas/turno, ex.: [8,8,8]) e horas extras somadas por fora.
+function horasDisponiveisLinha(diasUteis, horasPorTurnoAtivo /* array de números */, horasExtras) {
+  const horasNormaisDia = horasPorTurnoAtivo.reduce((a, b) => a + b, 0);
+  const horasNormaisMes = horasNormaisDia * diasUteis;
+  return {
+    horasNormaisDia, horasNormaisMes,
+    horasExtras: horasExtras || 0,
+    horasTotais: horasNormaisMes + (horasExtras || 0),
+  };
+}
+
+// Produção estimada dada capacidade (sacos/h) e % de disponibilidade (OEE simplificado)
+function producaoEstimada(horasDisponiveis, capacidadeSacosHora, pctDisponibilidade) {
+  return horasDisponiveis * capacidadeSacosHora * pctDisponibilidade;
+}
+
+// Inverso: quantas horas preciso para bater uma meta de sacos
+function horasNecessarias(metaSacos, capacidadeSacosHora, pctDisponibilidade) {
+  if (capacidadeSacosHora <= 0 || pctDisponibilidade <= 0) return Infinity;
+  return metaSacos / (capacidadeSacosHora * pctDisponibilidade);
+}
+
+/* ----------------------------------------------------------------------------
+   3) TONELAGEM E RATEIO — mesma lógica da "tabela de premissas" da CUSTO REAL,
+   mas com UMA ÚNICA base de rateio (tonelagem) usada para as 3 linhas —
+   isso corrige a inconsistência encontrada no arquivo original (ver README /
+   painel de alertas do HTML).
+---------------------------------------------------------------------------- */
+
+function calcularTonelagem(metas, pesos) {
+  // metas: { L20, CONC, CAULIM25, CAULIMBB } em sacos/unidades
+  // pesos: { pesoL20Kg, pesoCONCKg, pesoCAULIM25Kg, pesoBigBagKg } em kg/unidade
+  const tonL20 = (metas.L20 * pesos.pesoL20Kg) / 1000;
+  const tonCONC = (metas.CONC * pesos.pesoCONCKg) / 1000;
+  const tonCAULIM = (metas.CAULIM25 * pesos.pesoCAULIM25Kg) / 1000 + (metas.CAULIMBB * pesos.pesoBigBagKg) / 1000;
+  const tonTotal = tonL20 + tonCONC + tonCAULIM;
+  return {
+    tonL20, tonCONC, tonCAULIM, tonTotal,
+    pctL20: tonTotal > 0 ? tonL20 / tonTotal : 0,
+    pctCONC: tonTotal > 0 ? tonCONC / tonTotal : 0,
+    pctCAULIM: tonTotal > 0 ? tonCAULIM / tonTotal : 0,
+  };
+}
+
+/* ----------------------------------------------------------------------------
+   4) MOTOR DE CUSTO — para cada insumo, calcula quantidade, valor total e
+   valor alocado em cada linha (L20 / CONC / CAULIM), dado o plano de produção.
+---------------------------------------------------------------------------- */
+
+function calcularCustoItem(item, metas, tonelagem) {
+  const linhas = { L20: 0, CONC: 0, CAULIM: 0 };
+  let novaQtd = null, valorTotal = 0;
+
+  if (item.tipoRateio === 'direto') {
+    let novaBase;
+    switch (item.produtoBase) {
+      case 'L20': novaBase = metas.L20; break;
+      case 'CONC': novaBase = metas.CONC; break;
+      case 'CAULIM25': novaBase = metas.CAULIM25; break;
+      case 'CAULIMBB': novaBase = metas.CAULIMBB; break;
+      case 'CAULIM_TOTAL': novaBase = tonelagem.tonCAULIM; break;
+      default: novaBase = 0;
+    }
+    const fator = item.baseReal > 0 ? item.qtdBaseReal / item.baseReal : 0;
+    novaQtd = fator * novaBase;
+    valorTotal = novaQtd * item.precoUnitario;
+    const destino = (item.produtoBase === 'CAULIM25' || item.produtoBase === 'CAULIMBB' || item.produtoBase === 'CAULIM_TOTAL')
+      ? 'CAULIM' : item.produtoBase;
+    linhas[destino] = valorTotal;
+  } else {
+    // compartilhado
+    let valorGeralNovo;
+    if (item.temPrecoQtd) {
+      const taxaPorTon = item.qtdBaseReal / TONELAGEM_TOTAL_REAL_MAIO;
+      novaQtd = taxaPorTon * tonelagem.tonTotal;
+      valorTotal = novaQtd * item.precoUnitario;
+      valorGeralNovo = valorTotal;
+    } else {
+      if (item.escala === 'FIXO') {
+        valorGeralNovo = item.valorBaseReal;
+      } else {
+        const taxaPorTon = item.valorBaseReal / TONELAGEM_TOTAL_REAL_MAIO;
+        valorGeralNovo = taxaPorTon * tonelagem.tonTotal;
+      }
+      valorTotal = valorGeralNovo;
+    }
+    linhas.L20 = valorGeralNovo * tonelagem.pctL20;
+    linhas.CONC = valorGeralNovo * tonelagem.pctCONC;
+    linhas.CAULIM = valorGeralNovo * tonelagem.pctCAULIM;
+  }
+
+  return { id: item.id, novaQtd, valorTotal, linhas };
+}
+
+function calcularPlanoCompleto(insumos, metas, pesos, faturamentoPlanejado) {
+  const tonelagem = calcularTonelagem(metas, pesos);
+  const resultadosItens = insumos.map((it) => ({ item: it, calc: calcularCustoItem(it, metas, tonelagem) }));
+
+  const totais = { GERAL: 0, L20: 0, CONC: 0, CAULIM: 0 };
+  const porClassificacao = {
+    GERAL: { 'VARIAVEL ABSOLUTO': 0, 'VARIAVEL AJUSTÁVEL': 0, FIXO: 0 },
+    L20: { 'VARIAVEL ABSOLUTO': 0, 'VARIAVEL AJUSTÁVEL': 0, FIXO: 0 },
+    CONC: { 'VARIAVEL ABSOLUTO': 0, 'VARIAVEL AJUSTÁVEL': 0, FIXO: 0 },
+    CAULIM: { 'VARIAVEL ABSOLUTO': 0, 'VARIAVEL AJUSTÁVEL': 0, FIXO: 0 },
+  };
+
+  for (const { item, calc } of resultadosItens) {
+    totais.GERAL += calc.valorTotal;
+    totais.L20 += calc.linhas.L20;
+    totais.CONC += calc.linhas.CONC;
+    totais.CAULIM += calc.linhas.CAULIM;
+    const classif = item.classificacao;
+    if (porClassificacao.GERAL[classif] !== undefined) {
+      porClassificacao.GERAL[classif] += calc.valorTotal;
+      porClassificacao.L20[classif] += calc.linhas.L20;
+      porClassificacao.CONC[classif] += calc.linhas.CONC;
+      porClassificacao.CAULIM[classif] += calc.linhas.CAULIM;
+    }
+  }
+
+  const custoPorTon = {
+    GERAL: tonelagem.tonTotal > 0 ? totais.GERAL / tonelagem.tonTotal : 0,
+    L20: tonelagem.tonL20 > 0 ? totais.L20 / tonelagem.tonL20 : 0,
+    CONC: tonelagem.tonCONC > 0 ? totais.CONC / tonelagem.tonCONC : 0,
+    CAULIM: tonelagem.tonCAULIM > 0 ? totais.CAULIM / tonelagem.tonCAULIM : 0,
+  };
+
+  const custoPorSaco = {
+    L20: metas.L20 > 0 ? totais.L20 / metas.L20 : 0,
+    CONC: metas.CONC > 0 ? totais.CONC / metas.CONC : 0,
+    // Caulim: custo médio por "unidade" combinando os dois formatos de embalagem
+    CAULIM: (metas.CAULIM25 + metas.CAULIMBB) > 0 ? totais.CAULIM / (metas.CAULIM25 + metas.CAULIMBB) : 0,
+  };
+
+  const custoSobreFaturamento = faturamentoPlanejado > 0 ? totais.GERAL / faturamentoPlanejado : 0;
+
+  return { tonelagem, resultadosItens, totais, porClassificacao, custoPorTon, custoPorSaco, custoSobreFaturamento };
+}
+
+/* ----------------------------------------------------------------------------
+   5) MARGEM DE CONTRIBUIÇÃO / PONTO DE EQUILÍBRIO
+---------------------------------------------------------------------------- */
+
+// Custo variável por saco = (Absoluto + Ajustável) da linha / sacos da linha.
+// Custo fixo entra só no ponto de equilíbrio, não no custo variável unitário.
+function margemContribuicao(precoVenda, custoVariavelUnitario) {
+  const margemRS = precoVenda - custoVariavelUnitario;
+  const margemPct = precoVenda > 0 ? margemRS / precoVenda : 0;
+  return { margemRS, margemPct };
+}
+
+function precoSugerido(custoVariavelUnitario, margemAlvoPct) {
+  if (margemAlvoPct >= 1) return Infinity;
+  return custoVariavelUnitario / (1 - margemAlvoPct);
+}
+
+function pontoDeEquilibrio(custoFixoTotal, margemContribuicaoUnitaria) {
+  if (margemContribuicaoUnitaria <= 0) return Infinity;
+  return custoFixoTotal / margemContribuicaoUnitaria;
+}
+
+/* ----------------------------------------------------------------------------
+   Exports (Node) — no browser, este arquivo roda direto como <script>, e as
+   funções ficam disponíveis no escopo global (sem module.exports).
+---------------------------------------------------------------------------- */
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = {
+    INSUMOS_BASE, TONELAGEM_TOTAL_REAL_MAIO, REFERENCIAS,
+    diasDoMes, calcularDiasUteis, horasDisponiveisLinha, producaoEstimada, horasNecessarias,
+    calcularTonelagem, calcularCustoItem, calcularPlanoCompleto,
+    margemContribuicao, precoSugerido, pontoDeEquilibrio,
+  };
+}
+
+/* ============================================================================
+   SILICATE — CUSTO & PRECIFICAÇÃO (módulo do ERP)
+   Camada de estado + interface. Depende de engine.js (carregado antes) e das
+   variáveis/funções globais do ERP (utils.js): getUser, toast, closeModal etc.
+   ========================================================================== */
+
+const NOMES_PRODUTO = { L20: 'Linha 20 Kg', CONC: 'Concentrado (10 Kg)', CAULIM: 'Caulim' };
+const UNIDADE_PRODUTO = { L20: 'sacos/h', CONC: 'sacos/h', CAULIM: 'ton/h' };
+const MODULO_ID = 'custo_precificacao';
+
+function criarEstadoInicial() {
+  const state = {
+    tab: 'config',
+    mes: 6,
+    ano: 2026,
+    feriados: [],
+    linhas: [
+      { id: 'linha2', nome: 'Linha 2', produto: 'CONC',
+        capacidade: { L20: 250, CONC: 500, CAULIM: 5 },
+        turnos: [
+          { nome: '1ª Turno — Madrugada (00h–08h)', ativo: false, horas: 8 },
+          { nome: '2ª Turno — Manhã (07:20–15:40)', ativo: true, horas: 8 },
+          { nome: '3ª Turno — Noite (15:20–23:40)', ativo: true, horas: 8 },
+        ],
+        horasExtras: 0, disponibilidade: 0.85 },
+      { id: 'linha3', nome: 'Linha 3', produto: 'L20',
+        capacidade: { L20: 250, CONC: 500, CAULIM: 5 },
+        turnos: [
+          { nome: '1ª Turno — Madrugada (00h–08h)', ativo: false, horas: 8 },
+          { nome: '2ª Turno — Manhã (07:20–15:40)', ativo: true, horas: 8 },
+          { nome: '3ª Turno — Noite (15:20–23:40)', ativo: true, horas: 8 },
+        ],
+        horasExtras: 0, disponibilidade: 0.85 },
+      { id: 'imetec', nome: 'Imetec', produto: 'CAULIM',
+        capacidade: { L20: 200, CONC: 400, CAULIM: 5 },
+        turnos: [
+          { nome: '1ª Turno — Madrugada (00h–08h)', ativo: false, horas: 8 },
+          { nome: '2ª Turno — Manhã (07:20–15:40)', ativo: true, horas: 8 },
+          { nome: '3ª Turno — Noite (15:20–23:40)', ativo: true, horas: 8 },
+        ],
+        horasExtras: 0, disponibilidade: 0.85 },
+    ],
+    metas: { L20: 28091, CONC: 355261, CAULIM25: 16424, CAULIMBB: 1535 },
+    pesos: { pesoL20Kg: 20, pesoCONCKg: 10, pesoCAULIM25Kg: 25, pesoBigBagKg: 1000 },
+    faturamento: 2954258,
+    precoVenda: { L20: 0, CONC: 0, CAULIM: 0 },
+    margemAlvo: { L20: 0.22, CONC: 0.22, CAULIM: 0.22 },
+    insumos: INSUMOS_BASE.map((it) => ({
+      ...it,
+      fatorEditado: it.tipoRateio === 'direto' ? (it.baseReal > 0 ? it.qtdBaseReal / it.baseReal : 0)
+        : (it.temPrecoQtd ? it.qtdBaseReal / TONELAGEM_TOTAL_REAL_MAIO : null),
+    })),
+  };
+  const r0 = computar(state);
+  state.precoVenda.L20 = arred(precoSugerido(r0.custoVariavelPorUnidade.L20, state.margemAlvo.L20), 2);
+  state.precoVenda.CONC = arred(precoSugerido(r0.custoVariavelPorUnidade.CONC, state.margemAlvo.CONC), 2);
+  state.precoVenda.CAULIM = arred(precoSugerido(r0.custoVariavelPorUnidade.CAULIM, state.margemAlvo.CAULIM), 2);
+  return state;
+}
+
+var state = criarEstadoInicial();
+
+/* ---------------------------- adaptador estado -> engine ---------------------------- */
+
+function insumosParaEngine(insumos) {
+  return insumos.map((it) => {
+    if (it.tipoRateio === 'direto') return { ...it, qtdBaseReal: it.fatorEditado, baseReal: 1 };
+    if (it.temPrecoQtd) return { ...it, qtdBaseReal: it.fatorEditado * TONELAGEM_TOTAL_REAL_MAIO };
+    return it;
+  });
+}
+
+function computar(s) {
+  const diasInfo = calcularDiasUteis(s.ano, s.mes, s.feriados);
+  const insumosEngine = insumosParaEngine(s.insumos);
+  const plano = calcularPlanoCompleto(insumosEngine, s.metas, s.pesos, s.faturamento);
+
+  const capacidade = { L20: capVazia(), CONC: capVazia(), CAULIM: capVazia() };
+  for (const linha of s.linhas) {
+    const turnosAtivos = linha.turnos.filter((t) => t.ativo).map((t) => Number(t.horas) || 0);
+    const h = horasDisponiveisLinha(diasInfo.diasUteis, turnosAtivos, Number(linha.horasExtras) || 0);
+    const cap = Number(linha.capacidade[linha.produto]) || 0;
+    const prod = producaoEstimada(h.horasTotais, cap, linha.disponibilidade);
+    const alvo = capacidade[linha.produto];
+    alvo.horasDisp += h.horasTotais;
+    alvo.producaoEstimada += prod;
+    alvo.linhas.push({ id: linha.id, nome: linha.nome, horas: h.horasTotais, producao: prod, capacidade: cap });
+  }
+  for (const p of ['L20', 'CONC', 'CAULIM']) {
+    const c = capacidade[p];
+    const meta = p === 'CAULIM' ? plano.tonelagem.tonCAULIM : s.metas[p];
+    c.meta = meta;
+    c.gap = meta - c.producaoEstimada;
+    c.capEfetiva = c.horasDisp > 0 ? c.producaoEstimada / c.horasDisp : 0;
+    c.horasAdicionais = c.gap > 0 ? (c.capEfetiva > 0 ? c.gap / c.capEfetiva : Infinity) : 0;
+    if (c.gap <= 1e-6) c.status = 'ok';
+    else if (c.horasAdicionais <= 0.15 * (c.horasDisp || 1)) c.status = 'atencao';
+    else c.status = 'critico';
+  }
+
+  const custoVariavelPorUnidade = {
+    L20: s.metas.L20 > 0 ? (plano.porClassificacao.L20['VARIAVEL ABSOLUTO'] + plano.porClassificacao.L20['VARIAVEL AJUSTÁVEL']) / s.metas.L20 : 0,
+    CONC: s.metas.CONC > 0 ? (plano.porClassificacao.CONC['VARIAVEL ABSOLUTO'] + plano.porClassificacao.CONC['VARIAVEL AJUSTÁVEL']) / s.metas.CONC : 0,
+    CAULIM: (s.metas.CAULIM25 + s.metas.CAULIMBB) > 0
+      ? (plano.porClassificacao.CAULIM['VARIAVEL ABSOLUTO'] + plano.porClassificacao.CAULIM['VARIAVEL AJUSTÁVEL']) / (s.metas.CAULIM25 + s.metas.CAULIMBB) : 0,
+  };
+
+  const margem = {};
+  const pe = {};
+  for (const p of ['L20', 'CONC', 'CAULIM']) {
+    margem[p] = margemContribuicao(s.precoVenda[p], custoVariavelPorUnidade[p]);
+    const custoFixoLinha = plano.porClassificacao[p].FIXO;
+    pe[p] = pontoDeEquilibrio(custoFixoLinha, margem[p].margemRS);
+  }
+
+  const lucroPorHora = {};
+  for (const p of ['L20', 'CONC', 'CAULIM']) lucroPorHora[p] = margem[p].margemRS * capacidade[p].capEfetiva;
+
+  return { diasInfo, plano, capacidade, custoVariavelPorUnidade, margem, pontoEquilibrio: pe, lucroPorHora };
+}
+
+function capVazia() { return { horasDisp: 0, producaoEstimada: 0, linhas: [] }; }
+
+/* ---------------------------------- utilidades ---------------------------------- */
+
+function arred(v, dec) { const f = Math.pow(10, dec); return Math.round((v + Number.EPSILON) * f) / f; }
+function fmtBRL(v) { if (!isFinite(v)) return '—'; return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }); }
+function fmtNum(v, dec) { if (!isFinite(v)) return '—'; return v.toLocaleString('pt-BR', { minimumFractionDigits: dec, maximumFractionDigits: dec }); }
+function fmtPct(v, dec) { if (!isFinite(v)) return '—'; return (v * 100).toLocaleString('pt-BR', { minimumFractionDigits: dec, maximumFractionDigits: dec }) + '%'; }
+function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+function badge(status) {
+  const map = { ok: ['OK', 'success'], atencao: ['ATENÇÃO', 'warning'], critico: ['CRÍTICO', 'danger'] };
+  const [label, cls] = map[status] || ['—', 'gray'];
+  return `<span class="badge badge-${cls}">${label}</span>`;
+}
+function alertBox(status, html) {
+  const cls = { ok: 'alert-success', atencao: 'alert-warning', critico: 'alert-danger' }[status] || 'alert-warning';
+  return `<div class="alert ${cls}">${html}</div>`;
+}
+function gauge(pctUsado, status) {
+  const pct = Math.max(0, Math.min(1.4, pctUsado)) / 1.4 * 100;
+  const marker = (1 / 1.4) * 100;
+  const cor = { ok: 'var(--success)', atencao: 'var(--warning)', critico: 'var(--danger)' }[status] || 'var(--border)';
+  return `<div class="cp-gauge"><div class="cp-gauge-track">
+      <div class="cp-gauge-fill" style="width:${pct}%;background:${cor}"></div>
+      <div class="cp-gauge-marker" style="left:${marker}%"></div>
+    </div></div>`;
+}
+
+/* ------------------------------------ ações ------------------------------------ */
+
+function showTab(tab) {
+  if (typeof guardTab === 'function' && !guardTab(MODULO_ID, tab)) return;
+  state.tab = tab;
+  ['config', 'metas', 'insumos', 'resultado', 'precificacao', 'painel'].forEach((t) => {
+    const btn = document.getElementById('tbtn-' + t);
+    if (btn) btn.classList.toggle('active', t === tab);
+  });
+  render();
+}
+function setMesAno(campo, valor) { state[campo] = Number(valor); render(); }
+function toggleFeriado(iso, checked) {
+  if (checked) { if (!state.feriados.includes(iso)) state.feriados.push(iso); }
+  else { state.feriados = state.feriados.filter((f) => f !== iso); }
+  render();
+}
+function setLinhaField(id, campo, valor) {
+  const l = state.linhas.find((x) => x.id === id);
+  if (!l) return;
+  if (campo === 'produto') l.produto = valor;
+  else if (campo === 'horasExtras') l.horasExtras = Number(valor);
+  else if (campo === 'disponibilidade') l.disponibilidade = Number(valor) / 100;
+  render();
+}
+function setLinhaTurno(id, idx, campo, valor) {
+  const l = state.linhas.find((x) => x.id === id);
+  if (!l) return;
+  if (campo === 'ativo') l.turnos[idx].ativo = valor;
+  else if (campo === 'horas') l.turnos[idx].horas = Number(valor);
+  render();
+}
+function setLinhaCapacidade(id, produto, valor) {
+  const l = state.linhas.find((x) => x.id === id);
+  if (!l) return;
+  l.capacidade[produto] = Number(valor);
+  render();
+}
+function setMeta(produto, valor) { state.metas[produto] = Number(valor); render(); }
+function setPeso(campo, valor) { state.pesos[campo] = Number(valor); render(); }
+function setFaturamento(valor) { state.faturamento = Number(valor); render(); }
+function setInsumoPreco(id, valor) { const it = state.insumos.find((x) => x.id === id); if (it) it.precoUnitario = Number(valor); render(); }
+function setInsumoFator(id, valor) { const it = state.insumos.find((x) => x.id === id); if (it) it.fatorEditado = Number(valor); render(); }
+function setInsumoValorBase(id, valor) { const it = state.insumos.find((x) => x.id === id); if (it) it.valorBaseReal = Number(valor); render(); }
+function setInsumoEscala(id, valor) { const it = state.insumos.find((x) => x.id === id); if (it) it.escala = valor; render(); }
+function setPrecoVenda(produto, valor) { state.precoVenda[produto] = Number(valor); render(); }
+function setMargemAlvo(produto, valor) { state.margemAlvo[produto] = Number(valor) / 100; render(); }
+function aplicarPrecoSugerido(produto) {
+  const r = computar(state);
+  state.precoVenda[produto] = arred(precoSugerido(r.custoVariavelPorUnidade[produto], state.margemAlvo[produto]), 2);
+  render();
+  if (typeof toast === 'function') toast(`Preço de ${NOMES_PRODUTO[produto]} atualizado para a margem alvo.`, 'success');
+}
+function carregarBaselineReal() {
+  const abaAtual = state.tab;
+  state = criarEstadoInicial();
+  state.tab = abaAtual;
+  render();
+  if (typeof toast === 'function') toast('Valores restaurados para o baseline real de Maio/2026.', 'success');
+}
+
+/* ------------------------------------ render ------------------------------------ */
+
+function render() {
+  const app = document.getElementById('cp-app');
+  if (!app) return;
+  const r = computar(state);
+  app.innerHTML = renderResumoTopo(r) + renderConteudo(r);
+  if (typeof applyPermUI === 'function') applyPermUI();
+}
+
+function renderResumoTopo(r) {
+  const t = r.plano.totais;
+  return `<div class="cp-resumo-topo">
+    <div class="cp-resumo-item"><span>Período</span><strong>${String(state.mes).padStart(2, '0')}/${state.ano}</strong></div>
+    <div class="cp-resumo-item"><span>Dias úteis</span><strong>${r.diasInfo.diasUteis}</strong></div>
+    <div class="cp-resumo-item"><span>Tonelagem planejada</span><strong>${fmtNum(r.plano.tonelagem.tonTotal, 1)} ton</strong></div>
+    <div class="cp-resumo-item"><span>Custo total planejado</span><strong class="cp-destaque">${fmtBRL(t.GERAL)}</strong></div>
+    <div class="cp-resumo-item"><span>Custo / tonelada</span><strong>${fmtBRL(r.plano.custoPorTon.GERAL)}</strong></div>
+  </div>`;
+}
+
+function renderConteudo(r) {
+  switch (state.tab) {
+    case 'config': return renderConfig(r);
+    case 'metas': return renderMetas(r);
+    case 'insumos': return renderInsumos(r);
+    case 'resultado': return renderResultado(r);
+    case 'precificacao': return renderPrecificacao(r);
+    case 'painel': return renderPainel(r);
+    default: return '';
+  }
+}
+
+/* ---------- TAB: Capacidade / calendário ---------- */
+
+function renderConfig(r) {
+  const mesesNomes = ['', 'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+  const totalDias = diasDoMes(state.ano, state.mes);
+  let diasHtml = '';
+  for (let d = 1; d <= totalDias; d++) {
+    const iso = `${state.ano}-${String(state.mes).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    const dt = new Date(state.ano, state.mes - 1, d);
+    const domingo = dt.getDay() === 0;
+    const marcado = state.feriados.includes(iso);
+    diasHtml += `<label class="cp-dia ${domingo ? 'cp-dia-domingo' : ''} ${marcado ? 'cp-dia-feriado' : ''}" title="${iso}">
+      <input type="checkbox" ${marcado ? 'checked' : ''} ${domingo ? 'disabled' : ''} onchange="toggleFeriado('${iso}', this.checked)">
+      <span>${d}</span>
+    </label>`;
+  }
+
+  const linhasHtml = state.linhas.map((l) => {
+    const unidade = UNIDADE_PRODUTO[l.produto];
+    const turnosHtml = l.turnos.map((t, idx) => `
+      <div class="cp-turno-row">
+        <label class="cp-check"><input type="checkbox" ${t.ativo ? 'checked' : ''} onchange="setLinhaTurno('${l.id}',${idx},'ativo',this.checked)"> ${t.nome}</label>
+        <input class="form-input cp-input-sm" type="number" min="0" max="24" step="0.5" value="${t.horas}" ${t.ativo ? '' : 'disabled'}
+          onchange="setLinhaTurno('${l.id}',${idx},'horas',this.value)"> h/dia
+      </div>`).join('');
+    const cap = r.capacidade[l.produto].linhas.find((x) => x.id === l.id);
+    return `<div class="card cp-card">
+      <div class="cp-card-header">
+        <strong>${l.nome}</strong>
+        <select class="form-input" style="width:auto;" onchange="setLinhaField('${l.id}','produto',this.value)">
+          ${['L20', 'CONC', 'CAULIM'].map((p) => `<option value="${p}" ${l.produto === p ? 'selected' : ''}>${NOMES_PRODUTO[p]}</option>`).join('')}
+        </select>
+      </div>
+      ${turnosHtml}
+      <div class="form-group cp-field-row">
+        <label class="form-label">Horas extras no mês</label>
+        <input class="form-input cp-input-sm" type="number" min="0" step="1" value="${l.horasExtras}" onchange="setLinhaField('${l.id}','horasExtras',this.value)">
+      </div>
+      <div class="form-group cp-field-row">
+        <label class="form-label">% Disponibilidade (OEE)</label>
+        <input class="form-input cp-input-sm" type="number" min="0" max="100" step="1" value="${arred(l.disponibilidade * 100, 1)}" onchange="setLinhaField('${l.id}','disponibilidade',this.value)">
+      </div>
+      <div class="form-group cp-field-row">
+        <label class="form-label">Capacidade (${esc(unidade)})</label>
+        <input class="form-input cp-input-sm" type="number" min="0" step="0.1" value="${l.capacidade[l.produto]}" onchange="setLinhaCapacidade('${l.id}','${l.produto}',this.value)">
+      </div>
+      <div class="cp-mini-resultado">
+        Horas disponíveis: <strong>${fmtNum(cap ? cap.horas : 0, 1)} h</strong> ·
+        Produção estimada: <strong>${fmtNum(cap ? cap.producao : 0, 1)} ${unidade.replace('/h', '')}</strong>
+      </div>
+    </div>`;
+  }).join('');
+
+  return `
+  <div class="card" style="margin-bottom:16px;">
+    <h3 class="cp-h3">Calendário — ${mesesNomes[state.mes]}/${state.ano}</h3>
+    <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
+      <div class="form-group" style="margin:0;">
+        <label class="form-label">Mês</label>
+        <select class="form-input" style="width:160px;" onchange="setMesAno('mes', this.value)">
+          ${mesesNomes.slice(1).map((n, i) => `<option value="${i + 1}" ${state.mes === i + 1 ? 'selected' : ''}>${n}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group" style="margin:0;">
+        <label class="form-label">Ano</label>
+        <input class="form-input cp-input-sm" type="number" value="${state.ano}" onchange="setMesAno('ano', this.value)">
+      </div>
+    </div>
+    <p class="cp-ajuda">Marque os feriados do mês (domingos já ficam de fora, escala SEG–SAB). Dias úteis calculados: <strong>${r.diasInfo.diasUteis}</strong> de ${r.diasInfo.totalDias} (−${r.diasInfo.domingos} domingos, −${r.diasInfo.feriadosUteis} feriados).</p>
+    <div class="cp-calendario">${diasHtml}</div>
+  </div>
+  <h3 class="cp-h3">Capacidade por linha física</h3>
+  <p class="cp-ajuda">Cada linha é atribuída a um produto neste mês. Se duas linhas rodarem o mesmo produto, a capacidade delas se soma.</p>
+  <div class="cp-grid-cards">${linhasHtml}</div>`;
+}
+
+/* ---------- TAB: Metas & produção ---------- */
+
+function renderMetas(r) {
+  const metaRow = (id, label, unidade) => `
+    <div class="form-group cp-field-row">
+      <label class="form-label">${label}</label>
+      <input class="form-input" type="number" min="0" step="1" value="${state.metas[id]}" onchange="setMeta('${id}', this.value)">
+      <span class="cp-unid">${unidade}</span>
+    </div>`;
+  const pesoRow = (id, label) => `
+    <div class="form-group cp-field-row">
+      <label class="form-label">${label}</label>
+      <input class="form-input cp-input-sm" type="number" min="0" step="0.1" value="${state.pesos[id]}" onchange="setPeso('${id}', this.value)">
+      <span class="cp-unid">kg</span>
+    </div>`;
+
+  const cardsCapacidade = ['L20', 'CONC', 'CAULIM'].map((p) => {
+    const c = r.capacidade[p];
+    const usoReal = c.producaoEstimada > 0 ? c.meta / (c.producaoEstimada || 1) : (c.meta > 0 ? 999 : 0);
+    return `<div class="card cp-card">
+      <div class="cp-card-header"><strong>${NOMES_PRODUTO[p]}</strong> ${badge(c.status)}</div>
+      <div class="cp-kpi-linha"><span>Meta</span><strong>${fmtNum(c.meta, p === 'CAULIM' ? 1 : 0)} ${p === 'CAULIM' ? 'ton' : 'sacos'}</strong></div>
+      <div class="cp-kpi-linha"><span>Produção estimada (capacidade atual)</span><strong>${fmtNum(c.producaoEstimada, p === 'CAULIM' ? 1 : 0)} ${p === 'CAULIM' ? 'ton' : 'sacos'}</strong></div>
+      <div class="cp-kpi-linha"><span>Horas disponíveis</span><strong>${fmtNum(c.horasDisp, 1)} h</strong></div>
+      ${gauge(usoReal, c.status)}
+      ${c.gap > 1e-6
+        ? alertBox(c.status, `Faltam <strong>${fmtNum(c.gap, p === 'CAULIM' ? 1 : 0)}</strong> ${p === 'CAULIM' ? 'ton' : 'sacos'} de capacidade — precisa de mais <strong>${fmtNum(c.horasAdicionais, 1)} h</strong> (turno extra ou hora extra).`)
+        : alertBox('ok', `Capacidade cobre a meta, com folga de ${fmtNum(-c.gap, p === 'CAULIM' ? 1 : 0)} ${p === 'CAULIM' ? 'ton' : 'sacos'}.`)}
+    </div>`;
+  }).join('');
+
+  return `
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px;" class="cp-grid-2">
+    <div class="card cp-card"><h3 class="cp-h3">Quantidade a produzir</h3>
+      ${metaRow('L20', 'Linha 20 Kg', 'sacos')}
+      ${metaRow('CONC', 'Concentrado (10 Kg)', 'sacos')}
+      ${metaRow('CAULIM25', 'Caulim 25 Kg (ensacado)', 'sacos')}
+      ${metaRow('CAULIMBB', 'Caulim Big Bag', 'unid. (~1 ton)')}
+      <div class="form-group cp-field-row">
+        <label class="form-label">Faturamento mensal previsto</label>
+        <input class="form-input" type="number" min="0" step="1000" value="${state.faturamento}" onchange="setFaturamento(this.value)">
+        <span class="cp-unid">R$</span>
+      </div>
+    </div>
+    <div class="card cp-card"><h3 class="cp-h3">Peso por embalagem</h3>
+      ${pesoRow('pesoL20Kg', 'Saco Linha 20 Kg')}
+      ${pesoRow('pesoCONCKg', 'Saco Concentrado')}
+      ${pesoRow('pesoCAULIM25Kg', 'Saco Caulim 25 Kg')}
+      ${pesoRow('pesoBigBagKg', 'Big Bag')}
+      <p class="cp-ajuda">Usado só para converter sacos em toneladas (rateio dos custos compartilhados).</p>
+    </div>
+  </div>
+  <div class="card" style="margin-bottom:16px;">
+    <h3 class="cp-h3">Tonelagem e participação por linha</h3>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Linha</th><th>Toneladas</th><th>% da produção</th></tr></thead>
+      <tbody>
+        <tr><td>Linha 20 Kg</td><td class="cp-num">${fmtNum(r.plano.tonelagem.tonL20, 2)}</td><td class="cp-num">${fmtPct(r.plano.tonelagem.pctL20, 2)}</td></tr>
+        <tr><td>Concentrado</td><td class="cp-num">${fmtNum(r.plano.tonelagem.tonCONC, 2)}</td><td class="cp-num">${fmtPct(r.plano.tonelagem.pctCONC, 2)}</td></tr>
+        <tr><td>Caulim</td><td class="cp-num">${fmtNum(r.plano.tonelagem.tonCAULIM, 2)}</td><td class="cp-num">${fmtPct(r.plano.tonelagem.pctCAULIM, 2)}</td></tr>
+        <tr style="font-weight:800;"><td>Total</td><td class="cp-num">${fmtNum(r.plano.tonelagem.tonTotal, 2)}</td><td class="cp-num">100,00%</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+  <h3 class="cp-h3">Capacidade vs. meta — onde está o gargalo?</h3>
+  <div class="cp-grid-cards">${cardsCapacidade}</div>`;
+}
+
+/* ---------- TAB: Insumos & custos ---------- */
+
+function linhaInsumoDireto(it, calc) {
+  const linhaLabel = it.produtoBase === 'CAULIM25' ? 'Caulim (25 Kg)' : it.produtoBase === 'CAULIMBB' ? 'Caulim (Big Bag)' : it.produtoBase === 'CAULIM_TOTAL' ? 'Caulim (total)' : NOMES_PRODUTO[it.produtoBase];
+  return `<tr>
+    <td>${esc(it.classe)}</td>
+    <td>${esc(it.insumo)}</td>
+    <td><span class="badge badge-info">${linhaLabel}</span></td>
+    <td>${esc(it.classificacao)}</td>
+    <td class="cp-num"><input class="form-input cp-input-tabela" type="number" step="0.0001" value="${it.precoUnitario}" onchange="setInsumoPreco('${it.id}', this.value)"></td>
+    <td class="cp-num"><input class="form-input cp-input-tabela" type="number" step="0.0001" value="${arred(it.fatorEditado, 4)}" onchange="setInsumoFator('${it.id}', this.value)"></td>
+    <td class="cp-num">${esc(it.unidade)}/base</td>
+    <td class="cp-num">${fmtNum(calc.novaQtd, 2)}</td>
+    <td class="cp-num cp-num-forte">${fmtBRL(calc.valorTotal)}</td>
+  </tr>`;
+}
+
+function linhaInsumoCompartilhado(it, calc) {
+  const campoValor = it.temPrecoQtd
+    ? `<input class="form-input cp-input-tabela" type="number" step="0.0001" value="${it.precoUnitario}" onchange="setInsumoPreco('${it.id}', this.value)">`
+    : `<span class="cp-muted">—</span>`;
+  const campoFatorOuValor = it.temPrecoQtd
+    ? `<input class="form-input cp-input-tabela" type="number" step="0.0001" value="${arred(it.fatorEditado, 4)}" onchange="setInsumoFator('${it.id}', this.value)">`
+    : `<input class="form-input cp-input-tabela" type="number" step="0.01" value="${it.valorBaseReal}" onchange="setInsumoValorBase('${it.id}', this.value)">`;
+  const escalaSelect = it.temPrecoQtd ? `<span class="badge badge-gray">volume</span>` : `<select class="form-input cp-input-tabela" onchange="setInsumoEscala('${it.id}', this.value)">
+      <option value="VOLUME" ${it.escala === 'VOLUME' ? 'selected' : ''}>volume</option>
+      <option value="FIXO" ${it.escala === 'FIXO' ? 'selected' : ''}>fixo</option>
+    </select>`;
+  return `<tr>
+    <td>${esc(it.classe)}</td>
+    <td>${esc(it.insumo)}</td>
+    <td>${escalaSelect}</td>
+    <td>${esc(it.classificacao)}</td>
+    <td class="cp-num">${campoValor}</td>
+    <td class="cp-num">${campoFatorOuValor}</td>
+    <td class="cp-num">${it.temPrecoQtd ? esc(it.unidade) + '/ton' : 'R$ base'}</td>
+    <td class="cp-num">${fmtBRL(calc.linhas.L20)}</td>
+    <td class="cp-num">${fmtBRL(calc.linhas.CONC)}</td>
+    <td class="cp-num">${fmtBRL(calc.linhas.CAULIM)}</td>
+    <td class="cp-num cp-num-forte">${fmtBRL(calc.valorTotal)}</td>
+  </tr>`;
+}
+
+function renderInsumos(r) {
+  const diretos = r.plano.resultadosItens.filter((x) => x.item.tipoRateio === 'direto');
+  const compartilhados = r.plano.resultadosItens.filter((x) => x.item.tipoRateio === 'compartilhado');
+  const totalDireto = diretos.reduce((a, x) => a + x.calc.valorTotal, 0);
+  const totalCompart = compartilhados.reduce((a, x) => a + x.calc.valorTotal, 0);
+
+  return `
+  <div class="card" style="margin-bottom:16px;">
+    <h3 class="cp-h3">Insumos diretos <span class="cp-muted">— 100% de uma linha, escalam com a meta de sacos</span></h3>
+    <div class="table-wrap cp-table-scroll"><table>
+      <thead><tr><th>Classe</th><th>Insumo</th><th>Linha</th><th>Classificação</th><th>Preço unit. (R$)</th><th>Fator (unid./base)</th><th>Unidade</th><th>Qtd. no plano</th><th>Valor total</th></tr></thead>
+      <tbody>${diretos.map((x) => linhaInsumoDireto(x.item, x.calc)).join('')}</tbody>
+      <tfoot><tr style="font-weight:800;"><td colspan="8" style="padding:10px 16px;">Subtotal diretos</td><td class="cp-num" style="padding:10px 16px;">${fmtBRL(totalDireto)}</td></tr></tfoot>
+    </table></div>
+  </div>
+  <div class="card">
+    <h3 class="cp-h3">Insumos compartilhados <span class="cp-muted">— rateados pela tonelagem de cada linha</span></h3>
+    <p class="cp-ajuda">"volume" = escala com a tonelagem total do plano · "fixo" = valor não muda com o volume (ex.: arrendamento).</p>
+    <div class="table-wrap cp-table-scroll"><table>
+      <thead><tr><th>Classe</th><th>Insumo</th><th>Escala</th><th>Classificação</th><th>Preço unit.</th><th>Taxa/ton ou Valor base</th><th>Unidade</th><th>Linha 20kg</th><th>Concentrado</th><th>Caulim</th><th>Total</th></tr></thead>
+      <tbody>${compartilhados.map((x) => linhaInsumoCompartilhado(x.item, x.calc)).join('')}</tbody>
+      <tfoot><tr style="font-weight:800;"><td colspan="10" style="padding:10px 16px;">Subtotal compartilhados</td><td class="cp-num" style="padding:10px 16px;">${fmtBRL(totalCompart)}</td></tr></tfoot>
+    </table></div>
+  </div>`;
+}
+
+/* ---------- TAB: Resultado por linha ---------- */
+
+function cardResultadoLinha(r, p, label) {
+  const total = r.plano.totais[p];
+  const custoTon = r.plano.custoPorTon[p];
+  const custoUnit = r.plano.custoPorSaco[p];
+  const c = r.plano.porClassificacao[p];
+  return `<div class="card cp-card">
+    <div class="cp-card-header"><strong>${label}</strong></div>
+    <div class="cp-kpi-linha"><span>Custo total</span><strong>${fmtBRL(total)}</strong></div>
+    <div class="cp-kpi-linha"><span>Custo / tonelada</span><strong>${fmtBRL(custoTon)}</strong></div>
+    <div class="cp-kpi-linha"><span>Custo / ${p === 'CAULIM' ? 'unidade (saco+bigbag)' : 'saco'}</span><strong>${fmtBRL(custoUnit)}</strong></div>
+    <div class="cp-barra-classif">
+      <div class="cp-seg cp-seg-abs" style="width:${total > 0 ? c['VARIAVEL ABSOLUTO'] / total * 100 : 0}%" title="Variável Absoluto"></div>
+      <div class="cp-seg cp-seg-ajust" style="width:${total > 0 ? c['VARIAVEL AJUSTÁVEL'] / total * 100 : 0}%" title="Variável Ajustável"></div>
+      <div class="cp-seg cp-seg-fixo" style="width:${total > 0 ? c['FIXO'] / total * 100 : 0}%" title="Fixo"></div>
+    </div>
+    <div class="cp-legenda">
+      <span><i class="cp-dot cp-dot-abs"></i>Absoluto ${fmtPct(total > 0 ? c['VARIAVEL ABSOLUTO'] / total : 0, 1)}</span>
+      <span><i class="cp-dot cp-dot-ajust"></i>Ajustável ${fmtPct(total > 0 ? c['VARIAVEL AJUSTÁVEL'] / total : 0, 1)}</span>
+      <span><i class="cp-dot cp-dot-fixo"></i>Fixo ${fmtPct(total > 0 ? c['FIXO'] / total : 0, 1)}</span>
+    </div>
+  </div>`;
+}
+
+function renderResultado(r) {
+  const t = r.plano.totais;
+  const ref = REFERENCIAS;
+  return `
+  <h3 class="cp-h3">Resultado de custo por linha (plano atual)</h3>
+  <div class="cp-grid-cards" style="margin-bottom:16px;">
+    ${cardResultadoLinha(r, 'L20', 'Linha 20 Kg')}
+    ${cardResultadoLinha(r, 'CONC', 'Concentrado')}
+    ${cardResultadoLinha(r, 'CAULIM', 'Caulim')}
+  </div>
+  <div class="card">
+    <h3 class="cp-h3">Comparativo — Simulado x Programado x Realizado (Maio/2026)</h3>
+    <p class="cp-ajuda">Programado e Realizado são os totais fixos já existentes na planilha (referência). "Simulado" é o resultado deste plano, recalculado ao vivo.</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th></th><th>Programado (planilha)</th><th>Realizado — Maio (planilha)</th><th>Simulado (este plano)</th></tr></thead>
+      <tbody>
+        <tr><td>Custo total</td><td class="cp-num">${fmtBRL(ref.programadoMaio.total)}</td><td class="cp-num">${fmtBRL(ref.realizadoMaio.total)}</td><td class="cp-num cp-num-forte">${fmtBRL(t.GERAL)}</td></tr>
+        <tr><td>Faturamento</td><td class="cp-num">${fmtBRL(ref.programadoMaio.faturamento)}</td><td class="cp-num">${fmtBRL(ref.realizadoMaio.faturamento)}</td><td class="cp-num cp-num-forte">${fmtBRL(state.faturamento)}</td></tr>
+        <tr><td>Custo / faturamento</td><td class="cp-num">${fmtPct(ref.programadoMaio.total / ref.programadoMaio.faturamento, 1)}</td><td class="cp-num">${fmtPct(ref.realizadoMaio.total / ref.realizadoMaio.faturamento, 1)}</td><td class="cp-num cp-num-forte">${fmtPct(r.plano.custoSobreFaturamento, 1)}</td></tr>
+        <tr><td>Custo / tonelada</td><td class="cp-num">${fmtBRL(ref.programadoMaio.custoPorTon)}</td><td class="cp-num">${fmtBRL(ref.realizadoMaio.custoPorTon)}</td><td class="cp-num cp-num-forte">${fmtBRL(r.plano.custoPorTon.GERAL)}</td></tr>
+      </tbody>
+    </table></div>
+    <p class="cp-ajuda">Comparação item a item (Programado x Realizado x Simulado) é fácil de estender depois — hoje só o total da planilha de Programado foi trazido como referência.</p>
+  </div>`;
+}
+
+/* ---------- TAB: Precificação & margem ---------- */
+
+function cardPrecificacao(r, p, label, unidade) {
+  const custo = r.custoVariavelPorUnidade[p];
+  const preco = state.precoVenda[p];
+  const m = r.margem[p];
+  const pe = r.pontoEquilibrio[p];
+  const margemNegativa = m.margemRS < 0;
+  return `<div class="card cp-card">
+    <div class="cp-card-header"><strong>${label}</strong></div>
+    <div class="cp-kpi-linha"><span>Custo variável / ${unidade}</span><strong>${fmtBRL(custo)}</strong></div>
+    <div class="form-group cp-field-row">
+      <label class="form-label">Preço de venda / ${unidade}</label>
+      <input class="form-input" type="number" step="0.01" value="${preco}" onchange="setPrecoVenda('${p}', this.value)">
+    </div>
+    <div class="cp-kpi-linha"><span>Margem de contribuição</span><strong style="${margemNegativa ? 'color:var(--danger)' : ''}">${fmtBRL(m.margemRS)} (${fmtPct(m.margemPct, 1)})</strong></div>
+    ${margemNegativa ? alertBox('critico', 'Preço abaixo do custo variável — cada unidade vendida está dando prejuízo.') : ''}
+    <div class="form-group cp-field-row">
+      <label class="form-label">Margem alvo (%)</label>
+      <input class="form-input cp-input-sm" type="number" step="1" value="${arred(state.margemAlvo[p] * 100, 1)}" onchange="setMargemAlvo('${p}', this.value)">
+      <button class="btn btn-secondary btn-sm" onclick="aplicarPrecoSugerido('${p}')">Aplicar preço sugerido</button>
+    </div>
+    <div class="cp-kpi-linha"><span>Ponto de equilíbrio</span><strong>${fmtNum(pe, 0)} ${unidade}s/mês</strong></div>
+  </div>`;
+}
+
+function renderPrecificacao(r) {
+  return `
+  <h3 class="cp-h3">Precificação e margem por produto</h3>
+  <div class="cp-grid-cards">
+    ${cardPrecificacao(r, 'L20', 'Linha 20 Kg', 'saco')}
+    ${cardPrecificacao(r, 'CONC', 'Concentrado', 'saco')}
+    ${cardPrecificacao(r, 'CAULIM', 'Caulim', 'unidade')}
+  </div>
+  <p class="cp-ajuda">Margem de contribuição = Preço de venda − Custo variável (Absoluto + Ajustável). O custo Fixo da linha entra só no ponto de equilíbrio.</p>`;
+}
+
+/* ---------- TAB: Painel executivo ---------- */
+
+function renderPainel(r) {
+  const produtos = ['L20', 'CONC', 'CAULIM'];
+  const piorGargalo = produtos.map((p) => ({ p, ...r.capacidade[p] }))
+    .sort((a, b) => (b.status === 'critico') - (a.status === 'critico') || b.horasAdicionais - a.horasAdicionais)[0];
+  const maisRentavel = produtos.map((p) => ({ p, valor: r.lucroPorHora[p] })).sort((a, b) => b.valor - a.valor)[0];
+
+  const custoFixoTotal = r.plano.porClassificacao.GERAL.FIXO;
+  const margemMediaPonderada = (() => {
+    let numerador = 0, denom = 0;
+    for (const p of produtos) {
+      const q = p === 'CAULIM' ? (state.metas.CAULIM25 + state.metas.CAULIMBB) : state.metas[p];
+      numerador += r.margem[p].margemRS * q;
+      denom += q;
+    }
+    return denom > 0 ? numerador / denom : 0;
+  })();
+  const faturamentoParaEquilibrio = margemMediaPonderada > 0 ? custoFixoTotal / margemMediaPonderada : Infinity;
+
+  const alertasDinamicos = [];
+  for (const p of produtos) {
+    if (r.capacidade[p].status !== 'ok') {
+      alertasDinamicos.push(`<li class="cp-alerta-item cp-alerta-${r.capacidade[p].status === 'critico' ? 'danger' : 'warning'}">
+        <strong>${NOMES_PRODUTO[p]}:</strong> capacidade não cobre a meta — faltam ${fmtNum(r.capacidade[p].horasAdicionais, 1)} h (${badge(r.capacidade[p].status)}).</li>`);
+    }
+    if (r.margem[p].margemRS < 0) {
+      alertasDinamicos.push(`<li class="cp-alerta-item cp-alerta-danger"><strong>${NOMES_PRODUTO[p]}:</strong> preço de venda abaixo do custo variável — margem negativa de ${fmtBRL(r.margem[p].margemRS)}.</li>`);
+    }
+  }
+
+  return `
+  <div class="card cp-card-destaque" style="margin-bottom:14px;">
+    <h3 class="cp-h3">1. Onde está o gargalo esse mês?</h3>
+    <div class="cp-resposta-grande">
+      ${piorGargalo.gap > 1e-6
+        ? `<strong>${NOMES_PRODUTO[piorGargalo.p]}</strong> — faltam ${fmtNum(piorGargalo.horasAdicionais, 1)} horas de capacidade (${badge(piorGargalo.status)}). Considere hora extra, turno adicional ou reduzir a meta deste produto.`
+        : `Nenhum gargalo — a capacidade planejada cobre as metas dos 3 produtos.`}
+    </div>
+  </div>
+  <div class="card cp-card-destaque" style="margin-bottom:14px;">
+    <h3 class="cp-h3">2. Qual produto dá mais lucro por hora de fábrica?</h3>
+    <div class="cp-resposta-grande"><strong>${NOMES_PRODUTO[maisRentavel.p]}</strong> — ${fmtBRL(maisRentavel.valor)} de margem de contribuição por hora de linha usada.</div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Produto</th><th>Margem / unidade</th><th>Capacidade efetiva</th><th>Margem / hora de fábrica</th></tr></thead>
+      <tbody>
+        ${produtos.map((p) => `<tr><td>${NOMES_PRODUTO[p]}</td><td class="cp-num">${fmtBRL(r.margem[p].margemRS)}</td><td class="cp-num">${fmtNum(r.capacidade[p].capEfetiva, 2)} /h</td><td class="cp-num cp-num-forte">${fmtBRL(r.lucroPorHora[p])}</td></tr>`).join('')}
+      </tbody>
+    </table></div>
+    <p class="cp-ajuda">Quando a fábrica está no limite de horas, priorizar o produto com maior margem por hora (não por saco) é o que maximiza o resultado do mês.</p>
+  </div>
+  <div class="card cp-card-destaque" style="margin-bottom:14px;">
+    <h3 class="cp-h3">3. Quanto preciso vender para não ficar no vermelho?</h3>
+    <div class="cp-resposta-grande">Custo fixo total do mês: <strong>${fmtBRL(custoFixoTotal)}</strong> · Faturamento mínimo para cobrir o fixo: <strong>${fmtBRL(faturamentoParaEquilibrio)}</strong></div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Produto</th><th>Ponto de equilíbrio</th></tr></thead>
+      <tbody>
+        <tr><td>Linha 20 Kg</td><td class="cp-num">${fmtNum(r.pontoEquilibrio.L20, 0)} sacos/mês</td></tr>
+        <tr><td>Concentrado</td><td class="cp-num">${fmtNum(r.pontoEquilibrio.CONC, 0)} sacos/mês</td></tr>
+        <tr><td>Caulim</td><td class="cp-num">${fmtNum(r.pontoEquilibrio.CAULIM, 0)} unidades/mês</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+  <div class="card" style="margin-bottom:14px;">
+    <h3 class="cp-h3">Alertas deste mês <span class="cp-muted">— recalcula ao vivo com o cenário atual</span></h3>
+    <ul class="cp-lista-alertas">${alertasDinamicos.join('') || '<li class="cp-alerta-item cp-alerta-success">Nenhum alerta de capacidade ou margem no momento.</li>'}</ul>
+  </div>
+  <div class="card">
+    <h3 class="cp-h3">Achados na planilha original <span class="cp-muted">— fixos, não recalculam com o cenário</span></h3>
+    <ul class="cp-lista-alertas">
+      <li class="cp-alerta-item cp-alerta-warning"><strong>Rateio inconsistente:</strong> no bloco "LINHA 20 KG" da aba CUSTO REAL, a % de rateio usa quantidade de sacos; nos blocos "CONCENTRADO" e "CAULIM", usa tonelagem. Isso fazia a soma dos 3 blocos ficar ~R$ 40.962 abaixo do total geral todo mês. Este módulo usa uma única % (tonelagem) nas 3 linhas.</li>
+      <li class="cp-alerta-item cp-alerta-warning"><strong>Custo órfão:</strong> o item "Frete" (R$ 4.000) nunca chegava a nenhuma das 3 linhas na planilha original (fórmula usa quantidade × preço, ambos em branco = zero). Corrigido aqui: entra no rateio por tonelagem como os demais custos compartilhados.</li>
+      <li class="cp-alerta-item cp-alerta-warning"><strong>Maio/2026 preenchido incorretamente:</strong> conforme informado, os valores desta aba não são confiáveis — use como referência estrutural até a correção dos lançamentos de origem.</li>
+      <li class="cp-alerta-item cp-alerta-warning"><strong>Perda de Caulim 25 Kg alta:</strong> 8,57% (1.407 de 16.424 sacos) — bem acima da perda de Linha 20kg (0,42%) e Concentrado (0,67%). Vale investigar operacionalmente.</li>
+    </ul>
+  </div>`;
+}
+
+/* ------------------------------------ init ------------------------------------ */
+
+function initCustoPrecificacao() {
+  render();
+}
+
+</script>
+<script>
+fetch('partials/sidebar.html').then(r=>r.text()).then(html=>{
+  document.getElementById('sidebar-container').innerHTML = html;
+  openGroup('producao');
+});
+initSidebar('custo-precificacao.html');
+initCustoPrecificacao();
+</script>
+</body>
+</html>
