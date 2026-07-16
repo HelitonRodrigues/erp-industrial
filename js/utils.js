@@ -33,6 +33,7 @@ const MODULO_MAP = [
   { id:'producao',       page:'producao.html',        label:'Produção',             group:'producao',     icon:'⚙️' },
   { id:'banners',        page:'banners.html',         label:'Produção de Banners',  group:'producao',     icon:'🖼️' },
   { id:'aferidor',       page:'aferidor.html',        label:'Aferidor',             group:'producao',     icon:'🏷️' },
+  { id:'custo_precificacao', page:'custo-precificacao.html', label:'Custo & Precificação', group:'producao', icon:'💵' },
   // QUALIDADE
   { id:'laboratorio',    page:'laboratorio.html',     label:'Laboratório',          group:'qualidade',    icon:'🧪' },
   { id:'bpf',            page:'bpf.html',             label:'BPF',                  group:'qualidade',    icon:'📋' },
@@ -222,6 +223,14 @@ const MODULO_FUNCIONALIDADES = {
   rh: [
     { id:'tab-escala', label:'📅 Escala Mensal' },
     { id:'tab-ferias', label:'🏖️ Férias' },
+  ],
+  custo_precificacao: [
+    { id:'config', label:'📅 Capacidade' },
+    { id:'metas', label:'🎯 Metas & Produção' },
+    { id:'insumos', label:'🧾 Insumos & Custos' },
+    { id:'resultado', label:'📊 Resultado por Linha' },
+    { id:'precificacao', label:'💵 Precificação' },
+    { id:'painel', label:'🚦 Painel Executivo' },
   ],
 };
 
