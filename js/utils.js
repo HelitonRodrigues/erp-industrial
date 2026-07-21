@@ -231,6 +231,7 @@ const MODULO_FUNCIONALIDADES = {
     { id:'resultado', label:'📊 Resultado por Linha' },
     { id:'precificacao', label:'💵 Precificação' },
     { id:'painel', label:'🚦 Painel Executivo' },
+    { id:'planejamentos', label:'📁 Planejamentos' },
   ],
 };
 
