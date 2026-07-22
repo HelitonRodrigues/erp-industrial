@@ -226,7 +226,6 @@ const MODULO_FUNCIONALIDADES = {
   ],
   custo_precificacao: [
     { id:'config', label:'📅 Capacidade' },
-    { id:'folha', label:'💰 Folha' },
     { id:'metas', label:'🎯 Metas & Produção' },
     { id:'linha', label:'⚙️ Configuração da Linha' },
     { id:'custos', label:'🧾 Custos & Resultado' },
