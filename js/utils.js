@@ -156,6 +156,7 @@ const MODULO_FUNCIONALIDADES = {
     { id:'geral', label:'📋 Geral' },
   ],
   desgaste: [
+    { id:'resumo',   label:'📊 Resumo' },
     { id:'martelos', label:'🔨 Martelos' },
     { id:'eixos',    label:'⚙️ Eixos' },
     { id:'grelhas',  label:'🔲 Grelhas' },
