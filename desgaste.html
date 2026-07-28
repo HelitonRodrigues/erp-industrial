@@ -1,0 +1,737 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ERP Industrial — Controle de Desgaste</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/supabase.js"></script>
+<script src="js/utils.js"></script>
+<style>
+.tab-btn{padding:10px 18px;background:none;border:none;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;color:#64748b;border-bottom:2px solid transparent;margin-bottom:-2px;transition:all .15s;}
+.tab-btn.active{color:var(--accent);border-bottom-color:var(--primary);}
+.dg-kpis{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;}
+.dg-kpi{background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:8px 14px;min-width:110px;}
+.dg-kpi .n{font-size:19px;font-weight:800;color:#042D4D;line-height:1.1;}
+.dg-kpi .l{font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:.3px;}
+.dg-filtros{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:12px 14px;margin-bottom:14px;}
+.dg-filtros .form-group{margin:0;min-width:140px;}
+.dg-linhas{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px;margin-bottom:14px;}
+.dg-linha-card{border:1px solid #e2e8f0;border-radius:12px;background:#fff;padding:0;overflow:hidden;cursor:pointer;transition:box-shadow .15s;}
+.dg-linha-card:hover{box-shadow:0 6px 20px rgba(4,45,77,.12);}
+.dg-linha-card.sel{border-color:var(--primary);box-shadow:0 0 0 2px rgba(4,45,77,.18);}
+.dg-linha-card .cab{padding:9px 12px;background:linear-gradient(135deg,#042D4D,#0E3B62);color:#fff;font-weight:800;font-size:13px;display:flex;justify-content:space-between;align-items:center;gap:6px;}
+.dg-linha-card .corpo{padding:10px 12px;display:grid;grid-template-columns:1fr 1fr;gap:6px;}
+.dg-cel{background:#f8fafc;border-radius:7px;padding:6px 8px;}
+.dg-cel .v{font-size:15px;font-weight:800;color:#042D4D;}
+.dg-cel .k{font-size:9.5px;color:#94a3b8;}
+.dg-foto-slot{display:flex;gap:10px;align-items:center;}
+.dg-foto-box{width:84px;height:84px;border-radius:10px;border:1.5px dashed #cbd5e1;background:#f8fafc;display:flex;align-items:center;justify-content:center;font-size:26px;color:#94a3b8;overflow:hidden;flex-shrink:0;}
+.dg-foto-box img{width:100%;height:100%;object-fit:cover;}
+.dg-foto-btn{width:30px;height:30px;border-radius:6px;border:1px solid #cbd5e1;background:#f0f9ff;cursor:zoom-in;font-size:14px;line-height:1;padding:0;}
+.dg-foto-btn:hover{background:#e0f2fe;border-color:var(--primary);}
+.dg-thumb-vazio{width:30px;height:30px;border-radius:6px;border:1px dashed #e2e8f0;display:inline-flex;align-items:center;justify-content:center;font-size:12px;color:#cbd5e1;}
+.dg-calc{padding:10px 14px;background:#f8fafc;border-radius:8px;border:1.2px solid #e2e8f0;font-weight:800;}
+.dg-aviso{background:#fef3c7;border:1px solid #fde68a;border-radius:10px;padding:14px 16px;font-size:13px;color:#92400e;line-height:1.6;margin-bottom:16px;}
+.dg-aviso code{background:#fff7ed;padding:1px 6px;border-radius:4px;font-size:12px;}
+</style>
+</head>
+<body>
+<div id="sidebar-container"></div>
+<header class="topbar" id="topbar">
+  <button class="topbar-open-sidebar" onclick="toggleSidebar()">☰</button>
+  <div class="topbar-title">Controle de Desgaste</div>
+  <div class="topbar-right">
+    <div class="topbar-user">
+      <div class="user-avatar" style="width:32px;height:32px;font-size:12px;" id="top-avatar">SA</div>
+      <div><div class="topbar-user-name" id="top-user-name">Super Admin</div><div class="topbar-user-profile" id="top-user-perfil">SADM</div></div>
+    </div>
+    <button class="btn btn-ghost btn-sm" onclick="doLogout()" style="color:#64748b;">Sair</button>
+  </div>
+</header>
+
+<main class="main-content" id="main-content">
+  <div class="page-header">
+    <div class="page-header-left">
+      <h1>Controle de Desgaste</h1>
+      <p>Peso de entrada e saída das peças do moinho: martelos, eixos, grelhas e gavetas</p>
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;">
+      <button class="btn btn-secondary" onclick="doExportCSV()">⬇️ CSV</button>
+      <button class="btn btn-secondary" onclick="doExportPDF()">📄 PDF</button>
+      <button class="btn btn-primary" onclick="abrirModal()">+ Registro</button>
+    </div>
+  </div>
+
+  <div id="dg-erro-tabela"></div>
+
+  <div style="display:flex;border-bottom:2px solid #e2e8f0;margin-bottom:20px;flex-wrap:wrap;">
+    <button class="tab-btn active" onclick="showTab('martelos',this)">🔨 Martelos</button>
+    <button class="tab-btn" onclick="showTab('eixos',this)">⚙️ Eixos</button>
+    <button class="tab-btn" onclick="showTab('grelhas',this)">🔲 Grelhas</button>
+    <button class="tab-btn" onclick="showTab('gavetas',this)">🗄️ Gavetas</button>
+  </div>
+
+  <div id="tab-martelos"></div>
+  <div id="tab-eixos" style="display:none;"></div>
+  <div id="tab-grelhas" style="display:none;"></div>
+  <div id="tab-gavetas" style="display:none;"></div>
+</main>
+
+<!-- MODAL REGISTRO -->
+<div id="modal-reg" class="modal-overlay hidden">
+  <div class="modal modal-lg">
+    <div class="modal-header"><div class="modal-title" id="mr-title">Registrar Peça</div><button class="modal-close" onclick="closeModal('modal-reg')">✕</button></div>
+    <div style="display:flex;flex-direction:column;gap:12px;">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div class="form-group"><label class="form-label">Linha <span class="req">*</span></label><select id="r-linha" class="form-input"><option value="">Selecione...</option></select></div>
+        <div class="form-group"><label class="form-label">Tipo</label><select id="r-tipo" class="form-input"></select></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div class="form-group"><label class="form-label">Data de Retirada <span class="req">*</span></label><input id="r-ret" type="date" class="form-input"></div>
+        <div class="form-group"><label class="form-label">Data de Devolução</label><input id="r-dev" type="date" class="form-input"></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
+        <div class="form-group"><label class="form-label">Peso Inicial (kg) <span class="req">*</span></label><input id="r-pi" type="number" class="form-input" step="0.01" inputmode="decimal" oninput="calcReg()"></div>
+        <div class="form-group"><label class="form-label">Peso Final (kg)</label><input id="r-pf" type="number" class="form-input" step="0.01" inputmode="decimal" oninput="calcReg()"></div>
+        <div class="form-group"><label class="form-label">Total Gasto (kg)</label><div id="r-gasto" class="dg-calc" style="color:#dc2626;">—</div></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
+        <div class="form-group"><label class="form-label">Horímetro Inicial</label><input id="r-hi" type="number" class="form-input" step="0.1" inputmode="decimal" oninput="calcReg()"></div>
+        <div class="form-group"><label class="form-label">Horímetro Final</label><input id="r-hf" type="number" class="form-input" step="0.1" inputmode="decimal" oninput="calcReg()"></div>
+        <div class="form-group"><label class="form-label">Horas Trabalhadas</label><div id="r-ht" class="dg-calc" style="color:var(--primary);">—</div></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
+        <div class="form-group"><label class="form-label">Produção Gerada (sacos)</label><input id="r-sacos" type="number" class="form-input" inputmode="numeric" oninput="calcReg()"></div>
+        <div class="form-group"><label class="form-label">Média (sacos/kg)</label><div id="r-media" class="dg-calc" style="color:#16a34a;">—</div></div>
+        <div class="form-group"><label class="form-label">Desgaste (kg/h)</label><div id="r-kgh" class="dg-calc" style="color:#b45309;">—</div></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div class="form-group"><label class="form-label">Fornecedor</label><input id="r-forn" type="text" class="form-input"></div>
+        <div class="form-group"><label class="form-label">Observações</label><input id="r-obs" type="text" class="form-input"></div>
+      </div>
+
+      <div class="sec" style="background:#f8fafc;border:1.2px solid #e2e8f0;border-radius:12px;padding:14px;">
+        <div style="font-size:11px;font-weight:700;color:var(--primary);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px;">📷 Fotos da peça</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+          <div>
+            <label class="form-label" style="font-size:11px;">Entrada (peça nova / na montagem)</label>
+            <div class="dg-foto-slot">
+              <div class="dg-foto-box" id="r-fe-box">📷</div>
+              <div style="display:flex;flex-direction:column;gap:5px;">
+                <input type="file" id="r-fe-input" accept="image/*" style="display:none;" onchange="selecionarFoto(this,'entrada')">
+                <button class="btn btn-secondary btn-sm" onclick="document.getElementById('r-fe-input').click()">📎 Anexar</button>
+                <button class="btn btn-ghost btn-sm" id="r-fe-ver" style="display:none;" onclick="verFotoInline(_fotoEntrada)">🔍 Ver</button>
+                <button class="btn btn-ghost btn-sm" id="r-fe-rm" style="display:none;color:#dc2626;" onclick="removerFoto('entrada')">🗑️ Remover</button>
+              </div>
+            </div>
+          </div>
+          <div>
+            <label class="form-label" style="font-size:11px;">Saída (peça gasta / na retirada)</label>
+            <div class="dg-foto-slot">
+              <div class="dg-foto-box" id="r-fs-box">📷</div>
+              <div style="display:flex;flex-direction:column;gap:5px;">
+                <input type="file" id="r-fs-input" accept="image/*" style="display:none;" onchange="selecionarFoto(this,'saida')">
+                <button class="btn btn-secondary btn-sm" onclick="document.getElementById('r-fs-input').click()">📎 Anexar</button>
+                <button class="btn btn-ghost btn-sm" id="r-fs-ver" style="display:none;" onclick="verFotoInline(_fotoSaida)">🔍 Ver</button>
+                <button class="btn btn-ghost btn-sm" id="r-fs-rm" style="display:none;color:#dc2626;" onclick="removerFoto('saida')">🗑️ Remover</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p style="font-size:11px;color:#94a3b8;margin:10px 0 0;">A foto é reduzida automaticamente antes de salvar, para não pesar no banco. Pelo celular, o botão abre a câmera.</p>
+      </div>
+
+      <div id="r-err" class="hidden alert alert-danger"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-reg')">Cancelar</button>
+      <button class="btn btn-primary" id="btn-salvar-reg" onclick="salvarReg()">💾 Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL CONFIRM -->
+<div id="modal-confirm" class="modal-overlay hidden">
+  <div class="modal" style="max-width:420px;">
+    <div class="modal-header"><div class="modal-title">⚠️ Confirmar</div><button class="modal-close" onclick="closeModal('modal-confirm')">✕</button></div>
+    <p id="confirm-msg" style="font-size:14px;color:#475569;line-height:1.6;"></p>
+    <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('modal-confirm')">Cancelar</button><button class="btn btn-danger" id="confirm-ok-btn">Excluir</button></div>
+  </div>
+</div>
+<div id="toast-container"></div>
+
+<script>
+/* ============================================================
+   CONTROLE DE DESGASTE
+   Peso de entrada e saída das peças do moinho. Uma aba por peça
+   (martelo, eixo, grelha, gaveta), todas com a mesma régua: peso
+   inicial menos peso final = kg gastos, cruzado com horímetro e
+   produção do período. Mesmo controle que ficava dentro de
+   producao.html, agora com foto de entrada e de saída.
+
+   Tabela: desgaste_registros (uma linha por peça instalada/retirada).
+   Coluna `peca` separa as abas — ver sql/desgaste_registros.sql.
+   ============================================================ */
+
+const TABELA = 'desgaste_registros';
+
+// Config das abas. `tipos` são as opções de origem da peça.
+const PECAS = [
+  { id:'martelos', peca:'martelo', label:'Martelo', icon:'🔨', tipos:['STR / Cercal','Novo','Recuperado','Usado'] },
+  { id:'eixos',    peca:'eixo',    label:'Eixo',    icon:'⚙️', tipos:['Novo','Recuperado','Usado'] },
+  { id:'grelhas',  peca:'grelha',  label:'Grelha',  icon:'🔲', tipos:['Novo','Recuperado','Usado'] },
+  { id:'gavetas',  peca:'gaveta',  label:'Gaveta',  icon:'🗄️', tipos:['Novo','Recuperado','Usado'] },
+];
+const cfgAba  = (abaId) => PECAS.find(p => p.id === abaId) || PECAS[0];
+const cfgPeca = (peca)  => PECAS.find(p => p.peca === peca) || PECAS[0];
+
+let _regs = [], _linhas = [];
+let _aba = 'martelos';            // aba ativa
+let _editId = null;               // id em edição (null = novo)
+let _pecaModal = 'martelo';       // peça do registro aberto no modal
+let _fotoEntrada = null, _fotoSaida = null;
+let _tabelaOk = true;
+
+fetch('partials/sidebar.html').then(r => r.text()).then(html => {
+  document.getElementById('sidebar-container').innerHTML = html;
+  document.querySelector('[href="desgaste.html"]')?.classList.add('active');
+  openGroup('producao');
+});
+initSidebar('desgaste.html');
+
+/* ── HELPERS ──────────────────────────────────────────── */
+const esc = (s) => (s == null ? '' : String(s)).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const escJs = (s) => (s == null ? '' : String(s)).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+const num = (v, dec = 2) => (Number(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: dec, maximumFractionDigits: dec });
+const dataBR = (d) => d ? d.split('-').reverse().join('/') : '—';
+const el = (id) => document.getElementById(id);
+
+// As três contas do controle, num só lugar (a tela e o CSV usam as mesmas).
+function contas(r) {
+  const pi = Number(r.peso_inicial) || 0;
+  const pf = r.peso_final != null ? Number(r.peso_final) : null;
+  const gasto = (pf != null && pi > 0) ? Math.max(0, pi - pf) : null;
+  const hi = r.horimetro_inicial != null ? Number(r.horimetro_inicial) : null;
+  const hf = r.horimetro_final != null ? Number(r.horimetro_final) : null;
+  const horas = (hi != null && hf != null) ? Math.max(0, hf - hi) : null;
+  const sacos = r.producao_sacos != null ? Number(r.producao_sacos) : null;
+  return {
+    gasto, horas, sacos,
+    scKg: (gasto > 0 && sacos > 0) ? sacos / gasto : null,
+    kgH:  (gasto > 0 && horas > 0) ? gasto / horas : null,
+    emUso: !r.data_devolucao,
+  };
+}
+
+/* ── CARGA ────────────────────────────────────────────── */
+async function init() {
+  try {
+    const { data: ln } = await _supabase.from('linhas_producao').select('*').eq('status', 'ativo').order('nome');
+    _linhas = ln || [];
+  } catch (e) { _linhas = []; }
+
+  montarPaineis();
+  await carregar();
+
+  // Atalho vindo da Produção: desgaste.html?linha=Linha%2020&peca=martelo
+  const qs = new URLSearchParams(location.search);
+  const linhaQS = qs.get('linha');
+  const pecaQS = qs.get('peca');
+  if (pecaQS) {
+    const c = PECAS.find(p => p.peca === pecaQS || p.id === pecaQS);
+    if (c) trocarAba(c.id);
+  }
+  if (linhaQS) {
+    PECAS.forEach(p => { const s = el('f-linha-' + p.id); if (s) s.value = linhaQS; });
+  }
+  renderTudo();
+}
+
+// Colunas da listagem. As fotos ficam de fora DE PROPÓSITO: são base64 e, com um
+// ano de lançamentos, puxar todas em cada abertura de tela travaria o celular na
+// fábrica. A tabela usa só os avisos tem_foto_* e busca a imagem no clique.
+const COLS_LISTA = 'id,peca,linha,tipo,data_retirada,data_devolucao,peso_inicial,peso_final,'
+  + 'horimetro_inicial,horimetro_final,producao_sacos,fornecedor,obs,tem_foto_entrada,tem_foto_saida';
+
+async function carregar() {
+  try {
+    let { data, error } = await _supabase.from(TABELA).select(COLS_LISTA).order('data_retirada', { ascending: false }).limit(2000);
+    if (error) {
+      // Tabela criada à mão, sem as colunas de aviso: cai pro select completo e
+      // deduz na mão quem tem foto (mais pesado, mas funciona).
+      if (/tem_foto/i.test(error.message || '')) {
+        const r2 = await _supabase.from(TABELA).select('*').order('data_retirada', { ascending: false }).limit(2000);
+        if (r2.error) throw r2.error;
+        data = (r2.data || []).map(x => Object.assign({}, x, {
+          tem_foto_entrada: !!x.foto_entrada, tem_foto_saida: !!x.foto_saida,
+        }));
+      } else throw error;
+    }
+    _regs = data || [];
+    _tabelaOk = true;
+    el('dg-erro-tabela').innerHTML = '';
+  } catch (e) {
+    _regs = [];
+    _tabelaOk = false;
+    // Erro mais comum: a tabela ainda não foi criada no Supabase. Melhor dizer
+    // exatamente isso do que deixar a tela vazia sem explicação.
+    const faltaTabela = /does not exist|schema cache|relation|42P01|Could not find the table/i.test(e.message || '');
+    el('dg-erro-tabela').innerHTML = '<div class="dg-aviso">'
+      + (faltaTabela
+        ? '<strong>⚠️ A tabela <code>' + TABELA + '</code> ainda não existe no banco.</strong><br>'
+          + 'Rode o script <code>sql/desgaste_registros.sql</code> no SQL Editor do Supabase. Ele cria a tabela, '
+          + 'libera o acesso e copia os martelos que já estavam lançados na Produção. Até rodar, esta tela fica só de leitura e vazia.'
+        : '<strong>⚠️ Não foi possível carregar os registros.</strong><br>' + esc(e.message))
+      + '</div>';
+  }
+}
+
+/* ── PAINÉIS (uma vez, iguais nas 4 abas) ─────────────── */
+function montarPaineis() {
+  PECAS.forEach(c => {
+    const opLinhas = _linhas.map(l => '<option value="' + esc(l.nome) + '">' + esc(l.nome) + '</option>').join('');
+    el('tab-' + c.id).innerHTML = ''
+      + '<div class="dg-filtros">'
+      +   '<div class="form-group"><label class="form-label" style="font-size:11px;">Linha</label>'
+      +     '<select id="f-linha-' + c.id + '" class="form-input" onchange="renderTudo()"><option value="">Todas</option>' + opLinhas + '</select></div>'
+      +   '<div class="form-group"><label class="form-label" style="font-size:11px;">Situação</label>'
+      +     '<select id="f-sit-' + c.id + '" class="form-input" onchange="renderTudo()">'
+      +       '<option value="">Todas</option><option value="uso">Em uso (sem devolução)</option><option value="fim">Finalizadas</option></select></div>'
+      +   '<div class="form-group"><label class="form-label" style="font-size:11px;">Retirada de</label><input id="f-ini-' + c.id + '" type="date" class="form-input" onchange="renderTudo()"></div>'
+      +   '<div class="form-group"><label class="form-label" style="font-size:11px;">até</label><input id="f-fim-' + c.id + '" type="date" class="form-input" onchange="renderTudo()"></div>'
+      +   '<div class="form-group" style="flex:1;min-width:170px;"><label class="form-label" style="font-size:11px;">Buscar (fornecedor / obs)</label><input id="f-q-' + c.id + '" type="text" class="form-input" placeholder="digite para filtrar" oninput="renderTudo()"></div>'
+      +   '<button class="btn btn-ghost btn-sm" onclick="limparFiltros(\'' + c.id + '\')">↺ Limpar</button>'
+      + '</div>'
+      + '<div class="dg-kpis" id="kpi-' + c.id + '"></div>'
+      + '<div class="dg-linhas" id="linhas-' + c.id + '"></div>'
+      + '<div class="card" style="padding:0;overflow:hidden;">'
+      +   '<div style="padding:12px 16px;background:linear-gradient(135deg,#042D4D,#0E3B62);color:#fff;font-weight:800;font-size:14px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">'
+      +     '<span>' + c.icon + ' ' + c.label + 's — registros</span>'
+      +     '<button class="btn btn-primary btn-sm" onclick="abrirModal(\'' + c.peca + '\')">+ ' + c.label + '</button>'
+      +   '</div>'
+      +   '<div id="tb-' + c.id + '"></div>'
+      + '</div>';
+  });
+}
+
+function limparFiltros(abaId) {
+  ['f-linha-', 'f-sit-', 'f-ini-', 'f-fim-', 'f-q-'].forEach(p => { const e = el(p + abaId); if (e) e.value = ''; });
+  renderTudo();
+}
+
+/* ── ABAS ─────────────────────────────────────────────── */
+// Nome showTab é o que o utils.js reconhece para aplicar permissão por aba.
+function showTab(abaId, btn) {
+  if (typeof guardTab === 'function' && !guardTab('desgaste', abaId)) return;
+  trocarAba(abaId);
+  if (btn) {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+  }
+}
+function trocarAba(abaId) {
+  _aba = abaId;
+  PECAS.forEach(p => { const d = el('tab-' + p.id); if (d) d.style.display = (p.id === abaId ? 'block' : 'none'); });
+  document.querySelectorAll('.tab-btn').forEach(b => {
+    const m = (b.getAttribute('onclick') || '').match(/showTab\('([^']+)'/);
+    if (m) b.classList.toggle('active', m[1] === abaId);
+  });
+  renderTudo();
+}
+
+/* ── FILTRO + RENDER ─────────────────────────────────── */
+function filtrados(abaId) {
+  const c = cfgAba(abaId);
+  const fl = el('f-linha-' + abaId)?.value || '';
+  const fs = el('f-sit-' + abaId)?.value || '';
+  const fi = el('f-ini-' + abaId)?.value || '';
+  const ff = el('f-fim-' + abaId)?.value || '';
+  const fq = (el('f-q-' + abaId)?.value || '').trim().toLowerCase();
+  return _regs.filter(r => {
+    if (r.peca !== c.peca) return false;
+    if (fl && r.linha !== fl) return false;
+    if (fs === 'uso' && r.data_devolucao) return false;
+    if (fs === 'fim' && !r.data_devolucao) return false;
+    if (fi && (r.data_retirada || '') < fi) return false;
+    if (ff && (r.data_retirada || '') > ff) return false;
+    if (fq && !((r.fornecedor || '') + ' ' + (r.obs || '') + ' ' + (r.tipo || '')).toLowerCase().includes(fq)) return false;
+    return true;
+  });
+}
+
+function renderTudo() {
+  PECAS.forEach(c => {
+    const lista = filtrados(c.id);
+    renderKpis(c, lista);
+    renderPorLinha(c, lista);
+    renderTabela(c, lista);
+  });
+}
+
+function renderKpis(c, lista) {
+  let gasto = 0, horas = 0, sacos = 0, emUso = 0;
+  lista.forEach(r => {
+    const k = contas(r);
+    gasto += k.gasto || 0; horas += k.horas || 0; sacos += k.sacos || 0;
+    if (k.emUso) emUso++;
+  });
+  const cels = [
+    ['🔧 Em uso', emUso],
+    ['📋 Registros', lista.length],
+    ['⚖️ Kg gastos', num(gasto, 2)],
+    ['📦 Sacos', num(sacos, 0)],
+    ['📊 Média sc/kg', gasto > 0 && sacos > 0 ? num(sacos / gasto, 2) : '—'],
+    ['⏱️ Desgaste kg/h', gasto > 0 && horas > 0 ? num(gasto / horas, 3) : '—'],
+  ];
+  el('kpi-' + c.id).innerHTML = cels.map(a =>
+    '<div class="dg-kpi"><div class="n">' + a[1] + '</div><div class="l">' + a[0] + '</div></div>').join('');
+}
+
+function renderPorLinha(c, lista) {
+  const cont = el('linhas-' + c.id);
+  const selecionada = el('f-linha-' + c.id)?.value || '';
+  // agrupa pelas linhas que têm registro (mais as linhas ativas, para não esconder linha zerada)
+  const mapa = {};
+  _linhas.forEach(l => { mapa[l.nome] = { nome: l.nome, n: 0, gasto: 0, uso: 0, sacos: 0 }; });
+  lista.forEach(r => {
+    const nome = r.linha || '(sem linha)';
+    if (!mapa[nome]) mapa[nome] = { nome, n: 0, gasto: 0, uso: 0, sacos: 0 };
+    const k = contas(r);
+    mapa[nome].n++; mapa[nome].gasto += k.gasto || 0; mapa[nome].sacos += k.sacos || 0;
+    if (k.emUso) mapa[nome].uso++;
+  });
+  const arr = Object.values(mapa).sort((a, b) => b.gasto - a.gasto);
+  if (!arr.length) { cont.innerHTML = ''; return; }
+  cont.innerHTML = arr.map(l =>
+    '<div class="dg-linha-card' + (selecionada === l.nome ? ' sel' : '') + '" onclick="filtrarLinha(\'' + c.id + '\',\'' + escJs(l.nome) + '\')" title="Clique para filtrar só esta linha">'
+    + '<div class="cab"><span>🏭 ' + esc(l.nome) + '</span>' + (l.uso > 0 ? '<span class="badge badge-warning" style="font-size:9px;">' + l.uso + ' em uso</span>' : '') + '</div>'
+    + '<div class="corpo">'
+    +   '<div class="dg-cel"><div class="v">' + num(l.gasto, 1) + '</div><div class="k">kg gastos</div></div>'
+    +   '<div class="dg-cel"><div class="v">' + l.n + '</div><div class="k">registros</div></div>'
+    + '</div></div>').join('');
+}
+
+function filtrarLinha(abaId, nome) {
+  const s = el('f-linha-' + abaId);
+  if (!s) return;
+  s.value = (s.value === nome ? '' : nome); // clicar de novo tira o filtro
+  renderTudo();
+}
+
+function renderTabela(c, lista) {
+  const cont = el('tb-' + c.id);
+  if (!lista.length) {
+    cont.innerHTML = '<div style="text-align:center;color:#94a3b8;padding:28px;font-size:13px;">'
+      + (_tabelaOk ? 'Nenhum ' + c.label.toLowerCase() + ' registrado com os filtros atuais.' : 'Sem dados para exibir.')
+      + '</div>';
+    return;
+  }
+  const rows = lista.map(r => {
+    const k = contas(r);
+    // Botão leve: a imagem só é buscada no banco quando o usuário clica.
+    const th = (tem, qual, lbl) => tem
+      ? '<button class="dg-foto-btn" title="Ver foto de ' + lbl + '" onclick="verFoto(\'' + r.id + '\',\'' + qual + '\')">📷</button>'
+      : '<span class="dg-thumb-vazio" title="Sem foto de ' + lbl + '">—</span>';
+    return '<tr>'
+      + '<td><strong style="color:var(--primary);">' + esc(r.linha || '—') + '</strong></td>'
+      + '<td><span class="badge badge-info" style="font-size:10px;">' + esc(r.tipo || '—') + '</span></td>'
+      + '<td style="font-size:12px;">' + dataBR(r.data_retirada) + '</td>'
+      + '<td style="font-size:12px;">' + (r.data_devolucao ? dataBR(r.data_devolucao) : '<span class="badge badge-warning" style="font-size:9px;">em uso</span>') + '</td>'
+      + '<td>' + (r.peso_inicial != null ? num(r.peso_inicial, 2) : '—') + '</td>'
+      + '<td>' + (r.peso_final != null ? num(r.peso_final, 2) : '—') + '</td>'
+      + '<td><strong style="color:#dc2626;">' + (k.gasto != null ? num(k.gasto, 2) : '—') + '</strong></td>'
+      + '<td><strong>' + (k.horas != null ? num(k.horas, 2) + 'h' : '—') + '</strong></td>'
+      + '<td>' + (k.sacos != null ? num(k.sacos, 0) : '—') + '</td>'
+      + '<td><strong style="color:#16a34a;">' + (k.scKg != null ? num(k.scKg, 2) : '—') + '</strong></td>'
+      + '<td><span style="color:#b45309;font-weight:700;">' + (k.kgH != null ? num(k.kgH, 3) : '—') + '</span></td>'
+      + '<td style="white-space:nowrap;">' + th(r.tem_foto_entrada, 'entrada', 'entrada') + ' ' + th(r.tem_foto_saida, 'saida', 'saída') + '</td>'
+      + '<td style="font-size:12px;">' + esc(r.fornecedor || '—') + '</td>'
+      + '<td><div class="table-actions">'
+      +   '<button class="btn btn-secondary btn-sm" onclick="editar(\'' + r.id + '\')" title="Editar">✏️</button>'
+      +   '<button class="btn btn-danger btn-sm" onclick="confirmarExclusao(\'' + r.id + '\')" title="Excluir">🗑️</button>'
+      + '</div></td></tr>';
+  }).join('');
+  cont.innerHTML = '<div class="table-wrap" style="overflow-x:auto;"><table style="width:100%;">'
+    + '<thead><tr><th>Linha</th><th>Tipo</th><th>Retirada</th><th>Devolução</th><th>P.Ini</th><th>P.Fin</th><th>Gasto (kg)</th><th>H.T</th><th>Sacos</th><th>sc/kg</th><th>kg/h</th><th>📷</th><th>Fornecedor</th><th>Ações</th></tr></thead>'
+    + '<tbody>' + rows + '</tbody></table></div>';
+}
+
+// Busca a foto no banco só na hora do clique e abre ampliada.
+async function verFoto(id, qual) {
+  const col = qual === 'entrada' ? 'foto_entrada' : 'foto_saida';
+  try {
+    const { data, error } = await _supabase.from(TABELA).select(col).eq('id', id).maybeSingle();
+    if (error) throw error;
+    const src = data && data[col];
+    if (!src) return toast('Este registro não tem foto de ' + qual + '.', 'warning');
+    verFotoInline(src);
+  } catch (e) { toast('Não consegui abrir a foto: ' + e.message, 'danger'); }
+}
+
+// Fotos de um registro, para abrir no modal de edição.
+async function buscarFotos(id) {
+  try {
+    const { data, error } = await _supabase.from(TABELA).select('foto_entrada,foto_saida').eq('id', id).maybeSingle();
+    if (error) throw error;
+    return { entrada: (data && data.foto_entrada) || null, saida: (data && data.foto_saida) || null };
+  } catch (e) { toast('Não consegui carregar as fotos deste registro.', 'warning'); return { entrada: null, saida: null }; }
+}
+
+/* ── FOTOS ───────────────────────────────────────────── */
+// Reduz a imagem no navegador antes de salvar: foto de celular tem 3–6 MB e não
+// cabe bem numa coluna de texto. 1400px no maior lado resolve para conferência.
+async function comprimirImagem(file, maxLado = 1400) {
+  const dataUrl = await new Promise((res, rej) => {
+    const fr = new FileReader();
+    fr.onload = () => res(fr.result);
+    fr.onerror = () => rej(new Error('Não consegui ler o arquivo.'));
+    fr.readAsDataURL(file);
+  });
+  const img = await new Promise((res, rej) => {
+    const i = new Image();
+    i.onload = () => res(i);
+    i.onerror = () => rej(new Error('Arquivo não parece ser uma imagem.'));
+    i.src = dataUrl;
+  });
+  let w = img.width, h = img.height;
+  const fator = Math.min(1, maxLado / Math.max(w, h));
+  w = Math.max(1, Math.round(w * fator)); h = Math.max(1, Math.round(h * fator));
+  const cv = document.createElement('canvas');
+  cv.width = w; cv.height = h;
+  cv.getContext('2d').drawImage(img, 0, 0, w, h);
+  // baixa a qualidade até caber em ~600 KB
+  let q = 0.75, out = cv.toDataURL('image/jpeg', q);
+  while (out.length > 600 * 1024 && q > 0.35) { q -= 0.1; out = cv.toDataURL('image/jpeg', q); }
+  return out;
+}
+
+async function selecionarFoto(input, qual) {
+  const file = input.files && input.files[0];
+  input.value = '';
+  if (!file) return;
+  try {
+    toast('Preparando a foto...', 'info');
+    const b64 = await comprimirImagem(file);
+    if (qual === 'entrada') _fotoEntrada = b64; else _fotoSaida = b64;
+    pintarFotos();
+    toast('Foto anexada.', 'success');
+  } catch (e) { toast('Erro na foto: ' + e.message, 'danger'); }
+}
+
+function removerFoto(qual) {
+  if (qual === 'entrada') _fotoEntrada = null; else _fotoSaida = null;
+  pintarFotos();
+}
+
+function pintarFotos() {
+  const par = [['entrada', _fotoEntrada, 'r-fe'], ['saida', _fotoSaida, 'r-fs']];
+  par.forEach(([, src, pre]) => {
+    el(pre + '-box').innerHTML = src ? '<img src="' + src + '">' : '📷';
+    el(pre + '-ver').style.display = src ? 'inline-flex' : 'none';
+    el(pre + '-rm').style.display = src ? 'inline-flex' : 'none';
+  });
+}
+
+/* ── MODAL ───────────────────────────────────────────── */
+function calcReg() {
+  const r = {
+    peso_inicial: el('r-pi').value, peso_final: el('r-pf').value === '' ? null : el('r-pf').value,
+    horimetro_inicial: el('r-hi').value === '' ? null : el('r-hi').value,
+    horimetro_final: el('r-hf').value === '' ? null : el('r-hf').value,
+    producao_sacos: el('r-sacos').value === '' ? null : el('r-sacos').value,
+    data_devolucao: el('r-dev').value || null,
+  };
+  const k = contas(r);
+  el('r-gasto').textContent = k.gasto != null ? num(k.gasto, 2) + ' kg' : '—';
+  el('r-ht').textContent    = k.horas != null ? num(k.horas, 2) + 'h' : '—';
+  el('r-media').textContent = k.scKg != null ? num(k.scKg, 2) + ' sc/kg' : '—';
+  el('r-kgh').textContent   = k.kgH != null ? num(k.kgH, 3) + ' kg/h' : '—';
+}
+
+function abrirModal(peca, linhaPre) {
+  if (!guardAction('desgaste', 'create')) return;
+  if (!_tabelaOk) { toast('Crie a tabela ' + TABELA + ' no Supabase antes de lançar.', 'warning'); return; }
+  _editId = null;
+  _pecaModal = peca || cfgAba(_aba).peca;
+  const c = cfgPeca(_pecaModal);
+  el('mr-title').textContent = 'Registrar ' + c.icon + ' ' + c.label;
+  ['r-pi', 'r-pf', 'r-hi', 'r-hf', 'r-sacos', 'r-forn', 'r-obs', 'r-dev'].forEach(id => el(id).value = '');
+  el('r-ret').value = new Date().toISOString().split('T')[0];
+  popularLinhas(linhaPre || el('f-linha-' + c.id)?.value || '');
+  popularTipos(c, c.tipos[0]);
+  _fotoEntrada = null; _fotoSaida = null; pintarFotos();
+  el('r-err').classList.add('hidden');
+  calcReg();
+  el('modal-reg').classList.remove('hidden');
+}
+
+async function editar(id) {
+  if (!guardAction('desgaste', 'edit')) return;
+  const r = _regs.find(x => String(x.id) === String(id));
+  if (!r) return;
+  _editId = r.id;
+  _pecaModal = r.peca;
+  const c = cfgPeca(r.peca);
+  el('mr-title').textContent = 'Editar ' + c.icon + ' ' + c.label;
+  popularLinhas(r.linha || '');
+  popularTipos(c, r.tipo || '');
+  el('r-ret').value = r.data_retirada || '';
+  el('r-dev').value = r.data_devolucao || '';
+  el('r-pi').value = r.peso_inicial != null ? r.peso_inicial : '';
+  el('r-pf').value = r.peso_final != null ? r.peso_final : '';
+  el('r-hi').value = r.horimetro_inicial != null ? r.horimetro_inicial : '';
+  el('r-hf').value = r.horimetro_final != null ? r.horimetro_final : '';
+  el('r-sacos').value = r.producao_sacos != null ? r.producao_sacos : '';
+  el('r-forn').value = r.fornecedor || '';
+  el('r-obs').value = r.obs || '';
+  _fotoEntrada = null; _fotoSaida = null;
+  pintarFotos();
+  el('r-err').classList.add('hidden');
+  calcReg();
+  el('modal-reg').classList.remove('hidden');
+  // as fotos não vêm na listagem: busca agora, com o modal já aberto
+  if (r.tem_foto_entrada || r.tem_foto_saida) {
+    const f = await buscarFotos(id);
+    if (_editId === r.id) { _fotoEntrada = f.entrada; _fotoSaida = f.saida; pintarFotos(); }
+  }
+}
+
+function popularLinhas(sel) {
+  const s = el('r-linha');
+  s.innerHTML = '<option value="">Selecione...</option>' + _linhas.map(l => '<option value="' + esc(l.nome) + '">' + esc(l.nome) + '</option>').join('');
+  // linha de registro antigo que não está mais ativa continua aparecendo
+  if (sel && !_linhas.some(l => l.nome === sel)) s.innerHTML += '<option value="' + esc(sel) + '">' + esc(sel) + ' (inativa)</option>';
+  s.value = sel || '';
+}
+function popularTipos(c, sel) {
+  const lista = c.tipos.slice();
+  if (sel && !lista.includes(sel)) lista.push(sel); // não perde tipo de registro antigo
+  el('r-tipo').innerHTML = lista.map(t => '<option value="' + esc(t) + '">' + esc(t) + '</option>').join('');
+  el('r-tipo').value = sel || lista[0];
+}
+
+async function salvarReg() {
+  if (!guardAction('desgaste', _editId ? 'edit' : 'create')) return;
+  const errEl = el('r-err'), btn = el('btn-salvar-reg');
+  const linha = el('r-linha').value;
+  const ret = el('r-ret').value;
+  const pi = el('r-pi').value === '' ? null : parseFloat(el('r-pi').value);
+  const pf = el('r-pf').value === '' ? null : parseFloat(el('r-pf').value);
+  const dev = el('r-dev').value || null;
+
+  const erro = (msg) => { errEl.innerHTML = msg; errEl.classList.remove('hidden'); };
+  if (!linha || !ret || !(pi > 0)) return erro('Linha, Data de Retirada e Peso Inicial são obrigatórios.');
+  if (dev && dev < ret) return erro('A data de devolução não pode ser anterior à de retirada.');
+  if (pf != null && pf > pi) return erro('O peso final ficou <strong>maior</strong> que o inicial — a peça não engorda. Confira os dois pesos.');
+
+  const dados = {
+    peca: _pecaModal,
+    linha,
+    tipo: el('r-tipo').value || null,
+    data_retirada: ret,
+    data_devolucao: dev,
+    peso_inicial: pi,
+    peso_final: pf,
+    horimetro_inicial: el('r-hi').value === '' ? null : parseFloat(el('r-hi').value),
+    horimetro_final: el('r-hf').value === '' ? null : parseFloat(el('r-hf').value),
+    producao_sacos: el('r-sacos').value === '' ? null : parseInt(el('r-sacos').value, 10),
+    fornecedor: el('r-forn').value.trim() || null,
+    obs: el('r-obs').value.trim() || null,
+    foto_entrada: _fotoEntrada,
+    foto_saida: _fotoSaida,
+  };
+
+  btn.innerHTML = '<span class="spin"></span>'; btn.disabled = true;
+  try {
+    await gravar(dados);
+    const c = cfgPeca(_pecaModal);
+    await addLog(_editId ? 'UPDATE' : 'CREATE', 'DESGASTE', _editId || 'novo', c.label + ' — ' + linha + ' — retirada ' + ret);
+    toast(_editId ? 'Registro atualizado.' : c.label + ' registrado.', 'success');
+    closeModal('modal-reg');
+    await carregar();
+    renderTudo();
+  } catch (e) {
+    erro('Erro ao salvar: ' + esc(e.message));
+  }
+  btn.innerHTML = '💾 Salvar'; btn.disabled = false;
+}
+
+// Se as colunas de foto ainda não existirem no banco, salva o resto em vez de
+// perder o lançamento inteiro — e avisa o motivo.
+async function gravar(dados) {
+  const tentar = async (payload) => {
+    const q = _editId
+      ? _supabase.from(TABELA).update(payload).eq('id', _editId)
+      : _supabase.from(TABELA).insert(payload);
+    const { error } = await q;
+    if (error) throw error;
+  };
+  try {
+    await tentar(dados);
+  } catch (e) {
+    if (/foto_entrada|foto_saida/i.test(e.message || '')) {
+      const semFoto = Object.assign({}, dados);
+      delete semFoto.foto_entrada; delete semFoto.foto_saida;
+      await tentar(semFoto);
+      toast('Salvo sem as fotos: faltam as colunas foto_entrada/foto_saida na tabela.', 'warning');
+      return;
+    }
+    throw e;
+  }
+}
+
+function confirmarExclusao(id) {
+  if (!guardAction('desgaste', 'delete')) return;
+  const r = _regs.find(x => String(x.id) === String(id));
+  if (!r) return;
+  const c = cfgPeca(r.peca);
+  el('confirm-msg').innerHTML = 'Excluir o registro de <strong>' + esc(c.label) + '</strong> da linha <strong>'
+    + esc(r.linha || '—') + '</strong>, retirado em <strong>' + dataBR(r.data_retirada) + '</strong>?'
+    + '<br><span style="font-size:12px;color:#94a3b8;">As fotos anexadas também são apagadas.</span>';
+  el('confirm-ok-btn').onclick = async () => {
+    try {
+      const { error } = await _supabase.from(TABELA).delete().eq('id', id);
+      if (error) throw error;
+      await addLog('DELETE', 'DESGASTE', id, c.label + ' — ' + (r.linha || '—') + ' — retirada ' + (r.data_retirada || '—'));
+      toast('Registro excluído.', 'warning');
+      closeModal('modal-confirm');
+      await carregar();
+      renderTudo();
+    } catch (e) { toast('Erro ao excluir: ' + e.message, 'danger'); }
+  };
+  el('modal-confirm').classList.remove('hidden');
+}
+
+/* ── EXPORTAÇÃO (respeita a aba e os filtros da tela) ── */
+const COLS_EXP = ['Peça', 'Linha', 'Tipo', 'Retirada', 'Devolução', 'Peso Inicial (kg)', 'Peso Final (kg)', 'Gasto (kg)', 'Horímetro Ini', 'Horímetro Fim', 'Horas', 'Sacos', 'sc/kg', 'kg/h', 'Fornecedor', 'Obs', 'Fotos'];
+function linhasExp() {
+  const c = cfgAba(_aba);
+  return filtrados(_aba).map(r => {
+    const k = contas(r);
+    return [c.label, r.linha || '—', r.tipo || '—', dataBR(r.data_retirada), r.data_devolucao ? dataBR(r.data_devolucao) : 'em uso',
+      r.peso_inicial != null ? num(r.peso_inicial, 2) : '—', r.peso_final != null ? num(r.peso_final, 2) : '—',
+      k.gasto != null ? num(k.gasto, 2) : '—', r.horimetro_inicial != null ? num(r.horimetro_inicial, 1) : '—',
+      r.horimetro_final != null ? num(r.horimetro_final, 1) : '—', k.horas != null ? num(k.horas, 2) : '—',
+      k.sacos != null ? num(k.sacos, 0) : '—', k.scKg != null ? num(k.scKg, 2) : '—', k.kgH != null ? num(k.kgH, 3) : '—',
+      r.fornecedor || '—', r.obs || '—',
+      [r.tem_foto_entrada ? 'entrada' : null, r.tem_foto_saida ? 'saída' : null].filter(Boolean).join(' + ') || '—'];
+  });
+}
+function doExportCSV() {
+  const lista = linhasExp();
+  if (!lista.length) return toast('Nada para exportar com os filtros atuais.', 'warning');
+  exportarCSV(COLS_EXP, lista, 'desgaste-' + cfgAba(_aba).id);
+}
+function doExportPDF() {
+  const lista = linhasExp();
+  if (!lista.length) return toast('Nada para imprimir com os filtros atuais.', 'warning');
+  exportarPDF('Controle de Desgaste — ' + cfgAba(_aba).label + 's', COLS_EXP, lista);
+}
+
+init();
+</script>
+</body>
+</html>
