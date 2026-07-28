@@ -31,7 +31,7 @@ const MODULO_MAP = [
   { id:'planejamento',   page:'planejamento.html',    label:'Planejamento',         group:'producao',     icon:'📋' },
   { id:'escala',         page:'escala.html',          label:'Escala de Equipe',     group:'producao',     icon:'🧤' },
   { id:'producao',       page:'producao.html',        label:'Produção',             group:'producao',     icon:'⚙️' },
-  { id:'banners',        page:'banners.html',         label:'Produção de Banners',  group:'producao',     icon:'🖼️' },
+  { id:'desgaste',       page:'desgaste.html',        label:'Controle de Desgaste', group:'producao',     icon:'🔨' },
   { id:'aferidor',       page:'aferidor.html',        label:'Aferidor',             group:'producao',     icon:'🏷️' },
   { id:'custo_precificacao', page:'custo-precificacao.html', label:'Custo & Precificação', group:'producao', icon:'💵' },
   // QUALIDADE
@@ -154,6 +154,12 @@ const MODULO_FUNCIONALIDADES = {
     { id:'custos', label:'🧾 Custos & Resultado' },
     { id:'impacto', label:'🧪 Impacto' },
     { id:'geral', label:'📋 Geral' },
+  ],
+  desgaste: [
+    { id:'martelos', label:'🔨 Martelos' },
+    { id:'eixos',    label:'⚙️ Eixos' },
+    { id:'grelhas',  label:'🔲 Grelhas' },
+    { id:'gavetas',  label:'🗄️ Gavetas' },
   ],
   custos: [
     { id:'dashboard', label:'📊 Dashboard' },
