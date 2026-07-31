@@ -43,6 +43,7 @@ const MODULO_MAP = [
   { id:'abastecimento',  page:'abastecimento.html',   label:'Abastecimento',        group:'operacoes',    icon:'⛽' },
   { id:'terceiros',      page:'terceiros.html',       label:'Serviços de Terceiros',group:'operacoes',    icon:'🤝' },
   // SUPRIMENTOS
+  { id:'insumos',        page:'insumos.html',         label:'Insumos & MP',         group:'suprimentos',  icon:'🌿' },
   { id:'almoxarifado',   page:'almoxarifado.html',    label:'Almoxarifado',         group:'suprimentos',  icon:'📦' },
   { id:'solicitacoes',   page:'solicitacoes.html',    label:'Solicitações',         group:'suprimentos',  icon:'📝' },
   { id:'compras',        page:'compras.html',         label:'Compras',              group:'suprimentos',  icon:'🛒' },
