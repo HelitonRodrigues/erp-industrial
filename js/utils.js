@@ -967,35 +967,31 @@ function verFotoInline(src) {
 })();
 
 // ============================================================
-// PATCH v2.2 — PERSISTÊNCIA DO MENU
-// Corrige v2.1: reaplica o estado após o reflow do navegador
-// (celular em modo desktop reporta largura errada no load)
+// PATCH v2.3 — PERSISTÊNCIA DO MENU (sem piscar)
 // ============================================================
+
+// Roda AGORA, ainda no <head>, antes do body ser pintado.
+(function () {
+  try {
+    if (localStorage.getItem('sb_collapsed') === '1') {
+      document.documentElement.classList.add('sb-boot');
+    }
+  } catch (e) {}
+})();
 
 function _erpMobile() { return window.innerWidth < 900; }
 
-function _erpAplicarSidebar(animar) {
+function _erpAplicarSidebar() {
   let salvo = '0';
   try { salvo = localStorage.getItem('sb_collapsed') || '0'; } catch (e) {}
-
-  const querRecolhido = (salvo === '1');
-  _sidebarCollapsed = querRecolhido && !_erpMobile();
+  _sidebarCollapsed = (salvo === '1') && !_erpMobile();
 
   const els = ['sidebar', 'topbar', 'main-content']
     .map(id => document.getElementById(id)).filter(Boolean);
-  if (!els.length) return;
 
-  // nada muda? sai (evita reaplicar a cada resize sem motivo)
-  const jaEsta = els[0].classList.contains('collapsed');
-  if (jaEsta === _sidebarCollapsed) return;
-
-  if (!animar) els.forEach(el => { el.style.transition = 'none'; });
+  // Troca sb-boot pelas classes reais no MESMO tick: sem paint no meio, sem piscar.
   els.forEach(el => el.classList.toggle('collapsed', _sidebarCollapsed));
-  if (!animar) {
-    requestAnimationFrame(() => requestAnimationFrame(() => {
-      els.forEach(el => { el.style.transition = ''; });
-    }));
-  }
+  document.documentElement.classList.remove('sb-boot');
 }
 
 function toggleSidebar() {
@@ -1012,23 +1008,15 @@ function toggleSidebar() {
   });
 }
 
-// Aplica em vários momentos: o reflow do modo desktop no celular
-// pode acontecer depois do DOMContentLoaded.
-function _erpAgendarSidebar() {
-  _erpAplicarSidebar(false);
-  [50, 200, 600].forEach(ms => setTimeout(() => _erpAplicarSidebar(false), ms));
-}
-
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', _erpAgendarSidebar);
+  document.addEventListener('DOMContentLoaded', _erpAplicarSidebar);
 } else {
-  _erpAgendarSidebar();
+  _erpAplicarSidebar();
 }
-window.addEventListener('load', () => _erpAplicarSidebar(false));
 
-// Registrado depois do listener original, então corrige o reset que ele faz
-let _erpRzTimer;
+// Reaplica após o reflow do "modo desktop" no celular e em rotação de tela.
+let _erpRz;
 window.addEventListener('resize', () => {
-  clearTimeout(_erpRzTimer);
-  _erpRzTimer = setTimeout(() => _erpAplicarSidebar(true), 120);
+  clearTimeout(_erpRz);
+  _erpRz = setTimeout(_erpAplicarSidebar, 120);
 });
