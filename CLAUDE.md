@@ -16,9 +16,9 @@ go-live, custa parada de linha.
 
 ```
 [x] C    Sidebar colapsa a 0px + persiste em localStorage        CONCLUÍDO
-[x] 0    BACKUP  Pro✓ + dump noturno✓ + integridade do dump validada✓
-[ ] 0.5  Projeto Supabase de staging (load ao vivo do dump)      ← PRÓXIMO
-[ ] 1    Chave anon + RLS nas 118 tabelas
+[x] 0    BACKUP  Pro✓ + dump noturno✓ + restore validado (load ao vivo)✓
+[ ] 0.5  Projeto Supabase de staging permanente (opcional, custa compute)
+[ ] 1    Chave anon + RLS nas 118 tabelas                        ← PRÓXIMO
 [ ] 2    001_baseline.sql + migrations + apagar os 12 fallbacks
 [ ] 2.5  Helper db() — erro nunca mais silencioso
 [ ] 3    js/regras.js — fonte única: pallet, tonelagem, eficiência, custo
@@ -45,13 +45,16 @@ memória do projeto entre sessões.
      com o servidor 17.6. Fixado chamando `/usr/lib/postgresql/17/bin/pg_dump`.
    - Senha do banco foi resetada p/ alfanumérica (evita URL-encode). NÃO quebra
      o app: ele autentica via API key (JWT), não via senha do Postgres.
-4. [x] **Integridade do restore validada** — dump de 32.79 MB (artifact run #3).
-   `pg_restore --list` + restore a seco (`--schema=public -f`) rodaram sem erro
-   (exit 0, 46 MB de SQL, 124 tabelas com dados; todas as tabelas-chave do ERP
-   presentes). Prova que o dump descomprime e é restaurável.
-   - Falta o **load ao vivo** num banco real (testa FKs/constraints) → item 0.5.
-   - PG local (18.4) existe mas senha do `postgres` foi esquecida; o load ao
-     vivo vai num projeto Supabase de staging OU após reset da senha local.
+4. [x] **Restore validado — incl. load ao vivo.** Dump de 32.79 MB (run #3).
+   `pg_restore --list` + restore a seco OK, e **load ao vivo** num cluster PG18
+   descartável (`initdb` trust, porta 5433). Só funciona com o dump **COMPLETO**
+   (não `--schema=public`), pra trazer os schemas `auth`/`extensions`/`storage`
+   de que as tabelas do app dependem. Resultado: 124 tabelas public criadas e
+   populadas, **0 erro em tabela do app**; `producao_pallets=292` (bate com o
+   snapshot pré-backfill das 11:44). Únicos erros: extensão `supabase_vault` e
+   role `authenticated` — ruído interno do Supabase. **Backup provado restaurável.**
+   - Um projeto Supabase de staging *permanente* (0.5) fica opcional (custa
+     compute); só vale quando for testar migrations/RLS de verdade (item 2).
 5. PITR só no go-live — em pré-produção, backup diário basta.
 
 ## Diagnóstico — RESOLVIDO (sessão 2026-08-05)
