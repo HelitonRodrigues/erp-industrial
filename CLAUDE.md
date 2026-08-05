@@ -18,7 +18,7 @@ go-live, custa parada de linha.
 [x] C    Sidebar colapsa a 0px + persiste em localStorage        CONCLUÍDO
 [x] 0    BACKUP  Pro✓ + dump noturno✓ + restore validado (load ao vivo)✓
 [ ] 0.5  Projeto Supabase de staging permanente (opcional, custa compute)
-[~] 1    Auth Supabase✓ + RLS baseline✓ + login live✓ — falta anon key (Passo D)
+[x] 1    Auth Supabase✓ + anon key✓ + RLS baseline✓ (1c: RLS por perfil = refino)
 [ ] 2    001_baseline.sql + migrations + apagar os 12 fallbacks
 [ ] 2.5  Helper db() — erro nunca mais silencioso
 [ ] 3    js/regras.js — fonte única: pallet, tonelagem, eficiência, custo
@@ -33,27 +33,32 @@ go-live, custa parada de linha.
 **Ao concluir um item, marque `[x]` aqui e faça commit.** Este arquivo é a
 memória do projeto entre sessões.
 
-## Item 1 — Auth + RLS (em andamento, sessão 2026-08-05)
+## Item 1 — Auth + RLS ✅ núcleo fechado (sessão 2026-08-05)
 
 **No ar e testado:**
-- **A** — 5 users provisionados no Supabase Auth; `usuarios.auth_id` linkado.
-- **B** — RLS ligado nas **124 tabelas** + policy `baseline_authenticated_all`
+- **A** — 5 users no Supabase Auth; `usuarios.auth_id` linkado.
+- **B** — RLS nas **124 tabelas** + policy `baseline_authenticated_all`
   (`authenticated` pode tudo, anon nada). As 6 policies `{public}` antigas removidas.
 - **C** — `doLogin()` → `signInWithPassword`; backdoor `sadm@fabrica.com` e
-  `senha_hash` no cliente **removidos**; `doLogout()` faz `signOut`. Contrato do
-  `sessionStorage.erp_user` mantido (40 módulos intactos). Commit `d8c5b9c`, login ok.
+  `senha_hash` no cliente removidos; `doLogout()` faz `signOut`. Contrato
+  `erp_user` mantido (40 módulos intactos). Commit `d8c5b9c`.
+- **D** — `service_role` → **anon key** nos 3 clients (`js/supabase.js`,
+  `epi-qr.html`, `importar-romaneio.js`). Páginas públicas + import de romaneio
+  via RPC SECURITY DEFINER: `branding_publico`, `rastreio_por_codigo`,
+  `rastreio_por_data_numero`, `rastreio_por_ordem`, `carregamento_por_ordem`,
+  `epi_qr`, `turnos_publico`, `importar_romaneio`. Commits `bac031c`+`f4c2cf6`.
+  **Provado:** deslogado, `funcionarios.select('*')` → `[]` (RLS bloqueia anon).
+  Login + dashboard + módulos OK como `authenticated`.
 
-**Falta — Passo D (troca `service_role` → anon key; é o que fecha o buraco):**
-`service_role` ainda em `js/supabase.js:7` (+ 2º client em `epi-qr.html`).
-Bloqueio: 2 páginas **públicas** (sem login) leem o banco e quebram como anon.
-Decisão do dono: mantê-las públicas mas **seguras via RPC** (não expor tabela inteira).
-- **D1** RPCs SECURITY DEFINER p/ anon (retornam só o item): `branding_publico()`,
-  `rastreio_por_codigo(cod)`, `rastreio_por_data_numero(dt,num)`,
-  `rastreio_por_ordem(ordem)`, `carregamento_por_ordem(ordem)`, `epi_qr(func_id)`
-- **D2** reescrever `rastreio.html` e `epi-qr.html` p/ chamar as RPCs
-- **D4** trocar `service_role` → anon key (`js/supabase.js` + `epi-qr.html`)
-- Depois: **1c** = apertar policies por perfil (piloto `producao`); limpezas
-  (dropar `senha_hash`, onboarding `criarSADM` p/ Auth, rehidratar sessão em nova aba).
+**Falta (refino, não bloqueia):**
+- **1c** — apertar policies por perfil no banco. Hoje qualquer `authenticated` lê
+  tudo no DB; o gate por perfil (SADM/ALM/CPR/MNT/SGR) ainda é só no cliente.
+  Piloto `producao`, depois espalhar.
+- Limpezas: dropar `senha_hash`, onboarding `criarSADM` p/ Auth, rehidratar sessão em nova aba.
+- ⚠️ Bug pré-existente (não é do RLS): `dashboard.html:781` lê `frota_veiculos`
+  com coluna inexistente → **400** escondido pelo `safe()`. Tarefa separada aberta.
+- ⚠️ Landmine: `frota.html` tem `ALTER TABLE frota_veiculos DISABLE ROW LEVEL
+  SECURITY` embutido (script de setup manual) — se rodarem, reabre a tabela. Ver no item 2.
 Ponto de retorno: tag `antes-item-1`.
 
 ## Item 0 — Backup (estado)
