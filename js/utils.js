@@ -965,21 +965,46 @@ function verFotoInline(src) {
     });
   }
 })();
+
 // ============================================================
-// PATCH v2.1 — PERSISTÊNCIA E COLAPSO TOTAL DO MENU
-// Cole este bloco NO FINAL do arquivo js/utils.js
-// (sobrepõe a toggleSidebar definida acima — é intencional)
+// PATCH v2.2 — PERSISTÊNCIA DO MENU
+// Corrige v2.1: reaplica o estado após o reflow do navegador
+// (celular em modo desktop reporta largura errada no load)
 // ============================================================
 
+function _erpMobile() { return window.innerWidth < 900; }
+
+function _erpAplicarSidebar(animar) {
+  let salvo = '0';
+  try { salvo = localStorage.getItem('sb_collapsed') || '0'; } catch (e) {}
+
+  const querRecolhido = (salvo === '1');
+  _sidebarCollapsed = querRecolhido && !_erpMobile();
+
+  const els = ['sidebar', 'topbar', 'main-content']
+    .map(id => document.getElementById(id)).filter(Boolean);
+  if (!els.length) return;
+
+  // nada muda? sai (evita reaplicar a cada resize sem motivo)
+  const jaEsta = els[0].classList.contains('collapsed');
+  if (jaEsta === _sidebarCollapsed) return;
+
+  if (!animar) els.forEach(el => { el.style.transition = 'none'; });
+  els.forEach(el => el.classList.toggle('collapsed', _sidebarCollapsed));
+  if (!animar) {
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      els.forEach(el => { el.style.transition = ''; });
+    }));
+  }
+}
+
 function toggleSidebar() {
-  // Celular/tablet: gaveta com fundo escuro (comportamento original)
-  if (_isMobileLayout()) {
+  if (_erpMobile()) {
     const sb = document.getElementById('sidebar');
     if (sb && sb.classList.contains('mobile-open')) closeMobileSidebar();
     else openMobileSidebar();
     return;
   }
-  // Desktop: recolhe/expande E GRAVA a preferência
   _sidebarCollapsed = !_sidebarCollapsed;
   try { localStorage.setItem('sb_collapsed', _sidebarCollapsed ? '1' : '0'); } catch (e) {}
   ['sidebar', 'topbar', 'main-content'].forEach(id => {
@@ -987,28 +1012,23 @@ function toggleSidebar() {
   });
 }
 
-// Aplica o estado salvo assim que a página carrega, sem animar (evita o "pisca")
-function _aplicarEstadoSidebar() {
-  if (_isMobileLayout()) return;
-
-  let salvo = '0';
-  try { salvo = localStorage.getItem('sb_collapsed') || '0'; } catch (e) {}
-  _sidebarCollapsed = (salvo === '1');
-  if (!_sidebarCollapsed) return;
-
-  const els = ['sidebar', 'topbar', 'main-content']
-    .map(id => document.getElementById(id))
-    .filter(Boolean);
-
-  els.forEach(el => { el.style.transition = 'none'; });
-  els.forEach(el => el.classList.add('collapsed'));
-  requestAnimationFrame(() => {
-    requestAnimationFrame(() => els.forEach(el => { el.style.transition = ''; }));
-  });
+// Aplica em vários momentos: o reflow do modo desktop no celular
+// pode acontecer depois do DOMContentLoaded.
+function _erpAgendarSidebar() {
+  _erpAplicarSidebar(false);
+  [50, 200, 600].forEach(ms => setTimeout(() => _erpAplicarSidebar(false), ms));
 }
 
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', _aplicarEstadoSidebar);
+  document.addEventListener('DOMContentLoaded', _erpAgendarSidebar);
 } else {
-  _aplicarEstadoSidebar();
+  _erpAgendarSidebar();
 }
+window.addEventListener('load', () => _erpAplicarSidebar(false));
+
+// Registrado depois do listener original, então corrige o reset que ele faz
+let _erpRzTimer;
+window.addEventListener('resize', () => {
+  clearTimeout(_erpRzTimer);
+  _erpRzTimer = setTimeout(() => _erpAplicarSidebar(true), 120);
+});
