@@ -4,7 +4,7 @@
 // ============================================================
 
 const SUPABASE_URL = 'https://zodgbitbflkepbszshmu.supabase.co';
-const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpvZGdiaXRiZmxrZXBic3pzaG11Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NjA2NjA2OCwiZXhwIjoyMDkxNjQyMDY4fQ.cclkLlP8v7IMH4AXGliDNxBEyn5Sg2VxyHIEEsv_yc8';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpvZGdiaXRiZmxrZXBic3pzaG11Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYwNjYwNjgsImV4cCI6MjA5MTY0MjA2OH0.iWROA5X7CkxOunt7Cn46wWODa7SQ5nU8OJcD52NhCgA';
 
 const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
   realtime: { enabled: false },

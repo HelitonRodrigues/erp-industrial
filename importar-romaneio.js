@@ -6,7 +6,7 @@
 ============================================================ */
 (function(){
   var SB='https://zodgbitbflkepbszshmu.supabase.co';
-  var KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpvZGdiaXRiZmxrZXBic3pzaG11Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NjA2NjA2OCwiZXhwIjoyMDkxNjQyMDY4fQ.cclkLlP8v7IMH4AXGliDNxBEyn5Sg2VxyHIEEsv_yc8';
+  var KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpvZGdiaXRiZmxrZXBic3pzaG11Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYwNjYwNjgsImV4cCI6MjA5MTY0MjA2OH0.iWROA5X7CkxOunt7Cn46wWODa7SQ5nU8OJcD52NhCgA';
   var O=document.getElementById('ordem');
   if(!O){alert('Abra a tela do "Romaneio de Embarque" do salescode (aguarde o quadro aparecer) e clique de novo.');return;}
   function txt(el){return el?el.textContent.replace(/\s+/g,' ').trim():'';}
@@ -39,18 +39,13 @@
   }
   var H={'apikey':KEY,'Authorization':'Bearer '+KEY,'Content-Type':'application/json'};
   function chk(r){ if(r.ok) return r.text(); return r.text().then(function(t){ throw new Error('HTTP '+r.status+' '+t); }); }
-  fetch(SB+'/rest/v1/romaneios?on_conflict=numero',{method:'POST',headers:Object.assign({'Prefer':'resolution=merge-duplicates,return=representation'},H),body:JSON.stringify(rom)})
+  // RPC única (SECURITY DEFINER) — com a chave anon, só é possível importar romaneio, nada mais.
+  fetch(SB+'/rest/v1/rpc/importar_romaneio',{method:'POST',headers:H,body:JSON.stringify({rom:rom,itens:itens})})
     .then(chk)
     .then(function(t){
-      var rows=t?JSON.parse(t):[];
-      var rid=(rows&&rows[0]&&rows[0].id);
-      if(!rid) throw new Error('Sem id de retorno. Resposta: '+t);
-      return fetch(SB+'/rest/v1/romaneio_itens?numero=eq.'+encodeURIComponent(rom.numero),{method:'DELETE',headers:H}).then(chk).then(function(){
-        if(!itens.length) return '';
-        itens.forEach(function(it){it.romaneio_id=rid;});
-        return fetch(SB+'/rest/v1/romaneio_itens',{method:'POST',headers:H,body:JSON.stringify(itens)}).then(chk);
-      });
+      var res=t?JSON.parse(t):{};
+      var n=(res&&res.itens!=null)?res.itens:itens.length;
+      alert('✅ Romaneio '+rom.numero+' importado!\n'+(rom.transportadora||rom.motorista||'')+'\n'+n+' item(ns).');
     })
-    .then(function(){alert('✅ Romaneio '+rom.numero+' importado!\n'+(rom.transportadora||rom.motorista||'')+'\n'+itens.length+' item(ns).');})
     .catch(function(e){alert('❌ Erro ao importar: '+(e&&e.message?e.message:e));});
 })();
