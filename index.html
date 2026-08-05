@@ -877,16 +877,16 @@ async function doLogin() {
   if (!email||!senha) { errEl.textContent='Preencha e-mail e senha.'; errEl.classList.remove('hidden'); return; }
   btn.innerHTML='<span class="spin"></span>Entrando...'; btn.disabled=true; errEl.classList.add('hidden');
   try {
-    let user = null;
-    if (email==='sadm@fabrica.com' && senha==='123456') {
-      user = {id:'demo', nome:'Super Admin', email, perfil:'SADM', status:'ativo'};
-    } else {
-      const {data:u, error} = await _supabase.from('usuarios').select('*').eq('email',email).eq('status','ativo').maybeSingle();
-      if (error||!u) throw new Error('Usuário não encontrado ou inativo.');
-      if (u.senha_hash !== await sha256(senha)) throw new Error('Senha incorreta.');
-      await _supabase.from('usuarios').update({ultimo_acesso:new Date().toISOString()}).eq('id',u.id);
-      user = u;
-    }
+    // Autenticação real via Supabase Auth (JWT). Sem backdoor, sem senha no cliente.
+    const { data: auth, error: authErr } =
+      await _supabase.auth.signInWithPassword({ email, password: senha });
+    if (authErr || !auth?.user) throw new Error('E-mail ou senha incorretos.');
+    // Cadastro (perfil, nome, status) pelo vínculo auth_id
+    const { data: u, error } = await _supabase.from('usuarios')
+      .select('*').eq('auth_id', auth.user.id).eq('status', 'ativo').maybeSingle();
+    if (error || !u) { await _supabase.auth.signOut(); throw new Error('Usuário sem cadastro ativo no sistema.'); }
+    const user = u;
+    try { await _supabase.from('usuarios').update({ultimo_acesso:new Date().toISOString()}).eq('id',u.id); } catch(e){}
     try{await _supabase.from('auditoria').insert({acao:'LOGIN',modulo:'AUTH',registro_id:user.id,descricao:'Login realizado',usuario_email:email});}catch(e){}
     sessionStorage.setItem('erp_user', JSON.stringify(user));
     await carregarPermissoesPerfil(user);

@@ -826,6 +826,7 @@ document.addEventListener('DOMContentLoaded', () => {
 async function doLogout() {
   const user = getUser();
   try { await addLog('LOGOUT','AUTH', user?.id || 'unknown', 'Logout realizado'); } catch(e) {}
+  try { await _supabase.auth.signOut(); } catch(e) {}
   sessionStorage.removeItem('erp_user');
   window.location.href = 'index.html';
 }
