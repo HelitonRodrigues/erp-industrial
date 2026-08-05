@@ -564,6 +564,10 @@ async function initSidebar(paginaAtiva) {
   // Construir sidebar filtrada por permissões
   _buildSidebar(user, paginaAtiva);
 
+  // Só agora a sidebar existe no DOM (ela chega por fetch de partials/sidebar.html),
+  // então este é o único ponto em que dá para aplicar o colapso salvo com segurança.
+  _erpAplicarSidebar();
+
   // Aplicar restrições de UI baseadas em permissão
   applyPermUI();
 
@@ -668,7 +672,20 @@ function _buildSidebar(user, paginaAtiva) {
 // ── SIDEBAR helpers ───────────────────────────────────────
 let _sidebarCollapsed = false;
 
-// Considera "celular/tablet em retrato" abaixo de 900px (mesmo breakpoint do CSS)
+// Estado inicial aplicado ANTES do primeiro paint: utils.js é carregado de forma
+// síncrona no <head>, então .sb-boot entra no <html> antes do body existir e a
+// página já nasce com o menu recolhido, sem piscar. Quem troca essa classe pelas
+// classes reais é o _erpAplicarSidebar(), quando a sidebar já está no DOM.
+(function () {
+  try {
+    if (localStorage.getItem('sb_collapsed') === '1') {
+      document.documentElement.classList.add('sb-boot');
+    }
+  } catch (e) {}
+})();
+
+// Fonte única do breakpoint. Espelha o @media (max-width: 900px) do style.css,
+// que é onde vivem as regras da gaveta mobile (.sidebar.mobile-open).
 function _isMobileLayout() {
   return window.matchMedia('(max-width: 900px)').matches;
 }
@@ -698,6 +715,31 @@ function closeMobileSidebar() {
   document.body.style.overflow = '';
 }
 
+// Lê a preferência salva e a aplica aos três elementos do layout.
+// Chamado pelo initSidebar() logo depois do _buildSidebar(): a sidebar chega por
+// fetch de partials/sidebar.html e ainda não existe no DOMContentLoaded.
+function _erpAplicarSidebar() {
+  let salvo = '0';
+  try { salvo = localStorage.getItem('sb_collapsed') || '0'; } catch (e) {}
+  _sidebarCollapsed = (salvo === '1') && !_isMobileLayout();
+
+  const ids = ['sidebar', 'topbar', 'main-content'];
+  const els = ids.map(id => document.getElementById(id));
+  const faltando = ids.filter((id, i) => !els[i]);
+
+  // Aplicar só numa parte deixa o layout incoerente (topbar e main recolhidos com
+  // a sidebar aberta por cima). Se faltar alguém, não mexe em nada e deixa o
+  // .sb-boot segurando o estado visual — e avisa, em vez de falhar em silêncio.
+  if (faltando.length) {
+    console.warn('[sidebar] estado colapsado não aplicado, elemento(s) ausente(s):', faltando.join(', '));
+    return;
+  }
+
+  // Troca sb-boot pelas classes reais no MESMO tick: sem paint no meio, sem piscar.
+  els.forEach(el => el.classList.toggle('collapsed', _sidebarCollapsed));
+  document.documentElement.classList.remove('sb-boot');
+}
+
 function toggleSidebar() {
   // No celular/tablet: abre/fecha a gaveta com fundo escuro
   if (_isMobileLayout()) {
@@ -706,23 +748,23 @@ function toggleSidebar() {
     else openMobileSidebar();
     return;
   }
-  // No PC: comportamento original de recolher/expandir o menu
+  // No PC: recolhe/expande o menu e grava a preferência
   _sidebarCollapsed = !_sidebarCollapsed;
+  try { localStorage.setItem('sb_collapsed', _sidebarCollapsed ? '1' : '0'); } catch (e) {}
   ['sidebar','topbar','main-content'].forEach(id => {
     document.getElementById(id)?.classList.toggle('collapsed', _sidebarCollapsed);
   });
 }
 
-// Ao girar/redimensionar a tela, evita que a gaveta ou o colapso fiquem "presos"
+// Ao girar/redimensionar a tela, evita que a gaveta ou o colapso fiquem "presos".
+// Debounce para não reavaliar a cada pixel do arrasto.
+let _erpRz;
 window.addEventListener('resize', () => {
-  if (!_isMobileLayout()) {
-    closeMobileSidebar();
-  } else {
-    _sidebarCollapsed = false;
-    ['sidebar','topbar','main-content'].forEach(id => {
-      document.getElementById(id)?.classList.remove('collapsed');
-    });
-  }
+  clearTimeout(_erpRz);
+  _erpRz = setTimeout(() => {
+    if (!_isMobileLayout()) closeMobileSidebar();
+    _erpAplicarSidebar();   // no mobile isso já limpa o .collapsed
+  }, 120);
 });
 
 function toggleGroup(groupId) {
@@ -965,58 +1007,3 @@ function verFotoInline(src) {
     });
   }
 })();
-
-// ============================================================
-// PATCH v2.3 — PERSISTÊNCIA DO MENU (sem piscar)
-// ============================================================
-
-// Roda AGORA, ainda no <head>, antes do body ser pintado.
-(function () {
-  try {
-    if (localStorage.getItem('sb_collapsed') === '1') {
-      document.documentElement.classList.add('sb-boot');
-    }
-  } catch (e) {}
-})();
-
-function _erpMobile() { return window.innerWidth < 900; }
-
-function _erpAplicarSidebar() {
-  let salvo = '0';
-  try { salvo = localStorage.getItem('sb_collapsed') || '0'; } catch (e) {}
-  _sidebarCollapsed = (salvo === '1') && !_erpMobile();
-
-  const els = ['sidebar', 'topbar', 'main-content']
-    .map(id => document.getElementById(id)).filter(Boolean);
-
-  // Troca sb-boot pelas classes reais no MESMO tick: sem paint no meio, sem piscar.
-  els.forEach(el => el.classList.toggle('collapsed', _sidebarCollapsed));
-  document.documentElement.classList.remove('sb-boot');
-}
-
-function toggleSidebar() {
-  if (_erpMobile()) {
-    const sb = document.getElementById('sidebar');
-    if (sb && sb.classList.contains('mobile-open')) closeMobileSidebar();
-    else openMobileSidebar();
-    return;
-  }
-  _sidebarCollapsed = !_sidebarCollapsed;
-  try { localStorage.setItem('sb_collapsed', _sidebarCollapsed ? '1' : '0'); } catch (e) {}
-  ['sidebar', 'topbar', 'main-content'].forEach(id => {
-    document.getElementById(id)?.classList.toggle('collapsed', _sidebarCollapsed);
-  });
-}
-
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', _erpAplicarSidebar);
-} else {
-  _erpAplicarSidebar();
-}
-
-// Reaplica após o reflow do "modo desktop" no celular e em rotação de tela.
-let _erpRz;
-window.addEventListener('resize', () => {
-  clearTimeout(_erpRz);
-  _erpRz = setTimeout(_erpAplicarSidebar, 120);
-});
