@@ -81,20 +81,18 @@ function analiseTxt(p){if(!p.analise)return '';if(typeof p.analise==='string')re
 const SEL='*,producao(op_numero,produtos_op,encarregado,equipe,turno,data,lote_mp)';
 
 async function carregarEmpresa(){
-  try{const{data}=await _supabase.from('empresa_config').select('nome_fantasia,razao_social,logo').limit(1).maybeSingle();
+  try{const{data}=await _supabase.rpc('branding_publico');
     if(data){document.getElementById('empresa').textContent=data.nome_fantasia||data.razao_social||'Rastreabilidade de Pallet';if(data.logo)document.getElementById('logo').innerHTML=`<img src="${data.logo}" style="width:100%;height:100%;object-fit:cover;">`;}}catch(e){}
 }
 
 async function buscarPalletPorCodigo(cod){
-  // 1) por código salvo
-  let pallets=[];
-  try{const{data}=await _supabase.from('producao_pallets').select(SEL).eq('codigo',cod);pallets=data||[];}catch(e){}
-  if(pallets.length)return pallets[0];
+  // 1) por código salvo (RPC pública — anon só vê o item escaneado, não a tabela)
+  try{const{data}=await _supabase.rpc('rastreio_por_codigo',{cod});if(data)return data;}catch(e){}
   // 2) parse do código: PREFIXO-AAAAMMDD-OPTAIL-P###  -> busca por data+numero e confere o código calculado
   const m=/^(.+)-(\d{8})-(.+)-P(\d+)$/i.exec(cod);
   if(m){
     const data2=`${m[2].slice(0,4)}-${m[2].slice(4,6)}-${m[2].slice(6,8)}`;const numero=parseInt(m[4]);
-    try{const{data}=await _supabase.from('producao_pallets').select(SEL).eq('data',data2).eq('numero',numero);
+    try{const{data}=await _supabase.rpc('rastreio_por_data_numero',{dt:data2,num:numero});
       const cand=(data||[]).filter(p=>palCodigo(p).toLowerCase()===cod.toLowerCase());
       if(cand.length)return cand[0];
       if((data||[]).length===1)return data[0];
@@ -177,11 +175,11 @@ function renderOrdem(ordem,pallets){
       document.getElementById('sub').textContent='Pallet '+palCodigo(p);
       let carr=null;
       if((p.estoque_status==='carregado'||p.estoque_status==='expedido')&&p.ordem_numero){
-        try{const{data}=await _supabase.from('carregamentos').select('transportadora,placa,motorista,hora,data').eq('ordem_numero',String(p.ordem_numero)).order('created_at',{ascending:false}).limit(1).maybeSingle();carr=data||null;}catch(e){}
+        try{const{data}=await _supabase.rpc('carregamento_por_ordem',{ordem:String(p.ordem_numero)});carr=data||null;}catch(e){}
       }
       cont.innerHTML=renderPallet(p,carr);
     }else if(ordem){
-      const{data}=await _supabase.from('producao_pallets').select(SEL).eq('ordem_numero',String(ordem)).eq('estoque_status','carregado');
+      const{data}=await _supabase.rpc('rastreio_por_ordem',{ordem:String(ordem)});
       const pallets=data||[];
       if(!pallets.length){cont.innerHTML=`<div class="err">Nenhum pallet carregado encontrado para a ordem ${esc(ordem)}.</div>`;return;}
       document.getElementById('sub').textContent='Ordem de carregamento '+ordem;
