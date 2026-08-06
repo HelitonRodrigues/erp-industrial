@@ -20,7 +20,7 @@ go-live, custa parada de linha.
 [ ] 0.5  Projeto Supabase de staging permanente (opcional, custa compute)
 [x] 1    Auth Supabase✓ + anon key✓ + RLS baseline✓ + 1c por perfil nas sensíveis✓
 [~] 2    fallbacks apagados✓ (5 silenciosos removidos + detectores inertes) — falta 001_baseline.sql
-[~] 2.5  Helper db() pronto (utils.js) + piloto producao✓ — espalhar gradual
+[~] 2.5  db() pronto + producao/almoxarifado blindados✓ — espalhar gradual nos demais
 [ ] 3    js/regras.js — fonte única: pallet, tonelagem, eficiência, custo
 [ ] 4    limit/filtro nas 118 queries abertas
 [ ] 4.5  Fotos base64 → Storage (+ incluir Storage no backup)
@@ -70,14 +70,17 @@ Ponto de retorno: tag `antes-item-1`.
 
 ## Item 2 — fallbacks silenciosos (feito, sessão 2026-08-06)
 
-- **5 fallbacks silenciosos removidos** → trocados por `db()` (surge o erro):
+- **7 fallbacks silenciosos removidos** → trocados por `db()` (surge o erro):
   `producao.html` ×2 + `aferidor.html` ×2 (`producao_pallets`, tiravam codigo/equipe),
-  `compras.html` ×1 (`_saveResiliente`, tirava historico/obs).
+  `compras.html` ×1 (`_saveResiliente`, tirava historico/obs),
+  `almoxarifado.html` ×2 (save de produto, tirava estoque_maximo/codigo_especificacao).
+  Bônus: writes de estoque (`estoque_atual`) e de OP blindados com `db()`.
 - **Detectores inertes** (`carregamento.html`, `desgaste.html`): mostram banner de
   migração, não corrompem; ficam como rede de segurança.
 - **Schema alinhado (ADD COLUMN IF NOT EXISTS)** p/ os fallbacks virarem código morto:
   `producao_pallets.equipe`; `frota_veiculos` (17 colunas do setup); `compras_cotacoes/
-  pedidos/recebimentos` → `historico jsonb`, `obs text`; `barracoes.layout jsonb`.
+  pedidos/recebimentos` → `historico jsonb`, `obs text`; `barracoes.layout jsonb`;
+  `almoxarifado` → `estoque_maximo numeric`, `codigo_especificacao text`.
 - Helper **`db(promise, ctx)`** em `utils.js` — retorna o mesmo `{data,error}`, só loga+toasta erro.
 - **Falta:** `001_baseline.sql` (dump do schema como fonte única) + disciplina de migrations.
 
