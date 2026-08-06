@@ -51,14 +51,17 @@ memória do projeto entre sessões.
   Login + dashboard + módulos OK como `authenticated`.
 
 **Falta (refino, não bloqueia):**
-- **1c** — apertar policies por perfil no banco. Hoje qualquer `authenticated` lê
-  tudo no DB; o gate por perfil (SADM/ALM/CPR/MNT/SGR) ainda é só no cliente.
-  Piloto `producao`, depois espalhar.
-- Limpezas: dropar `senha_hash`, onboarding `criarSADM` p/ Auth, rehidratar sessão em nova aba.
-- ⚠️ Bug pré-existente (não é do RLS): `dashboard.html:781` lê `frota_veiculos`
-  com coluna inexistente → **400** escondido pelo `safe()`. Tarefa separada aberta.
-- ⚠️ Landmine: `frota.html` tem `ALTER TABLE frota_veiculos DISABLE ROW LEVEL
-  SECURITY` embutido (script de setup manual) — se rodarem, reabre a tabela. Ver no item 2.
+- **1c** — apertar policies por perfil. **Piloto FEITO:** helper `auth_perfil()`
+  (lê o perfil do logado via `auth.uid()`) + `usuarios` agora self-read (cada um
+  vê só a própria linha; SADM vê todas) — testado: ALM vê 1, SADM vê 5. Protege o
+  `senha_hash`. Falta espalhar p/ `perfis` e tabelas de custo/folha (se existirem).
+- Limpezas: dropar `senha_hash` (morto), onboarding `criarSADM` p/ Auth, rehidratar sessão nova aba.
+- ✅ Bug frota **400 RESOLVIDO**: `frota_veiculos` estava sem colunas (drift) —
+  `ADD COLUMN IF NOT EXISTS` alinhado ao schema do `frota.html`.
+- ✅ Landmines **RESOLVIDAS**: os 3 setup scripts com `DISABLE ROW LEVEL SECURITY`
+  (frota_veiculos, planejamentos_custo, folhas_pagamento) → `ENABLE` + policy base (`376b113`).
+- ⚠️ `custo-precificacao.html` é mantido **pelo DONO** (edita/sobe pela web do GitHub).
+  NÃO editar aqui — passar snippet p/ ele colar. Sempre `git pull` no início (`pull.rebase=true`).
 Ponto de retorno: tag `antes-item-1`.
 
 ## Item 0 — Backup (estado)
