@@ -18,7 +18,7 @@ go-live, custa parada de linha.
 [x] C    Sidebar colapsa a 0px + persiste em localStorage        CONCLUÍDO
 [x] 0    BACKUP  Pro✓ + dump noturno✓ + restore validado (load ao vivo)✓
 [ ] 0.5  Projeto Supabase de staging permanente (opcional, custa compute)
-[x] 1    Auth Supabase✓ + anon key✓ + RLS baseline✓ (1c: RLS por perfil = refino)
+[x] 1    Auth Supabase✓ + anon key✓ + RLS baseline✓ + 1c por perfil nas sensíveis✓
 [ ] 2    001_baseline.sql + migrations + apagar os 12 fallbacks
 [ ] 2.5  Helper db() — erro nunca mais silencioso
 [ ] 3    js/regras.js — fonte única: pallet, tonelagem, eficiência, custo
@@ -51,10 +51,14 @@ memória do projeto entre sessões.
   Login + dashboard + módulos OK como `authenticated`.
 
 **Falta (refino, não bloqueia):**
-- **1c** — apertar policies por perfil. **Piloto FEITO:** helper `auth_perfil()`
-  (lê o perfil do logado via `auth.uid()`) + `usuarios` agora self-read (cada um
-  vê só a própria linha; SADM vê todas) — testado: ALM vê 1, SADM vê 5. Protege o
-  `senha_hash`. Falta espalhar p/ `perfis` e tabelas de custo/folha (se existirem).
+- ✅ **1c FEITO (escopo sensível):** helper `auth_perfil()` + `usuarios` self-read
+  (protege `senha_hash`; testado ALM vê 1, SADM vê 5). Helper dinâmico
+  `auth_pode_modulo(mod)` que lê `perfis.permissoes` → `planejamentos_custo` e
+  `folhas_pagamento` travados ao módulo `custo_precificacao` (segue o `perfis.html`:
+  muda lá, o banco acompanha). Testado: ALM bloqueado (`data:[]`), SADM/SGR acessam.
+  Resto operacional fica na baseline (ok p/ 5 users de confiança); espalhar quando quiser.
+  ⚠️ Dívida: `perfis` tem 2 formatos (novo por-id nos 5 users reais; antigo
+  capitalizado nos perfis sem user). Normalizar no item 2.
 - Limpezas: dropar `senha_hash` (morto), onboarding `criarSADM` p/ Auth, rehidratar sessão nova aba.
 - ✅ Bug frota **400 RESOLVIDO**: `frota_veiculos` estava sem colunas (drift) —
   `ADD COLUMN IF NOT EXISTS` alinhado ao schema do `frota.html`.
