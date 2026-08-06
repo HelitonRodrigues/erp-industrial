@@ -1511,13 +1511,13 @@ async function salvarProduto(){
   try{
     let prodId=_editProdId;
     if(_editProdId){
-      let{error}=await _supabase.from('almoxarifado').update({...dados,...extras}).eq('id',_editProdId);
-      if(error){const{error:e2}=await _supabase.from('almoxarifado').update(dados).eq('id',_editProdId);if(e2)throw e2;}
+      const{error}=await db(_supabase.from('almoxarifado').update({...dados,...extras}).eq('id',_editProdId),'atualizar produto');
+      if(error)throw error;
       await addLog('UPDATE','ALMOXARIFADO',_editProdId,'Produto atualizado no almoxarifado');
     toast('✅ Produto atualizado!','success');
     } else {
-      let{data:nd,error}=await _supabase.from('almoxarifado').insert({...dados,...extras}).select().single();
-      if(error){({data:nd}=await _supabase.from('almoxarifado').insert(dados).select().single());}
+      const{data:nd,error}=await db(_supabase.from('almoxarifado').insert({...dados,...extras}).select().single(),'cadastrar produto');
+      if(error)throw error;
       prodId=nd?.id;
       await addLog('CREATE','ALMOXARIFADO',prodId||'novo','Produto criado no almoxarifado');
       toast('✅ Produto cadastrado!','success');
@@ -1797,7 +1797,7 @@ async function salvarEntrada(){
       const custoMedio=p.custo?(estoqueAtual*custoAtual+p.qtd*p.custo)/novoEst:custoAtual;
       const upd={estoque_atual:novoEst,atualizado_em:new Date().toISOString()};
       if(p.custo)upd.custo_unitario=Math.round(custoMedio*10000)/10000; // 4 casas decimais
-      await _supabase.from('almoxarifado').update(upd).eq('id',p.itemId);
+      await db(_supabase.from('almoxarifado').update(upd).eq('id',p.itemId),'atualizar estoque');
     }
     await recarregarMovimentos();await recarregarItens();
     await addLog('CREATE','ALMOXARIFADO',numDoc,'Entrada de materiais registrada');
@@ -1996,7 +1996,7 @@ async function salvarSaida(){
       } else {
         await _supabase.from('almoxarifado_movimentos').insert(mov);
       }
-      await _supabase.from('almoxarifado').update({estoque_atual:Math.max(0,(item?.estoque_atual||0)-p.qtd),atualizado_em:new Date().toISOString()}).eq('id',p.itemId);
+      await db(_supabase.from('almoxarifado').update({estoque_atual:Math.max(0,(item?.estoque_atual||0)-p.qtd),atualizado_em:new Date().toISOString()}).eq('id',p.itemId),'baixar estoque (saída)');
       // se esta saída foi lançada como perda, avisa quando o valor for relevante
       if((document.getElementById('sai-tipo')?.value||'saida')==='perda'){ await _registrarAlertaPerda(p.itemId,p.qtd,document.getElementById('sai-obs')?.value||''); }
     }
@@ -2093,7 +2093,7 @@ async function salvarEditMov(){
     if(deltaEstoque!==0){
       const item=_itens.find(i=>i.id===m.insumo_id);
       if(item){const novo=Math.max(0,(parseFloat(item.estoque_atual)||0)+deltaEstoque);
-        await _supabase.from('almoxarifado').update({estoque_atual:novo,atualizado_em:new Date().toISOString()}).eq('id',item.id);}
+        await db(_supabase.from('almoxarifado').update({estoque_atual:novo,atualizado_em:new Date().toISOString()}).eq('id',item.id),'ajustar estoque');}
     }
     const{error}=await _supabase.from('almoxarifado_movimentos').update(upd).eq('id',_editMovId);
     if(error)throw error;
@@ -2119,7 +2119,7 @@ async function excluirMovimento(id){
     // 1) estornar estoque
     if(item){
       const novo=Math.max(0,(parseFloat(item.estoque_atual)||0)+delta);
-      await _supabase.from('almoxarifado').update({estoque_atual:novo,atualizado_em:new Date().toISOString()}).eq('id',item.id);
+      await db(_supabase.from('almoxarifado').update({estoque_atual:novo,atualizado_em:new Date().toISOString()}).eq('id',item.id),'ajustar estoque');
     }
     // 2) excluir a movimentação
     const{error}=await _supabase.from('almoxarifado_movimentos').delete().eq('id',id);
