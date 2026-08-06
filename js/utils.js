@@ -868,6 +868,18 @@ async function carregarPermissoesPerfil(user) {
   }
 }
 
+// ── DB: query que nunca esconde erro ───────────────────────
+// Uso: const {data} = await db(_supabase.from('x').select('*'), 'carregar x');
+// Retorna o MESMO {data, error} do supabase — não muda o fluxo, só torna o erro visível.
+async function db(promise, contexto) {
+  const res = await promise;
+  if (res && res.error) {
+    console.error('[db]' + (contexto ? ' ' + contexto : '') + ':', res.error.message || res.error);
+    try { toast('Falha' + (contexto ? ' em ' + contexto : '') + ': ' + (res.error.message || res.error), 'danger'); } catch (e) {}
+  }
+  return res;
+}
+
 // ── AUDITORIA ──────────────────────────────────────────────
 async function addLog(acao, modulo, registroId, descricao) {
   const user = getUser();
