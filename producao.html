@@ -1596,14 +1596,12 @@ async function reconciliarPalletsOP(lid, dados){
   });
   // sobra: numero acima do produzido e que NÃO está carregado/expedido
   const removiveis=(rows||[]).filter(r=>r.numero>target.length && !(r.estoque_status==='carregado'||r.estoque_status==='expedido')).map(r=>r.id);
-  // executa (degrada se a coluna codigo/equipe não existir)
+  // executa — sem fallback silencioso: db() faz qualquer erro aparecer (codigo/equipe existem no schema)
   if(inserts.length){
-    let{error}=await _supabase.from('producao_pallets').insert(inserts);
-    if(error&&/column|schema cache|codigo|equipe/i.test(error.message||'')) await _supabase.from('producao_pallets').insert(inserts.map(({codigo,equipe,...r})=>r));
+    await db(_supabase.from('producao_pallets').insert(inserts),'criar pallets');
   }
   for(const u of updates){
-    const{error}=await _supabase.from('producao_pallets').update({codigo:u.codigo,produto:u.produto,equipe:u.equipe}).eq('id',u.id);
-    if(error&&/column|schema cache|codigo|equipe/i.test(error.message||'')) await _supabase.from('producao_pallets').update({produto:u.produto}).eq('id',u.id);
+    await db(_supabase.from('producao_pallets').update({codigo:u.codigo,produto:u.produto,equipe:u.equipe}).eq('id',u.id),'atualizar pallet');
   }
   if(removiveis.length) await _supabase.from('producao_pallets').delete().in('id',removiveis);
 }
