@@ -20,7 +20,7 @@ go-live, custa parada de linha.
 [ ] 0.5  Projeto Supabase de staging permanente (opcional, custa compute)
 [x] 1    Auth Supabase✓ + anon key✓ + RLS baseline✓ + 1c por perfil nas sensíveis✓
 [~] 2    fallbacks apagados✓ (5 silenciosos removidos + detectores inertes) — falta 001_baseline.sql
-[~] 2.5  db() nos módulos operacionais críticos✓ — resto (cadastros) gradual
+[x] 2.5  Helper db() + espalhado em ~20 módulos (todos os fluxos de dado)✓
 [ ] 3    js/regras.js — fonte única: pallet, tonelagem, eficiência, custo
 [ ] 4    limit/filtro nas 118 queries abertas
 [ ] 4.5  Fotos base64 → Storage (+ incluir Storage no backup)
@@ -82,9 +82,11 @@ Ponto de retorno: tag `antes-item-1`.
   pedidos/recebimentos` → `historico jsonb`, `obs text`; `barracoes.layout jsonb`;
   `almoxarifado` → `estoque_maximo numeric`, `codigo_especificacao text`.
 - Helper **`db(promise, ctx)`** em `utils.js` — retorna o mesmo `{data,error}`, só loga+toasta erro.
-- **db() espalhado nos críticos:** producao, almoxarifado, expedicao, carregamento,
-  laboratorio (decisões de qualidade), manutencao (concluir/excluir OS), portaria,
-  solicitacoes (estoque no recebimento). Resto (cadastros, abastecimento) fica gradual.
+- **db() espalhado em ~20 módulos** (saves/deletes/writes silenciosos → visíveis):
+  producao, almoxarifado, expedicao, carregamento, laboratorio, manutencao, portaria,
+  solicitacoes, epi, aferidor, produtos, funcionarios, linhas, turnos, rh, escala,
+  equip-gerais, equip-linhas, motivos, planejamento. Tail menor (abastecimento níveis
+  de bomba, terceiros status, bpf, custos) fica gradual.
 - **Fallbacks de schema AINDA presentes** (retriam tirando campo; precisam ADD COLUMN
   antes de remover — NÃO removidos): `manutencao` (OS `extras`), `terceiros_remessas/
   servicos` (`_strip`, `anexos`), `abastecimento_entradas` (`strip`). Verificar colunas depois.
