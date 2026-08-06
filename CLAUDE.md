@@ -87,9 +87,18 @@ Ponto de retorno: tag `antes-item-1`.
   solicitacoes, epi, aferidor, produtos, funcionarios, linhas, turnos, rh, escala,
   equip-gerais, equip-linhas, motivos, planejamento. Tail menor (abastecimento níveis
   de bomba, terceiros status, bpf, custos) fica gradual.
-- **Fallbacks de schema AINDA presentes** (retriam tirando campo; precisam ADD COLUMN
-  antes de remover — NÃO removidos): `manutencao` (OS `extras`), `terceiros_remessas/
-  servicos` (`_strip`, `anexos`), `abastecimento_entradas` (`strip`). Verificar colunas depois.
+- **Fallbacks de schema AINDA presentes** (retriam tirando campo se coluna faltar;
+  precisam **checar coluna+tipo no banco** antes de remover — NÃO removidos). Colunas
+  que cada um espera (add IF NOT EXISTS as que faltarem, depois remover o fallback):
+  - `manutencao`: tempo_previsto, hora_inicio_prev, hora_fim_prev, checklist(jsonb),
+    analise_falha(jsonb), encarregado, gestor_aprov, os_itens(jsonb)
+  - `terceiros_remessas`: itens(jsonb), autorizado_por_id, assinatura_autorizador
+  - `terceiros_servicos`: anexos(jsonb)
+  - `abastecimento_entradas`: valor_danfe(numeric), valor_litro(numeric)
+  - `funcionarios`: certificacoes(jsonb), custos(jsonb)
+  - `frota_veiculos`: tipo_controle, documentos(jsonb)  (o resto do dadosExtras já existe)
+  Ritual: rodar `select table_name,column_name from information_schema.columns where
+  table_schema='public' and table_name in (...)` → add faltantes → remover fallback + db().
 - **Falta:** `001_baseline.sql` (dump do schema como fonte única) + disciplina de migrations.
 
 ## Item 0 — Backup (estado)
