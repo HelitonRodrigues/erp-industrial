@@ -19,7 +19,7 @@ go-live, custa parada de linha.
 [x] 0    BACKUP  Pro✓ + dump noturno✓ + restore validado (load ao vivo)✓
 [ ] 0.5  Projeto Supabase de staging permanente (opcional, custa compute)
 [x] 1    Auth Supabase✓ + anon key✓ + RLS baseline✓ + 1c por perfil nas sensíveis✓
-[~] 2    fallbacks apagados✓ (5 silenciosos removidos + detectores inertes) — falta 001_baseline.sql
+[~] 2    TODOS os fallbacks apagados✓ (silenciosos + schema-strip) — só falta 001_baseline (opcional)
 [x] 2.5  Helper db() + espalhado em ~20 módulos (todos os fluxos de dado)✓
 [ ] 3    js/regras.js — fonte única: pallet, tonelagem, eficiência, custo
 [ ] 4    limit/filtro nas 118 queries abertas
@@ -87,18 +87,12 @@ Ponto de retorno: tag `antes-item-1`.
   solicitacoes, epi, aferidor, produtos, funcionarios, linhas, turnos, rh, escala,
   equip-gerais, equip-linhas, motivos, planejamento. Tail menor (abastecimento níveis
   de bomba, terceiros status, bpf, custos) fica gradual.
-- **Fallbacks de schema AINDA presentes** (retriam tirando campo se coluna faltar;
-  precisam **checar coluna+tipo no banco** antes de remover — NÃO removidos). Colunas
-  que cada um espera (add IF NOT EXISTS as que faltarem, depois remover o fallback):
-  - `manutencao`: tempo_previsto, hora_inicio_prev, hora_fim_prev, checklist(jsonb),
-    analise_falha(jsonb), encarregado, gestor_aprov, os_itens(jsonb)
-  - `terceiros_remessas`: itens(jsonb), autorizado_por_id, assinatura_autorizador
-  - `terceiros_servicos`: anexos(jsonb)
-  - `abastecimento_entradas`: valor_danfe(numeric), valor_litro(numeric)
-  - `funcionarios`: certificacoes(jsonb), custos(jsonb)
-  - `frota_veiculos`: tipo_controle, documentos(jsonb)  (o resto do dadosExtras já existe)
-  Ritual: rodar `select table_name,column_name from information_schema.columns where
-  table_schema='public' and table_name in (...)` → add faltantes → remover fallback + db().
+- **Fallbacks de schema REMOVIDOS** ✅ — colunas confirmadas/adicionadas no banco,
+  depois trocados por `db()`: funcionarios(certificacoes/custos), abastecimento_entradas
+  (valor_danfe/valor_litro), terceiros_remessas(itens/autorizado_por_id/assinatura_autorizador)
+  + terceiros_servicos(anexos), frota_veiculos(dadosExtras), manutencao(extrasNovos:
+  +tempo_previsto), escala(turno2). **Zero fallback de schema silencioso no sistema.**
+  Órfão inofensivo: `_strip` (def sem uso) em terceiros.html:541 — limpar algum dia.
 - **Falta:** `001_baseline.sql` (dump do schema como fonte única) + disciplina de migrations.
 
 ## Item 0 — Backup (estado)
