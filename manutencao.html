@@ -3541,30 +3541,17 @@ async function salvarOS(){
       };
       const _pFull=_keepFilled({...dBase,assinaturas_servico:d.assinaturas_servico,fotos_servico:d.fotos_servico,...extrasNovos});
       const _pBase=_keepFilled({...dBase,assinaturas_servico:d.assinaturas_servico,fotos_servico:d.fotos_servico});
-      let errUpd;
-      ({error:errUpd}=await _supabase.from('manutencao').update(_pFull).eq('id',_eOSId));
-      if(errUpd){
-        ({error:errUpd}=await _supabase.from('manutencao').update(_pBase).eq('id',_eOSId));
-        if(errUpd)await _supabase.from('manutencao').update(dBase).eq('id',_eOSId);
-        salvarExtrasLocalOS(_eOSId,extrasNovos); // colunas não existem: manter localmente
-      } else { salvarExtrasLocalOS(_eOSId,extrasNovos); }
+      await db(_supabase.from('manutencao').update(_pFull).eq('id',_eOSId),'atualizar OS');
+      salvarExtrasLocalOS(_eOSId,extrasNovos);
       toast('OS atualizada!','success');
     }
     else{
       const num=(_ordens.length>0?Math.max(..._ordens.map(o=>o.numero||0)):0)+1;
       dBase.numero=num;
       const extrasNovos={tempo_previsto:d.tempo_previsto,hora_inicio_prev:d.hora_inicio_prev,hora_fim_prev:d.hora_fim_prev,checklist:d.checklist,analise_falha:d.analise_falha,encarregado:document.getElementById('os-encarregado')?.value?.trim()||null,gestor_aprov:document.getElementById('os-gestor-aprov')?.value?.trim()||null,os_itens:_osItensSave};
-      // Insert: tentar com campos extras, fallback sem eles
       let osInserted, errIns;
-      ({data:osInserted,error:errIns}=await _supabase.from('manutencao').insert({...dBase,assinaturas_servico:d.assinaturas_servico,fotos_servico:d.fotos_servico,...extrasNovos}).select().single());
-      if(errIns){
-        ({data:osInserted,error:errIns}=await _supabase.from('manutencao').insert({...dBase,assinaturas_servico:d.assinaturas_servico,fotos_servico:d.fotos_servico}).select().single());
-        if(errIns){
-          // Fallback sem colunas extras
-          ({data:osInserted,error:errIns}=await _supabase.from('manutencao').insert(dBase).select().single());
-          if(errIns)throw errIns;
-        }
-      }
+      ({data:osInserted,error:errIns}=await db(_supabase.from('manutencao').insert({...dBase,assinaturas_servico:d.assinaturas_servico,fotos_servico:d.fotos_servico,...extrasNovos}).select().single(),'criar OS'));
+      if(errIns)throw errIns;
       if(osInserted?.id)salvarExtrasLocalOS(osInserted.id,extrasNovos);
       if(osInserted?.id&&d.status==='concluida'){const _dE=(document.getElementById('os-data-exec')?.value||'').trim()||new Date().toISOString().split('T')[0];salvarExtrasLocalOS(osInserted.id,{data_conclusao:_dE});}
       d.numero=num; // Guardar no objeto d para uso posterior (addLog, atualizarHistoricoComp)
