@@ -19,7 +19,7 @@ go-live, custa parada de linha.
 [x] 0    BACKUP  Pro✓ + dump noturno✓ + restore validado (load ao vivo)✓
 [ ] 0.5  Projeto Supabase de staging permanente (opcional, custa compute)
 [x] 1    Auth Supabase✓ + anon key✓ + RLS baseline✓ + 1c por perfil nas sensíveis✓
-[ ] 2    001_baseline.sql + migrations + apagar os 12 fallbacks
+[~] 2    fallbacks apagados✓ (5 silenciosos removidos + detectores inertes) — falta 001_baseline.sql
 [~] 2.5  Helper db() pronto (utils.js) + piloto producao✓ — espalhar gradual
 [ ] 3    js/regras.js — fonte única: pallet, tonelagem, eficiência, custo
 [ ] 4    limit/filtro nas 118 queries abertas
@@ -67,6 +67,19 @@ memória do projeto entre sessões.
 - ⚠️ `custo-precificacao.html` é mantido **pelo DONO** (edita/sobe pela web do GitHub).
   NÃO editar aqui — passar snippet p/ ele colar. Sempre `git pull` no início (`pull.rebase=true`).
 Ponto de retorno: tag `antes-item-1`.
+
+## Item 2 — fallbacks silenciosos (feito, sessão 2026-08-06)
+
+- **5 fallbacks silenciosos removidos** → trocados por `db()` (surge o erro):
+  `producao.html` ×2 + `aferidor.html` ×2 (`producao_pallets`, tiravam codigo/equipe),
+  `compras.html` ×1 (`_saveResiliente`, tirava historico/obs).
+- **Detectores inertes** (`carregamento.html`, `desgaste.html`): mostram banner de
+  migração, não corrompem; ficam como rede de segurança.
+- **Schema alinhado (ADD COLUMN IF NOT EXISTS)** p/ os fallbacks virarem código morto:
+  `producao_pallets.equipe`; `frota_veiculos` (17 colunas do setup); `compras_cotacoes/
+  pedidos/recebimentos` → `historico jsonb`, `obs text`; `barracoes.layout jsonb`.
+- Helper **`db(promise, ctx)`** em `utils.js` — retorna o mesmo `{data,error}`, só loga+toasta erro.
+- **Falta:** `001_baseline.sql` (dump do schema como fonte única) + disciplina de migrations.
 
 ## Item 0 — Backup (estado)
 
