@@ -20,7 +20,7 @@ go-live, custa parada de linha.
 [ ] 0.5  Projeto Supabase de staging permanente (opcional, custa compute)
 [x] 1    Auth Supabase✓ + anon key✓ + RLS baseline✓ + 1c por perfil nas sensíveis✓
 [ ] 2    001_baseline.sql + migrations + apagar os 12 fallbacks
-[ ] 2.5  Helper db() — erro nunca mais silencioso
+[~] 2.5  Helper db() pronto (utils.js) + piloto producao✓ — espalhar gradual
 [ ] 3    js/regras.js — fonte única: pallet, tonelagem, eficiência, custo
 [ ] 4    limit/filtro nas 118 queries abertas
 [ ] 4.5  Fotos base64 → Storage (+ incluir Storage no backup)
