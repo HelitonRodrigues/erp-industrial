@@ -21,7 +21,7 @@ go-live, custa parada de linha.
 [x] 1    Auth Supabase✓ + anon key✓ + RLS baseline✓ + 1c por perfil nas sensíveis✓
 [~] 2    TODOS os fallbacks apagados✓ (silenciosos + schema-strip) — só falta 001_baseline (opcional)
 [x] 2.5  Helper db() + espalhado em ~20 módulos (todos os fluxos de dado)✓
-[ ] 3    js/regras.js — fonte única: pallet, tonelagem, eficiência, custo
+[~] 3    js/regras.js✓ — TONELAGEM feita (piloto custos✓ + expedicao✓ + almox✓); falta pallet/eficiência
 [ ] 4    limit/filtro nas 118 queries abertas
 [ ] 4.5  Fotos base64 → Storage (+ incluir Storage no backup)
 [ ] 5    Deep-links entre módulos (?equip=&aba=)
@@ -94,6 +94,42 @@ Ponto de retorno: tag `antes-item-1`.
   +tempo_previsto), escala(turno2). **Zero fallback de schema silencioso no sistema.**
   Órfão inofensivo: `_strip` (def sem uso) em terceiros.html:541 — limpar algum dia.
 - **Falta:** `001_baseline.sql` (dump do schema como fonte única) + disciplina de migrations.
+
+## Item 3 — js/regras.js (em andamento, sessão 2026-08-06)
+
+Fonte única de cálculo. Estratégia acordada com o dono: **um cálculo de cada vez,
+com piloto, ele confere o número, só então espalha.** Primeiro cálculo: **TONELAGEM.**
+
+- **Passo 1 — modelo do peso (commit `2b56eb5`).** Faltava peso do produto como
+  campo: estava embutido no nome ("...10kg"), então ninguém convertia certo.
+  Novo campo **`produtos.peso_unidade_kg`** (numeric, opcional) + input no
+  `produtos.html` (salvar/editar/limpar/detalhe). SQL rodado pelo dono:
+  `alter table produtos add column if not exists peso_unidade_kg numeric;`
+  Dono preencheu todos: saco 10/20/25 → 10/20/25; Concentrado → 10; Big Bag → 1000;
+  Granel (contado por tonelada) → 1000. Modelo universal:
+  **`toneladas = quantidade × peso_unidade_kg ÷ 1000`** (granel c/ peso 1000 se auto-corrige).
+- **Passo 2 — `js/regras.js` + piloto (commit `bb36989`).** Criado `js/regras.js`
+  (funções PURAS, sem DOM/banco, sem valor chutado): `Regras.toneladas(qtd,pesoKg)`,
+  `Regras.normalizarNome(s)`, `Regras.pesoUnidadeKg(nome,produtos)` (match por nome
+  normalizado; **retorna null se falta peso — nunca chuta**). Testado no node (10/20/25,
+  Big Bag, granel, entrada inválida, lookup). Piloto no **`custos.html`**: as 2 contas de
+  custo/ton (`renderCustoTon` + `renderCustoProduto`) **deixaram de assumir 10 kg/saco**
+  (bug `pesoSaco=0.01`) e usam `peso_unidade_kg`. Produto sem peso ou nome divergente
+  **não entra na tonelagem** → banner amarelo + "⚠️ sem peso" por linha (protocolo #7,
+  nada de número errado silencioso). Dono validou o número ("no meu ponto de vista está ok").
+- **Passo 3 — espalhar (commit `29db10b`).** Descoberto: peso estava **fragmentado em 4
+  nomes** — `peso_unidade_kg` (já era convenção no `insumos.html`), `peso_saco`
+  (só `expedicao`), `peso`/`peso_embalagem` (só `almoxarifado`, com extração-do-nome).
+  Nenhum código **escreve** os 3 últimos → estavam vazios. Unificado tudo em
+  **`peso_unidade_kg`**: `expedicao.html` (peso por item + rótulo) e `almoxarifado.html`
+  (ficha técnica MP = peso × sacos) passam a lê-lo, com nomes antigos + extração só como
+  retrocompatibilidade. `dashboard.html` fora (tonelada vem de custo/custo-por-ton).
+
+**Falta no item 3:** os outros cálculos da fonte única — **pallet** (`sacos = Σ(cap×qtd)+sobra`,
+hoje duplicado 5× no `producao.html`; + bug `sacosPorPallet:95` no `custo-precificacao.html`
+que é do dono) e **eficiência** (cuidado: 2 sentidos — realizado em `producao` vs fator de
+planejamento em `planejamento`). Aposentar de vez `peso_saco`/`peso`/`peso_embalagem`
+(migração aditiva: dropar as colunas mortas semanas depois).
 
 ## Item 0 — Backup (estado)
 
