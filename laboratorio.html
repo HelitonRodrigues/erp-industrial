@@ -863,7 +863,7 @@ async function delAnalise(id){
   const aChk=_analises.find(x=>x.id===id);
   if(aChk?.bloqueada_edicao){ toast('Este registro foi finalizado pelo Fluxo Automatizado — use "Solicitar Correção" em vez de excluir.','warning'); abrirSolicitarCorrecao(id); return; }
   document.getElementById('confirm-msg').textContent='Excluir esta análise?';
-  document.getElementById('confirm-ok-btn').onclick=async()=>{await _supabase.from('laboratorio').delete().eq('id',id);await addLog('DELETE','LABORATORIO',id,'Excluído');toast('Excluído.','warning');closeModal('modal-confirm');const{data:an}=await _supabase.from('laboratorio').select('*').order('data',{ascending:false}).limit(400);_analises=an||[];renderDashLinhas();renderAnalises();renderAfericoes();renderComposicoes();};
+  document.getElementById('confirm-ok-btn').onclick=async()=>{await db(_supabase.from('laboratorio').delete().eq('id',id),'excluir análise');await addLog('DELETE','LABORATORIO',id,'Excluído');toast('Excluído.','warning');closeModal('modal-confirm');const{data:an}=await _supabase.from('laboratorio').select('*').order('data',{ascending:false}).limit(400);_analises=an||[];renderDashLinhas();renderAnalises();renderAfericoes();renderComposicoes();};
   document.getElementById('modal-confirm').classList.remove('hidden');
 }
 
@@ -1114,11 +1114,11 @@ async function salvarBulkPallet(){
     const lancIds=[...new Set(_pallets.filter(p=>_bulkIds.includes(p.id)).map(p=>p.lancamento_id).filter(Boolean))];
     for(const lid of lancIds){
       if(_bulkStatus==='reprovado'){
-        await _supabase.from('producao').update({status:'reprovado',resp_reprovacao:resp,hora_reprovacao:hora}).eq('id',lid);
+        await db(_supabase.from('producao').update({status:'reprovado',resp_reprovacao:resp,hora_reprovacao:hora}).eq('id',lid),'reprovar OP');
       } else {
         const{data:todos}=await _supabase.from('producao_pallets').select('id,status').eq('lancamento_id',lid);
         const todosAprov=todos&&todos.every(t=>_bulkIds.includes(t.id)?true:t.status==='aprovado');
-        if(todosAprov) await _supabase.from('producao').update({status:'aprovado'}).eq('id',lid);
+        if(todosAprov) await db(_supabase.from('producao').update({status:'aprovado'}).eq('id',lid),'aprovar OP');
       }
     }
     toast(`${_bulkIds.length} pallet(s) ${_bulkStatus==='aprovado'?'aprovado(s)':'reprovado(s)'}!`,_bulkStatus==='aprovado'?'success':'warning');
@@ -1159,18 +1159,18 @@ async function salvarStatusPallet(){
   try{
     const p0=_pallets.find(x=>x.id===_palEditId);
     const autoAprov = st==='aprovado' && !!amostraRepresentativa(p0?.produto, p0?.producao?.linha);
-    await _supabase.from('producao_pallets').update({status:st,responsavel_lab:resp,hora_lab:hora,obs_lab:obs,aprovacao_automatica:autoAprov,atualizado_em:new Date().toISOString()}).eq('id',_palEditId);
+    await db(_supabase.from('producao_pallets').update({status:st,responsavel_lab:resp,hora_lab:hora,obs_lab:obs,aprovacao_automatica:autoAprov,atualizado_em:new Date().toISOString()}).eq('id',_palEditId),'salvar status do pallet');
     await addLog('UPDATE','PALLETS',_palEditId,'Status: '+st+' por '+resp);
     // Se reprovado, notificar na produção (atualizar status do lançamento)
     const p=_pallets.find(x=>x.id===_palEditId);
     if(p?.lancamento_id&&st==='reprovado'){
-      await _supabase.from('producao').update({status:'reprovado',resp_reprovacao:resp,hora_reprovacao:hora}).eq('id',p.lancamento_id);
+      await db(_supabase.from('producao').update({status:'reprovado',resp_reprovacao:resp,hora_reprovacao:hora}).eq('id',p.lancamento_id),'reprovar OP');
     }
     // Se todos aprovados, marcar lançamento como aprovado
     if(st==='aprovado'&&p?.lancamento_id){
       const{data:todos}=await _supabase.from('producao_pallets').select('status').eq('lancamento_id',p.lancamento_id);
       if(todos&&todos.every(t=>t.status==='aprovado')){
-        await _supabase.from('producao').update({status:'aprovado'}).eq('id',p.lancamento_id);
+        await db(_supabase.from('producao').update({status:'aprovado'}).eq('id',p.lancamento_id),'aprovar OP');
       }
     }
     toast(st==='aprovado'?'✅ Pallet aprovado!':'🔴 Pallet reprovado!',st==='aprovado'?'success':'warning');
