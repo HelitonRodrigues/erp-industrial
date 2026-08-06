@@ -380,7 +380,7 @@ async function init(){
   const[ords,peds,prods,emp]=await Promise.all([
     safe(_supabase.from('expedicao_ordens').select('*').order('created_at',{ascending:false}).limit(500),'ordens'),
     safe(_supabase.from('expedicao_pedidos').select('*').order('data_pedido',{ascending:false}).limit(1000),'pedidos'),
-    safe(_supabase.from('produtos').select('id,nome,peso_saco,capacidades,chilincado,unidade').eq('status','ativo').order('nome'),'produtos'),
+    safe(_supabase.from('produtos').select('id,nome,peso_unidade_kg,peso_saco,capacidades,chilincado,unidade').eq('status','ativo').order('nome'),'produtos'),
     safe(_supabase.from('empresa_config').select('*').limit(1),'empresa'),
   ]);
   _ordens=ords;_pedidos=peds;_produtos=prods;
@@ -566,7 +566,9 @@ function atualizarItensModal(){
   // Enriquecer com dados do cadastro de produto
   _itensTemp=Object.values(agrup).map(it=>{
     const prod=_produtos.find(p=>p.nome===it.produto)||{};
-    const pesoSaco=parseFloat(prod.peso_saco)||0;
+    // Fonte única do peso: peso_unidade_kg (cadastro de Produtos). peso_saco fica como
+    // retrocompatibilidade p/ produtos antigos; o operador ainda pode ajustar por carga.
+    const pesoSaco=parseFloat(prod.peso_unidade_kg)||parseFloat(prod.peso_saco)||0;
     const caps=prod.capacidades||[];
     const sacosPallet=caps.length?parseInt(caps[0]):0; // default: primeira capacidade
     const pallets=sacosPallet>0?Math.ceil(it.quantidade/sacosPallet):0;
@@ -1143,7 +1145,7 @@ function abrirModalCadastroPedido(id){
 
 function renderItensPedido(){
   const c=document.getElementById('ped-itens-lista');if(!c)return;
-  const prodOpts='<option value="">Selecione o produto...</option>'+_produtos.map(p=>`<option value="${p.nome}">${p.nome}${p.peso_saco?' ('+p.peso_saco+'kg/sc)':''}</option>`).join('');
+  const prodOpts='<option value="">Selecione o produto...</option>'+_produtos.map(p=>{const pk=parseFloat(p.peso_unidade_kg)||parseFloat(p.peso_saco)||0;return`<option value="${p.nome}">${p.nome}${pk?' ('+pk+'kg/un)':''}</option>`;}).join('');
   c.innerHTML=_itensPedTemp.map((it,i)=>`
     <div style="display:grid;grid-template-columns:2fr 1fr 28px;gap:6px;align-items:center;margin-bottom:5px;">
       <select class="form-input" style="font-size:12px;padding:5px 8px;" onchange="itemPedChange(${i},'produto',this.value)">
