@@ -1017,7 +1017,7 @@ function agregarProducaoPlanejada(s) {
         detalhes.push({
           blocoId: bloco.id, linhaNome: bloco.linhaNome, secaoId: secao.id, turnoNome: secao.turnoNome,
           produtoNome: p.nome, unidade: p.unidade, capHora: Number(p.capHora) || 0, demanda, qtd, qtdMax: d.qtdMax,
-          horasNec, horasDispSecao: h.dispH, paradaSecao: h.paradaH, excede,
+          horasNec, horasDispSecao: h.dispH, paradaSecao: (h.perdaH || 0) + (h.paradaH || 0), excede,
         });
         if (!porProduto[p.nome]) porProduto[p.nome] = { qtd: 0, demanda: 0, qtdMax: 0, horasDisp: 0 };
         porProduto[p.nome].qtd += qtd;
@@ -2760,15 +2760,16 @@ function _prTotaisFabrica(r) {
       });
     });
 
-    // desvio de insumo DIRETO de cada linha
+    // desvio de insumo DIRETO de cada linha (planejado = quantidade DESTA linha × preço)
     const info = r.tonPorBloco[b.id];
     const bk = info ? BUCKETS_CUSTO.filter((x) => info.tonPorBucket[x] > 1e-9) : [];
+    const mB = _metasDaLinha(r, b.id);
     r.plano.resultadosItens.forEach(({ item, calc }) => {
       if (item.tipoRateio !== 'direto' || item.removido) return;
       const pertence = item.formulaQtd === 'manual' ? bk.includes(item.produtoBase) : bk.some((x) => calc.linhas[x] > 0);
       if (!pertence) return;
       const preco = Number(item.precoUnitarioEditado != null ? item.precoUnitarioEditado : item.precoUnitario) || 0;
-      const rsPlan = Number(calc.valorTotal) || 0;
+      const rsPlan = calcularQuantidadeDireto(item, mB.metas, mB.tonelagem) * preco;
       const rsDig = _prNum(_prInsumoRS(b.id, item.id));
       const q = _prNum(_prInsumo(b.id, item.id));
       const rsReal = rsDig !== null ? rsDig : (q !== null && preco > 0 ? q * preco : null);
@@ -2793,11 +2794,11 @@ function _prTotaisFabrica(r) {
     } else {
       (state.blocos || []).forEach((b) => {
         const infoB = r.tonPorBloco[b.id];
-        const shareB = (r.plano.tonelagem.tonTotal > 0 && infoB) ? infoB.tonTotal / r.plano.tonelagem.tonTotal : 0;
+        const rsPlanB = _valorCompartilhadoDaLinha(item, calc, b, infoB, r.plano.tonelagem, r, state);
         const rsDig = _prNum(_prInsumoRS(b.id, item.id));
         const q = _prNum(_prInsumo(b.id, item.id));
         const rsReal = rsDig !== null ? rsDig : (q !== null && preco > 0 ? q * preco : null);
-        if (rsReal !== null) { desvioComp += (rsReal - rsPlanTot * shareB); nComp++; }
+        if (rsReal !== null) { desvioComp += (rsReal - rsPlanB); nComp++; }
       });
     }
   });
@@ -3092,7 +3093,7 @@ function renderPlanRealizado(r) {
   const pctParadas = pPlanTot > 0 && pPreenchidos ? pRealTot / pPlanTot : null;
   const paradasCard = (bloco.secoes || []).length ? `<div class="card" style="margin-bottom:16px;">
     <h3 class="cp-h3">Paradas — planejada x realizada</h3>
-    <p class="cp-ajuda">Horas de parada previstas no planejamento da linha (por turno) contra as que aconteceram no mês. Aqui você lança a <strong>parada realizada</strong>. Verde = parou menos que o previsto.</p>
+    <p class="cp-ajuda">Horas planejadas de não-produção por turno (<strong>perda por eficiência + paradas previstas</strong>) contra as que aconteceram no mês. Aqui você lança a <strong>parada realizada</strong>. Verde = parou menos que o previsto.</p>
     <div class="table-wrap"><table>
       <thead><tr><th>Turno</th><th class="cp-num">Parada planejada (h)</th><th style="text-align:right;">Parada realizada (h)</th><th class="cp-num">&Delta;</th><th class="cp-num">%</th></tr></thead>
       <tbody>${paradasRows}</tbody>
@@ -3111,12 +3112,12 @@ function renderPlanRealizado(r) {
   const bucketsLinha = infoBloco ? BUCKETS_CUSTO.filter((b) => infoBloco.tonPorBucket[b] > 1e-9) : [];
   let desvioRS = 0, insPreenchidos = 0;   // acumulador temporário, zerado antes de cada tabela
 
-  function _tabelaInsumos(lista, escopo, vazioMsg, share, modoBtn) {
+  function _tabelaInsumos(lista, escopo, vazioMsg, planLinha, modoBtn) {
     if (!lista.length) return `<p class="cp-ajuda">${vazioMsg}</p>`;
-    const sh = share == null ? 1 : share;   // fatia da linha: compartilhados = × share; diretos = 1
     const rowsIns = lista.map(({ item, calc }) => {
-      const planQtd = (Number(calc.novaQtd) || 0) * sh;
-      const rsPlan = (Number(calc.valorTotal) || 0) * sh;
+      const _pl = planLinha ? planLinha(item, calc) : null;   // {qtd, rs} DESTA linha; null = total da fábrica
+      const planQtd = _pl ? (Number(_pl.qtd) || 0) : (Number(calc.novaQtd) || 0);
+      const rsPlan = _pl ? (Number(_pl.rs) || 0) : (Number(calc.valorTotal) || 0);
       const preco = Number(item.precoUnitarioEditado != null ? item.precoUnitarioEditado : item.precoUnitario) || 0;
 
       const raw = _prInsumo(escopo, item.id);
@@ -3171,8 +3172,15 @@ function renderPlanRealizado(r) {
 
   // Direto = consumo DESTA linha. Compartilhado = consumo da FÁBRICA.
   // Somar os dois num único desvio de linha seria erro de rateio, então ficam separados.
+  // Metas DESTA linha (mesma base da aba Configuração da Linha) → quantidade certa por linha.
+  const _mL = _metasDaLinha(r, bloco.id);
+  const _planDireto = (item) => {
+    const q = calcularQuantidadeDireto(item, _mL.metas, _mL.tonelagem);
+    const preco = Number(item.precoUnitarioEditado != null ? item.precoUnitarioEditado : item.precoUnitario) || 0;
+    return { qtd: q, rs: q * preco };
+  };
   desvioRS = 0; insPreenchidos = 0;
-  const htmlDiretos = _tabelaInsumos(diretosLinha, bloco.id, 'Nenhum insumo direto associado a esta linha ainda.');
+  const htmlDiretos = _tabelaInsumos(diretosLinha, bloco.id, 'Nenhum insumo direto associado a esta linha ainda.', _planDireto);
   const desvioDireto = desvioRS, preDireto = insPreenchidos;
 
   // fatia da fábrica que esta linha representa (por tonelagem)
@@ -3185,13 +3193,19 @@ function renderPlanRealizado(r) {
   const _btnStyle = 'style="font-size:9.5px;padding:0 5px;margin-right:6px;vertical-align:middle;"';
   const btnParaRateado = (item) => `<button class="btn btn-ghost btn-sm" ${_btnStyle} title="Passar para total da fábrica (rateado)" onclick="setCompartRateado('${esc(item.id)}', true)">⇄ rateado</button>`;
   const btnParaLinha = (item) => `<button class="btn btn-ghost btn-sm" ${_btnStyle} title="Passar para lançamento por linha" onclick="setCompartRateado('${esc(item.id)}', false)">⇄ por linha</button>`;
-  // POR LINHA: planejado = fatia da linha (× share); consumido por linha (escopo = bloco)
+  // POR LINHA: planejado = valor DESTA linha (mesma regra da aba Config. da Linha); consumido por linha
+  const _planCompLinha = (item, calc) => {
+    const rs = _valorCompartilhadoDaLinha(item, calc, bloco, infoBloco, r.plano.tonelagem, r, state);
+    const vt = Number(calc.valorTotal) || 0;
+    const q = vt > 0 ? (Number(calc.novaQtd) || 0) * rs / vt : 0;   // qtd proporcional ao valor da linha
+    return { qtd: q, rs };
+  };
   desvioRS = 0; insPreenchidos = 0;
-  const htmlCompartLinha = _tabelaInsumos(compPorLinha, bloco.id, 'Nenhum compartilhado neste modo.', shareLinha, btnParaRateado);
+  const htmlCompartLinha = _tabelaInsumos(compPorLinha, bloco.id, 'Nenhum compartilhado neste modo.', _planCompLinha, btnParaRateado);
   const desvioCompLinha = desvioRS, preCompLinha = insPreenchidos;
-  // RATEADO: números da fábrica inteira (escopo único __FABRICA__), digitado uma vez
+  // RATEADO: total da fábrica (escopo único __FABRICA__), digitado uma vez (planLinha=null → usa o total)
   desvioRS = 0; insPreenchidos = 0;
-  const htmlCompartRat = _tabelaInsumos(compRateados, '__FABRICA__', 'Nenhum compartilhado neste modo.', 1, btnParaLinha);
+  const htmlCompartRat = _tabelaInsumos(compRateados, '__FABRICA__', 'Nenhum compartilhado neste modo.', null, btnParaLinha);
   const desvioCompRat = desvioRS, preCompRat = insPreenchidos;
   // desvio compartilhado DESTA linha = por-linha (já é da linha) + fatia da linha nos rateados
   const desvioCompart = desvioCompLinha + desvioCompRat * shareLinha;
