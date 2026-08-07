@@ -148,11 +148,15 @@ com piloto, ele confere o número, só então espalha.** Primeiro cálculo: **TO
   usa tempo de máquina rodando (definição correta de OEE; a disponibilidade do OEE já
   cobre planejado×real — mudar as duas contaria em dobro).
 
+- **Passo 6 — DISPONIBILIDADE (commit `58ad629`).** `Regras.disponibilidade(ht,hp)` =
+  `(HT−HP)/HT×100`, consolidando 3 cópias no `producao.html` (KPI do dia, resumo do dia,
+  tabela por linha). Número idêntico (refactor puro). NÃO é a disponibilidade do OEE
+  (base horas brutas do planejamento) — essa fica separada de propósito.
+
 **Falta no item 3 (refino, não bloqueia):** (a) **snippet do bug `sacosPorPallet:95`** no
 `custo-precificacao.html` — arquivo do DONO; passar snippet quando ele colar o trecho.
-(b) **disponibilidade** `(HT−HP)/HT×100` (duplicada 3× em `producao`, cálculo limpo) pode
-entrar no `regras.js` num próximo passo. (c) **Aposentar** `peso_saco`/`peso`/`peso_embalagem`
-(migração aditiva: dropar as colunas mortas semanas depois, já sem uso real).
+(b) **Aposentar** `peso_saco`/`peso`/`peso_embalagem` (migração aditiva: dropar as colunas
+mortas semanas depois, já sem uso real).
 
 ## Item 0 — Backup (estado)
 
