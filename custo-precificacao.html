@@ -3105,7 +3105,7 @@ function renderPlanRealizado(r) {
   const bucketsLinha = infoBloco ? BUCKETS_CUSTO.filter((b) => infoBloco.tonPorBucket[b] > 1e-9) : [];
   let desvioRS = 0, insPreenchidos = 0;   // acumulador temporário, zerado antes de cada tabela
 
-  function _tabelaInsumos(lista, escopo, vazioMsg, planLinha, modoBtn) {
+  function _tabelaInsumos(lista, escopo, vazioMsg, planLinha, modoBtn, realAutoFn) {
     if (!lista.length) return `<p class="cp-ajuda">${vazioMsg}</p>`;
     const rowsIns = lista.map(({ item, calc }) => {
       const _pl = planLinha ? planLinha(item, calc) : null;   // {qtd, rs} DESTA linha; null = total da fábrica
@@ -3114,7 +3114,10 @@ function renderPlanRealizado(r) {
       const preco = Number(item.precoUnitarioEditado != null ? item.precoUnitarioEditado : item.precoUnitario) || 0;
 
       const raw = _prInsumo(escopo, item.id);
-      const realQtd = _prNum(raw);
+      let realQtd = _prNum(raw);
+      // Auto: se não digitou, alguns itens (MP) puxam a quantidade da produção realizada.
+      let autoQtd = false;
+      if (realQtd === null && realAutoFn) { const _a = realAutoFn(item); if (_a != null && _a > 0) { realQtd = _a; autoQtd = true; } }
       const rawRS = _prInsumoRS(escopo, item.id);
       const rsDigitado = _prNum(rawRS);
 
@@ -3131,7 +3134,7 @@ function renderPlanRealizado(r) {
         <td style="font-weight:600;">${modoBtn ? modoBtn(item) : ''}${esc(item.insumo || item.id)}</td>
         <td class="cp-muted" style="font-size:12px;">${esc(item.unidade || '')}</td>
         <td class="cp-num">${planQtd > 0 ? fmtNum(planQtd, 2) : '<span class="cp-muted">—</span>'}</td>
-        <td style="text-align:right;padding:4px 6px;">${_prInput(`data-e="${escopo}" data-i="${esc(item.id)}" onchange="setRealizadoInsumo(this.dataset.e, this.dataset.i, this.value)"`, raw, 100)}</td>
+        <td style="text-align:right;padding:4px 6px;">${_prInput(`data-e="${escopo}" data-i="${esc(item.id)}" onchange="setRealizadoInsumo(this.dataset.e, this.dataset.i, this.value)"`, raw, 100)}${autoQtd ? `<div style="font-size:10px;color:#2563eb;font-weight:700;margin-top:2px;">auto ${fmtNum(realQtd, 2)} <span class="cp-muted" style="font-weight:400;">(da produção)</span></div>` : ''}</td>
         ${planQtd > 0 ? _prDeltaCels(planQtd, realQtd, 2, true) : '<td class="cp-num cp-muted">—</td><td class="cp-num cp-muted">—</td>'}
         <td class="cp-num cp-muted">${fmtBRL(rsPlan)}</td>
         <td style="text-align:right;padding:4px 6px;">
@@ -3173,8 +3176,23 @@ function renderPlanRealizado(r) {
     const preco = Number(item.precoUnitarioEditado != null ? item.precoUnitarioEditado : item.precoUnitario) || 0;
     return { qtd: q, rs: q * preco };
   };
+  // Produção REALIZADA por bucket (o que o dono digitou nos produtos) → base p/ auto-preencher
+  // a quantidade realizada dos insumos MP (mesma fórmula do planejado, aplicada ao realizado):
+  // MP cinza = Concentrado 10kg×10 + Linha 20kg×20; MP caulim = Bag×1000 + Linha 25kg×25 (÷1000 → t).
+  const metasReal = { L20: 0, CONC: 0, CAULIM25: 0, CAULIMBB: 0, CAULIMGRANEL: 0 };
+  Object.keys(porProd).forEach((nome) => {
+    const dest = porProd[nome].destino;
+    if (!dest || metasReal[dest] === undefined) return;
+    const rq = _prNum(_prGet(bloco.id, nome));
+    if (rq !== null) metasReal[dest] += rq;
+  });
+  const tonReal = { tonCAULIMGRANEL: metasReal.CAULIMGRANEL || 0 };
+  const _realAutoDireto = (item) => {
+    if (!/^mp_/.test(item.formulaQtd || '')) return null;   // só MP (mp_10 / mp_20 / mp_25 / mp_caulim_total)
+    return calcularQuantidadeDireto(item, metasReal, tonReal);
+  };
   desvioRS = 0; insPreenchidos = 0;
-  const htmlDiretos = _tabelaInsumos(diretosLinha, bloco.id, 'Nenhum insumo direto associado a esta linha ainda.', _planDireto);
+  const htmlDiretos = _tabelaInsumos(diretosLinha, bloco.id, 'Nenhum insumo direto associado a esta linha ainda.', _planDireto, null, _realAutoDireto);
   const desvioDireto = desvioRS, preDireto = insPreenchidos;
 
   // fatia da fábrica que esta linha representa (por tonelagem)
