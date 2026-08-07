@@ -2024,15 +2024,17 @@ function detalheNcBpf(id){
 async function abaRh(){
   const hoje = new Date().toISOString().split('T')[0];
   const em30 = new Date(Date.now()+30*86400000).toISOString().split('T')[0];
-  const [funcsAtivos, funcsTodos, ferias, escalas] = await Promise.all([
+  const [funcsAtivos, funcsTodos, ferias] = await Promise.all([
     safe(_supabase.from('funcionarios').select('id,nome,setor,status').eq('status','ativo').order('nome')),
     safe(_supabase.from('funcionarios').select('id,nome,setor,status').order('nome')),
-    // Janela: só férias ainda relevantes — terminam hoje ou depois, ou estão em gozo/
-    // agendadas. O relatório só mostra "em gozo hoje" + "próximos 30 dias"; as concluídas
-    // antigas nunca aparecem, então não precisam vir (superset seguro do que a tela usa).
-    safe(_supabase.from('rh_ferias').select('*').or(`data_fim.gte.${hoje},status.eq.em_gozo,status.eq.agendada`).order('data_inicio',{ascending:false})),
-    safe(_supabase.from('rh_escala').select('*')),
+    // Janela: as 200 férias mais recentes. A tabela mostra 60 e os KPIs pegam as atuais/
+    // futuras (que ficam no topo da ordem por data_inicio desc), então nada exibido some;
+    // só deixa de trazer anos de férias concluídas antigas. (protocolo #7)
+    safe(_supabase.from('rh_ferias').select('*').order('data_inicio',{ascending:false}).limit(200)),
   ]);
+  // Escala entra só como CONTAGEM no KPI — busca só o total (count), sem trazer as linhas.
+  let escalas = 0;
+  try { const r = await _supabase.from('rh_escala').select('*',{count:'exact',head:true}); escalas = r.count||0; } catch(e) {}
   const funcs = funcsTodos; // usado para resolver nome mesmo de funcionários já inativos
   const emGozo = ferias.filter(f=>f.status==='em_gozo'||(f.data_inicio<=hoje&&f.data_fim>=hoje));
   const agendadas = ferias.filter(f=>f.status==='agendada'&&f.data_inicio>=hoje&&f.data_inicio<=em30);
@@ -2044,7 +2046,7 @@ async function abaRh(){
       ${kpiBox(funcsAtivos.length,'Funcionários Ativos','','#2563eb')}
       ${kpiBox(emGozo.length,'Em Férias Hoje','','#7c3aed','#7c3aed')}
       ${kpiBox(agendadas.length,'Férias nos Próx. 30 dias','','#0891b2','#0891b2')}
-      ${kpiBox(escalas.length,'Registros de Escala','cadastrados','#16a34a','#16a34a')}
+      ${kpiBox(escalas,'Registros de Escala','cadastrados','#16a34a','#16a34a')}
     </div>
 
     <div class="panel">
