@@ -22,7 +22,7 @@ go-live, custa parada de linha.
 [~] 2    TODOS os fallbacks apagados✓ (silenciosos + schema-strip) — só falta 001_baseline (opcional)
 [x] 2.5  Helper db() + espalhado em ~20 módulos (todos os fluxos de dado)✓
 [~] 3    js/regras.js✓ — TONELAGEM✓ + PALLET✓ + EFICIÊNCIA✓ (núcleo fechado); falta snippet 95 (dono) + aposentar colunas de peso antigas
-[ ] 4    limit/filtro nas 118 queries abertas
+[~] 4    limit/filtro nas queries abertas — relatorios/RH feito; método+armadilhas mapeados
 [ ] 4.5  Fotos base64 → Storage (+ incluir Storage no backup)
 [ ] 5    Deep-links entre módulos (?equip=&aba=)
 [ ] 6    Tokens de design + Lucide + varrer os 10.431 style=
@@ -162,6 +162,38 @@ desatualizada nesse ponto.)
 
 **Falta no item 3 (único, não bloqueia):** **aposentar** `peso_saco`/`peso`/`peso_embalagem`
 (migração aditiva: dropar as colunas mortas semanas depois, já sem uso real).
+
+## Item 4 — limit/filtro nas queries abertas (em andamento, sessão 2026-08-07)
+
+Escolha do dono: **passe completo e caprichado** (janela server-side por tela),
+não trava de segurança genérica. Disciplina de piloto (dono confere cada tela).
+
+**Mapa (agente Explore):** ~140 "queries abertas" reportadas, MAS o scanner tem
+**falsos positivos** — queries "builder" (`let q=…; if(x) q=q.eq(…)`) que filtram
+nas linhas seguintes (ex.: `insumos.html:2069` já filtra por data/OP). Escopo real
+menor. `relatorios.html` **já filtra a maioria por período** (`.gte/.lte data`,
+recarrega no botão "🔍 Filtrar" via `carregarAba()`); só as exceções precisam.
+
+**REGRA CENTRAL — cada tela tem uma janela diferente; errar esconde dado (protocolo #7):**
+- **Período** (relatórios) → filtrar por `data` do seletor `f-ini/f-fim`. Maioria já faz.
+- **Estado atual** (férias, pedidos em aberto) → filtrar por status/vigência, NÃO por data.
+- **Contagem** (KPI "total de X") → usar `select('*',{count:'exact',head:true})`, sem trazer linhas.
+- **Recente-N** (tabela que mostra `.slice(0,60)`) → `.order(data desc).limit(N)` com N>exibido.
+- **Histórico por entidade** (ficha de EPI do funcionário) → paginar por entidade.
+- **Saldo/agregado** (estoque, ABC) → NÃO dá filtro simples; precisa **RPC/view** (0 hoje) — sub-projeto.
+
+**Feito:** `relatorios.html` aba RH (commits `089abaa`+`6939d94`) — `rh_ferias`
+→ `.order(data_inicio desc).limit(200)` (tabela mostra 60, KPIs pegam atuais/futuras
+do topo; não some nada); `rh_escala` → query de **contagem** (era só `escalas.length`).
+⚠️ Lição: o 1º piloto filtrou férias por status e escondia as "concluídas" da tabela/
+export — corrigido. **Ler TODOS os usos de uma query antes de limitar.**
+
+**Próximo (exceções do relatorios, todas com armadilha — refatoração cuidadosa, não `.limit()` seco):**
+- `abaCompras` (2144): `pedidos.length` é total (→ count) + em-aberto qualquer idade (→ or status) + tabela 60 recentes.
+- `abaQualidade` caulim (892): `caulim_analises_externas` agrupa por status (contagem sobre todas).
+- `epi_entregas` (1670, 2332, 3136, 3376, 3554): histórico por funcionário (ficha precisa de tudo da pessoa).
+Depois: portaria/abastecimento/carregamento (logs: recentes + em aberto); por fim os
+`init` pesados (`laboratorio` caulim_*, `compras`) — e o que for agregado vira RPC (parar e planejar).
 
 ## Item 0 — Backup (estado)
 
