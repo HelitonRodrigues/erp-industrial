@@ -9,6 +9,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="js/supabase.js"></script>
 <script src="js/utils.js"></script>
+<script src="js/regras.js"></script>
 <style>
 .tab-btn{padding:10px 18px;background:none;border:none;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;color:#64748b;border-bottom:2px solid transparent;margin-bottom:-2px;transition:all .15s;}
 .tab-btn.active{color:var(--accent);border-bottom-color:var(--primary);}
@@ -1022,6 +1023,17 @@ function htParadaDoProduto(div){
   return extra*(hts[k]/soma);
 }
 
+// Lê os itens de pallet de um bloco de produto (div da OP) como lista pura {cap,qtd},
+// na ordem em que aparecem. cap = capacidade (data-cap), qtd = valor do input.
+// É a única leitura de DOM; a MATEMÁTICA fica em js/regras.js (fonte única).
+function _lerItensPallet(div){
+  if(!div)return [];
+  return [...div.querySelectorAll('.op-pal-item')].map(item=>{
+    const el=item.querySelector('.op-pal-qtd');
+    return {cap:parseInt(el?.dataset?.cap)||0, qtd:parseInt(el?.value)||0};
+  });
+}
+
 function calcProdOP(div){
   if(!div)return;
   // HT
@@ -1036,28 +1048,17 @@ function calcProdOP(div){
   if(htD)htD.innerHTML=ht>0
     ? ht.toFixed(2)+'h'+(htProd>0?'<div style="font-size:9px;font-weight:600;opacity:.85;">'+htHorim.toFixed(2)+'h + '+htProd.toFixed(2)+'h parada</div>':'')
     : '—';
-  // Pallets
-  let total=0;
-  div.querySelectorAll('.op-pal-item').forEach(item=>{
-    const cap=parseInt(item.querySelector('.op-pal-qtd')?.dataset?.cap)||parseInt(item.querySelector('.op-pal-qtd')?.value)||0;
-    // Recalcular: cap × qtd
-    const qtdEl=item.querySelector('.op-pal-qtd');const totEl=item.querySelector('.op-pal-tot');
-    const qtd=parseInt(qtdEl?.value)||0;
-    // cap está no data-cap se foi adicionado pelo botão
-    const capReal=parseInt(qtdEl?.dataset?.cap)||0;
-    const sc=capReal?capReal*qtd:0;
-    if(totEl)totEl.textContent=sc;
-    total+=sc;
-  });
-  // Pallets cheios lançados
-  let palCheios=0;
-  div.querySelectorAll('.op-pal-item').forEach(item=>{palCheios+=parseInt(item.querySelector('.op-pal-qtd')?.value)||0;});
+  // Pallets — MATEMÁTICA via js/regras.js (fonte única). Aqui só lemos o DOM e
+  // atualizamos o total exibido de cada item; as somas vêm das funções puras.
+  const itens=_lerItensPallet(div);
+  div.querySelectorAll('.op-pal-item').forEach((item,idx)=>{const totEl=item.querySelector('.op-pal-tot');if(totEl)totEl.textContent=(itens[idx].cap*itens[idx].qtd);});
   // SOBRA: o que não fechou pallet. Na prática ela ocupa um pallet inteiro,
   // então entra na contagem física — a menos que tenha ficado solta.
   const sobra=parseInt(div.querySelector('.op-sobra')?.value)||0;
   const sobraOcupa=div.querySelector('.op-sobra-pallet')?.checked!==false;
-  const palTotal=palCheios+(sobra>0&&sobraOcupa?1:0);
-  total+=sobra;
+  const palCheios=Regras.palletsCheios(itens);
+  const palTotal=Regras.palletsFisicos(itens,sobra,sobraOcupa);
+  const total=Regras.totalSacos(itens,sobra);
   const sobraInfo=div.querySelector('.op-sobra-info');
   if(sobraInfo){
     sobraInfo.innerHTML=sobra>0
@@ -1083,12 +1084,7 @@ function calcTotaisOP(){
     const hi=parseFloat(div.querySelector('.op-hi')?.value)||0;
     const hf=parseFloat(div.querySelector('.op-hf')?.value)||0;
     const ht=hf>hi?hf-hi:0;totHT+=ht;
-    div.querySelectorAll('.op-pal-item').forEach(item=>{
-      const cap=parseInt(item.querySelector('.op-pal-qtd')?.dataset?.cap)||0;
-      const qtd=parseInt(item.querySelector('.op-pal-qtd')?.value)||0;
-      totSc+=cap*qtd;
-    });
-    totSc+=parseInt(div.querySelector('.op-sobra')?.value)||0;   // sobra do pallet quebrado
+    totSc+=Regras.totalSacos(_lerItensPallet(div),parseInt(div.querySelector('.op-sobra')?.value)||0);   // Σcap×qtd + sobra (js/regras.js)
   });
   const htParada=horasParadaTrabalhada();
   totHT+=htParada;   // parada produtiva conta como hora trabalhada
@@ -1109,8 +1105,7 @@ function calcEficienciaOP(){
   document.querySelectorAll('#l-produtos-op > [id^="op-"]').forEach(div=>{
     const hi=parseFloat(div.querySelector('.op-hi')?.value)||0,hf=parseFloat(div.querySelector('.op-hf')?.value)||0;
     totHT+=hf>hi?hf-hi:0;
-    div.querySelectorAll('.op-pal-item').forEach(item=>{totSc+=(parseInt(item.querySelector('.op-pal-qtd')?.dataset?.cap)||0)*(parseInt(item.querySelector('.op-pal-qtd')?.value)||0);});
-    totSc+=parseInt(div.querySelector('.op-sobra')?.value)||0;   // a sobra é produção
+    totSc+=Regras.totalSacos(_lerItensPallet(div),parseInt(div.querySelector('.op-sobra')?.value)||0);   // Σcap×qtd + sobra (js/regras.js)
   });
   totHT+=horasParadaTrabalhada();   // parada produtiva entra na disponibilidade
   const metaEficH=getHorasDispDia();
@@ -1432,7 +1427,7 @@ function verificarStatusOP(){
     if(!prodNome)avisos.push(`Produto ${i+1}: produto não selecionado`);
     const hf=parseFloat(div.querySelector('.op-hf')?.value)||0;
     if(!hf)avisos.push(`Produto ${i+1}: horímetro final não preenchido`);
-    let totSc=0;div.querySelectorAll('.op-pal-item').forEach(item=>{const cap=parseInt(item.querySelector('.op-pal-qtd')?.dataset?.cap)||0;const qtd=parseInt(item.querySelector('.op-pal-qtd')?.value)||0;totSc+=cap*qtd;});
+    const totSc=Regras.sacosDePallets(_lerItensPallet(div));   // Σcap×qtd (js/regras.js)
     if(!totSc)avisos.push(`Produto ${i+1}: produção zerada`);
   });
   if(avisos.length){avisoEl.style.display='block';avisoEl.innerHTML='⚠️ Falta preencher: '+avisos.join(' | ');}
@@ -1525,12 +1520,9 @@ async function salvarLanc(){
     const htHorim=hf>hi?Math.round((hf-hi)*100)/100:0;
     const htParadaProd=Math.round(htParadaDoProduto(div)*100)/100;
     const ht=Math.round((htHorim+htParadaProd)*100)/100;
-    let sacos=0;const pallets=[];
-    div.querySelectorAll('.op-pal-item').forEach(item=>{
-      const cap=parseInt(item.querySelector('.op-pal-qtd')?.dataset?.cap)||0;
-      const qtd=parseInt(item.querySelector('.op-pal-qtd')?.value)||0;
-      if(cap&&qtd){sacos+=cap*qtd;pallets.push({cap,qtd,total:cap*qtd});}
-    });
+    const itens=_lerItensPallet(div);
+    const sacos=Regras.sacosDePallets(itens);   // Σcap×qtd (js/regras.js)
+    const pallets=itens.filter(it=>it.cap&&it.qtd).map(it=>({cap:it.cap,qtd:it.qtd,total:it.cap*it.qtd}));
     // SOBRA: a produção raramente fecha redonda no pallet. Ex.: 3.300 sacos num
     // padrão de 180 = 18 pallets cheios + 60 de sobra. Essa sobra ocupa um pallet
     // físico (que precisa de etiqueta e de plástico), então entra na lista como
@@ -1540,7 +1532,7 @@ async function salvarLanc(){
     if(sobra>0&&sobraEmPallet)pallets.push({cap:sobra,qtd:1,total:sobra,parcial:true});
     const perdaEmb=parseInt(div.querySelector('.op-perda-emb')?.value)||0;
     const loteProd=loteDoProduto(div);   // lote e validade DESTE produto
-    const totalFinalSave=sacos+sobra;
+    const totalFinalSave=Regras.totalSacos(itens,sobra);   // sacos + sobra (js/regras.js)
     const sacosEmPallet=pallets.reduce((s,pl)=>s+(pl.total||0),0);
     produtosOP.push({produto:prodNome,linha_produto:prodLinha,hi,hf,ht,ht_horimetro:htHorim,ht_parada_trabalhada:htParadaProd,
       total_sacos:totalFinalSave,sacos_pallets:sacosEmPallet,

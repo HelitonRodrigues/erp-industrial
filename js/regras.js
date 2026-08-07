@@ -60,5 +60,41 @@
     return null;
   };
 
+  /* ── PALLET ────────────────────────────────────────────────────────────────
+   * itens: lista pura de {cap, qtd} — cap = capacidade do pallet (sacos por pallet),
+   * qtd = nº de pallets daquela capacidade. NÃO lê DOM: quem chama monta a lista.
+   */
+
+  // Sacos dos pallets CHEIOS: Σ(cap × qtd).
+  Regras.sacosDePallets = function (itens) {
+    if (!Array.isArray(itens)) return 0;
+    var s = 0;
+    for (var i = 0; i < itens.length; i++) {
+      var cap = Number(itens[i] && itens[i].cap) || 0;
+      var qtd = Number(itens[i] && itens[i].qtd) || 0;
+      s += cap * qtd;
+    }
+    return s;
+  };
+
+  // Total de sacos produzidos = pallets cheios + sobra (a sobra é produção).
+  Regras.totalSacos = function (itens, sobra) {
+    return Regras.sacosDePallets(itens) + (Number(sobra) || 0);
+  };
+
+  // Pallets cheios físicos = Σ(qtd).
+  Regras.palletsCheios = function (itens) {
+    if (!Array.isArray(itens)) return 0;
+    var s = 0;
+    for (var i = 0; i < itens.length; i++) s += Number(itens[i] && itens[i].qtd) || 0;
+    return s;
+  };
+
+  // Pallets físicos = cheios + 1 se a sobra ocupa um pallet (pallet parcial).
+  Regras.palletsFisicos = function (itens, sobra, sobraOcupa) {
+    var s = Number(sobra) || 0;
+    return Regras.palletsCheios(itens) + (s > 0 && sobraOcupa ? 1 : 0);
+  };
+
   global.Regras = Regras;
 })(typeof window !== 'undefined' ? window : this);
