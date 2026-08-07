@@ -196,6 +196,9 @@
       <button class="tab-btn" id="tbtn-custos" onclick="showTab('custos')">🧾 Custos &amp; Resultado</button>
       <button class="tab-btn" id="tbtn-impacto" onclick="showTab('impacto')">🧪 Impacto</button>
       <button class="tab-btn" id="tbtn-geral" onclick="showTab('geral')">📋 Geral</button>
+      <!-- >>>>> ABA PLANEJADO x REALIZADO — BLOCO REMOVIVEL (nao mexer no resto) -->
+      <button class="tab-btn" id="tbtn-real" onclick="showTab('real')">⚖️ Planejado x Realizado</button>
+      <!-- <<<<< FIM ABA PLANEJADO x REALIZADO -->
     </div>
   </div>
 
@@ -856,6 +859,14 @@ function criarEstadoInicial() {
     itensMultiplos: { epi: [], adm_geral: [], limpeza: [] }, // cadastro simples (nome, quantidade, precoUnitario) — EPI, Administrativo, ADM Limpeza
     desgaste: JSON.parse(JSON.stringify(DESGASTE_PESOS_PADRAO)), // peso novo/descarte de cada item de desgaste (massa útil)
     energia: { grupos: [] }, // custo geral: grupos de rateio {id, nome, valor, blocoIds[]}
+    /* >>>>> ABA PLANEJADO x REALIZADO — BLOCO REMOVIVEL */
+    realizado: {},          // { blocoId: { secaoId||produto: 'digitado' } }
+    realizadoObs: {},       // { blocoId: 'observação do mês' }
+    realizadoHoras: {},     // { blocoId: { secaoId: 'horas digitadas' } }
+    realizadoInsumos: {},   // { blocoId | '__FABRICA__': { itemId: 'qtd digitada' } }
+    realizadoInsumosRS: {}, // idem, mas em R$ digitado à mão
+    _realLinhaId: null,     // linha selecionada NESTA aba
+    /* <<<<< FIM ABA PLANEJADO x REALIZADO */
     escopos: {}, // escopo de linhas + grupos extra por insumo (ver ESCOPO_IDS). {} = todo item em todas as linhas
     fatorEncargos: 1.00, // multiplicador sobre o salário bruto da folha (impostos/encargos não inclusos na folha). 1.00 = sem acréscimo; 1.80 = +80%
     _itemMultiploSeq: 0,
@@ -2660,6 +2671,687 @@ function renderConteudo(r) {
   }
 }
 
+/* >>>>> ABA PLANEJADO x REALIZADO — BLOCO REMOVIVEL */
+/* Estes dois sobrepoem de proposito as versoes originais (declaracao de funcao
+   posterior vence). Assim NENHUMA linha original precisou ser alterada, e apagar
+   as regioes marcadas devolve o arquivo byte a byte ao que era antes. */
+function showTab(tab) {
+  if (typeof guardTab === 'function' && !guardTab(MODULO_ID, tab)) return;
+  state.tab = tab;
+  ['config', 'metas', 'linha', 'custos', 'impacto', 'geral', 'real'].forEach((t) => {
+    const btn = document.getElementById('tbtn-' + t);
+    if (btn) btn.classList.toggle('active', t === tab);
+  });
+  render();
+}
+function renderConteudo(r) {
+  switch (state.tab) {
+    case 'config': return renderConfig(r);
+    case 'metas': return renderMetas(r);
+    case 'linha': return renderConfigLinha(r);
+    case 'custos': return renderCustosResultado(r);
+    case 'impacto': return renderImpacto(r);
+    case 'geral': return renderGeral(r);
+    case 'real': return renderPlanRealizado(r);
+    default: return '';
+  }
+}
+
+/* ============================================================================
+   TAB: PLANEJADO x REALIZADO                                    (aba 'real')
+   ----------------------------------------------------------------------------
+   Adição isolada. Não altera nenhum cálculo existente do módulo.
+   O realizado é digitado à mão, SEM validação e SEM bloqueio de nenhum tipo:
+   aceita qualquer número, vírgula ou ponto, e campo vazio significa
+   "ainda não preenchido" (diferente de zero produzido).
+   Persiste dentro do JSON do planejamento — não exige mudança no banco.
+   ========================================================================== */
+
+// Aceita "1234", "1.234", "1234,5", "1.234,56". Vazio -> null (não preenchido).
+function _prNum(v) {
+  if (v === null || v === undefined) return null;
+  let s = String(v).trim().replace(/\s/g, '');
+  if (!s) return null;
+  if (s.includes(',')) s = s.replace(/\./g, '').replace(',', '.');
+  else if (/^\d{1,3}(\.\d{3})+$/.test(s)) s = s.replace(/\./g, '');
+  const n = Number(s);
+  return isFinite(n) ? n : null;
+}
+
+// acao do seletor DESTA aba — separada de selecionarLinhaConfig
+function selecionarLinhaReal(blocoId) { state._realLinhaId = blocoId; render(); }
+
+// Totais da FABRICA INTEIRA com base no que foi digitado — usado na barra de topo
+// desta aba, que substitui o renderResumoTopo (aquele mostra so o planejado).
+function _prTotaisFabrica(r) {
+  const pesos = state.pesos || {};
+  let planTon = 0, realTon = 0, planH = 0, realH = 0;
+  let temProd = false, temHora = false;
+  let desvioDir = 0, nDir = 0;
+  const porDest = {};
+
+  const horasSec = {};
+  (r.producao.detalhes || []).forEach((d) => { horasSec[d.blocoId + '|' + d.secaoId] = Number(d.horasDispSecao) || 0; });
+
+  (state.blocos || []).forEach((b) => {
+    (b.secoes || []).forEach((secao) => {
+      const hp = horasSec[b.id + '|' + secao.id];
+      if (hp !== undefined) planH += hp;
+      const hr = _prNum(_prHoras(b.id, secao.id));
+      if (hr !== null) { realH += hr; temHora = true; }
+
+      (secao.produtos || []).filter((pp) => pp.ativo !== false).forEach((pp) => {
+        const det = (r.producao.detalhes || []).find((d) => d.blocoId === b.id && d.secaoId === secao.id && d.produtoNome === pp.nome);
+        const pq = det ? (Number(det.qtd) || 0) : 0;
+        const dest = (garantirMapaProduto(pp.nome) || {}).destino || '';
+        if (!dest) return;
+        const rq = _prNum(_prGet(b.id, secao.id + '||' + pp.nome));
+        const pt = qtdParaToneladas(dest, pq, pesos);
+        planTon += pt;
+        if (!porDest[dest]) porDest[dest] = { planTon: 0, realTon: 0, temReal: false };
+        porDest[dest].planTon += pt;
+        if (rq !== null) {
+          const rt = qtdParaToneladas(dest, rq, pesos);
+          realTon += rt; temProd = true;
+          porDest[dest].realTon += rt; porDest[dest].temReal = true;
+        }
+      });
+    });
+
+    // desvio de insumo DIRETO de cada linha
+    const info = r.tonPorBloco[b.id];
+    const bk = info ? BUCKETS_CUSTO.filter((x) => info.tonPorBucket[x] > 1e-9) : [];
+    r.plano.resultadosItens.forEach(({ item, calc }) => {
+      if (item.tipoRateio !== 'direto' || item.removido) return;
+      const pertence = item.formulaQtd === 'manual' ? bk.includes(item.produtoBase) : bk.some((x) => calc.linhas[x] > 0);
+      if (!pertence) return;
+      const preco = Number(item.precoUnitarioEditado != null ? item.precoUnitarioEditado : item.precoUnitario) || 0;
+      const rsPlan = Number(calc.valorTotal) || 0;
+      const rsDig = _prNum(_prInsumoRS(b.id, item.id));
+      const q = _prNum(_prInsumo(b.id, item.id));
+      const rsReal = rsDig !== null ? rsDig : (q !== null && preco > 0 ? q * preco : null);
+      if (rsReal !== null) { desvioDir += (rsReal - rsPlan); nDir++; }
+    });
+  });
+
+  // desvio de insumo COMPARTILHADO — lancado uma vez para a fabrica
+  let desvioComp = 0, nComp = 0;
+  r.plano.resultadosItens.forEach(({ item, calc }) => {
+    if (item.tipoRateio !== 'compartilhado' || item.removido) return;
+    const preco = Number(item.precoUnitarioEditado != null ? item.precoUnitarioEditado : item.precoUnitario) || 0;
+    const rsPlan = Number(calc.valorTotal) || 0;
+    const rsDig = _prNum(_prInsumoRS('__FABRICA__', item.id));
+    const q = _prNum(_prInsumo('__FABRICA__', item.id));
+    const rsReal = rsDig !== null ? rsDig : (q !== null && preco > 0 ? q * preco : null);
+    if (rsReal !== null) { desvioComp += (rsReal - rsPlan); nComp++; }
+  });
+
+  // faturamento pelo preco por tonelada de cada linha de custo
+  let fatPlan = 0, fatReal = 0;
+  Object.entries(porDest).forEach(([dest, v]) => {
+    const kg = dest === 'L20' ? pesos.pesoL20Kg : dest === 'CONC' ? pesos.pesoCONCKg
+             : dest === 'CAULIM25' ? pesos.pesoCAULIM25Kg : dest === 'CAULIMBB' ? pesos.pesoBigBagKg : 1000;
+    const unidPorTon = dest === 'CAULIMGRANEL' ? 1 : (1000 / (Number(kg) || 1));
+    const pTon = ((r.precoVenda && r.precoVenda[dest]) || 0) * unidPorTon;
+    fatPlan += v.planTon * pTon;
+    fatReal += v.realTon * pTon;
+  });
+
+  const custoPlan = r.plano.totais.GERAL;
+  const custoReal = custoPlan + desvioDir + desvioComp;
+
+  return {
+    planTon, realTon, planH, realH, temProd, temHora,
+    desvioDir, nDir, desvioComp, nComp, desvioTot: desvioDir + desvioComp,
+    fatPlan, fatReal, custoPlan, custoReal,
+    custoTonPlan: planTon > 0 ? custoPlan / planTon : 0,
+    custoTonReal: realTon > 0 ? custoReal / realTon : null,
+    pctTon: (planTon > 0 && temProd) ? realTon / planTon : null,
+    pctH: (planH > 0 && temHora) ? realH / planH : null,
+    ritmoPlan: planH > 0 ? planTon / planH : null,
+    ritmoReal: (temHora && realH > 0 && temProd) ? realTon / realH : null,
+    resultPlan: fatPlan - custoPlan,
+    resultReal: fatReal - custoReal,
+  };
+}
+
+
+function setRealizado(blocoId, produtoNome, valor) {
+  if (!state.realizado) state.realizado = {};
+  if (!state.realizado[blocoId]) state.realizado[blocoId] = {};
+  state.realizado[blocoId][produtoNome] = String(valor == null ? '' : valor);
+  render();
+}
+function setRealizadoObs(blocoId, valor) {
+  if (!state.realizadoObs) state.realizadoObs = {};
+  state.realizadoObs[blocoId] = String(valor == null ? '' : valor);
+  render();
+}
+function limparRealizadoLinha(blocoId) {
+  if (state.realizado) state.realizado[blocoId] = {};
+  render();
+}
+function _prGet(blocoId, produtoNome) {
+  return ((state.realizado || {})[blocoId] || {})[produtoNome] ?? '';
+}
+
+function setRealizadoHoras(blocoId, secaoId, valor) {
+  if (!state.realizadoHoras) state.realizadoHoras = {};
+  if (!state.realizadoHoras[blocoId]) state.realizadoHoras[blocoId] = {};
+  state.realizadoHoras[blocoId][secaoId] = String(valor == null ? '' : valor);
+  render();
+}
+function _prHoras(blocoId, secaoId) {
+  return ((state.realizadoHoras || {})[blocoId] || {})[secaoId] ?? '';
+}
+
+// escopo: blocoId para insumo direto (por linha) ou '__FABRICA__' para compartilhado
+function setRealizadoInsumo(escopo, itemId, valor) {
+  if (!state.realizadoInsumos) state.realizadoInsumos = {};
+  if (!state.realizadoInsumos[escopo]) state.realizadoInsumos[escopo] = {};
+  state.realizadoInsumos[escopo][itemId] = String(valor == null ? '' : valor);
+  render();
+}
+function _prInsumo(escopo, itemId) {
+  return ((state.realizadoInsumos || {})[escopo] || {})[itemId] ?? '';
+}
+function setRealizadoInsumoRS(escopo, itemId, valor) {
+  if (!state.realizadoInsumosRS) state.realizadoInsumosRS = {};
+  if (!state.realizadoInsumosRS[escopo]) state.realizadoInsumosRS[escopo] = {};
+  state.realizadoInsumosRS[escopo][itemId] = String(valor == null ? '' : valor);
+  render();
+}
+function _prInsumoRS(escopo, itemId) {
+  return ((state.realizadoInsumosRS || {})[escopo] || {})[itemId] ?? '';
+}
+
+// input padrão de digitação livre, usado nas 4 seções da aba
+function _prInput(attrs, valor, largura) {
+  return `<input type="text" inputmode="decimal" autocomplete="off" value="${esc(valor)}" placeholder="digite" ${attrs}
+    style="width:${largura || 112}px;text-align:right;padding:7px 9px;border:1.5px solid #CBD5E1;border-radius:8px;font-size:14px;font-weight:700;font-family:inherit;background:#fff;">`;
+}
+
+// bloco Δ + % com cor, reaproveitado nas tabelas
+function _prDeltaCels(plan, real, dec, invertido) {
+  if (real === null) return '<td class="cp-num cp-muted">—</td><td class="cp-num cp-muted">—</td>';
+  const d = real - plan;
+  const pct = plan > 0 ? real / plan : (real > 0 ? 1 : 0);
+  // invertido = consumir MENOS que o planejado é bom (insumos)
+  const bom = invertido ? pct <= 1 : pct >= 1;
+  const quase = invertido ? pct <= 1.1 : pct >= 0.9;
+  const cor = bom ? '#16a34a' : quase ? '#b45309' : '#dc2626';
+  return `<td class="cp-num" style="color:${cor};font-weight:700;">${d > 0 ? '+' : ''}${fmtNum(d, dec || 0)}</td>`
+       + `<td class="cp-num" style="color:${cor};font-weight:800;">${fmtPct(pct, 1)}</td>`;
+}
+
+// Δ e % com cor: verde bateu/passou, amarelo perto, vermelho longe.
+function _prDeltaHtml(plan, real) {
+  if (real === null) return '<td class="cp-num" style="color:#94a3b8;">—</td><td class="cp-num" style="color:#94a3b8;">—</td>';
+  const d = real - plan;
+  const pct = plan > 0 ? real / plan : (real > 0 ? 1 : 0);
+  let cor = '#dc2626';
+  if (pct >= 1) cor = '#16a34a';
+  else if (pct >= 0.9) cor = '#b45309';
+  const sinal = d > 0 ? '+' : '';
+  return `<td class="cp-num" style="color:${cor};font-weight:700;">${sinal}${fmtNum(d, 0)}</td>`
+       + `<td class="cp-num" style="color:${cor};font-weight:800;">${fmtPct(pct, 1)}</td>`;
+}
+
+function renderPlanRealizado(r) {
+  if (!state.blocos.length) {
+    return `<div class="card"><div class="empty-state"><div class="empty-icon">🏭</div><h3>Nenhuma linha configurada ainda</h3><p>Configure uma linha na aba <strong>Capacidade</strong> primeiro.</p></div></div>`;
+  }
+  // Seletor PROPRIO desta aba. De proposito nao usa state.linhaSelecionadaId:
+  // trocar de linha aqui nao deve mexer na aba Configuracao da Linha.
+  if (!state._realLinhaId || !state.blocos.find((b) => b.id === state._realLinhaId)) {
+    state._realLinhaId = state.blocos[0].id;
+  }
+  const bloco = state.blocos.find((b) => b.id === state._realLinhaId);
+  const pesos = state.pesos || {};
+
+  /* ---------- seletor de linha: mesmo padrão da aba Configuração da Linha ---------- */
+  const seletor = `<div class="card" style="margin-bottom:16px;">
+    <h3 class="cp-h3">Selecione a linha</h3>
+    <div class="cp-field-row" style="gap:12px;flex-wrap:wrap;">
+      ${state.blocos.map((b) => `<button class="btn ${b.id === bloco.id ? 'btn-primary' : 'btn-ghost'}" style="font-size:15px;font-weight:700;padding:14px 26px;" onclick="selecionarLinhaReal('${b.id}')">🏭 ${esc(b.linhaNome || '(sem nome)')}</button>`).join('')}
+    </div>
+    <p class="cp-ajuda">Digite ao lado de cada produto o que a linha realmente produziu no mês. Campo livre, sem travas — vazio significa "ainda não preenchi". Lembre de clicar em <strong>💾 Salvar</strong> no topo.</p>
+  </div>`;
+
+  /* ---------- linhas da tabela: exatamente o que está configurado (turno x produto) ---------- */
+  const rows = [];
+  let planQtdTot = 0, realQtdTot = 0, planTonTot = 0, realTonTot = 0, preenchidos = 0, totalCampos = 0;
+  const porDestino = {}; // destino -> { planTon, realTon }
+
+  (bloco.secoes || []).forEach((secao) => {
+    const ativos = (secao.produtos || []).filter((p) => p.ativo !== false);
+    if (!ativos.length) return;
+    rows.push(`<tr style="background:#f8fafc;"><td colspan="7" style="font-weight:800;color:#042D4D;font-size:12px;text-transform:uppercase;letter-spacing:.03em;">Turno: ${esc(secao.turnoNome || '(sem turno)')}</td></tr>`);
+
+    ativos.forEach((p) => {
+      const det = (r.producao.detalhes || []).find((d) => d.blocoId === bloco.id && d.secaoId === secao.id && d.produtoNome === p.nome);
+      const planQtd = det ? (Number(det.qtd) || 0) : 0;
+      const destino = (garantirMapaProduto(p.nome) || {}).destino || '';
+      const chave = secao.id + '||' + p.nome;
+      const raw = _prGet(bloco.id, chave);
+      const realQtd = _prNum(raw);
+
+      const planTon = destino ? qtdParaToneladas(destino, planQtd, pesos) : 0;
+      const realTon = (destino && realQtd !== null) ? qtdParaToneladas(destino, realQtd, pesos) : null;
+
+      planQtdTot += planQtd; planTonTot += planTon; totalCampos++;
+      if (realQtd !== null) { realQtdTot += realQtd; realTonTot += (realTon || 0); preenchidos++; }
+      if (destino) {
+        if (!porDestino[destino]) porDestino[destino] = { planTon: 0, realTon: 0, temReal: false };
+        porDestino[destino].planTon += planTon;
+        if (realTon !== null) { porDestino[destino].realTon += realTon; porDestino[destino].temReal = true; }
+      }
+
+      const d = realQtd === null ? null : realQtd - planQtd;
+      const pct = realQtd === null ? null : (planQtd > 0 ? realQtd / planQtd : (realQtd > 0 ? 1 : 0));
+      const cor = pct === null ? '#94a3b8' : pct >= 1 ? '#16a34a' : pct >= 0.9 ? '#b45309' : '#dc2626';
+
+      rows.push(`<tr>
+        <td style="font-weight:600;padding-left:18px;">${esc(p.nome)}${destino ? '' : ' <span class="badge badge-warning" style="font-size:10px;">sem mapa</span>'}</td>
+        <td class="cp-muted" style="font-size:12px;">${esc(p.unidade || (destino ? UNIDADE_LABEL[destino] : 'un'))}</td>
+        <td class="cp-num">${fmtNum(planQtd, 0)}</td>
+        <td style="text-align:right;padding:4px 6px;">
+          <input type="text" inputmode="decimal" autocomplete="off" value="${esc(raw)}" placeholder="digite"
+                 data-bloco="${bloco.id}" data-chave="${esc(chave)}"
+                 onchange="setRealizado(this.dataset.bloco, this.dataset.chave, this.value)"
+                 style="width:112px;text-align:right;padding:7px 9px;border:1.5px solid #CBD5E1;border-radius:8px;font-size:14px;font-weight:700;font-family:inherit;background:#fff;">
+        </td>
+        <td class="cp-num" style="color:${cor};font-weight:700;">${d === null ? '—' : (d > 0 ? '+' : '') + fmtNum(d, 0)}</td>
+        <td class="cp-num" style="color:${cor};font-weight:800;">${pct === null ? '—' : fmtPct(pct, 1)}</td>
+        <td class="cp-num cp-muted">${destino ? fmtNum(planTon, 2) + ' / ' + (realTon !== null ? fmtNum(realTon, 2) : '—') : '—'}</td>
+      </tr>`);
+    });
+  });
+
+  const pctTon = planTonTot > 0 && preenchidos ? realTonTot / planTonTot : null;
+  const corTon = pctTon === null ? '#94a3b8' : pctTon >= 1 ? '#16a34a' : pctTon >= 0.9 ? '#b45309' : '#dc2626';
+
+  const tabela = rows.length ? `<div class="card" style="margin-bottom:16px;">
+    <h3 class="cp-h3">Planejado x Realizado — ${esc(bloco.linhaNome || '(sem nome)')} · ${MESES_NOMES[state.mes]}/${state.ano}</h3>
+    <div class="table-wrap"><table>
+      <thead><tr>
+        <th>Produto</th><th>Un.</th>
+        <th class="cp-num">Planejado</th>
+        <th style="text-align:right;">Realizado</th>
+        <th class="cp-num">Δ</th><th class="cp-num">%</th>
+        <th class="cp-num">Ton plan./real.</th>
+      </tr></thead>
+      <tbody>${rows.join('')}</tbody>
+      <tfoot><tr style="background:#042D4D;color:#fff;font-weight:800;">
+        <td colspan="2" style="color:#C9FF64;">TOTAL DA LINHA</td>
+        <td class="cp-num">${fmtNum(planQtdTot, 0)}</td>
+        <td class="cp-num">${preenchidos ? fmtNum(realQtdTot, 0) : '—'}</td>
+        <td class="cp-num">${preenchidos ? ((realQtdTot - planQtdTot) > 0 ? '+' : '') + fmtNum(realQtdTot - planQtdTot, 0) : '—'}</td>
+        <td class="cp-num" style="color:#C9FF64;">${pctTon === null ? '—' : fmtPct(pctTon, 1)}</td>
+        <td class="cp-num">${fmtNum(planTonTot, 2)} / ${preenchidos ? fmtNum(realTonTot, 2) : '—'}</td>
+      </tr></tfoot>
+    </table></div>
+    ${preenchidos < totalCampos ? `<p class="cp-ajuda" style="margin-top:10px;">Faltam <strong>${totalCampos - preenchidos}</strong> de ${totalCampos} campos. Os totais consideram só o que já foi digitado.</p>` : ''}
+  </div>` : `<div class="card"><p class="cp-ajuda">Nenhum produto ativo nesta linha. Configure na aba Capacidade.</p></div>`;
+
+  /* ---------- HORAS POR TURNO: planejado x realizado ---------- */
+  const horasPorSecao = {};
+  (r.producao.detalhes || []).forEach((d) => {
+    if (d.blocoId === bloco.id) horasPorSecao[d.secaoId] = Number(d.horasDispSecao) || 0;
+  });
+
+  let hPlanTot = 0, hRealTot = 0, hPreenchidos = 0, hCampos = 0;
+  const horasRows = (bloco.secoes || []).map((secao) => {
+    const hPlan = horasPorSecao[secao.id];
+    const temPlan = hPlan !== undefined;
+    const raw = _prHoras(bloco.id, secao.id);
+    const hReal = _prNum(raw);
+    hCampos++;
+    if (temPlan) hPlanTot += hPlan;
+    if (hReal !== null) { hRealTot += hReal; hPreenchidos++; }
+    return `<tr>
+      <td style="font-weight:600;">Turno ${esc(secao.turnoNome || '(sem turno)')}</td>
+      <td class="cp-num">${temPlan ? fmtNum(hPlan, 1) : '—'}</td>
+      <td style="text-align:right;padding:4px 6px;">${_prInput(`data-b="${bloco.id}" data-s="${secao.id}" onchange="setRealizadoHoras(this.dataset.b, this.dataset.s, this.value)"`, raw, 104)}</td>
+      ${_prDeltaCels(temPlan ? hPlan : 0, hReal, 1, false)}
+    </tr>`;
+  }).join('');
+
+  const pctHoras = hPlanTot > 0 && hPreenchidos ? hRealTot / hPlanTot : null;
+  const horasCard = (bloco.secoes || []).length ? `<div class="card" style="margin-bottom:16px;">
+    <h3 class="cp-h3">Horas trabalhadas — planejado x realizado</h3>
+    <p class="cp-ajuda">Pegue as horas reais da sua planilha de controle. É isso que separa "produzimos menos porque o ritmo caiu" de "produzimos menos porque a linha ficou parada".</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Turno</th><th class="cp-num">Horas planejadas</th><th style="text-align:right;">Horas reais</th><th class="cp-num">Δ</th><th class="cp-num">%</th></tr></thead>
+      <tbody>${horasRows}</tbody>
+      <tfoot><tr style="background:#f8fafc;font-weight:800;">
+        <td>TOTAL</td>
+        <td class="cp-num">${fmtNum(hPlanTot, 1)} h</td>
+        <td class="cp-num">${hPreenchidos ? fmtNum(hRealTot, 1) + ' h' : '—'}</td>
+        <td class="cp-num">${hPreenchidos ? ((hRealTot - hPlanTot) > 0 ? '+' : '') + fmtNum(hRealTot - hPlanTot, 1) : '—'}</td>
+        <td class="cp-num">${pctHoras === null ? '—' : fmtPct(pctHoras, 1)}</td>
+      </tr></tfoot>
+    </table></div>
+  </div>` : '';
+
+  /* ---------- INSUMOS: planejado x realizado ---------- */
+  const infoBloco = r.tonPorBloco[bloco.id];
+  const bucketsLinha = infoBloco ? BUCKETS_CUSTO.filter((b) => infoBloco.tonPorBucket[b] > 1e-9) : [];
+  let desvioRS = 0, insPreenchidos = 0;   // acumulador temporário, zerado antes de cada tabela
+
+  function _tabelaInsumos(lista, escopo, vazioMsg) {
+    if (!lista.length) return `<p class="cp-ajuda">${vazioMsg}</p>`;
+    const rowsIns = lista.map(({ item, calc }) => {
+      const planQtd = Number(calc.novaQtd) || 0;
+      const rsPlan = Number(calc.valorTotal) || 0;
+      const preco = Number(item.precoUnitarioEditado != null ? item.precoUnitarioEditado : item.precoUnitario) || 0;
+
+      const raw = _prInsumo(escopo, item.id);
+      const realQtd = _prNum(raw);
+      const rawRS = _prInsumoRS(escopo, item.id);
+      const rsDigitado = _prNum(rawRS);
+
+      // R$ real: usa o valor digitado à mão se houver; senão deriva de qtd x preço.
+      // Assim dá pra lançar o realizado mesmo quando o planejado não tem quantidade
+      // (energia, arrendamento, frete — coisas que só existem em R$).
+      const rsReal = rsDigitado !== null ? rsDigitado : (realQtd !== null && preco > 0 ? realQtd * preco : null);
+      if (rsReal !== null) { desvioRS += (rsReal - rsPlan); insPreenchidos++; }  // eslint-disable-line
+
+      const corRS = rsReal === null ? '#94a3b8' : rsReal > rsPlan ? '#dc2626' : '#16a34a';
+      const derivado = rsDigitado === null && rsReal !== null;
+
+      return `<tr>
+        <td style="font-weight:600;">${esc(item.insumo || item.id)}</td>
+        <td class="cp-muted" style="font-size:12px;">${esc(item.unidade || '')}</td>
+        <td class="cp-num">${planQtd > 0 ? fmtNum(planQtd, 2) : '<span class="cp-muted">—</span>'}</td>
+        <td style="text-align:right;padding:4px 6px;">${_prInput(`data-e="${escopo}" data-i="${esc(item.id)}" onchange="setRealizadoInsumo(this.dataset.e, this.dataset.i, this.value)"`, raw, 100)}</td>
+        ${planQtd > 0 ? _prDeltaCels(planQtd, realQtd, 2, true) : '<td class="cp-num cp-muted">—</td><td class="cp-num cp-muted">—</td>'}
+        <td class="cp-num cp-muted">${fmtBRL(rsPlan)}</td>
+        <td style="text-align:right;padding:4px 6px;">
+          ${_prInput(`data-e="${escopo}" data-i="${esc(item.id)}" onchange="setRealizadoInsumoRS(this.dataset.e, this.dataset.i, this.value)"`, rawRS, 116)}
+          ${derivado ? `<div style="font-size:10.5px;color:${corRS};font-weight:700;margin-top:2px;">${fmtBRL(rsReal)} <span class="cp-muted" style="font-weight:400;">(qtd x preço)</span></div>` : ''}
+        </td>
+        <td class="cp-num" style="font-weight:800;color:${corRS};">${rsReal === null ? '—' : (rsReal - rsPlan > 0 ? '+' : '') + fmtBRL(rsReal - rsPlan)}</td>
+      </tr>`;
+    }).join('');
+    return `<div class="table-wrap"><table>
+      <thead><tr>
+        <th>Insumo</th><th>Un.</th>
+        <th class="cp-num">Plan. qtd</th><th style="text-align:right;">Qtd consumida</th>
+        <th class="cp-num">&Delta;</th><th class="cp-num">%</th>
+        <th class="cp-num">R$ plan.</th>
+        <th style="text-align:right;">R$ real <span class="cp-muted">(opcional)</span></th>
+        <th class="cp-num">Desvio R$</th>
+      </tr></thead>
+      <tbody>${rowsIns}</tbody>
+    </table></div>`;
+  }
+
+  const diretosLinha = r.plano.resultadosItens.filter((x) =>
+    x.item.tipoRateio === 'direto' && !x.item.removido &&
+    (x.item.formulaQtd === 'manual' ? bucketsLinha.includes(x.item.produtoBase) : bucketsLinha.some((b) => x.calc.linhas[b] > 0)));
+
+  // TODOS os compartilhados, mesmo os que não têm quantidade planejada — o realizado
+  // é digitação livre e não depende do planejado existir.
+  const compartilhadosFab = r.plano.resultadosItens.filter((x) =>
+    x.item.tipoRateio === 'compartilhado' && !x.item.removido);
+
+  // Direto = consumo DESTA linha. Compartilhado = consumo da FÁBRICA.
+  // Somar os dois num único desvio de linha seria erro de rateio, então ficam separados.
+  desvioRS = 0; insPreenchidos = 0;
+  const htmlDiretos = _tabelaInsumos(diretosLinha, bloco.id, 'Nenhum insumo direto associado a esta linha ainda.');
+  const desvioDireto = desvioRS, preDireto = insPreenchidos;
+
+  desvioRS = 0; insPreenchidos = 0;
+  const htmlCompart = _tabelaInsumos(compartilhadosFab, '__FABRICA__', 'Nenhum insumo compartilhado cadastrado.');
+  const desvioCompart = desvioRS, preCompart = insPreenchidos;
+
+  // fatia da fábrica que esta linha representa, para trazer o desvio compartilhado pro resultado da linha
+  const shareLinha = (r.plano.tonelagem.tonTotal > 0 && infoBloco) ? infoBloco.tonTotal / r.plano.tonelagem.tonTotal : 0;
+  const desvioCompartDaLinha = desvioCompart * shareLinha;
+
+  const insumosCard = `<div class="card" style="margin-bottom:16px;">
+    <h3 class="cp-h3">Insumos diretos desta linha — planejado x consumido</h3>
+    <p class="cp-ajuda">Ex.: planejou 20 martelos, consumiu 18 → digite 18 em <strong>Qtd consumida</strong>. Verde = gastou menos que o previsto. O campo <strong>R$ real</strong> é opcional: deixe vazio e ele calcula qtd x preço; digite e ele usa o seu valor.</p>
+    ${htmlDiretos}
+    ${preDireto ? `<div class="cp-kpi-linha" style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px;"><span>Desvio de insumo direto desta linha</span><strong style="color:${desvioDireto > 0 ? '#dc2626' : '#16a34a'};">${(desvioDireto > 0 ? '+' : '') + fmtBRL(desvioDireto)}</strong></div>` : ''}
+  </div>
+  <div class="card" style="margin-bottom:16px;">
+    <h3 class="cp-h3">Insumos compartilhados da fábrica — planejado x consumido</h3>
+    <p class="cp-ajuda"><strong>Preencha uma vez só.</strong> Estes insumos são consumidos pela fábrica inteira e depois rateados entre as linhas — se digitar em cada linha, o mesmo consumo entra várias vezes. Por isso este quadro é o mesmo em todas as linhas.<br>Todos aparecem aqui, inclusive os sem quantidade planejada: quando o insumo só existe em R$ (energia, arrendamento, frete), deixe a quantidade vazia e lance direto em <strong>R$ real</strong>.</p>
+    ${htmlCompart}
+    ${preCompart ? `<div class="cp-kpi-linha" style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px;"><span>Desvio de insumo compartilhado <span class="cp-muted">— fábrica inteira</span></span><strong style="color:${desvioCompart > 0 ? '#dc2626' : '#16a34a'};">${(desvioCompart > 0 ? '+' : '') + fmtBRL(desvioCompart)}</strong></div>
+    <div class="cp-kpi-linha"><span>Parte que cai nesta linha <span class="cp-muted">(${fmtPct(shareLinha, 1)} da tonelagem da fábrica)</span></span><strong style="color:${desvioCompartDaLinha > 0 ? '#dc2626' : '#16a34a'};">${(desvioCompartDaLinha > 0 ? '+' : '') + fmtBRL(desvioCompartDaLinha)}</strong></div>` : ''}
+  </div>`;
+
+  /* ---------- KPIs: mesmo padrão cp-kpi-linha da aba Configuração da Linha ---------- */
+  const ritmoPlan = hPlanTot > 0 ? planTonTot / hPlanTot : null;
+  const ritmoReal = (hPreenchidos && hRealTot > 0 && preenchidos) ? realTonTot / hRealTot : null;
+  const ritmoPct = (ritmoPlan && ritmoReal) ? ritmoReal / ritmoPlan : null;
+
+  // Leitura em linguagem de gerente: separa problema de RITMO de problema de DISPONIBILIDADE.
+  let diagnostico = '';
+  if (pctTon !== null && pctHoras !== null && ritmoPct !== null) {
+    const faltouProducao = pctTon < 0.99;
+    const faltouHora = pctHoras < 0.99;
+    const ritmoOk = ritmoPct >= 0.99;
+    let txt = '', cor = '#0369a1', bg = '#dbeafe';
+    if (!faltouProducao) {
+      txt = 'Meta batida. Ritmo e disponibilidade dentro do planejado.'; cor = '#166534'; bg = '#dcfce7';
+    } else if (faltouHora && ritmoOk) {
+      txt = 'Faltou <strong>disponibilidade</strong>, não ritmo. A linha produziu no ritmo planejado (ou acima), mas rodou menos horas. Olhe paradas, quebras e falta de MP — não é caso de mexer em máquina ou equipe.';
+      cor = '#92400e'; bg = '#fef9c3';
+    } else if (!faltouHora && !ritmoOk) {
+      txt = 'Faltou <strong>ritmo</strong>, não hora. A linha rodou as horas planejadas mas produziu menos por hora. Olhe capacidade real da máquina, ajuste, granulometria da MP ou equipe.';
+      cor = '#9f1239'; bg = '#ffe4e6';
+    } else {
+      txt = 'Faltou <strong>hora e ritmo</strong>. Perdeu disponibilidade e ainda produziu menos por hora rodada — vale investigar os dois lados.';
+      cor = '#9f1239'; bg = '#ffe4e6';
+    }
+    diagnostico = `<div style="margin-top:10px;background:${bg};border-radius:8px;padding:10px 12px;font-size:12.5px;color:${cor};line-height:1.45;">${txt}</div>`;
+  }
+
+  const cl = r.custoPorLinhaFisica.find((lf) => lf.blocoId === bloco.id);
+  const custoTotalLinha = cl ? cl.custoTotal : 0;
+  const custoTonPlan = cl ? cl.custoPorTon : 0;
+  const custoTonReal = (preenchidos && realTonTot > 0) ? custoTotalLinha / realTonTot : null;
+
+  // faturamento: usa o preço de venda de cada linha de custo
+  let fatPlan = 0, fatReal = 0;
+  Object.entries(porDestino).forEach(([dest, v]) => {
+    const preco = (r.precoVenda && r.precoVenda[dest]) || 0;
+    fatPlan += v.planTon * preco * (dest === 'CAULIMGRANEL' ? 1 : 1);
+  });
+  // preço é por unidade vendida; para comparação usamos ton x (preço/ton equivalente)
+  const precoPorTon = {};
+  Object.keys(porDestino).forEach((dest) => {
+    const kg = dest === 'L20' ? pesos.pesoL20Kg : dest === 'CONC' ? pesos.pesoCONCKg : dest === 'CAULIM25' ? pesos.pesoCAULIM25Kg : dest === 'CAULIMBB' ? pesos.pesoBigBagKg : 1000;
+    const unidPorTon = dest === 'CAULIMGRANEL' ? 1 : (1000 / (Number(kg) || 1));
+    precoPorTon[dest] = ((r.precoVenda && r.precoVenda[dest]) || 0) * unidPorTon;
+  });
+  fatPlan = 0; fatReal = 0;
+  Object.entries(porDestino).forEach(([dest, v]) => {
+    fatPlan += v.planTon * (precoPorTon[dest] || 0);
+    fatReal += v.realTon * (precoPorTon[dest] || 0);
+  });
+
+  /* ---------- PAINEL DO REALIZADO — fixo no topo, recalcula a cada digitacao ----------
+     So entra aqui numero que DEPENDE do que foi digitado. KPI puramente do
+     planejamento fica nas outras abas, nao se repete aqui.                       */
+  const custoRealParcial = custoTotalLinha + desvioDireto + desvioCompartDaLinha;
+  const custoTonRealNum  = realTonTot > 0 ? custoRealParcial / realTonTot : null;
+  const desvioInsumoTot  = desvioDireto + desvioCompartDaLinha;
+  const temAlgumRealizado = !!(preenchidos || hPreenchidos || preDireto || preCompart);
+
+  const tile = (rot, valor, sub, cor) => `
+    <div style="flex:1 1 150px;min-width:132px;background:rgba(255,255,255,.06);border-radius:10px;padding:9px 12px;">
+      <div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:#7aa3c0;font-weight:700;">${rot}</div>
+      <div style="font-size:19px;font-weight:800;color:${cor || '#fff'};line-height:1.25;margin-top:2px;">${valor}</div>
+      <div style="font-size:10.5px;color:#7aa3c0;">${sub || '&nbsp;'}</div>
+    </div>`;
+
+  const corP = (pct, inverte) => pct === null ? '#7aa3c0'
+    : (inverte ? (pct <= 1 ? '#C9FF64' : '#ff8f9b') : (pct >= 1 ? '#C9FF64' : pct >= 0.9 ? '#ffd166' : '#ff8f9b'));
+
+  const painel = `<div style="position:sticky;top:0;z-index:30;background:#042D4D;border-radius:12px;padding:12px 14px;margin-bottom:16px;box-shadow:0 6px 20px rgba(4,45,77,.28);">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:9px;">
+      <div style="font-size:12px;font-weight:800;color:#C9FF64;text-transform:uppercase;letter-spacing:.05em;">
+        Painel do realizado — ${esc(bloco.linhaNome || '(sem nome)')} · ${MESES_NOMES[state.mes]}/${state.ano}
+      </div>
+      <div style="font-size:10.5px;color:#7aa3c0;">${temAlgumRealizado ? 'Recalcula a cada campo que você preenche' : 'Preencha os campos abaixo e este painel se move'}</div>
+    </div>
+    <div style="display:flex;gap:9px;flex-wrap:wrap;">
+      ${tile('Tonelagem',
+        preenchidos ? fmtNum(realTonTot, 1) + ' t' : '—',
+        'meta ' + fmtNum(planTonTot, 1) + ' t' + (pctTon === null ? '' : ' · ' + fmtPct(pctTon, 1)),
+        corP(pctTon))}
+      ${tile('Horas',
+        hPreenchidos ? fmtNum(hRealTot, 1) + ' h' : '—',
+        'plan. ' + fmtNum(hPlanTot, 1) + ' h' + (pctHoras === null ? '' : ' · ' + fmtPct(pctHoras, 1)),
+        corP(pctHoras))}
+      ${tile('Ritmo',
+        ritmoReal !== null ? fmtNum(ritmoReal, 3) + ' t/h' : '—',
+        'plan. ' + (ritmoPlan !== null ? fmtNum(ritmoPlan, 3) : '—') + (ritmoPct === null ? '' : ' · ' + fmtPct(ritmoPct, 1)),
+        corP(ritmoPct))}
+      ${tile('Custo / tonelada',
+        custoTonRealNum !== null ? fmtBRL(custoTonRealNum) : '—',
+        'plan. ' + fmtBRL(custoTonPlan) + (custoTonRealNum === null ? '' : ' · ' + (custoTonRealNum - custoTonPlan > 0 ? '+' : '') + fmtBRL(custoTonRealNum - custoTonPlan)),
+        custoTonRealNum === null ? '#7aa3c0' : custoTonRealNum > custoTonPlan ? '#ff8f9b' : '#C9FF64')}
+      ${tile('Desvio de insumo',
+        (preDireto || preCompart) ? ((desvioInsumoTot > 0 ? '+' : '') + fmtBRL(desvioInsumoTot)) : '—',
+        (preDireto || preCompart) ? (desvioInsumoTot > 0 ? 'gastou mais' : 'economizou') : 'nada lançado',
+        (preDireto || preCompart) ? (desvioInsumoTot > 0 ? '#ff8f9b' : '#C9FF64') : '#7aa3c0')}
+      ${tile('Faturamento',
+        preenchidos ? fmtBRL(fatReal) : '—',
+        'plan. ' + fmtBRL(fatPlan) + (preenchidos ? ' · ' + (fatReal - fatPlan > 0 ? '+' : '') + fmtBRL(fatReal - fatPlan) : ''),
+        preenchidos ? (fatReal >= fatPlan ? '#C9FF64' : '#ff8f9b') : '#7aa3c0')}
+      ${tile('Resultado',
+        preenchidos ? fmtBRL(fatReal - custoRealParcial) : '—',
+        'plan. ' + fmtBRL(fatPlan - custoTotalLinha) + (preenchidos ? ' · ' + ((fatReal - custoRealParcial) - (fatPlan - custoTotalLinha) > 0 ? '+' : '') + fmtBRL((fatReal - custoRealParcial) - (fatPlan - custoTotalLinha)) : ''),
+        preenchidos ? ((fatReal - custoRealParcial) >= (fatPlan - custoTotalLinha) ? '#C9FF64' : '#ff8f9b') : '#7aa3c0')}
+    </div>
+    ${diagnostico}
+  </div>`;
+
+  /* ---------- rodape da aba: tonelagem realizada por produto + anotacao ---------- */
+  const kpiProdutosReal = Object.keys(porDestino).length
+    ? Object.entries(porDestino).map(([dest, v]) => {
+        const pc = v.planTon > 0 && v.temReal ? v.realTon / v.planTon : null;
+        const c = pc === null ? '#94a3b8' : pc >= 1 ? '#16a34a' : pc >= 0.9 ? '#b45309' : '#dc2626';
+        return `<div class="cp-kpi-linha"><span>${DESTINOS[dest]}</span><strong>${v.temReal ? fmtNum(v.realTon, 2) : '—'} <span class="cp-muted">/ ${fmtNum(v.planTon, 2)} ton</span> <span style="color:${c};">${pc === null ? '' : fmtPct(pc, 1)}</span></strong></div>`;
+      }).join('')
+    : '<p class="cp-ajuda" style="margin:4px 0;">Nenhum produto mapeado nesta linha.</p>';
+
+  const obs = ((state.realizadoObs || {})[bloco.id]) || '';
+
+  const kpis = `<div class="card" style="margin-bottom:16px;">
+    <h3 class="cp-h3">Tonelagem realizada por produto</h3>
+    ${kpiProdutosReal}
+    <div style="margin-top:14px;border-top:1px dashed var(--border);padding-top:10px;">
+      <label class="form-label" style="font-size:11px;">O que aconteceu nesta linha no mês <span class="cp-muted">— parada, quebra, falta de MP, falta de gente</span></label>
+      <textarea onchange="setRealizadoObs('${bloco.id}', this.value)" placeholder="Anote pra não esquecer no fechamento"
+        style="width:100%;min-height:60px;padding:9px 11px;border:1.5px solid #CBD5E1;border-radius:8px;font-size:13px;font-family:inherit;resize:vertical;color:#032036;">${esc(obs)}</textarea>
+    </div>
+    <div style="margin-top:10px;text-align:right;">
+      <button class="btn btn-ghost btn-sm" onclick="limparRealizadoLinha('${bloco.id}')">🧹 Limpar realizado desta linha</button>
+    </div>
+  </div>`;
+
+
+  /* ---------- FECHAMENTO: o que deu o mês, com o realizado digitado ---------- */
+  const custoRealLinha = custoTotalLinha + desvioDireto + desvioCompartDaLinha;
+  const temAlgo = preenchidos || hPreenchidos || preDireto || preCompart;
+
+  const resultPlan = fatPlan - custoTotalLinha;
+  const resultReal = fatReal - custoRealLinha;
+  const margPlan = fatPlan > 0 ? resultPlan / fatPlan : null;
+  const margReal = fatReal > 0 ? resultReal / fatReal : null;
+  const custoTonRealFinal = realTonTot > 0 ? custoRealLinha / realTonTot : null;
+
+  const li = (rot, plan, real, dif, corDif, destaque) => `<tr${destaque ? ' style="background:#f8fafc;font-weight:800;"' : ''}>
+    <td style="${destaque ? 'font-weight:800;' : 'font-weight:600;'}">${rot}</td>
+    <td class="cp-num cp-muted">${plan}</td>
+    <td class="cp-num" style="font-weight:700;">${real}</td>
+    <td class="cp-num" style="font-weight:800;color:${corDif};">${dif}</td>
+  </tr>`;
+
+  const cD = (v, inverte) => v === null ? '#94a3b8' : (inverte ? (v <= 0 ? '#16a34a' : '#dc2626') : (v >= 0 ? '#16a34a' : '#dc2626'));
+  const sg = (v, d) => (v > 0 ? '+' : '') + fmtBRL(v);
+
+  const fechamento = `<div class="card" style="margin-top:16px;border:2px solid #042D4D;">
+    <h3 class="cp-h3" style="font-size:15px;">📊 Fechamento do mês — ${esc(bloco.linhaNome || '(sem nome)')} · ${MESES_NOMES[state.mes]}/${state.ano}</h3>
+    ${!temAlgo ? '<p class="cp-ajuda">Preencha o realizado acima e o fechamento aparece aqui.</p>' : `
+    <div class="table-wrap"><table>
+      <thead><tr><th></th><th class="cp-num">Planejado</th><th class="cp-num">Realizado</th><th class="cp-num">Diferença</th></tr></thead>
+      <tbody>
+        ${li('Tonelagem', fmtNum(planTonTot, 2) + ' t', preenchidos ? fmtNum(realTonTot, 2) + ' t' : '—',
+             preenchidos ? (realTonTot - planTonTot > 0 ? '+' : '') + fmtNum(realTonTot - planTonTot, 2) + ' t' : '—',
+             cD(preenchidos ? realTonTot - planTonTot : null))}
+        ${li('Horas trabalhadas', fmtNum(hPlanTot, 1) + ' h', hPreenchidos ? fmtNum(hRealTot, 1) + ' h' : '—',
+             hPreenchidos ? (hRealTot - hPlanTot > 0 ? '+' : '') + fmtNum(hRealTot - hPlanTot, 1) + ' h' : '—',
+             '#64748b')}
+        ${li('Ritmo (t/h)', ritmoPlan !== null ? fmtNum(ritmoPlan, 3) : '—', ritmoReal !== null ? fmtNum(ritmoReal, 3) : '—',
+             (ritmoPlan !== null && ritmoReal !== null) ? (ritmoReal - ritmoPlan > 0 ? '+' : '') + fmtNum(ritmoReal - ritmoPlan, 3) : '—',
+             cD((ritmoPlan !== null && ritmoReal !== null) ? ritmoReal - ritmoPlan : null))}
+
+        ${li('<span style="color:#042D4D;">Faturamento</span>', fmtBRL(fatPlan), preenchidos ? fmtBRL(fatReal) : '—',
+             preenchidos ? sg(fatReal - fatPlan) : '—', cD(preenchidos ? fatReal - fatPlan : null))}
+
+        ${li('Custo do planejamento', fmtBRL(custoTotalLinha), '—', '—', '#64748b')}
+        ${li('&nbsp;&nbsp;+ desvio de insumo direto', '—', preDireto ? sg(desvioDireto) : '—',
+             preDireto ? sg(desvioDireto) : '—', cD(preDireto ? desvioDireto : null, true))}
+        ${li('&nbsp;&nbsp;+ desvio compartilhado rateado', '—', preCompart ? sg(desvioCompartDaLinha) : '—',
+             preCompart ? sg(desvioCompartDaLinha) : '—', cD(preCompart ? desvioCompartDaLinha : null, true))}
+        ${li('<span style="color:#042D4D;">Custo total</span>', fmtBRL(custoTotalLinha), fmtBRL(custoRealLinha),
+             sg(custoRealLinha - custoTotalLinha), cD(custoRealLinha - custoTotalLinha, true))}
+
+        ${li('Custo por tonelada', fmtBRL(custoTonPlan), custoTonRealFinal !== null ? fmtBRL(custoTonRealFinal) : '—',
+             custoTonRealFinal !== null ? sg(custoTonRealFinal - custoTonPlan) + '/t' : '—',
+             cD(custoTonRealFinal !== null ? custoTonRealFinal - custoTonPlan : null, true))}
+
+        ${li('RESULTADO', fmtBRL(resultPlan), preenchidos ? fmtBRL(resultReal) : '—',
+             preenchidos ? sg(resultReal - resultPlan) : '—', cD(preenchidos ? resultReal - resultPlan : null), true)}
+        ${li('Margem sobre faturamento', margPlan !== null ? fmtPct(margPlan, 1) : '—',
+             (preenchidos && margReal !== null) ? fmtPct(margReal, 1) : '—',
+             (preenchidos && margPlan !== null && margReal !== null) ? ((margReal - margPlan > 0 ? '+' : '') + fmtPct(margReal - margPlan, 1)) : '—',
+             cD((preenchidos && margPlan !== null && margReal !== null) ? margReal - margPlan : null), true)}
+      </tbody>
+    </table></div>
+
+    <div style="margin-top:12px;background:#f1f5f9;border-radius:8px;padding:11px 13px;font-size:12px;color:#475569;line-height:1.5;">
+      <strong>Como ler:</strong> o custo em reais não cai quando a produção cai — folha, arrendamento, energia e
+      administrativo continuam iguais. Por isso o <strong>custo por tonelada sobe</strong> num mês fraco, e é ele
+      que diz se o preço de venda ainda cobre a conta.<br>
+      <strong>O que este quadro assume:</strong> que todos os outros custos ficaram como planejado. Só entram como
+      desvio os insumos que você digitou acima. Se a folha ou a energia vieram diferentes do plano, lance no quadro
+      de compartilhados para o resultado ficar fiel.
+    </div>`}
+  </div>`;
+
+  /* ---------- TOTAL DA FABRICA (realizado) — substitui a barra global nesta aba ---------- */
+  const F = _prTotaisFabrica(r);
+  const itemF = (rot, val, sub, cor) => `<div class="cp-resumo-item"><span>${rot}</span><strong style="color:${cor || '#fff'};">${val}</strong><span style="font-size:9.5px;letter-spacing:.03em;">${sub || '&nbsp;'}</span></div>`;
+  const cF = (pct, inverte) => pct === null ? '#7aa3c0'
+    : (inverte ? (pct <= 1 ? '#C9FF64' : '#ff8f9b') : (pct >= 1 ? '#C9FF64' : pct >= 0.9 ? '#ffd166' : '#ff8f9b'));
+  const nLinhas = (state.blocos || []).length;
+
+  const totalFabrica = `
+  <style>.cp-resumo-topo{display:none !important;}</style>
+  <div class="cp-resumo-topo" style="display:flex !important;">
+    ${itemF('Total realizado — fábrica', `${nLinhas} linha${nLinhas === 1 ? '' : 's'}`, `${String(state.mes).padStart(2, '0')}/${state.ano}`, '#C9FF64')}
+    ${itemF('Tonelagem', F.temProd ? fmtNum(F.realTon, 1) + ' t' : '—', 'meta ' + fmtNum(F.planTon, 1) + ' t' + (F.pctTon === null ? '' : ' · ' + fmtPct(F.pctTon, 1)), cF(F.pctTon))}
+    ${itemF('Horas', F.temHora ? fmtNum(F.realH, 1) + ' h' : '—', 'plan. ' + fmtNum(F.planH, 1) + ' h' + (F.pctH === null ? '' : ' · ' + fmtPct(F.pctH, 1)), cF(F.pctH))}
+    ${itemF('Custo total', fmtBRL(F.custoReal), 'plan. ' + fmtBRL(F.custoPlan), F.custoReal > F.custoPlan ? '#ff8f9b' : '#C9FF64')}
+    ${itemF('Custo / tonelada', F.custoTonReal !== null ? fmtBRL(F.custoTonReal) : '—', 'plan. ' + fmtBRL(F.custoTonPlan) + (F.custoTonReal === null ? '' : ' · ' + (F.custoTonReal - F.custoTonPlan > 0 ? '+' : '') + fmtBRL(F.custoTonReal - F.custoTonPlan)), F.custoTonReal === null ? '#7aa3c0' : F.custoTonReal > F.custoTonPlan ? '#ff8f9b' : '#C9FF64')}
+    ${itemF('Desvio de insumo', (F.nDir || F.nComp) ? (F.desvioTot > 0 ? '+' : '') + fmtBRL(F.desvioTot) : '—', (F.nDir + F.nComp) + ' item(ns) lançado(s)', (F.nDir || F.nComp) ? (F.desvioTot > 0 ? '#ff8f9b' : '#C9FF64') : '#7aa3c0')}
+    ${itemF('Faturamento', F.temProd ? fmtBRL(F.fatReal) : '—', 'plan. ' + fmtBRL(F.fatPlan), F.temProd ? (F.fatReal >= F.fatPlan ? '#C9FF64' : '#ff8f9b') : '#7aa3c0')}
+    ${itemF('Resultado', F.temProd ? fmtBRL(F.resultReal) : '—', 'plan. ' + fmtBRL(F.resultPlan) + (F.temProd ? ' · ' + (F.resultReal - F.resultPlan > 0 ? '+' : '') + fmtBRL(F.resultReal - F.resultPlan) : ''), F.temProd ? (F.resultReal >= F.resultPlan ? '#C9FF64' : '#ff8f9b') : '#7aa3c0')}
+  </div>`;
+
+  return totalFabrica + seletor + painel + tabela + horasCard + insumosCard + kpis + fechamento;
+}
+
+/* <<<<< FIM ABA PLANEJADO x REALIZADO */
 /* ---------- TAB: Capacidade (calendário + linhas/turnos/produtos) ---------- */
 
 const MESES_NOMES = ['', 'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
@@ -5891,12 +6583,24 @@ function serializarEstadoAtual() {
     precoVendaManual: state.precoVendaManual, faturamentoManual: state.faturamentoManual,
     insumos: state.insumos, cenarios: state.cenarios, escopos: state.escopos,
     _blocoSeq: state._blocoSeq, _secaoSeq: state._secaoSeq, _produtoSeq: state._produtoSeq, _cenarioSeq: state._cenarioSeq, _insumoSeq: state._insumoSeq,
+    /* >>>>> ABA PLANEJADO x REALIZADO — BLOCO REMOVIVEL */
+    realizado: state.realizado, realizadoObs: state.realizadoObs,
+    realizadoHoras: state.realizadoHoras, realizadoInsumos: state.realizadoInsumos,
+    realizadoInsumosRS: state.realizadoInsumosRS, _realLinhaId: state._realLinhaId,
+    /* <<<<< FIM ABA PLANEJADO x REALIZADO */
   };
 }
 function aplicarEstadoSalvo(snap) {
   if (!snap) return;
   Object.keys(snap).forEach((k) => { state[k] = snap[k]; });
   // Preenche campos novos que planos antigos não tinham, com padrões seguros:
+  /* >>>>> ABA PLANEJADO x REALIZADO — BLOCO REMOVIVEL */
+  if (!state.realizado || typeof state.realizado !== 'object') state.realizado = {};
+  if (!state.realizadoObs || typeof state.realizadoObs !== 'object') state.realizadoObs = {};
+  if (!state.realizadoHoras || typeof state.realizadoHoras !== 'object') state.realizadoHoras = {};
+  if (!state.realizadoInsumos || typeof state.realizadoInsumos !== 'object') state.realizadoInsumos = {};
+  if (!state.realizadoInsumosRS || typeof state.realizadoInsumosRS !== 'object') state.realizadoInsumosRS = {};
+  /* <<<<< FIM ABA PLANEJADO x REALIZADO */
   if (!(Number(state.linhasFabrica) > 0)) state.linhasFabrica = 4;
   if (!(Number(state.fatorEncargos) > 0)) state.fatorEncargos = 1.00;
   // Arrendamento e Energia agora usam GRUPOS DE RATEIO. Migra formatos antigos:
