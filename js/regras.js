@@ -96,5 +96,26 @@
     return Regras.palletsCheios(itens) + (s > 0 && sobraOcupa ? 1 : 0);
   };
 
+  /* ── EFICIÊNCIA DE PRODUÇÃO (realizado) ──────────────────────────────────────
+   * ATENÇÃO: existe OUTRA "eficiência" no sistema — o FATOR DE PLANEJAMENTO do
+   * planejamento.html (um %, default 100, que o planejador ajusta para descontar
+   * horas: perda = brutos × (100−efic)/100). Aquilo é ENTRADA de planejamento,
+   * não medição, e NÃO deve ser unificado com isto. Isto aqui é o REALIZADO:
+   * quanto se produziu contra a meta.
+   */
+
+  // Meta de sacos = capacidade horária (sc/h) × horas. 0 se faltar qualquer um.
+  Regras.metaSacos = function (capHora, horas) {
+    return (Number(capHora) || 0) * (Number(horas) || 0);
+  };
+
+  // Eficiência de produção (%) = sacos realizados ÷ meta × 100. 0 se meta ≤ 0.
+  // Devolve o número cru (sem arredondar) — quem chama formata/arredonda.
+  Regras.eficienciaProducao = function (sacosReal, metaSacos) {
+    var meta = Number(metaSacos) || 0;
+    if (meta <= 0) return 0;
+    return (Number(sacosReal) || 0) / meta * 100;
+  };
+
   global.Regras = Regras;
 })(typeof window !== 'undefined' ? window : this);
