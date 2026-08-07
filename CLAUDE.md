@@ -138,6 +138,15 @@ com piloto, ele confere o número, só então espalha.** Primeiro cálculo: **TO
   (100−efic)/100` — entrada de planejamento, não medição; não unificar — alerta da skill).
   No `producao.html`: os 3 pontos que faziam `capHora×h` e `sacos/meta×100` (save,
   calcEficienciaOP, performance do OEE) passam a chamar `regras.js`. Número idêntico.
+- **Bug de lógica achado pelo dono no piloto (commit `331b2fd`, validado).** A meta
+  de produção usava horas **TRABALHADAS** (`capHora × htProduto`) → trabalhar mais
+  inflava a meta e nunca batia. Correto: meta fixa = `capHora × horas DISPONÍVEIS
+  planejadas` (`getHorasDispDia`, ex: 6,23h). Ex.: 500 sc/h × 6,23h = **3.115** (antes
+  7,10h × 500 = 3.550). Corrigido na tela (`calcEficienciaOP`, rateando as horas
+  disponíveis por produto pelo tempo gasto) e no valor salvo (`eficiencia`, fallback p/
+  horas trabalhadas se sem planejamento). **OEE performance NÃO muda** de propósito:
+  usa tempo de máquina rodando (definição correta de OEE; a disponibilidade do OEE já
+  cobre planejado×real — mudar as duas contaria em dobro).
 
 **Falta no item 3 (refino, não bloqueia):** (a) **snippet do bug `sacosPorPallet:95`** no
 `custo-precificacao.html` — arquivo do DONO; passar snippet quando ele colar o trecho.
