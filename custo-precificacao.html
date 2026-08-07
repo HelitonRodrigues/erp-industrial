@@ -863,6 +863,7 @@ function criarEstadoInicial() {
     realizado: {},          // { blocoId: { secaoId||produto: 'digitado' } }
     realizadoObs: {},       // { blocoId: 'observação do mês' }
     realizadoHoras: {},     // { blocoId: { secaoId: 'horas digitadas' } }
+    realizadoParadas: {},   // { blocoId: { secaoId: 'parada realizada digitada' } }
     realizadoInsumos: {},   // { blocoId | '__FABRICA__': { itemId: 'qtd digitada' } }
     realizadoInsumosRS: {}, // idem, mas em R$ digitado à mão
     _realLinhaId: null,     // linha selecionada NESTA aba
@@ -1015,7 +1016,7 @@ function agregarProducaoPlanejada(s) {
         detalhes.push({
           blocoId: bloco.id, linhaNome: bloco.linhaNome, secaoId: secao.id, turnoNome: secao.turnoNome,
           produtoNome: p.nome, unidade: p.unidade, capHora: Number(p.capHora) || 0, demanda, qtd, qtdMax: d.qtdMax,
-          horasNec, horasDispSecao: h.dispH, excede,
+          horasNec, horasDispSecao: h.dispH, paradaSecao: h.paradaH, excede,
         });
         if (!porProduto[p.nome]) porProduto[p.nome] = { qtd: 0, demanda: 0, qtdMax: 0, horasDisp: 0 };
         porProduto[p.nome].qtd += qtd;
@@ -2850,6 +2851,16 @@ function _prHoras(blocoId, secaoId) {
   return ((state.realizadoHoras || {})[blocoId] || {})[secaoId] ?? '';
 }
 
+function setRealizadoParadas(blocoId, secaoId, valor) {
+  if (!state.realizadoParadas) state.realizadoParadas = {};
+  if (!state.realizadoParadas[blocoId]) state.realizadoParadas[blocoId] = {};
+  state.realizadoParadas[blocoId][secaoId] = String(valor == null ? '' : valor);
+  render();
+}
+function _prParadas(blocoId, secaoId) {
+  return ((state.realizadoParadas || {})[blocoId] || {})[secaoId] ?? '';
+}
+
 // escopo: blocoId (por linha) — vale para insumo direto E compartilhado (compartilhado agora é por linha)
 function setRealizadoInsumo(escopo, itemId, valor) {
   if (!state.realizadoInsumos) state.realizadoInsumos = {};
@@ -3035,6 +3046,43 @@ function renderPlanRealizado(r) {
         <td class="cp-num">${hPreenchidos ? fmtNum(hRealTot, 1) + ' h' : '—'}</td>
         <td class="cp-num">${hPreenchidos ? ((hRealTot - hPlanTot) > 0 ? '+' : '') + fmtNum(hRealTot - hPlanTot, 1) : '—'}</td>
         <td class="cp-num">${pctHoras === null ? '—' : fmtPct(pctHoras, 1)}</td>
+      </tr></tfoot>
+    </table></div>
+  </div>` : '';
+
+  /* ---------- PARADAS POR TURNO: planejada x realizada ---------- */
+  const paradaPorSecao = {};
+  (r.producao.detalhes || []).forEach((d) => {
+    if (d.blocoId === bloco.id) paradaPorSecao[d.secaoId] = Number(d.paradaSecao) || 0;
+  });
+  let pPlanTot = 0, pRealTot = 0, pPreenchidos = 0;
+  const paradasRows = (bloco.secoes || []).map((secao) => {
+    const pPlan = paradaPorSecao[secao.id];
+    const temPlan = pPlan !== undefined;
+    const raw = _prParadas(bloco.id, secao.id);
+    const pReal = _prNum(raw);
+    if (temPlan) pPlanTot += pPlan;
+    if (pReal !== null) { pRealTot += pReal; pPreenchidos++; }
+    return `<tr>
+      <td style="font-weight:600;">Turno ${esc(secao.turnoNome || '(sem turno)')}</td>
+      <td class="cp-num">${temPlan ? fmtNum(pPlan, 1) : '—'}</td>
+      <td style="text-align:right;padding:4px 6px;">${_prInput(`data-b="${bloco.id}" data-s="${secao.id}" onchange="setRealizadoParadas(this.dataset.b, this.dataset.s, this.value)"`, raw, 104)}</td>
+      ${_prDeltaCels(temPlan ? pPlan : 0, pReal, 1, true)}
+    </tr>`;
+  }).join('');
+  const pctParadas = pPlanTot > 0 && pPreenchidos ? pRealTot / pPlanTot : null;
+  const paradasCard = (bloco.secoes || []).length ? `<div class="card" style="margin-bottom:16px;">
+    <h3 class="cp-h3">Paradas — planejada x realizada</h3>
+    <p class="cp-ajuda">Horas de parada previstas no planejamento da linha (por turno) contra as que aconteceram no mês. Aqui você lança a <strong>parada realizada</strong>. Verde = parou menos que o previsto.</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Turno</th><th class="cp-num">Parada planejada (h)</th><th style="text-align:right;">Parada realizada (h)</th><th class="cp-num">&Delta;</th><th class="cp-num">%</th></tr></thead>
+      <tbody>${paradasRows}</tbody>
+      <tfoot><tr style="background:#f8fafc;font-weight:800;">
+        <td>TOTAL</td>
+        <td class="cp-num">${fmtNum(pPlanTot, 1)} h</td>
+        <td class="cp-num">${pPreenchidos ? fmtNum(pRealTot, 1) + ' h' : '—'}</td>
+        <td class="cp-num">${pPreenchidos ? ((pRealTot - pPlanTot) > 0 ? '+' : '') + fmtNum(pRealTot - pPlanTot, 1) : '—'}</td>
+        <td class="cp-num">${pctParadas === null ? '—' : fmtPct(pctParadas, 1)}</td>
       </tr></tfoot>
     </table></div>
   </div>` : '';
@@ -3353,7 +3401,7 @@ function renderPlanRealizado(r) {
     ${itemF('Resultado', F.temProd ? fmtBRL(F.resultReal) : '—', 'plan. ' + fmtBRL(F.resultPlan) + (F.temProd ? ' · ' + (F.resultReal - F.resultPlan > 0 ? '+' : '') + fmtBRL(F.resultReal - F.resultPlan) : ''), F.temProd ? (F.resultReal >= F.resultPlan ? '#C9FF64' : '#ff8f9b') : '#7aa3c0')}
   </div>`;
 
-  return totalFabrica + seletor + painel + tabela + horasCard + insumosCard + kpis + fechamento;
+  return totalFabrica + seletor + painel + tabela + horasCard + paradasCard + insumosCard + kpis + fechamento;
 }
 
 /* <<<<< FIM ABA PLANEJADO x REALIZADO */
@@ -6590,7 +6638,7 @@ function serializarEstadoAtual() {
     _blocoSeq: state._blocoSeq, _secaoSeq: state._secaoSeq, _produtoSeq: state._produtoSeq, _cenarioSeq: state._cenarioSeq, _insumoSeq: state._insumoSeq,
     /* >>>>> ABA PLANEJADO x REALIZADO — BLOCO REMOVIVEL */
     realizado: state.realizado, realizadoObs: state.realizadoObs,
-    realizadoHoras: state.realizadoHoras, realizadoInsumos: state.realizadoInsumos,
+    realizadoHoras: state.realizadoHoras, realizadoParadas: state.realizadoParadas, realizadoInsumos: state.realizadoInsumos,
     realizadoInsumosRS: state.realizadoInsumosRS, _realLinhaId: state._realLinhaId,
     /* <<<<< FIM ABA PLANEJADO x REALIZADO */
   };
@@ -6603,6 +6651,7 @@ function aplicarEstadoSalvo(snap) {
   if (!state.realizado || typeof state.realizado !== 'object') state.realizado = {};
   if (!state.realizadoObs || typeof state.realizadoObs !== 'object') state.realizadoObs = {};
   if (!state.realizadoHoras || typeof state.realizadoHoras !== 'object') state.realizadoHoras = {};
+  if (!state.realizadoParadas || typeof state.realizadoParadas !== 'object') state.realizadoParadas = {};
   if (!state.realizadoInsumos || typeof state.realizadoInsumos !== 'object') state.realizadoInsumos = {};
   if (!state.realizadoInsumosRS || typeof state.realizadoInsumosRS !== 'object') state.realizadoInsumosRS = {};
   /* <<<<< FIM ABA PLANEJADO x REALIZADO */
