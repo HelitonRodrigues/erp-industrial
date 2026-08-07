@@ -117,5 +117,15 @@
     return (Number(sacosReal) || 0) / meta * 100;
   };
 
+  // Disponibilidade (%) = (horas trabalhadas − horas paradas) ÷ horas trabalhadas × 100.
+  // 0 se não houver horas trabalhadas. É a disponibilidade "de linha" (base H.T);
+  // NÃO confundir com a disponibilidade do OEE, que usa horas brutas do planejamento.
+  Regras.disponibilidade = function (htTrabalhada, htParada) {
+    var ht = Number(htTrabalhada) || 0;
+    if (ht <= 0) return 0;
+    var hp = Number(htParada) || 0;
+    return (ht - hp) / ht * 100;
+  };
+
   global.Regras = Regras;
 })(typeof window !== 'undefined' ? window : this);
