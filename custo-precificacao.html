@@ -864,6 +864,7 @@ function criarEstadoInicial() {
     realizadoObs: {},       // { blocoId: 'observação do mês' }
     realizadoHoras: {},     // { blocoId: { secaoId: 'horas digitadas' } }
     realizadoParadas: {},   // { blocoId: { secaoId: 'parada realizada digitada' } }
+    compartRateado: {},     // { itemId: true } — compartilhado lançado como TOTAL da fábrica (rateado); ausente = por linha
     realizadoInsumos: {},   // { blocoId | '__FABRICA__': { itemId: 'qtd digitada' } }
     realizadoInsumosRS: {}, // idem, mas em R$ digitado à mão
     _realLinhaId: null,     // linha selecionada NESTA aba
@@ -2775,21 +2776,30 @@ function _prTotaisFabrica(r) {
     });
   });
 
-  // desvio de insumo COMPARTILHADO — agora lancado POR LINHA (fatia de cada linha).
-  // Soma sobre as linhas: planejado de cada uma = valor da fabrica × fatia da linha.
+  // desvio de insumo COMPARTILHADO — dois modos por item:
+  //  rateado  = total da fabrica, lancado uma vez (escopo __FABRICA__);
+  //  por linha = cada linha lanca a sua (planejado = total × fatia da linha).
+  const _rat = state.compartRateado || {};
   let desvioComp = 0, nComp = 0;
-  (state.blocos || []).forEach((b) => {
-    const infoB = r.tonPorBloco[b.id];
-    const shareB = (r.plano.tonelagem.tonTotal > 0 && infoB) ? infoB.tonTotal / r.plano.tonelagem.tonTotal : 0;
-    r.plano.resultadosItens.forEach(({ item, calc }) => {
-      if (item.tipoRateio !== 'compartilhado' || item.removido) return;
-      const preco = Number(item.precoUnitarioEditado != null ? item.precoUnitarioEditado : item.precoUnitario) || 0;
-      const rsPlan = (Number(calc.valorTotal) || 0) * shareB;
-      const rsDig = _prNum(_prInsumoRS(b.id, item.id));
-      const q = _prNum(_prInsumo(b.id, item.id));
+  r.plano.resultadosItens.forEach(({ item, calc }) => {
+    if (item.tipoRateio !== 'compartilhado' || item.removido) return;
+    const preco = Number(item.precoUnitarioEditado != null ? item.precoUnitarioEditado : item.precoUnitario) || 0;
+    const rsPlanTot = Number(calc.valorTotal) || 0;
+    if (_rat[item.id]) {
+      const rsDig = _prNum(_prInsumoRS('__FABRICA__', item.id));
+      const q = _prNum(_prInsumo('__FABRICA__', item.id));
       const rsReal = rsDig !== null ? rsDig : (q !== null && preco > 0 ? q * preco : null);
-      if (rsReal !== null) { desvioComp += (rsReal - rsPlan); nComp++; }
-    });
+      if (rsReal !== null) { desvioComp += (rsReal - rsPlanTot); nComp++; }
+    } else {
+      (state.blocos || []).forEach((b) => {
+        const infoB = r.tonPorBloco[b.id];
+        const shareB = (r.plano.tonelagem.tonTotal > 0 && infoB) ? infoB.tonTotal / r.plano.tonelagem.tonTotal : 0;
+        const rsDig = _prNum(_prInsumoRS(b.id, item.id));
+        const q = _prNum(_prInsumo(b.id, item.id));
+        const rsReal = rsDig !== null ? rsDig : (q !== null && preco > 0 ? q * preco : null);
+        if (rsReal !== null) { desvioComp += (rsReal - rsPlanTot * shareB); nComp++; }
+      });
+    }
   });
 
   // faturamento pelo preco por tonelada de cada linha de custo
@@ -2859,6 +2869,15 @@ function setRealizadoParadas(blocoId, secaoId, valor) {
 }
 function _prParadas(blocoId, secaoId) {
   return ((state.realizadoParadas || {})[blocoId] || {})[secaoId] ?? '';
+}
+
+// Modo do insumo compartilhado nesta aba: true = rateado (total da fábrica, digitado uma
+// vez e dividido por linha); false/ausente = por linha (cada linha digita o seu).
+function setCompartRateado(itemId, rateado) {
+  if (!state.compartRateado) state.compartRateado = {};
+  if (rateado) state.compartRateado[itemId] = true;
+  else delete state.compartRateado[itemId];
+  render();
 }
 
 // escopo: blocoId (por linha) — vale para insumo direto E compartilhado (compartilhado agora é por linha)
@@ -3092,7 +3111,7 @@ function renderPlanRealizado(r) {
   const bucketsLinha = infoBloco ? BUCKETS_CUSTO.filter((b) => infoBloco.tonPorBucket[b] > 1e-9) : [];
   let desvioRS = 0, insPreenchidos = 0;   // acumulador temporário, zerado antes de cada tabela
 
-  function _tabelaInsumos(lista, escopo, vazioMsg, share) {
+  function _tabelaInsumos(lista, escopo, vazioMsg, share, modoBtn) {
     if (!lista.length) return `<p class="cp-ajuda">${vazioMsg}</p>`;
     const sh = share == null ? 1 : share;   // fatia da linha: compartilhados = × share; diretos = 1
     const rowsIns = lista.map(({ item, calc }) => {
@@ -3115,7 +3134,7 @@ function renderPlanRealizado(r) {
       const derivado = rsDigitado === null && rsReal !== null;
 
       return `<tr>
-        <td style="font-weight:600;">${esc(item.insumo || item.id)}</td>
+        <td style="font-weight:600;">${modoBtn ? modoBtn(item) : ''}${esc(item.insumo || item.id)}</td>
         <td class="cp-muted" style="font-size:12px;">${esc(item.unidade || '')}</td>
         <td class="cp-num">${planQtd > 0 ? fmtNum(planQtd, 2) : '<span class="cp-muted">—</span>'}</td>
         <td style="text-align:right;padding:4px 6px;">${_prInput(`data-e="${escopo}" data-i="${esc(item.id)}" onchange="setRealizadoInsumo(this.dataset.e, this.dataset.i, this.value)"`, raw, 100)}</td>
@@ -3158,11 +3177,26 @@ function renderPlanRealizado(r) {
 
   // fatia da fábrica que esta linha representa (por tonelagem)
   const shareLinha = (r.plano.tonelagem.tonTotal > 0 && infoBloco) ? infoBloco.tonTotal / r.plano.tonelagem.tonTotal : 0;
+  // Cada compartilhado pode ser POR LINHA (fatia da linha, digita o desta linha) ou
+  // RATEADO (total da fábrica, digita uma vez e divide sozinho). Modo por item.
+  const _rat = state.compartRateado || {};
+  const compPorLinha = compartilhadosFab.filter((x) => !_rat[x.item.id]);
+  const compRateados = compartilhadosFab.filter((x) => !!_rat[x.item.id]);
+  const _btnStyle = 'style="font-size:9.5px;padding:0 5px;margin-right:6px;vertical-align:middle;"';
+  const btnParaRateado = (item) => `<button class="btn btn-ghost btn-sm" ${_btnStyle} title="Passar para total da fábrica (rateado)" onclick="setCompartRateado('${esc(item.id)}', true)">⇄ rateado</button>`;
+  const btnParaLinha = (item) => `<button class="btn btn-ghost btn-sm" ${_btnStyle} title="Passar para lançamento por linha" onclick="setCompartRateado('${esc(item.id)}', false)">⇄ por linha</button>`;
+  // POR LINHA: planejado = fatia da linha (× share); consumido por linha (escopo = bloco)
   desvioRS = 0; insPreenchidos = 0;
-  // Compartilhados POR LINHA: planejado = fatia da linha (× share); consumido digitado por linha (escopo = bloco).
-  const htmlCompart = _tabelaInsumos(compartilhadosFab, bloco.id, 'Nenhum insumo compartilhado cadastrado.', shareLinha);
-  const desvioCompart = desvioRS, preCompart = insPreenchidos;
-  const desvioCompartDaLinha = desvioCompart;   // já é o desvio DESTA linha (planejado já veio na fatia)
+  const htmlCompartLinha = _tabelaInsumos(compPorLinha, bloco.id, 'Nenhum compartilhado neste modo.', shareLinha, btnParaRateado);
+  const desvioCompLinha = desvioRS, preCompLinha = insPreenchidos;
+  // RATEADO: números da fábrica inteira (escopo único __FABRICA__), digitado uma vez
+  desvioRS = 0; insPreenchidos = 0;
+  const htmlCompartRat = _tabelaInsumos(compRateados, '__FABRICA__', 'Nenhum compartilhado neste modo.', 1, btnParaLinha);
+  const desvioCompRat = desvioRS, preCompRat = insPreenchidos;
+  // desvio compartilhado DESTA linha = por-linha (já é da linha) + fatia da linha nos rateados
+  const desvioCompart = desvioCompLinha + desvioCompRat * shareLinha;
+  const preCompart = preCompLinha + preCompRat;
+  const desvioCompartDaLinha = desvioCompart;
 
   const insumosCard = `<div class="card" style="margin-bottom:16px;">
     <h3 class="cp-h3">Insumos diretos desta linha — planejado x consumido</h3>
@@ -3171,10 +3205,13 @@ function renderPlanRealizado(r) {
     ${preDireto ? `<div class="cp-kpi-linha" style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px;"><span>Desvio de insumo direto desta linha</span><strong style="color:${desvioDireto > 0 ? '#dc2626' : '#16a34a'};">${(desvioDireto > 0 ? '+' : '') + fmtBRL(desvioDireto)}</strong></div>` : ''}
   </div>
   <div class="card" style="margin-bottom:16px;">
-    <h3 class="cp-h3">Insumos compartilhados da fábrica — planejado x consumido <span class="cp-muted">(fatia desta linha)</span></h3>
-    <p class="cp-ajuda">O planejado aqui é a <strong>fatia desta linha</strong> — ${fmtPct(shareLinha, 1)} da tonelagem da fábrica. Digite o <strong>consumido desta linha</strong>. Quando o insumo só existe em R$ (energia, arrendamento, frete), deixe a quantidade vazia e lance direto em <strong>R$ real</strong>.</p>
-    ${htmlCompart}
-    ${preCompart ? `<div class="cp-kpi-linha" style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px;"><span>Desvio de insumo compartilhado <span class="cp-muted">— desta linha</span></span><strong style="color:${desvioCompart > 0 ? '#dc2626' : '#16a34a'};">${(desvioCompart > 0 ? '+' : '') + fmtBRL(desvioCompart)}</strong></div>` : ''}
+    <h3 class="cp-h3">Insumos compartilhados — planejado x consumido</h3>
+    <p class="cp-ajuda">Cada item tem um botão pra escolher o modo: <strong>por linha</strong> = a fatia desta linha (${fmtPct(shareLinha, 1)} da tonelagem; você digita o que ESTA linha gastou); <strong>rateado</strong> = você digita o <strong>total da fábrica uma vez</strong> e o sistema divide entre as linhas sozinho. Quando o insumo só existe em R$ (energia, arrendamento), deixe a quantidade vazia e lance direto em <strong>R$ real</strong>.</p>
+    <div style="font-weight:700;font-size:12.5px;color:#475569;margin:10px 0 4px;">Por linha <span class="cp-muted">— fatia desta linha (${fmtPct(shareLinha, 1)})</span></div>
+    ${htmlCompartLinha}
+    <div style="font-weight:700;font-size:12.5px;color:#475569;margin:14px 0 4px;">Rateado <span class="cp-muted">— total da fábrica (digite uma vez; a fatia desta linha é ${fmtPct(shareLinha, 1)})</span></div>
+    ${htmlCompartRat}
+    ${preCompart ? `<div class="cp-kpi-linha" style="margin-top:10px;border-top:1px solid var(--border);padding-top:8px;"><span>Desvio de compartilhado que cai <span class="cp-muted">nesta linha</span></span><strong style="color:${desvioCompart > 0 ? '#dc2626' : '#16a34a'};">${(desvioCompart > 0 ? '+' : '') + fmtBRL(desvioCompart)}</strong></div>` : ''}
   </div>`;
 
   /* ---------- KPIs: mesmo padrão cp-kpi-linha da aba Configuração da Linha ---------- */
@@ -3282,6 +3319,17 @@ function renderPlanRealizado(r) {
         preenchidos ? fmtBRL(fatReal - custoRealParcial) : '—',
         'plan. ' + fmtBRL(fatPlan - custoTotalLinha) + (preenchidos ? ' · ' + ((fatReal - custoRealParcial) - (fatPlan - custoTotalLinha) > 0 ? '+' : '') + fmtBRL((fatReal - custoRealParcial) - (fatPlan - custoTotalLinha)) : ''),
         preenchidos ? ((fatReal - custoRealParcial) >= (fatPlan - custoTotalLinha) ? '#C9FF64' : '#ff8f9b') : '#7aa3c0')}
+      ${(() => {
+        const metaPct = (state.alvoMaximoPct || 0) / 100;                       // teto: custo ÷ faturamento
+        const ratioPlan = fatPlan > 0 ? custoTotalLinha / fatPlan : null;       // alvo planejado da linha
+        const ratioReal = (preenchidos && fatReal > 0) ? custoRealParcial / fatReal : null;
+        const cor = ratioReal !== null ? (ratioReal <= metaPct ? '#C9FF64' : '#ff8f9b')
+          : (ratioPlan !== null ? (ratioPlan <= metaPct ? '#C9FF64' : '#ffd166') : '#7aa3c0');
+        return tile('Alvo — custo / faturam.',
+          ratioReal !== null ? fmtPct(ratioReal, 1) : (ratioPlan !== null ? fmtPct(ratioPlan, 1) : '—'),
+          'meta ≤ ' + fmtPct(metaPct, 1) + (ratioPlan !== null ? ' · plan ' + fmtPct(ratioPlan, 1) : ''),
+          cor);
+      })()}
     </div>
     ${diagnostico}
   </div>`;
@@ -6639,7 +6687,7 @@ function serializarEstadoAtual() {
     /* >>>>> ABA PLANEJADO x REALIZADO — BLOCO REMOVIVEL */
     realizado: state.realizado, realizadoObs: state.realizadoObs,
     realizadoHoras: state.realizadoHoras, realizadoParadas: state.realizadoParadas, realizadoInsumos: state.realizadoInsumos,
-    realizadoInsumosRS: state.realizadoInsumosRS, _realLinhaId: state._realLinhaId,
+    realizadoInsumosRS: state.realizadoInsumosRS, compartRateado: state.compartRateado, _realLinhaId: state._realLinhaId,
     /* <<<<< FIM ABA PLANEJADO x REALIZADO */
   };
 }
@@ -6652,6 +6700,7 @@ function aplicarEstadoSalvo(snap) {
   if (!state.realizadoObs || typeof state.realizadoObs !== 'object') state.realizadoObs = {};
   if (!state.realizadoHoras || typeof state.realizadoHoras !== 'object') state.realizadoHoras = {};
   if (!state.realizadoParadas || typeof state.realizadoParadas !== 'object') state.realizadoParadas = {};
+  if (!state.compartRateado || typeof state.compartRateado !== 'object') state.compartRateado = {};
   if (!state.realizadoInsumos || typeof state.realizadoInsumos !== 'object') state.realizadoInsumos = {};
   if (!state.realizadoInsumosRS || typeof state.realizadoInsumosRS !== 'object') state.realizadoInsumosRS = {};
   /* <<<<< FIM ABA PLANEJADO x REALIZADO */
