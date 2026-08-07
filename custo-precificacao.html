@@ -2774,16 +2774,21 @@ function _prTotaisFabrica(r) {
     });
   });
 
-  // desvio de insumo COMPARTILHADO — lancado uma vez para a fabrica
+  // desvio de insumo COMPARTILHADO — agora lancado POR LINHA (fatia de cada linha).
+  // Soma sobre as linhas: planejado de cada uma = valor da fabrica × fatia da linha.
   let desvioComp = 0, nComp = 0;
-  r.plano.resultadosItens.forEach(({ item, calc }) => {
-    if (item.tipoRateio !== 'compartilhado' || item.removido) return;
-    const preco = Number(item.precoUnitarioEditado != null ? item.precoUnitarioEditado : item.precoUnitario) || 0;
-    const rsPlan = Number(calc.valorTotal) || 0;
-    const rsDig = _prNum(_prInsumoRS('__FABRICA__', item.id));
-    const q = _prNum(_prInsumo('__FABRICA__', item.id));
-    const rsReal = rsDig !== null ? rsDig : (q !== null && preco > 0 ? q * preco : null);
-    if (rsReal !== null) { desvioComp += (rsReal - rsPlan); nComp++; }
+  (state.blocos || []).forEach((b) => {
+    const infoB = r.tonPorBloco[b.id];
+    const shareB = (r.plano.tonelagem.tonTotal > 0 && infoB) ? infoB.tonTotal / r.plano.tonelagem.tonTotal : 0;
+    r.plano.resultadosItens.forEach(({ item, calc }) => {
+      if (item.tipoRateio !== 'compartilhado' || item.removido) return;
+      const preco = Number(item.precoUnitarioEditado != null ? item.precoUnitarioEditado : item.precoUnitario) || 0;
+      const rsPlan = (Number(calc.valorTotal) || 0) * shareB;
+      const rsDig = _prNum(_prInsumoRS(b.id, item.id));
+      const q = _prNum(_prInsumo(b.id, item.id));
+      const rsReal = rsDig !== null ? rsDig : (q !== null && preco > 0 ? q * preco : null);
+      if (rsReal !== null) { desvioComp += (rsReal - rsPlan); nComp++; }
+    });
   });
 
   // faturamento pelo preco por tonelada de cada linha de custo
@@ -2845,7 +2850,7 @@ function _prHoras(blocoId, secaoId) {
   return ((state.realizadoHoras || {})[blocoId] || {})[secaoId] ?? '';
 }
 
-// escopo: blocoId para insumo direto (por linha) ou '__FABRICA__' para compartilhado
+// escopo: blocoId (por linha) — vale para insumo direto E compartilhado (compartilhado agora é por linha)
 function setRealizadoInsumo(escopo, itemId, valor) {
   if (!state.realizadoInsumos) state.realizadoInsumos = {};
   if (!state.realizadoInsumos[escopo]) state.realizadoInsumos[escopo] = {};
@@ -3039,11 +3044,12 @@ function renderPlanRealizado(r) {
   const bucketsLinha = infoBloco ? BUCKETS_CUSTO.filter((b) => infoBloco.tonPorBucket[b] > 1e-9) : [];
   let desvioRS = 0, insPreenchidos = 0;   // acumulador temporário, zerado antes de cada tabela
 
-  function _tabelaInsumos(lista, escopo, vazioMsg) {
+  function _tabelaInsumos(lista, escopo, vazioMsg, share) {
     if (!lista.length) return `<p class="cp-ajuda">${vazioMsg}</p>`;
+    const sh = share == null ? 1 : share;   // fatia da linha: compartilhados = × share; diretos = 1
     const rowsIns = lista.map(({ item, calc }) => {
-      const planQtd = Number(calc.novaQtd) || 0;
-      const rsPlan = Number(calc.valorTotal) || 0;
+      const planQtd = (Number(calc.novaQtd) || 0) * sh;
+      const rsPlan = (Number(calc.valorTotal) || 0) * sh;
       const preco = Number(item.precoUnitarioEditado != null ? item.precoUnitarioEditado : item.precoUnitario) || 0;
 
       const raw = _prInsumo(escopo, item.id);
@@ -3102,13 +3108,13 @@ function renderPlanRealizado(r) {
   const htmlDiretos = _tabelaInsumos(diretosLinha, bloco.id, 'Nenhum insumo direto associado a esta linha ainda.');
   const desvioDireto = desvioRS, preDireto = insPreenchidos;
 
-  desvioRS = 0; insPreenchidos = 0;
-  const htmlCompart = _tabelaInsumos(compartilhadosFab, '__FABRICA__', 'Nenhum insumo compartilhado cadastrado.');
-  const desvioCompart = desvioRS, preCompart = insPreenchidos;
-
-  // fatia da fábrica que esta linha representa, para trazer o desvio compartilhado pro resultado da linha
+  // fatia da fábrica que esta linha representa (por tonelagem)
   const shareLinha = (r.plano.tonelagem.tonTotal > 0 && infoBloco) ? infoBloco.tonTotal / r.plano.tonelagem.tonTotal : 0;
-  const desvioCompartDaLinha = desvioCompart * shareLinha;
+  desvioRS = 0; insPreenchidos = 0;
+  // Compartilhados POR LINHA: planejado = fatia da linha (× share); consumido digitado por linha (escopo = bloco).
+  const htmlCompart = _tabelaInsumos(compartilhadosFab, bloco.id, 'Nenhum insumo compartilhado cadastrado.', shareLinha);
+  const desvioCompart = desvioRS, preCompart = insPreenchidos;
+  const desvioCompartDaLinha = desvioCompart;   // já é o desvio DESTA linha (planejado já veio na fatia)
 
   const insumosCard = `<div class="card" style="margin-bottom:16px;">
     <h3 class="cp-h3">Insumos diretos desta linha — planejado x consumido</h3>
@@ -3117,11 +3123,10 @@ function renderPlanRealizado(r) {
     ${preDireto ? `<div class="cp-kpi-linha" style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px;"><span>Desvio de insumo direto desta linha</span><strong style="color:${desvioDireto > 0 ? '#dc2626' : '#16a34a'};">${(desvioDireto > 0 ? '+' : '') + fmtBRL(desvioDireto)}</strong></div>` : ''}
   </div>
   <div class="card" style="margin-bottom:16px;">
-    <h3 class="cp-h3">Insumos compartilhados da fábrica — planejado x consumido</h3>
-    <p class="cp-ajuda"><strong>Preencha uma vez só.</strong> Estes insumos são consumidos pela fábrica inteira e depois rateados entre as linhas — se digitar em cada linha, o mesmo consumo entra várias vezes. Por isso este quadro é o mesmo em todas as linhas.<br>Todos aparecem aqui, inclusive os sem quantidade planejada: quando o insumo só existe em R$ (energia, arrendamento, frete), deixe a quantidade vazia e lance direto em <strong>R$ real</strong>.</p>
+    <h3 class="cp-h3">Insumos compartilhados da fábrica — planejado x consumido <span class="cp-muted">(fatia desta linha)</span></h3>
+    <p class="cp-ajuda">O planejado aqui é a <strong>fatia desta linha</strong> — ${fmtPct(shareLinha, 1)} da tonelagem da fábrica. Digite o <strong>consumido desta linha</strong>. Quando o insumo só existe em R$ (energia, arrendamento, frete), deixe a quantidade vazia e lance direto em <strong>R$ real</strong>.</p>
     ${htmlCompart}
-    ${preCompart ? `<div class="cp-kpi-linha" style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px;"><span>Desvio de insumo compartilhado <span class="cp-muted">— fábrica inteira</span></span><strong style="color:${desvioCompart > 0 ? '#dc2626' : '#16a34a'};">${(desvioCompart > 0 ? '+' : '') + fmtBRL(desvioCompart)}</strong></div>
-    <div class="cp-kpi-linha"><span>Parte que cai nesta linha <span class="cp-muted">(${fmtPct(shareLinha, 1)} da tonelagem da fábrica)</span></span><strong style="color:${desvioCompartDaLinha > 0 ? '#dc2626' : '#16a34a'};">${(desvioCompartDaLinha > 0 ? '+' : '') + fmtBRL(desvioCompartDaLinha)}</strong></div>` : ''}
+    ${preCompart ? `<div class="cp-kpi-linha" style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px;"><span>Desvio de insumo compartilhado <span class="cp-muted">— desta linha</span></span><strong style="color:${desvioCompart > 0 ? '#dc2626' : '#16a34a'};">${(desvioCompart > 0 ? '+' : '') + fmtBRL(desvioCompart)}</strong></div>` : ''}
   </div>`;
 
   /* ---------- KPIs: mesmo padrão cp-kpi-linha da aba Configuração da Linha ---------- */
