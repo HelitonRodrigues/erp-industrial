@@ -2790,27 +2790,18 @@ function _prTotaisFabrica(r) {
   // desvio de insumo COMPARTILHADO — dois modos por item:
   //  rateado  = total da fabrica, lancado uma vez (escopo __FABRICA__);
   //  por linha = cada linha lanca a sua (planejado = total × fatia da linha).
-  const _rat = state.compartRateado || {};
   let desvioComp = 0, nComp = 0;
   r.plano.resultadosItens.forEach(({ item, calc }) => {
     if (item.tipoRateio !== 'compartilhado' || item.removido) return;
     const preco = Number(item.precoUnitarioEditado != null ? item.precoUnitarioEditado : item.precoUnitario) || 0;
-    const rsPlanTot = Number(calc.valorTotal) || 0;
-    if (_rat[item.id]) {
-      const rsDig = _prNum(_prInsumoRS('__FABRICA__', item.id));
-      const q = _prNum(_prInsumo('__FABRICA__', item.id));
+    (state.blocos || []).forEach((b) => {
+      const infoB = r.tonPorBloco[b.id];
+      const rsPlanB = _valorCompartilhadoDaLinha(item, calc, b, infoB, r.plano.tonelagem, r, state);
+      const rsDig = _prNum(_prInsumoRS(b.id, item.id));
+      const q = _prNum(_prInsumo(b.id, item.id));
       const rsReal = rsDig !== null ? rsDig : (q !== null && preco > 0 ? q * preco : null);
-      if (rsReal !== null) { desvioComp += (rsReal - rsPlanTot); nComp++; }
-    } else {
-      (state.blocos || []).forEach((b) => {
-        const infoB = r.tonPorBloco[b.id];
-        const rsPlanB = _valorCompartilhadoDaLinha(item, calc, b, infoB, r.plano.tonelagem, r, state);
-        const rsDig = _prNum(_prInsumoRS(b.id, item.id));
-        const q = _prNum(_prInsumo(b.id, item.id));
-        const rsReal = rsDig !== null ? rsDig : (q !== null && preco > 0 ? q * preco : null);
-        if (rsReal !== null) { desvioComp += (rsReal - rsPlanB); nComp++; }
-      });
-    }
+      if (rsReal !== null) { desvioComp += (rsReal - rsPlanB); nComp++; }
+    });
   });
 
   // faturamento pelo preco por tonelada de cada linha de custo
@@ -3188,15 +3179,10 @@ function renderPlanRealizado(r) {
 
   // fatia da fábrica que esta linha representa (por tonelagem)
   const shareLinha = (r.plano.tonelagem.tonTotal > 0 && infoBloco) ? infoBloco.tonTotal / r.plano.tonelagem.tonTotal : 0;
-  // Cada compartilhado pode ser POR LINHA (fatia da linha, digita o desta linha) ou
-  // RATEADO (total da fábrica, digita uma vez e divide sozinho). Modo por item.
-  const _rat = state.compartRateado || {};
-  const compPorLinha = compartilhadosFab.filter((x) => !_rat[x.item.id]);
-  const compRateados = compartilhadosFab.filter((x) => !!_rat[x.item.id]);
-  const _btnStyle = 'style="font-size:9.5px;padding:0 5px;margin-right:6px;vertical-align:middle;"';
-  const btnParaRateado = (item) => `<button class="btn btn-ghost btn-sm" ${_btnStyle} title="Passar para total da fábrica (rateado)" onclick="setCompartRateado('${esc(item.id)}', true)">⇄ rateado</button>`;
-  const btnParaLinha = (item) => `<button class="btn btn-ghost btn-sm" ${_btnStyle} title="Passar para lançamento por linha" onclick="setCompartRateado('${esc(item.id)}', false)">⇄ por linha</button>`;
-  // POR LINHA: planejado = valor DESTA linha (mesma regra da aba Config. da Linha); consumido por linha
+  // Compartilhados SEMPRE por linha (fatia da linha, mesma regra da Config. da Linha).
+  // O botão "▸ rateio" abre um modal pra lançar o TOTAL da fábrica uma vez e diluir por
+  // tonelada entre as linhas escolhidas — preenche o realizado por linha, sem apagar nada.
+  const btnRateio = (item) => `<button class="btn btn-ghost btn-sm" style="font-size:9.5px;padding:0 6px;margin-right:6px;vertical-align:middle;" title="Lançar o total da fábrica e diluir por tonelada entre as linhas" onclick="abrirRateio('${esc(item.id)}')">▸ rateio</button>`;
   const _planCompLinha = (item, calc) => {
     const rs = _valorCompartilhadoDaLinha(item, calc, bloco, infoBloco, r.plano.tonelagem, r, state);
     const vt = Number(calc.valorTotal) || 0;
@@ -3204,15 +3190,8 @@ function renderPlanRealizado(r) {
     return { qtd: q, rs };
   };
   desvioRS = 0; insPreenchidos = 0;
-  const htmlCompartLinha = _tabelaInsumos(compPorLinha, bloco.id, 'Nenhum compartilhado neste modo.', _planCompLinha, btnParaRateado);
-  const desvioCompLinha = desvioRS, preCompLinha = insPreenchidos;
-  // RATEADO: total da fábrica (escopo único __FABRICA__), digitado uma vez (planLinha=null → usa o total)
-  desvioRS = 0; insPreenchidos = 0;
-  const htmlCompartRat = _tabelaInsumos(compRateados, '__FABRICA__', 'Nenhum compartilhado neste modo.', null, btnParaLinha);
-  const desvioCompRat = desvioRS, preCompRat = insPreenchidos;
-  // desvio compartilhado DESTA linha = por-linha (já é da linha) + fatia da linha nos rateados
-  const desvioCompart = desvioCompLinha + desvioCompRat * shareLinha;
-  const preCompart = preCompLinha + preCompRat;
+  const htmlCompart = _tabelaInsumos(compartilhadosFab, bloco.id, 'Nenhum insumo compartilhado cadastrado.', _planCompLinha, btnRateio);
+  const desvioCompart = desvioRS, preCompart = insPreenchidos;
   const desvioCompartDaLinha = desvioCompart;
 
   const insumosCard = `<div class="card" style="margin-bottom:16px;">
@@ -3223,12 +3202,9 @@ function renderPlanRealizado(r) {
   </div>
   <div class="card" style="margin-bottom:16px;">
     <h3 class="cp-h3">Insumos compartilhados — planejado x consumido</h3>
-    <p class="cp-ajuda">Cada item tem um botão pra escolher o modo: <strong>por linha</strong> = a fatia desta linha (${fmtPct(shareLinha, 1)} da tonelagem; você digita o que ESTA linha gastou); <strong>rateado</strong> = você digita o <strong>total da fábrica uma vez</strong> e o sistema divide entre as linhas sozinho. Quando o insumo só existe em R$ (energia, arrendamento), deixe a quantidade vazia e lance direto em <strong>R$ real</strong>.</p>
-    <div style="font-weight:700;font-size:12.5px;color:#475569;margin:10px 0 4px;">Por linha <span class="cp-muted">— fatia desta linha (${fmtPct(shareLinha, 1)})</span></div>
-    ${htmlCompartLinha}
-    <div style="font-weight:700;font-size:12.5px;color:#475569;margin:14px 0 4px;">Rateado <span class="cp-muted">— total da fábrica (digite uma vez; a fatia desta linha é ${fmtPct(shareLinha, 1)})</span></div>
-    ${htmlCompartRat}
-    ${preCompart ? `<div class="cp-kpi-linha" style="margin-top:10px;border-top:1px solid var(--border);padding-top:8px;"><span>Desvio de compartilhado que cai <span class="cp-muted">nesta linha</span></span><strong style="color:${desvioCompart > 0 ? '#dc2626' : '#16a34a'};">${(desvioCompart > 0 ? '+' : '') + fmtBRL(desvioCompart)}</strong></div>` : ''}
+    <p class="cp-ajuda">O planejado é a <strong>fatia desta linha</strong> (${fmtPct(shareLinha, 1)} da tonelagem). Digite o <strong>consumido desta linha</strong>, ou use <strong>▸ rateio</strong> no item pra lançar o <strong>total da fábrica</strong> uma vez e diluir por tonelada entre as linhas que você escolher. Insumo só em R$ (energia, arrendamento): deixe a quantidade vazia e lance em <strong>R$ real</strong>.</p>
+    ${htmlCompart}
+    ${preCompart ? `<div class="cp-kpi-linha" style="margin-top:10px;border-top:1px solid var(--border);padding-top:8px;"><span>Desvio de compartilhado <span class="cp-muted">desta linha</span></span><strong style="color:${desvioCompart > 0 ? '#dc2626' : '#16a34a'};">${(desvioCompart > 0 ? '+' : '') + fmtBRL(desvioCompart)}</strong></div>` : ''}
   </div>`;
 
   /* ---------- KPIs: mesmo padrão cp-kpi-linha da aba Configuração da Linha ---------- */
@@ -3466,7 +3442,65 @@ function renderPlanRealizado(r) {
     ${itemF('Resultado', F.temProd ? fmtBRL(F.resultReal) : '—', 'plan. ' + fmtBRL(F.resultPlan) + (F.temProd ? ' · ' + (F.resultReal - F.resultPlan > 0 ? '+' : '') + fmtBRL(F.resultReal - F.resultPlan) : ''), F.temProd ? (F.resultReal >= F.resultPlan ? '#C9FF64' : '#ff8f9b') : '#7aa3c0')}
   </div>`;
 
-  return totalFabrica + seletor + painel + tabela + horasCard + paradasCard + insumosCard + kpis + fechamento;
+  // Modal de RATEIO: total da fábrica (ou litros × R$/litro) diluído por tonelada
+  // entre as linhas escolhidas — preenche o realizado (R$) por linha.
+  let modalRateio = '';
+  if (state._rateioAberto) {
+    const alvo = compartilhadosFab.find((x) => x.item.id === state._rateioAberto);
+    if (alvo) {
+      const nomeR = alvo.item.insumo || alvo.item.id;
+      const linhasChk = (state.blocos || []).map((b) => {
+        const tonB = (r.tonPorBloco[b.id] || {}).tonTotal || 0;
+        return `<label style="display:flex;gap:8px;align-items:center;padding:5px 0;font-size:13px;">
+          <input type="checkbox" class="rateio-linha" data-b="${b.id}" ${tonB > 0 ? 'checked' : ''}>
+          ${esc(b.linhaNome || '(sem nome)')} <span class="cp-muted">(${fmtNum(tonB, 1)} t)</span></label>`;
+      }).join('');
+      modalRateio = `<div style="position:fixed;inset:0;background:rgba(4,45,77,.55);display:flex;align-items:center;justify-content:center;z-index:1000;" onclick="if(event.target===this)fecharRateio()">
+        <div style="background:#fff;border-radius:14px;padding:20px 22px;max-width:480px;width:92%;max-height:88vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.3);">
+          <h3 class="cp-h3" style="margin-top:0;">Rateio — ${esc(nomeR)}</h3>
+          <p class="cp-ajuda">Lance o <strong>total da fábrica</strong> (ou litros × R$/litro) e marque as linhas. O valor é dividido por <strong>tonelada</strong> entre as linhas marcadas e cai no realizado (R$) de cada uma.</p>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;margin:10px 0;">
+            <div><label class="form-label" style="font-size:11px;">Litros (opcional)</label><input id="rateio-qtd" type="text" inputmode="decimal" autocomplete="off" oninput="_rateioCalcTotal()" style="width:110px;padding:7px 9px;border:1.5px solid #CBD5E1;border-radius:8px;font-size:14px;font-family:inherit;"></div>
+            <div><label class="form-label" style="font-size:11px;">R$/litro (opcional)</label><input id="rateio-preco" type="text" inputmode="decimal" autocomplete="off" oninput="_rateioCalcTotal()" style="width:110px;padding:7px 9px;border:1.5px solid #CBD5E1;border-radius:8px;font-size:14px;font-family:inherit;"></div>
+            <div><label class="form-label" style="font-size:11px;">Total R$ <span class="req">*</span></label><input id="rateio-total" type="text" inputmode="decimal" autocomplete="off" style="width:140px;padding:7px 9px;border:1.5px solid #CBD5E1;border-radius:8px;font-size:14px;font-weight:700;font-family:inherit;"></div>
+          </div>
+          <div style="font-size:12px;font-weight:700;color:#475569;margin:8px 0 2px;">Linhas que entram no custo:</div>
+          ${linhasChk}
+          <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px;">
+            <button class="btn btn-ghost" onclick="fecharRateio()">Cancelar</button>
+            <button class="btn btn-primary" onclick="aplicarRateio('${esc(state._rateioAberto)}')">Aplicar rateio</button>
+          </div>
+        </div></div>`;
+    }
+  }
+
+  return totalFabrica + seletor + painel + tabela + horasCard + paradasCard + insumosCard + kpis + fechamento + modalRateio;
+}
+
+/* Abre/fecha o modal de rateio e aplica o total diluído por tonelada nas linhas escolhidas. */
+function abrirRateio(itemId) { state._rateioAberto = itemId; render(); }
+function fecharRateio() { state._rateioAberto = null; render(); }
+function _rateioCalcTotal() {
+  const q = _prNum(document.getElementById('rateio-qtd') ? document.getElementById('rateio-qtd').value : '');
+  const p = _prNum(document.getElementById('rateio-preco') ? document.getElementById('rateio-preco').value : '');
+  const el = document.getElementById('rateio-total');
+  if (el && q !== null && p !== null) el.value = String(Math.round(q * p * 100) / 100);
+}
+function aplicarRateio(itemId) {
+  const total = _prNum(document.getElementById('rateio-total') ? document.getElementById('rateio-total').value : '') || 0;
+  const sel = [...document.querySelectorAll('.rateio-linha:checked')].map((c) => c.dataset.b);
+  if (!sel.length) { fecharRateio(); return; }
+  const rr = computar(state);
+  const tonDe = (bId) => (rr.tonPorBloco[bId] || {}).tonTotal || 0;
+  const somaTon = sel.reduce((a, bId) => a + tonDe(bId), 0);
+  if (!state.realizadoInsumosRS) state.realizadoInsumosRS = {};
+  sel.forEach((bId) => {
+    if (!state.realizadoInsumosRS[bId]) state.realizadoInsumosRS[bId] = {};
+    const fatia = somaTon > 0 ? (tonDe(bId) / somaTon) : (1 / sel.length);
+    state.realizadoInsumosRS[bId][itemId] = String(Math.round(total * fatia * 100) / 100);
+  });
+  state._rateioAberto = null;
+  render();
 }
 
 /* <<<<< FIM ABA PLANEJADO x REALIZADO */
