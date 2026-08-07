@@ -153,10 +153,15 @@ com piloto, ele confere o número, só então espalha.** Primeiro cálculo: **TO
   tabela por linha). Número idêntico (refactor puro). NÃO é a disponibilidade do OEE
   (base horas brutas do planejamento) — essa fica separada de propósito.
 
-**Falta no item 3 (refino, não bloqueia):** (a) **snippet do bug `sacosPorPallet:95`** no
-`custo-precificacao.html` — arquivo do DONO; passar snippet quando ele colar o trecho.
-(b) **Aposentar** `peso_saco`/`peso`/`peso_embalagem` (migração aditiva: dropar as colunas
-mortas semanas depois, já sem uso real).
+**Bug `sacosPorPallet:95` — RESOLVIDO (verificado 2026-08-07).** Conferido o
+`custo-precificacao.html`: CAULIM25 já está `sacosPorPallet: 77` (linha 287), L20=91,
+CONC=180. Não há mais nenhum `95` de pallet (os `95` restantes são largura CSS, preset
+de eficiência 95% e valor de folha — não relacionados). O dono corrigiu numa edição
+manual anterior. Nada a fazer. (Obs.: a SKILL ainda cita o `95` como bug aberto —
+desatualizada nesse ponto.)
+
+**Falta no item 3 (único, não bloqueia):** **aposentar** `peso_saco`/`peso`/`peso_embalagem`
+(migração aditiva: dropar as colunas mortas semanas depois, já sem uso real).
 
 ## Item 0 — Backup (estado)
 
