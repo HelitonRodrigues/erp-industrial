@@ -21,7 +21,7 @@ go-live, custa parada de linha.
 [x] 1    Auth Supabase✓ + anon key✓ + RLS baseline✓ + 1c por perfil nas sensíveis✓
 [~] 2    TODOS os fallbacks apagados✓ (silenciosos + schema-strip) — só falta 001_baseline (opcional)
 [x] 2.5  Helper db() + espalhado em ~20 módulos (todos os fluxos de dado)✓
-[~] 3    js/regras.js✓ — TONELAGEM feita (piloto custos✓ + expedicao✓ + almox✓); falta pallet/eficiência
+[~] 3    js/regras.js✓ — TONELAGEM✓ + PALLET✓ + EFICIÊNCIA✓ (núcleo fechado); falta snippet 95 (dono) + aposentar colunas de peso antigas
 [ ] 4    limit/filtro nas 118 queries abertas
 [ ] 4.5  Fotos base64 → Storage (+ incluir Storage no backup)
 [ ] 5    Deep-links entre módulos (?equip=&aba=)
@@ -125,11 +125,25 @@ com piloto, ele confere o número, só então espalha.** Primeiro cálculo: **TO
   (ficha técnica MP = peso × sacos) passam a lê-lo, com nomes antigos + extração só como
   retrocompatibilidade. `dashboard.html` fora (tonelada vem de custo/custo-por-ton).
 
-**Falta no item 3:** os outros cálculos da fonte única — **pallet** (`sacos = Σ(cap×qtd)+sobra`,
-hoje duplicado 5× no `producao.html`; + bug `sacosPorPallet:95` no `custo-precificacao.html`
-que é do dono) e **eficiência** (cuidado: 2 sentidos — realizado em `producao` vs fator de
-planejamento em `planejamento`). Aposentar de vez `peso_saco`/`peso`/`peso_embalagem`
-(migração aditiva: dropar as colunas mortas semanas depois).
+- **Passo 4 — PALLET (commit `482ae91`).** Segundo cálculo. `regras.js` ganhou
+  `sacosDePallets(itens)`, `totalSacos(itens,sobra)`, `palletsCheios(itens)`,
+  `palletsFisicos(itens,sobra,sobraOcupa)` (puras, testadas no node — inclui 3300 sacos
+  = 18 cheios + 60 sobra → 19 pallets). No `producao.html`: helper `_lerItensPallet(div)`
+  (única leitura de DOM) + os **5 sites** duplicados (calcProdOP, calcTotaisOP,
+  calcEficienciaOP, validação, SAVE) passam a chamar `regras.js`. Estrutura do array
+  `pallets` persistido preservada byte a byte. Dono validou ("está ok").
+- **Passo 5 — EFICIÊNCIA DE PRODUÇÃO (commit `e2d1fef`).** Terceiro cálculo.
+  `regras.js`: `metaSacos(capHora,horas)` + `eficienciaProducao(sacos,meta)`. Comentário
+  fixo de que **NÃO** é o fator de planejamento do `planejamento.html` (`perda = brutos ×
+  (100−efic)/100` — entrada de planejamento, não medição; não unificar — alerta da skill).
+  No `producao.html`: os 3 pontos que faziam `capHora×h` e `sacos/meta×100` (save,
+  calcEficienciaOP, performance do OEE) passam a chamar `regras.js`. Número idêntico.
+
+**Falta no item 3 (refino, não bloqueia):** (a) **snippet do bug `sacosPorPallet:95`** no
+`custo-precificacao.html` — arquivo do DONO; passar snippet quando ele colar o trecho.
+(b) **disponibilidade** `(HT−HP)/HT×100` (duplicada 3× em `producao`, cálculo limpo) pode
+entrar no `regras.js` num próximo passo. (c) **Aposentar** `peso_saco`/`peso`/`peso_embalagem`
+(migração aditiva: dropar as colunas mortas semanas depois, já sem uso real).
 
 ## Item 0 — Backup (estado)
 
