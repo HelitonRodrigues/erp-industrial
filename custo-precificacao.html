@@ -2736,28 +2736,38 @@ function _prTotaisFabrica(r) {
   (r.producao.detalhes || []).forEach((d) => { horasSec[d.blocoId + '|' + d.secaoId] = Number(d.horasDispSecao) || 0; });
 
   (state.blocos || []).forEach((b) => {
+    // horas: planejado soma os turnos; realizado é um TOTAL por linha (chave __TOTAL__)
     (b.secoes || []).forEach((secao) => {
       const hp = horasSec[b.id + '|' + secao.id];
       if (hp !== undefined) planH += hp;
-      const hr = _prNum(_prHoras(b.id, secao.id));
-      if (hr !== null) { realH += hr; temHora = true; }
+    });
+    const hrTot = _prNum(_prHoras(b.id, '__TOTAL__'));
+    if (hrTot !== null) { realH += hrTot; temHora = true; }
 
+    // produtos: agrega por produto (soma turnos); realizado é um TOTAL por produto (chave = nome)
+    const planProd = {}; // nome -> { pq, dest }
+    (b.secoes || []).forEach((secao) => {
       (secao.produtos || []).filter((pp) => pp.ativo !== false).forEach((pp) => {
         const det = (r.producao.detalhes || []).find((d) => d.blocoId === b.id && d.secaoId === secao.id && d.produtoNome === pp.nome);
         const pq = det ? (Number(det.qtd) || 0) : 0;
         const dest = (garantirMapaProduto(pp.nome) || {}).destino || '';
         if (!dest) return;
-        const rq = _prNum(_prGet(b.id, secao.id + '||' + pp.nome));
-        const pt = qtdParaToneladas(dest, pq, pesos);
-        planTon += pt;
-        if (!porDest[dest]) porDest[dest] = { planTon: 0, realTon: 0, temReal: false };
-        porDest[dest].planTon += pt;
-        if (rq !== null) {
-          const rt = qtdParaToneladas(dest, rq, pesos);
-          realTon += rt; temProd = true;
-          porDest[dest].realTon += rt; porDest[dest].temReal = true;
-        }
+        if (!planProd[pp.nome]) planProd[pp.nome] = { pq: 0, dest };
+        planProd[pp.nome].pq += pq;
       });
+    });
+    Object.keys(planProd).forEach((nome) => {
+      const { pq, dest } = planProd[nome];
+      const rq = _prNum(_prGet(b.id, nome));
+      const pt = qtdParaToneladas(dest, pq, pesos);
+      planTon += pt;
+      if (!porDest[dest]) porDest[dest] = { planTon: 0, realTon: 0, temReal: false };
+      porDest[dest].planTon += pt;
+      if (rq !== null) {
+        const rt = qtdParaToneladas(dest, rq, pesos);
+        realTon += rt; temProd = true;
+        porDest[dest].realTon += rt; porDest[dest].temReal = true;
+      }
     });
 
     // desvio de insumo DIRETO de cada linha (planejado = quantidade DESTA linha × preço)
@@ -2954,42 +2964,48 @@ function renderPlanRealizado(r) {
     <p class="cp-ajuda">Digite ao lado de cada produto o que a linha realmente produziu no mês. Campo livre, sem travas — vazio significa "ainda não preenchi". Lembre de clicar em <strong>💾 Salvar</strong> no topo.</p>
   </div>`;
 
-  /* ---------- linhas da tabela: exatamente o que está configurado (turno x produto) ---------- */
+  /* ---------- linhas da tabela: um TOTAL por produto (soma os turnos, sem separar por turno) ---------- */
   const rows = [];
   let planQtdTot = 0, realQtdTot = 0, planTonTot = 0, realTonTot = 0, preenchidos = 0, totalCampos = 0;
   const porDestino = {}; // destino -> { planTon, realTon }
 
+  // agrega o planejado por produto, somando os turnos
+  const porProd = {}; // nome -> { planQtd, destino, unidade }
   (bloco.secoes || []).forEach((secao) => {
-    const ativos = (secao.produtos || []).filter((p) => p.ativo !== false);
-    if (!ativos.length) return;
-    rows.push(`<tr style="background:#f8fafc;"><td colspan="7" style="font-weight:800;color:#042D4D;font-size:12px;text-transform:uppercase;letter-spacing:.03em;">Turno: ${esc(secao.turnoNome || '(sem turno)')}</td></tr>`);
-
-    ativos.forEach((p) => {
+    (secao.produtos || []).filter((p) => p.ativo !== false).forEach((p) => {
       const det = (r.producao.detalhes || []).find((d) => d.blocoId === bloco.id && d.secaoId === secao.id && d.produtoNome === p.nome);
       const planQtd = det ? (Number(det.qtd) || 0) : 0;
-      const destino = (garantirMapaProduto(p.nome) || {}).destino || '';
-      const chave = secao.id + '||' + p.nome;
-      const raw = _prGet(bloco.id, chave);
-      const realQtd = _prNum(raw);
+      if (!porProd[p.nome]) porProd[p.nome] = { planQtd: 0, destino: (garantirMapaProduto(p.nome) || {}).destino || '', unidade: p.unidade };
+      porProd[p.nome].planQtd += planQtd;
+    });
+  });
 
-      const planTon = destino ? qtdParaToneladas(destino, planQtd, pesos) : 0;
-      const realTon = (destino && realQtd !== null) ? qtdParaToneladas(destino, realQtd, pesos) : null;
+  Object.keys(porProd).forEach((nome) => {
+    const info = porProd[nome];
+    const destino = info.destino;
+    const planQtd = info.planQtd;
+    const chave = nome;                         // chave = nome do produto (total da linha, sem turno)
+    const raw = _prGet(bloco.id, chave);
+    const realQtd = _prNum(raw);
 
-      planQtdTot += planQtd; planTonTot += planTon; totalCampos++;
-      if (realQtd !== null) { realQtdTot += realQtd; realTonTot += (realTon || 0); preenchidos++; }
-      if (destino) {
-        if (!porDestino[destino]) porDestino[destino] = { planTon: 0, realTon: 0, temReal: false };
-        porDestino[destino].planTon += planTon;
-        if (realTon !== null) { porDestino[destino].realTon += realTon; porDestino[destino].temReal = true; }
-      }
+    const planTon = destino ? qtdParaToneladas(destino, planQtd, pesos) : 0;
+    const realTon = (destino && realQtd !== null) ? qtdParaToneladas(destino, realQtd, pesos) : null;
 
-      const d = realQtd === null ? null : realQtd - planQtd;
-      const pct = realQtd === null ? null : (planQtd > 0 ? realQtd / planQtd : (realQtd > 0 ? 1 : 0));
-      const cor = pct === null ? '#94a3b8' : pct >= 1 ? '#16a34a' : pct >= 0.9 ? '#b45309' : '#dc2626';
+    planQtdTot += planQtd; planTonTot += planTon; totalCampos++;
+    if (realQtd !== null) { realQtdTot += realQtd; realTonTot += (realTon || 0); preenchidos++; }
+    if (destino) {
+      if (!porDestino[destino]) porDestino[destino] = { planTon: 0, realTon: 0, temReal: false };
+      porDestino[destino].planTon += planTon;
+      if (realTon !== null) { porDestino[destino].realTon += realTon; porDestino[destino].temReal = true; }
+    }
 
-      rows.push(`<tr>
-        <td style="font-weight:600;padding-left:18px;">${esc(p.nome)}${destino ? '' : ' <span class="badge badge-warning" style="font-size:10px;">sem mapa</span>'}</td>
-        <td class="cp-muted" style="font-size:12px;">${esc(p.unidade || (destino ? UNIDADE_LABEL[destino] : 'un'))}</td>
+    const d = realQtd === null ? null : realQtd - planQtd;
+    const pct = realQtd === null ? null : (planQtd > 0 ? realQtd / planQtd : (realQtd > 0 ? 1 : 0));
+    const cor = pct === null ? '#94a3b8' : pct >= 1 ? '#16a34a' : pct >= 0.9 ? '#b45309' : '#dc2626';
+
+    rows.push(`<tr>
+        <td style="font-weight:600;">${esc(nome)}${destino ? '' : ' <span class="badge badge-warning" style="font-size:10px;">sem mapa</span>'}</td>
+        <td class="cp-muted" style="font-size:12px;">${esc(info.unidade || (destino ? UNIDADE_LABEL[destino] : 'un'))}</td>
         <td class="cp-num">${fmtNum(planQtd, 0)}</td>
         <td style="text-align:right;padding:4px 6px;">
           <input type="text" inputmode="decimal" autocomplete="off" value="${esc(raw)}" placeholder="digite"
@@ -3001,7 +3017,6 @@ function renderPlanRealizado(r) {
         <td class="cp-num" style="color:${cor};font-weight:800;">${pct === null ? '—' : fmtPct(pct, 1)}</td>
         <td class="cp-num cp-muted">${destino ? fmtNum(planTon, 2) + ' / ' + (realTon !== null ? fmtNum(realTon, 2) : '—') : '—'}</td>
       </tr>`);
-    });
   });
 
   const pctTon = planTonTot > 0 && preenchidos ? realTonTot / planTonTot : null;
@@ -3036,37 +3051,25 @@ function renderPlanRealizado(r) {
     if (d.blocoId === bloco.id) horasPorSecao[d.secaoId] = Number(d.horasDispSecao) || 0;
   });
 
-  let hPlanTot = 0, hRealTot = 0, hPreenchidos = 0, hCampos = 0;
-  const horasRows = (bloco.secoes || []).map((secao) => {
-    const hPlan = horasPorSecao[secao.id];
-    const temPlan = hPlan !== undefined;
-    const raw = _prHoras(bloco.id, secao.id);
-    const hReal = _prNum(raw);
-    hCampos++;
-    if (temPlan) hPlanTot += hPlan;
-    if (hReal !== null) { hRealTot += hReal; hPreenchidos++; }
-    return `<tr>
-      <td style="font-weight:600;">Turno ${esc(secao.turnoNome || '(sem turno)')}</td>
-      <td class="cp-num">${temPlan ? fmtNum(hPlan, 1) : '—'}</td>
-      <td style="text-align:right;padding:4px 6px;">${_prInput(`data-b="${bloco.id}" data-s="${secao.id}" onchange="setRealizadoHoras(this.dataset.b, this.dataset.s, this.value)"`, raw, 104)}</td>
-      ${_prDeltaCels(temPlan ? hPlan : 0, hReal, 1, false)}
+  // Total da linha (soma os turnos) — um campo só de horas realizadas.
+  const hPlanTot = (bloco.secoes || []).reduce((a, secao) => a + (Number(horasPorSecao[secao.id]) || 0), 0);
+  const rawH = _prHoras(bloco.id, '__TOTAL__');
+  const hRealVal = _prNum(rawH);
+  const hRealTot = hRealVal || 0, hPreenchidos = hRealVal !== null ? 1 : 0;
+  const horasRows = `<tr>
+      <td style="font-weight:600;">Total da linha</td>
+      <td class="cp-num">${fmtNum(hPlanTot, 1)}</td>
+      <td style="text-align:right;padding:4px 6px;">${_prInput(`data-b="${bloco.id}" data-s="__TOTAL__" onchange="setRealizadoHoras(this.dataset.b, this.dataset.s, this.value)"`, rawH, 104)}</td>
+      ${_prDeltaCels(hPlanTot, hRealVal, 1, false)}
     </tr>`;
-  }).join('');
 
   const pctHoras = hPlanTot > 0 && hPreenchidos ? hRealTot / hPlanTot : null;
   const horasCard = (bloco.secoes || []).length ? `<div class="card" style="margin-bottom:16px;">
     <h3 class="cp-h3">Horas trabalhadas — planejado x realizado</h3>
     <p class="cp-ajuda">Pegue as horas reais da sua planilha de controle. É isso que separa "produzimos menos porque o ritmo caiu" de "produzimos menos porque a linha ficou parada".</p>
     <div class="table-wrap"><table>
-      <thead><tr><th>Turno</th><th class="cp-num">Horas planejadas</th><th style="text-align:right;">Horas reais</th><th class="cp-num">Δ</th><th class="cp-num">%</th></tr></thead>
+      <thead><tr><th>Linha</th><th class="cp-num">Horas planejadas</th><th style="text-align:right;">Horas reais</th><th class="cp-num">Δ</th><th class="cp-num">%</th></tr></thead>
       <tbody>${horasRows}</tbody>
-      <tfoot><tr style="background:#f8fafc;font-weight:800;">
-        <td>TOTAL</td>
-        <td class="cp-num">${fmtNum(hPlanTot, 1)} h</td>
-        <td class="cp-num">${hPreenchidos ? fmtNum(hRealTot, 1) + ' h' : '—'}</td>
-        <td class="cp-num">${hPreenchidos ? ((hRealTot - hPlanTot) > 0 ? '+' : '') + fmtNum(hRealTot - hPlanTot, 1) : '—'}</td>
-        <td class="cp-num">${pctHoras === null ? '—' : fmtPct(pctHoras, 1)}</td>
-      </tr></tfoot>
     </table></div>
   </div>` : '';
 
@@ -3075,35 +3078,24 @@ function renderPlanRealizado(r) {
   (r.producao.detalhes || []).forEach((d) => {
     if (d.blocoId === bloco.id) paradaPorSecao[d.secaoId] = Number(d.paradaSecao) || 0;
   });
-  let pPlanTot = 0, pRealTot = 0, pPreenchidos = 0;
-  const paradasRows = (bloco.secoes || []).map((secao) => {
-    const pPlan = paradaPorSecao[secao.id];
-    const temPlan = pPlan !== undefined;
-    const raw = _prParadas(bloco.id, secao.id);
-    const pReal = _prNum(raw);
-    if (temPlan) pPlanTot += pPlan;
-    if (pReal !== null) { pRealTot += pReal; pPreenchidos++; }
-    return `<tr>
-      <td style="font-weight:600;">Turno ${esc(secao.turnoNome || '(sem turno)')}</td>
-      <td class="cp-num">${temPlan ? fmtNum(pPlan, 1) : '—'}</td>
-      <td style="text-align:right;padding:4px 6px;">${_prInput(`data-b="${bloco.id}" data-s="${secao.id}" onchange="setRealizadoParadas(this.dataset.b, this.dataset.s, this.value)"`, raw, 104)}</td>
-      ${_prDeltaCels(temPlan ? pPlan : 0, pReal, 1, true)}
+  // Total da linha (soma os turnos) — um campo só de parada realizada.
+  const pPlanTot = (bloco.secoes || []).reduce((a, secao) => a + (Number(paradaPorSecao[secao.id]) || 0), 0);
+  const rawP = _prParadas(bloco.id, '__TOTAL__');
+  const pRealVal = _prNum(rawP);
+  const pRealTot = pRealVal || 0, pPreenchidos = pRealVal !== null ? 1 : 0;
+  const paradasRows = `<tr>
+      <td style="font-weight:600;">Total da linha</td>
+      <td class="cp-num">${fmtNum(pPlanTot, 1)}</td>
+      <td style="text-align:right;padding:4px 6px;">${_prInput(`data-b="${bloco.id}" data-s="__TOTAL__" onchange="setRealizadoParadas(this.dataset.b, this.dataset.s, this.value)"`, rawP, 104)}</td>
+      ${_prDeltaCels(pPlanTot, pRealVal, 1, true)}
     </tr>`;
-  }).join('');
   const pctParadas = pPlanTot > 0 && pPreenchidos ? pRealTot / pPlanTot : null;
   const paradasCard = (bloco.secoes || []).length ? `<div class="card" style="margin-bottom:16px;">
     <h3 class="cp-h3">Paradas — planejada x realizada</h3>
     <p class="cp-ajuda">Horas planejadas de não-produção por turno (<strong>perda por eficiência + paradas previstas</strong>) contra as que aconteceram no mês. Aqui você lança a <strong>parada realizada</strong>. Verde = parou menos que o previsto.</p>
     <div class="table-wrap"><table>
-      <thead><tr><th>Turno</th><th class="cp-num">Parada planejada (h)</th><th style="text-align:right;">Parada realizada (h)</th><th class="cp-num">&Delta;</th><th class="cp-num">%</th></tr></thead>
+      <thead><tr><th>Linha</th><th class="cp-num">Parada planejada (h)</th><th style="text-align:right;">Parada realizada (h)</th><th class="cp-num">&Delta;</th><th class="cp-num">%</th></tr></thead>
       <tbody>${paradasRows}</tbody>
-      <tfoot><tr style="background:#f8fafc;font-weight:800;">
-        <td>TOTAL</td>
-        <td class="cp-num">${fmtNum(pPlanTot, 1)} h</td>
-        <td class="cp-num">${pPreenchidos ? fmtNum(pRealTot, 1) + ' h' : '—'}</td>
-        <td class="cp-num">${pPreenchidos ? ((pRealTot - pPlanTot) > 0 ? '+' : '') + fmtNum(pRealTot - pPlanTot, 1) : '—'}</td>
-        <td class="cp-num">${pctParadas === null ? '—' : fmtPct(pctParadas, 1)}</td>
-      </tr></tfoot>
     </table></div>
   </div>` : '';
 
