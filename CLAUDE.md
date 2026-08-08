@@ -64,8 +64,14 @@ memória do projeto entre sessões.
   `ADD COLUMN IF NOT EXISTS` alinhado ao schema do `frota.html`.
 - ✅ Landmines **RESOLVIDAS**: os 3 setup scripts com `DISABLE ROW LEVEL SECURITY`
   (frota_veiculos, planejamentos_custo, folhas_pagamento) → `ENABLE` + policy base (`376b113`).
-- ⚠️ `custo-precificacao.html` é mantido **pelo DONO** (edita/sobe pela web do GitHub).
-  NÃO editar aqui — passar snippet p/ ele colar. Sempre `git pull` no início (`pull.rebase=true`).
+- ⚠️ `custo-precificacao.html` era mantido **pelo DONO** (regra antiga: não editar, passar
+  snippet). **MUDOU na sessão 2026-08-07:** o dono pediu pra eu **editar direto no GitHub**
+  (ele baixa de volta como base). Editei muito a aba **planejado x realizado** — ver memória
+  `custo-precificacao-aba-planejado-realizado` (o que foi feito + o que falta) e
+  `testar-custo-precificacao-local` (como testar contornando login, com os dados reais dele).
+  Funcional pronto e testado; **falta:** preenchimento do realizado da planilha (só o dono
+  salva — sem meu acesso ao Supabase; dados espalhados em log diário + CUSTO REAL de MAIO
+  desatualizada) e o layout ⑤ (agrupar aditivo/pallet). Sempre `git pull` no início.
 Ponto de retorno: tag `antes-item-1`.
 
 ## Item 2 — fallbacks silenciosos (feito, sessão 2026-08-06)
