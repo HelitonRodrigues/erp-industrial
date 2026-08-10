@@ -215,13 +215,25 @@ furo real: `abaCarregamento` `romaneios` (`e81bb32`) — "pendentes" é estado a
 vinha por recência (`limit 500`), escondendo romaneio antigo pendente → trocado por
 `.or('status.in.(recebido,em_carregamento),status.is.null')` (URL PostgREST conferida).
 
-**Próximo — subprojeto RPC (parar e planejar, precisa de backup fresco):** os `init`
-pesados/agregados — `abaGerencial` (dashboard, várias tabelas + contador epi_entregas
-2342), `laboratorio` caulim_*, `compras` init — e os totais de período (expedição/
-carregamento) que hoje somam no cliente. Todos pedem **RPC/view no Supabase (0 hoje)**:
-count/sum server-side em vez de baixar linhas. Exports sob demanda (`pdfEpi`/`pdfGerencial`/
-CSV) ficam por último (rodam só no clique). Fora do relatorios, revisar as "queries
-abertas" reais dos outros módulos (o scanner tinha falso-positivo — ver mapa acima).
+**Feito 4 (sessão 2026-08-10) — últimas queries abertas de page-load (`ced9b92`):**
+`abaGerencial` — `epi_entregas` (pull de tudo p/ contadores vencidos/a-vencer) → count
+no Promise.all; `epiEntregas` removido do `_dadosGerencial` (não era lido). `abaBpf` —
+`bpf_ncs` era `select('*')` sem janela → total→contagem, abertas (estado atual)→
+`.or('status.neq.encerrado,status.is.null')`, tabela+export→limit(500). URLs conferidas,
+smoke limpo. **Varredura final:** todas as demais `select('*')` de page-load do relatorios
+já têm janela (período/status/limit) ou são catálogo pequeno (frota, bombas, naturezas/
+centros, equipamentos, prestadores). **Passada de CORREÇÃO de page-load do relatorios: COMPLETA.**
+
+**Resta (otimização, não correção — NÃO bloqueia; precisa de mim escrevendo SQL + o dono rodando):**
+1. **Subprojeto RPC/view** (0 RPCs hoje): agregados que hoje baixam linhas p/ somar no
+   cliente — almoxarifado (alertas de estoque: `estoque_atual < estoque_minimo`, comparação
+   coluna×coluna que PostgREST não faz sem view/RPC), ABC, e os totais de período do
+   `abaGerencial`/expedição/carregamento (count/sum server-side). Precisa backup fresco.
+2. **Exports sob demanda** (`pdfEpi`/`pdfGerencial`/`csvEpi`/`csvExpedicao`/…): puxam
+   `select('*')` completo — mas rodam SÓ no clique e export quer dado completo; deixar
+   como está (janelar perderia dado). Só virar paginado se algum dia um export estourar.
+3. Fora do relatorios: revisar "queries abertas" reais dos outros módulos (scanner tinha
+   falso-positivo — ver mapa acima).
 
 ## Item 0 — Backup (estado)
 
