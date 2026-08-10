@@ -3104,6 +3104,7 @@ function renderPlanRealizado(r) {
   const infoBloco = r.tonPorBloco[bloco.id];
   const bucketsLinha = infoBloco ? BUCKETS_CUSTO.filter((b) => infoBloco.tonPorBucket[b] > 1e-9) : [];
   let desvioRS = 0, insPreenchidos = 0;   // acumulador temporário, zerado antes de cada tabela
+  let confirmadoRS = 0, assumidoN = 0;    // confirmadoRS = Σ do R$ real lançado (número que o dono confere somando a coluna); assumidoN = qtd de itens ainda no plano
 
   function _tabelaInsumos(lista, escopo, vazioMsg, planLinha, modoBtn, realAutoFn) {
     if (!lista.length) return `<p class="cp-ajuda">${vazioMsg}</p>`;
@@ -3125,7 +3126,8 @@ function renderPlanRealizado(r) {
       // Assim dá pra lançar o realizado mesmo quando o planejado não tem quantidade
       // (energia, arrendamento, frete — coisas que só existem em R$).
       const rsReal = rsDigitado !== null ? rsDigitado : (realQtd !== null && preco > 0 ? realQtd * preco : null);
-      if (rsReal !== null) { desvioRS += (rsReal - rsPlan); insPreenchidos++; }  // eslint-disable-line
+      if (rsReal !== null) { desvioRS += (rsReal - rsPlan); insPreenchidos++; confirmadoRS += rsReal; }  // eslint-disable-line
+      else if (rsPlan > 0) { assumidoN++; }                                     // não confirmado → segue no plano (contado p/ mostrar, sem esconder)
 
       const corRS = rsReal === null ? '#94a3b8' : rsReal > rsPlan ? '#dc2626' : '#16a34a';
       const derivado = rsDigitado === null && rsReal !== null;
@@ -3202,13 +3204,18 @@ function renderPlanRealizado(r) {
     if (rq !== null) metasReal[dest] += rq;
   });
   const tonReal = { tonCAULIMGRANEL: metasReal.CAULIMGRANEL || 0 };
+  // Auto-preenche a quantidade realizada dos diretos que ESCALAM com a produção:
+  // embalagem/aditivo ('direta'), pallet e MP (mp_*). Vem da produção que o dono
+  // digitou nos produtos — nada de plano disfarçado de real, e o pallet deixa de
+  // ficar "—". 'manual' (perda/cliente) NUNCA é auto (entrada avulsa). Manual sempre
+  // vence: o auto só entra quando o campo está vazio (ver guarda em _tabelaInsumos).
   const _realAutoDireto = (item) => {
-    if (!/^mp_/.test(item.formulaQtd || '')) return null;   // só MP (mp_10 / mp_20 / mp_25 / mp_caulim_total)
+    if (!/^(direta|pallet|mp_)/.test(item.formulaQtd || '')) return null;
     return calcularQuantidadeDireto(item, metasReal, tonReal);
   };
-  desvioRS = 0; insPreenchidos = 0;
+  desvioRS = 0; insPreenchidos = 0; confirmadoRS = 0; assumidoN = 0;
   const htmlDiretos = _tabelaInsumos(diretosLinha, bloco.id, 'Nenhum insumo direto associado a esta linha ainda.', _planDireto, null, _realAutoDireto);
-  const desvioDireto = desvioRS, preDireto = insPreenchidos;
+  const desvioDireto = desvioRS, preDireto = insPreenchidos, confDireto = confirmadoRS, assumNDireto = assumidoN;
 
   // fatia da fábrica que esta linha representa (por tonelagem)
   const shareLinha = (r.plano.tonelagem.tonTotal > 0 && infoBloco) ? infoBloco.tonTotal / r.plano.tonelagem.tonTotal : 0;
@@ -3226,10 +3233,17 @@ function renderPlanRealizado(r) {
     else if (item.id === 'frete') q = infoBloco ? (Number(infoBloco.tonTotal) || 0) : 0;   // frete = tonelada da linha
     return { qtd: q, rs };
   };
-  desvioRS = 0; insPreenchidos = 0;
+  desvioRS = 0; insPreenchidos = 0; confirmadoRS = 0; assumidoN = 0;
   const htmlCompart = _tabelaInsumos(compartilhadosFab, bloco.id, 'Nenhum insumo compartilhado cadastrado.', _planCompLinha, btnRateio);
-  const desvioCompart = desvioRS, preCompart = insPreenchidos;
+  const desvioCompart = desvioRS, preCompart = insPreenchidos, confCompart = confirmadoRS, assumNCompart = assumidoN;
   const desvioCompartDaLinha = desvioCompart;
+
+  // "Confirmado" = soma REAL do que o dono lançou (Σ R$ real — número que ele confere na coluna).
+  // "Assumido" (definido mais abaixo, quando o custo real está pronto) = o resto do custo, que
+  // ainda vem do plano. O resíduo absorve também o arredondamento bucket-vs-item, então o
+  // "confirmado" fica exato e o arredondamento não polui o número real.
+  const confirmadoTot = confDireto + confCompart;
+  const assumNTot = assumNDireto + assumNCompart;
 
   const insumosCard = `<div class="card" style="margin-bottom:16px;">
     <h3 class="cp-h3">Insumos diretos desta linha — planejado x consumido</h3>
@@ -3302,6 +3316,9 @@ function renderPlanRealizado(r) {
   const custoTonRealNum  = realTonTot > 0 ? custoRealParcial / realTonTot : null;
   const desvioInsumoTot  = desvioDireto + desvioCompartDaLinha;
   const temAlgumRealizado = !!(preenchidos || hPreenchidos || preDireto || preCompart);
+  // Assumido = parte do custo real que ainda vem do plano (o que não foi confirmado).
+  // Resíduo (custo real − confirmado): fecha exato com o total e absorve o arredondamento.
+  const assumidoTot = Math.max(0, custoRealParcial - confirmadoTot);
 
   const tile = (rot, valor, sub, cor) => `
     <div style="flex:1 1 150px;min-width:132px;background:rgba(255,255,255,.06);border-radius:10px;padding:9px 12px;">
@@ -3361,6 +3378,7 @@ function renderPlanRealizado(r) {
           cor);
       })()}
     </div>
+    ${temAlgumRealizado && assumidoTot > 1e-6 ? `<div style="margin-top:9px;background:rgba(255,209,102,.14);border:1px solid rgba(255,209,102,.35);border-radius:8px;padding:7px 11px;font-size:11.5px;color:#ffe08a;line-height:1.4;">⚠️ <strong>${fmtBRL(assumidoTot)}</strong> do custo (${assumNTot} ${assumNTot === 1 ? 'item' : 'itens'}) ainda vem do <strong>planejado</strong>, não do realizado. Preencha o R$ real desses itens (folha, energia, arrendamento…) pra o número ficar 100% real — veja a lista no fechamento.</div>` : ''}
     ${diagnostico}
   </div>`;
 
@@ -3435,6 +3453,10 @@ function renderPlanRealizado(r) {
              preCompart ? sg(desvioCompartDaLinha) : '—', cD(preCompart ? desvioCompartDaLinha : null, true))}
         ${li('<span style="color:#042D4D;">Custo total</span>', fmtBRL(custoTotalLinha), fmtBRL(custoRealLinha),
              sg(custoRealLinha - custoTotalLinha), cD(custoRealLinha - custoTotalLinha, true))}
+        ${assumidoTot > 1e-6 ? li('&nbsp;&nbsp;<span style="color:#166534;">↳ confirmado por você (real)</span>', '—', fmtBRL(confirmadoTot),
+             (preDireto + preCompart) + ' iten' + ((preDireto + preCompart) === 1 ? '' : 's'), '#166534') : ''}
+        ${assumidoTot > 1e-6 ? li('&nbsp;&nbsp;<span style="color:#b45309;">↳ ⚠️ ainda assumido do plano</span>', '—', fmtBRL(assumidoTot),
+             assumNTot + ' iten' + (assumNTot === 1 ? '' : 's') + ' — falta preencher', '#b45309') : ''}
 
         ${li('Custo por tonelada', fmtBRL(custoTonPlan), custoTonRealFinal !== null ? fmtBRL(custoTonRealFinal) : '—',
              custoTonRealFinal !== null ? sg(custoTonRealFinal - custoTonPlan) + '/t' : '—',
@@ -3453,9 +3475,10 @@ function renderPlanRealizado(r) {
       <strong>Como ler:</strong> o custo em reais não cai quando a produção cai — folha, arrendamento, energia e
       administrativo continuam iguais. Por isso o <strong>custo por tonelada sobe</strong> num mês fraco, e é ele
       que diz se o preço de venda ainda cobre a conta.<br>
-      <strong>O que este quadro assume:</strong> que todos os outros custos ficaram como planejado. Só entram como
-      desvio os insumos que você digitou acima. Se a folha ou a energia vieram diferentes do plano, lance no quadro
-      de compartilhados para o resultado ficar fiel.
+      <strong>O que ainda é estimativa:</strong> a linha âmbar <strong>"↳ ainda assumido do plano"</strong> mostra
+      quanto do custo (e quantos itens) <strong>não</strong> foi confirmado e segue com o valor planejado — tipicamente
+      os fixos (folha, energia, arrendamento). Enquanto não preencher o R$ real desses itens no quadro de compartilhados,
+      o custo total é <strong>parcial</strong>: real no que você confirmou, planejado no resto. Preencha para zerar a linha âmbar.
     </div>`}
   </div>`;
 
