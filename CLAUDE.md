@@ -235,6 +235,38 @@ centros, equipamentos, prestadores). **Passada de CORREÇÃO de page-load do rel
 3. Fora do relatorios: revisar "queries abertas" reais dos outros módulos (scanner tinha
    falso-positivo — ver mapa acima).
 
+## Item 4.5 — Fotos base64 → Storage (em andamento, sessão 2026-08-10)
+
+**Mapa (agente Explore) — onde há base64 no banco:**
+| tabela.coluna | módulo | tipo | comprimido? |
+|---|---|---|---|
+| `linhas_producao.foto` | linhas.html | 1 img | ❌ RAW → era a anomalia de 17MB |
+| `frota_veiculos.foto` | frota.html | 1 img | ✅ maxD1000 jpeg0.82 |
+| `frota_veiculos.componentes[].foto_componente` | frota.html | array | ✅ maxD800 jpeg0.75 |
+| `frota_veiculos.documentos[].data` | frota.html | array | ❌ RAW (aceita PDF/office cru!) |
+| `manutencao.fotos_servico` / `assinaturas_servico` / `assinatura` | manutencao+frota | array+png | ✅ fotos jpeg0.75; assinatura png canvas |
+| `manutencao_docs.url` | manutencao.html | base64 OU link | ❌ (opcional) |
+| `terceiros_remessas.assinatura(_autorizador)` + `.itens[].fotos[]` | terceiros.html | png + array | assinatura png; fotos jpeg0.78 |
+| `terceiros_servicos.anexos[]` | terceiros.html | array | ✅ jpeg0.80 |
+
+Anomalia 17MB **resolvida**: era `linhas_producao.foto` cru (NÃO `barracoes.layout`, que
+é só `{ordem,rotulos}` pequeno). `_supabase.storage` só é usado no **`bpf.html:9160-9214`**
+(bucket **`documentos`**, modelo híbrido `url`/`path_storage`/`conteudo_base64`) — TEMPLATE
+a seguir. **`backup.yml` só faz `pg_dump`, NÃO cobre Storage** (o "+Storage no backup" do 4.5 é step novo).
+
+**Fase 1 FEITA (`50222a1`, no ar):** compressão canvas no `linhas.html:previewFotoLinha`
+(maxD 1000, jpeg 0.82, = frota). Teste e2e: PNG 5.6MB → JPEG 109KB (−98,1%). Fotos
+existentes encolhem quando o dono reenviar. Code-only, sem tocar no banco.
+
+**Fase 2 (sub-projeto, precisa BACKUP FRESCO + dono):** migrar uploads pro Storage reusando
+o helper do bpf. Ordem por ganho: linhas.foto → frota.documentos (PDF/office crus) →
+frota.foto/componentes → manutencao.fotos_servico → terceiros fotos/anexos. Assinaturas
+(png canvas pequenas) por último/nem migra. Backfill dos base64 existentes (script único).
+Migração ADITIVA em 3 deploys por módulo (protocolo #3). Adicionar step de backup do bucket
+no `backup.yml`. Sites de escrita a mudar: `linhas.html:231/234/235`, `frota.html:2813-2827/
+2250` e `:2154/2167/2248/2229/2257/2259`, `manutencao.html:3553/3544`, `terceiros.html:534-540/
+548/544` e `:711-714/718/717`.
+
 ## Item 0 — Backup (estado)
 
 1. [x] Supabase **Pro** (backups diários, 7 dias)
