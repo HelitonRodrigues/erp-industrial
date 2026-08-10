@@ -1951,20 +1951,24 @@ function detalheCusto(id){
    ══════════════════════════════════════════════════════════ */
 async function abaBpf(){
   const {ini,fim} = getPeriodo();
-  const [ncs, auditorias, treinamentos] = await Promise.all([
-    safe(_supabase.from('bpf_ncs').select('*').order('created_at',{ascending:false})),
+  const hoje = new Date().toISOString().split('T')[0];
+  const REC_MAX = 500;
+  // Item 4 — janela por número: total → contagem; NCs abertas (ESTADO ATUAL, qualquer
+  // idade) → filtro de status (null = aberta, como o cliente); tabela+export → recentes.
+  const [totalNcs, ncsAbertas, ncs, auditorias, treinamentos] = await Promise.all([
+    safeCount(_supabase.from('bpf_ncs').select('*',{count:'exact',head:true})),
+    safe(_supabase.from('bpf_ncs').select('*').or('status.neq.encerrado,status.is.null').order('created_at',{ascending:false}).limit(200)),
+    safe(_supabase.from('bpf_ncs').select('*').order('created_at',{ascending:false}).limit(REC_MAX)),
     safe(_supabase.from('bpf_auditorias').select('*').gte('data',ini).lte('data',fim).order('data',{ascending:false})),
     safe(_supabase.from('bpf_treinamentos').select('*').gte('data',ini).lte('data',fim).order('data',{ascending:false})),
   ]);
-  const hoje = new Date().toISOString().split('T')[0];
   // Aberta = qualquer status diferente de 'encerrado' (mesma regra do bpf.html real)
-  const ncsAbertas = ncs.filter(n=>n.status!=='encerrado');
   const ncsVencidas = ncsAbertas.filter(n=>n.prazo && n.prazo<hoje);
   const auditRes = {aprovado:['ok','Aprovado'],aprovado_ressalvas:['warn','Aprovado c/ Ressalvas'],reprovado:['danger','Reprovado'],agendada:['info','Agendada']};
 
   const html = `
     <div class="kpi-row">
-      ${kpiBox(ncs.length,'NCs Registradas','total','#2563eb')}
+      ${kpiBox(totalNcs,'NCs Registradas','total','#2563eb')}
       ${kpiBox(ncsAbertas.length,'NCs Abertas','',ncsAbertas.length>0?'#f59e0b':'#16a34a',ncsAbertas.length>0?'#b45309':'#16a34a')}
       ${kpiBox(ncsVencidas.length,'Com Prazo Vencido','',ncsVencidas.length>0?'#dc2626':'#16a34a',ncsVencidas.length>0?'#dc2626':'#16a34a')}
       ${kpiBox(auditorias.length,'Auditorias no Período','','#7c3aed','#7c3aed')}
@@ -2342,11 +2346,13 @@ async function abaGerencial(){
   const hoje = new Date().toISOString().split('T')[0];
   const em7  = new Date(Date.now()+7*86400000).toISOString().split('T')[0];
 
-  const [prod,manut,almx,epiEntregas,exp,port,pals,custos,nats,ccs,frota,abastBombas,bpfNcs,martelos] = await Promise.all([
+  const [prod,manut,almx,epiVenc,epiProx,exp,port,pals,custos,nats,ccs,frota,abastBombas,bpfNcs,martelos] = await Promise.all([
     safe(_supabase.from('producao').select('*').gte('data',ini).lte('data',fim)),
     safe(_supabase.from('manutencao').select('*').or('linha.is.null,linha.neq.Frota').gte('data_abertura',ini).lte('data_abertura',fim)),
     safe(_supabase.from('almoxarifado').select('nome,estoque_atual,estoque_minimo,categoria,unidade,custo_unitario')),
-    safe(_supabase.from('epi_entregas').select('id,data_prevista_troca')),
+    // EPI vencidos / a vencer em 7d → contagem (estado atual); não baixa o histórico de entregas
+    safeCount(_supabase.from('epi_entregas').select('*',{count:'exact',head:true}).lt('data_prevista_troca',hoje)),
+    safeCount(_supabase.from('epi_entregas').select('*',{count:'exact',head:true}).gte('data_prevista_troca',hoje).lte('data_prevista_troca',em7)),
     safe(_supabase.from('expedicao_ordens').select('*').gte('created_at',ini+'T00:00:00').lte('created_at',fim+'T23:59:59')),
     safe(_supabase.from('portaria').select('*').gte('created_at',ini+'T00:00:00').lte('created_at',fim+'T23:59:59')),
     safe(_supabase.from('producao_pallets').select('status,linha,produto').gte('created_at',ini+'T00:00:00').lte('created_at',fim+'T23:59:59')),
@@ -2407,9 +2413,7 @@ async function abaGerencial(){
   const almxBaixo=almx.filter(x=>(x.estoque_atual||0)>0&&(x.estoque_atual||0)<=(x.estoque_minimo||0)&&(x.estoque_minimo||0)>0).length;
   const vEstoque =almx.reduce((s,i)=>s+((i.estoque_atual||0)*(i.custo_unitario||0)),0);
 
-  // ── EPI ──
-  const epiVenc =epiEntregas.filter(e=>e.data_prevista_troca&&e.data_prevista_troca<hoje).length;
-  const epiProx =epiEntregas.filter(e=>e.data_prevista_troca&&e.data_prevista_troca>=hoje&&e.data_prevista_troca<=em7).length;
+  // ── EPI ── (epiVenc / epiProx vêm por contagem no Promise.all acima)
 
   // ── EXPEDIÇÃO ──
   const tKgExp  = exp.reduce((s,o)=>s+(parseFloat(o.total_kg)||0),0);
@@ -2687,7 +2691,7 @@ async function abaGerencial(){
     </div>`;
 
   document.getElementById('rel-content').innerHTML = html;
-  window._dadosGerencial = {prod,manut,almx,epiEntregas,exp,port,pals,custos,nats,ccs,frota,bpfNcs,martelos,
+  window._dadosGerencial = {prod,manut,almx,exp,port,pals,custos,nats,ccs,frota,bpfNcs,martelos,
     tSc,disp,tLe,tCusto,tKgExp,tLiqP,tBrutoP,palAprov,palRep,palPend,qual,
     manutAberta,manutAndament,manutConcl,manutUrg,manutAtras,tHorasManut,
     epiVenc,epiProx,almxZero,almxBaixo,vEstoque,expConcl,expAtras,
