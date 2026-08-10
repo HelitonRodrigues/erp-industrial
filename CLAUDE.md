@@ -258,7 +258,14 @@ a seguir. **`backup.yml` só faz `pg_dump`, NÃO cobre Storage** (o "+Storage no
 (maxD 1000, jpeg 0.82, = frota). Teste e2e: PNG 5.6MB → JPEG 109KB (−98,1%). Fotos
 existentes encolhem quando o dono reenviar. Code-only, sem tocar no banco.
 
-**Fase 2 (sub-projeto, precisa BACKUP FRESCO + dono):** migrar uploads pro Storage reusando
+**Fase 2 — frota.documentos: FEITA no branch `feat/frota-docs-storage` (`0592e4a`, NÃO na main/prod).**
+`uploadDocVeiculo` virou híbrido (≤4MB base64, >4MB → bucket `documentos`, fallback base64
+se o Storage falhar); `renderDocsVeiculo` lê `data||url` (retrocompatível). Testado local:
+≤4MB→base64, 5MB sob anon→fallback (sem crash), render dos dois formatos, 0 erro. **PENDENTE
+p/ mergear:** o DONO testar o upload REAL autenticado (subir doc >4MB num veículo e ver ir
+pro Storage), confirmar RLS/visibilidade do bucket `documentos`. Só então merge→main.
+
+**Fase 2 (resto — sub-projeto, precisa BACKUP FRESCO + dono):** demais módulos reusando
 o helper do bpf. Ordem por ganho: linhas.foto → frota.documentos (PDF/office crus) →
 frota.foto/componentes → manutencao.fotos_servico → terceiros fotos/anexos. Assinaturas
 (png canvas pequenas) por último/nem migra. Backfill dos base64 existentes (script único).
