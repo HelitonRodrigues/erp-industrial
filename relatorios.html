@@ -644,6 +644,8 @@ async function carregarAba(){
    HELPERS
    ══════════════════════════════════════════════════════════ */
 const safe = async q => { try { const r = await q; return r.data||[]; } catch(e){ return []; } };
+// Para queries de CONTAGEM (select('*',{count:'exact',head:true})): traz o total sem baixar as linhas.
+const safeCount = async q => { try { const r = await q; if(r&&r.error) throw r.error; return (r&&r.count)||0; } catch(e){ console.warn('[relatorios] contagem falhou:', e&&e.message||e); return 0; } };
 const fmtN = (v, dec=0) => (v||0).toLocaleString('pt-BR',{minimumFractionDigits:dec,maximumFractionDigits:dec});
 const fmtD = d => d ? new Date(d+'T12:00:00').toLocaleDateString('pt-BR') : '—';
 const cor  = (v, b1=85, b2=70) => v>=b1?'#16a34a':v>=b2?'#b45309':'#dc2626';
@@ -2141,24 +2143,32 @@ function detalheCarregamento(id){
    ABA — COMPRAS
    ══════════════════════════════════════════════════════════ */
 async function abaCompras(){
-  const [pedidos, solicitacoes] = await Promise.all([
-    safe(_supabase.from('compras_pedidos').select('*').order('created_at',{ascending:false})),
-    safe(_supabase.from('compras_solicitacoes').select('*').order('created_at',{ascending:false})),
-  ]);
   const hoje = new Date().toISOString().split('T')[0];
   // "Em aberto" = mesma definição usada no compras.html real (ainda não totalmente recebido/cancelado)
   const PED_ABERTOS = ['emitido','aguardando_entrega','recebido_parcial'];
-  const abertos = pedidos.filter(p=>PED_ABERTOS.includes(p.status));
-  const valorAberto = abertos.reduce((s,p)=>s+(parseFloat(p.valor_total)||0),0);
-  const atrasados = pedidos.filter(p=>p.prazo_entrega && p.prazo_entrega<hoje && PED_ABERTOS.includes(p.status));
   // Solicitação "pendente" = ainda não atendida/reprovada/cancelada/devolvida
   const SOL_FECHADAS = ['atendida','reprovada','cancelada','devolvida'];
-  const solPend = solicitacoes.filter(s=>!SOL_FECHADAS.includes(s.status));
+
+  // Item 4 — cada número tem sua janela server-side (não puxar a tabela toda):
+  //  • total de pedidos  → contagem (0 linhas trazidas);
+  //  • em aberto/atrasado/valor → ESTADO ATUAL: todos os abertos de QUALQUER idade;
+  //  • tabela + export   → recentes (teto REC_MAX; a tabela exibe 60);
+  //  • solicitações por status → só a coluna status (histograma; candidato a RPC/view depois).
+  const REC_MAX = 500;   // teto dos recentes p/ tabela+export; subir se um dia estourar (hoje há pouquíssimos pedidos)
+  const [totalPedidos, abertos, recentes, solStatus] = await Promise.all([
+    safeCount(_supabase.from('compras_pedidos').select('*',{count:'exact',head:true})),
+    safe(_supabase.from('compras_pedidos').select('*').in('status',PED_ABERTOS)),
+    safe(_supabase.from('compras_pedidos').select('*').order('created_at',{ascending:false}).limit(REC_MAX)),
+    safe(_supabase.from('compras_solicitacoes').select('status')),
+  ]);
+  const valorAberto = abertos.reduce((s,p)=>s+(parseFloat(p.valor_total)||0),0);
+  const atrasados = abertos.filter(p=>p.prazo_entrega && p.prazo_entrega<hoje);   // atrasado ⊂ abertos (já são status aberto)
+  const solPend = solStatus.filter(s=>!SOL_FECHADAS.includes(s.status));
   const LABEL = {pendente:['warn','Pendente'],aprovada:['info','Aprovada'],aguardando_cotacao:['info','Ag. Cotação'],reprovada:['danger','Reprovada'],devolvida:['gray','Devolvida'],em_cotacao:['info','Em Cotação'],em_pedido:['info','Em Pedido'],atendida:['ok','Atendida'],cancelada:['gray','Cancelada'],emitido:['warn','Emitido'],aguardando_entrega:['warn','Ag. Entrega'],recebido_parcial:['warn','Receb. Parcial'],recebido_total:['ok','Recebido'],cancelado:['gray','Cancelado']};
 
   const html = `
     <div class="kpi-row">
-      ${kpiBox(pedidos.length,'Pedidos','total','#2563eb')}
+      ${kpiBox(totalPedidos,'Pedidos','total','#2563eb')}
       ${kpiBox(abertos.length,'Pedidos em Aberto','',abertos.length>0?'#f59e0b':'#16a34a',abertos.length>0?'#b45309':'#16a34a')}
       ${kpiBox(atrasados.length,'Pedidos Atrasados','',atrasados.length>0?'#dc2626':'#16a34a',atrasados.length>0?'#dc2626':'#16a34a')}
       ${kpiBox('R$ '+fmtN(valorAberto,2),'Valor em Aberto','','#7c3aed','#7c3aed')}
@@ -2169,7 +2179,7 @@ async function abaCompras(){
       ${secHeader('Pedidos de Compra',`<button class="btn-csv" onclick="exportarCSVAtual()">📊 CSV</button><button class="btn-pdf" onclick="imprimirAtual()">📄 PDF</button>`)}
       <div class="rel-table-wrap"><table class="rel-table">
         <thead><tr><th>Número</th><th>Fornecedor</th><th>Comprador</th><th>Valor</th><th>Prazo Entrega</th><th>Status</th></tr></thead>
-        <tbody>${pedidos.slice(0,60).map(p=>{const t=LABEL[p.status]||['gray',p.status||'—'];
+        <tbody>${recentes.slice(0,60).map(p=>{const t=LABEL[p.status]||['gray',p.status||'—'];
           const atrasado=p.prazo_entrega&&p.prazo_entrega<hoje&&PED_ABERTOS.includes(p.status);
           return`<tr onclick="detalheCompra('${p.id}')"><td><strong>#${String(p.numero||0).padStart(4,'0')}</strong></td><td>${p.fornecedor||'—'}</td>
             <td>${p.comprador||'—'}</td><td><strong>R$ ${fmtN(parseFloat(p.valor_total)||0,2)}</strong></td>
@@ -2183,12 +2193,12 @@ async function abaCompras(){
       ${secHeader('Solicitações de Compra por Status')}
       <div class="rel-table-wrap"><table class="rel-table">
         <thead><tr><th>Status</th><th>Quantidade</th></tr></thead>
-        <tbody>${(()=>{const g={};solicitacoes.forEach(s=>{const k=s.status||'—';g[k]=(g[k]||0)+1;});return Object.entries(g).map(([k,v])=>`<tr><td>${LABEL[k]?st(LABEL[k][0],LABEL[k][1]):k}</td><td>${v}</td></tr>`).join('')||`<tr><td colspan="2" class="rel-empty">Sem solicitações</td></tr>`;})()}</tbody>
+        <tbody>${(()=>{const g={};solStatus.forEach(s=>{const k=s.status||'—';g[k]=(g[k]||0)+1;});return Object.entries(g).map(([k,v])=>`<tr><td>${LABEL[k]?st(LABEL[k][0],LABEL[k][1]):k}</td><td>${v}</td></tr>`).join('')||`<tr><td colspan="2" class="rel-empty">Sem solicitações</td></tr>`;})()}</tbody>
       </table></div>
     </div>`;
 
   document.getElementById('rel-content').innerHTML = html;
-  window._dadosExport = pedidos; window._exportTitulo = 'Compras-Pedidos';
+  window._dadosExport = recentes; window._exportTitulo = 'Compras-Pedidos';   // export = recentes (até REC_MAX)
 }
 
 function detalheCompra(id){
