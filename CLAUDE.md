@@ -194,12 +194,25 @@ do topo; não some nada); `rh_escala` → query de **contagem** (era só `escala
 ⚠️ Lição: o 1º piloto filtrou férias por status e escondia as "concluídas" da tabela/
 export — corrigido. **Ler TODOS os usos de uma query antes de limitar.**
 
-**Próximo (exceções do relatorios, todas com armadilha — refatoração cuidadosa, não `.limit()` seco):**
-- `abaCompras` (2144): `pedidos.length` é total (→ count) + em-aberto qualquer idade (→ or status) + tabela 60 recentes.
-- `abaQualidade` caulim (892): `caulim_analises_externas` agrupa por status (contagem sobre todas).
-- `epi_entregas` (1670, 2332, 3136, 3376, 3554): histórico por funcionário (ficha precisa de tudo da pessoa).
-Depois: portaria/abastecimento/carregamento (logs: recentes + em aberto); por fim os
-`init` pesados (`laboratorio` caulim_*, `compras`) — e o que for agregado vira RPC (parar e planejar).
+**Feito 2 (sessão 2026-08-10) — exceções do relatorios + helper `safeCount`:**
+Novo `safeCount` (traz `r.count` sem baixar linhas) ao lado do `safe`.
+- `abaCompras` (`bba20ac`): total→count; em-aberto/atrasado/valor→`.in('status',abertos)`
+  (estado atual, qualquer idade); tabela+export→`.order(created_at desc).limit(500)`;
+  solicitações por status→`.select('status')`. KPIs idênticos (atrasados ⊂ abertos).
+  Export passou a cobrir 500 recentes (era "tudo") — teto `REC_MAX` documentado.
+- `abaQualidade` (`573ff4c`): `caulim_analises_externas`→`.eq('status','vigente')`
+  (vencida = vigente c/ validade passada; demais status não usados). Mesmos números.
+- `abaEpi` (`b67b27f`): total/vencidos/a-vencer→count (`.lt/.gte/.lte` batem com o
+  compare do cliente em date E timestamp — sem risco de borda); tabela (mostrava TODAS,
+  sem slice) + export→`.limit(500)`.
+Smoke test de cada aba local (login fake, RLS bloqueia anon → renderiza 0 sem quebrar,
+0 erro JS). **Números reais o dono confere autenticado na produção** (RLS me bloqueia).
+
+**Próximo:** `epi_entregas` restantes — `abaGerencial` (2342, contador em page-load,
+`select('id,data_prevista_troca')` de todas) + exports sob demanda `pdfEpi`/`pdfGerencial`/
+CSV-EPI (só no clique, prioridade menor). Depois: portaria/abastecimento/carregamento
+(logs: recentes + em aberto); por fim os `init` pesados (`abaGerencial`, `laboratorio`
+caulim_*, `compras`) — agregados viram RPC (parar e planejar).
 
 ## Item 0 — Backup (estado)
 
