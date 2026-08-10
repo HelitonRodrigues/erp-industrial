@@ -1668,17 +1668,22 @@ function detalheOSFrota(id){
 async function abaEpi(){
   const hoje = new Date().toISOString().split('T')[0];
   const em7  = new Date(Date.now()+7*86400000).toISOString().split('T')[0];
-  const [entregas, funcs, epis] = await Promise.all([
-    safe(_supabase.from('epi_entregas').select('*').order('data_entrega',{ascending:false})),
+  // Item 4 — janela por número (não puxar a tabela toda):
+  //  • total, vencidos e a-vencer → contagem (0 linhas), estado atual independe dos recentes;
+  //  • tabela + export → recentes (teto REC_MAX; a tabela mostrava TODAS as entregas).
+  const REC_MAX = 500;
+  const [totalEntregas, venc, prox, entregas, funcs, epis] = await Promise.all([
+    safeCount(_supabase.from('epi_entregas').select('*',{count:'exact',head:true})),
+    safeCount(_supabase.from('epi_entregas').select('*',{count:'exact',head:true}).lt('data_prevista_troca',hoje)),
+    safeCount(_supabase.from('epi_entregas').select('*',{count:'exact',head:true}).gte('data_prevista_troca',hoje).lte('data_prevista_troca',em7)),
+    safe(_supabase.from('epi_entregas').select('*').order('data_entrega',{ascending:false}).limit(REC_MAX)),
     safe(_supabase.from('funcionarios').select('id,nome,setor').eq('status','ativo').order('nome')),
     safe(_supabase.from('epi_cadastro').select('id,nome,categoria').order('nome')),
   ]);
-  const venc = entregas.filter(e=>e.data_prevista_troca&&e.data_prevista_troca<hoje).length;
-  const prox = entregas.filter(e=>e.data_prevista_troca&&e.data_prevista_troca>=hoje&&e.data_prevista_troca<=em7).length;
 
   const html = `
     <div class="kpi-row">
-      ${kpiBox(entregas.length,'Total Entregas','registradas','#2563eb')}
+      ${kpiBox(totalEntregas,'Total Entregas','registradas','#2563eb')}
       ${kpiBox(funcs.length,'Funcionários Ativos','','#16a34a','#16a34a')}
       ${kpiBox(epis.length,'EPIs Cadastrados','','#7c3aed')}
       ${kpiBox(venc,'EPIs Vencidos','',venc>0?'#dc2626':'#16a34a',venc>0?'#dc2626':'#16a34a')}
