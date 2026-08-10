@@ -208,11 +208,20 @@ Novo `safeCount` (traz `r.count` sem baixar linhas) ao lado do `safe`.
 Smoke test de cada aba local (login fake, RLS bloqueia anon → renderiza 0 sem quebrar,
 0 erro JS). **Números reais o dono confere autenticado na produção** (RLS me bloqueia).
 
-**Próximo:** `epi_entregas` restantes — `abaGerencial` (2342, contador em page-load,
-`select('id,data_prevista_troca')` de todas) + exports sob demanda `pdfEpi`/`pdfGerencial`/
-CSV-EPI (só no clique, prioridade menor). Depois: portaria/abastecimento/carregamento
-(logs: recentes + em aberto); por fim os `init` pesados (`abaGerencial`, `laboratorio`
-caulim_*, `compras`) — agregados viram RPC (parar e planejar).
+**Feito 3 (sessão 2026-08-10) — família "logs":** `abaPortaria` e `abaAbastecimento`
+já eram por período (nada a fazer); `abaExpedicao` idem (KPIs somam o período, NÃO
+podem levar `.limit` sem quebrar o total — total só via RPC/sum, subprojeto). Único
+furo real: `abaCarregamento` `romaneios` (`e81bb32`) — "pendentes" é estado atual mas
+vinha por recência (`limit 500`), escondendo romaneio antigo pendente → trocado por
+`.or('status.in.(recebido,em_carregamento),status.is.null')` (URL PostgREST conferida).
+
+**Próximo — subprojeto RPC (parar e planejar, precisa de backup fresco):** os `init`
+pesados/agregados — `abaGerencial` (dashboard, várias tabelas + contador epi_entregas
+2342), `laboratorio` caulim_*, `compras` init — e os totais de período (expedição/
+carregamento) que hoje somam no cliente. Todos pedem **RPC/view no Supabase (0 hoje)**:
+count/sum server-side em vez de baixar linhas. Exports sob demanda (`pdfEpi`/`pdfGerencial`/
+CSV) ficam por último (rodam só no clique). Fora do relatorios, revisar as "queries
+abertas" reais dos outros módulos (o scanner tinha falso-positivo — ver mapa acima).
 
 ## Item 0 — Backup (estado)
 
