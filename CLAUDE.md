@@ -22,8 +22,8 @@ go-live, custa parada de linha.
 [~] 2    TODOS os fallbacks apagados✓ (silenciosos + schema-strip) — só falta 001_baseline (opcional)
 [x] 2.5  Helper db() + espalhado em ~20 módulos (todos os fluxos de dado)✓
 [~] 3    js/regras.js✓ — TONELAGEM✓ + PALLET✓ + EFICIÊNCIA✓ (núcleo fechado); falta snippet 95 (dono) + aposentar colunas de peso antigas
-[~] 4    limit/filtro nas queries abertas — relatorios/RH feito; método+armadilhas mapeados
-[ ] 4.5  Fotos base64 → Storage (+ incluir Storage no backup)
+[x] 4    limit/filtro queries abertas — relatorios page-load 100% (compras/qualidade/epi/carreg/gerencial/bpf/RH)✓; RPC de agregado deferida (baixo valor em pré-prod, justificado)
+[~] 4.5  Fotos base64 → Storage (+ incluir Storage no backup) — EM ANDAMENTO (investigando código)
 [ ] 5    Deep-links entre módulos (?equip=&aba=)
 [ ] 6    Tokens de design + Lucide + varrer os 10.431 style=
 [ ] 7    Quebrar bpf/manutencao/laboratorio/compras (opcional)
