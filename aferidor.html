@@ -1,0 +1,1213 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ERP Industrial — Aferidor</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/supabase.js"></script>
+<script src="js/utils.js"></script>
+<!-- QR gerado LOCALMENTE. Antes as etiquetas puxavam a imagem de
+     api.qrserver.com: sem internet no galpão, o quadrado do QR saía VAZIO e
+     só se descobria com a etiqueta já colada. Arquivo local = imprime offline. -->
+<script src="js/qrcode.min.js"></script>
+<style>
+.tab-btn{padding:10px 18px;background:none;border:none;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;color:#64748b;border-bottom:2px solid transparent;margin-bottom:-2px;transition:all .15s;}
+.tab-btn.active{color:var(--accent);border-bottom-color:var(--primary);}
+.afer-table th{background:var(--primary);color:var(--accent);padding:10px 14px;text-align:left;font-size:12px;font-weight:700;text-transform:uppercase;}
+.afer-table td{padding:9px 14px;border-bottom:1px solid #eef2f6;font-size:13px;}
+</style>
+</head>
+<body>
+<div id="sidebar-container"></div>
+<header class="topbar" id="topbar">
+  <button class="topbar-open-sidebar" onclick="toggleSidebar()">☰</button>
+  <div class="topbar-title">Aferidor</div>
+  <div class="topbar-right">
+    <div class="topbar-user">
+      <div class="user-avatar" style="width:32px;height:32px;font-size:12px;" id="top-avatar">SA</div>
+      <div><div class="topbar-user-name" id="top-user-name">Super Admin</div><div class="topbar-user-profile" id="top-user-perfil">SADM</div></div>
+    </div>
+    <button class="btn btn-ghost btn-sm" onclick="doLogout()" style="color:#64748b;">Sair</button>
+  </div>
+</header>
+
+<main class="main-content" id="main-content">
+  <div class="page-header">
+    <div class="page-header-left"><h1>Aferidor</h1><p>Rótulos, etiquetas de amostra e registro diário de aditivação</p></div>
+  </div>
+
+  <div style="display:flex;border-bottom:2px solid #e2e8f0;margin-bottom:20px;flex-wrap:wrap;">
+    <button class="tab-btn active" onclick="swTab('rotulos',this)">🏷️ Rótulos</button>
+    <button class="tab-btn" onclick="swTab('amostras',this)">🧪 Amostras</button>
+    <button class="tab-btn" onclick="swTab('aditivacao',this)">🧾 Registro Diário — Aditivação</button>
+  </div>
+
+  <!-- ABA RÓTULOS -->
+  <div id="tab-rotulos">
+    <div class="card" style="margin-bottom:14px;">
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+        <div class="form-group" style="margin:0;flex:1;min-width:180px;"><label class="form-label">Buscar</label><input type="text" id="rot-busca" class="form-input" placeholder="OP, produto ou linha..." oninput="renderRotulos()"></div>
+        <div class="form-group" style="margin:0;"><label class="form-label">Linha</label><select id="rot-filtro-linha" class="form-input" style="width:170px;" onchange="renderRotulos()"><option value="">Todas</option></select></div>
+        <div class="form-group" style="margin:0;"><label class="form-label">De</label><input type="date" id="rot-data-ini" class="form-input" style="width:150px;" onchange="renderRotulos()"></div>
+        <div class="form-group" style="margin:0;"><label class="form-label">Até</label><input type="date" id="rot-data-fim" class="form-input" style="width:150px;" onchange="renderRotulos()"></div>
+      </div>
+    </div>
+    <div class="card">
+      <p style="font-size:12px;color:#64748b;margin-bottom:10px;">Todas as OPs lançadas aparecem aqui automaticamente. A emissão dos rótulos é feita exclusivamente por este módulo.</p>
+      <div class="table-wrap" style="overflow-x:auto;">
+        <table class="afer-table" style="width:100%;border-collapse:collapse;">
+          <thead><tr><th>Data</th><th>Linha / OP</th><th>Turno</th><th>Encarregado</th><th>Produtos</th><th style="text-align:center;">Pallets</th><th></th></tr></thead>
+          <tbody id="rot-tbody"></tbody>
+        </table>
+      </div>
+      <div id="rot-empty" class="empty-state hidden"><div class="empty-icon">🏷️</div><h3>Nenhuma OP encontrada</h3><p>As OPs lançadas em Produção aparecem aqui.</p></div>
+    </div>
+  </div>
+
+  <!-- ABA AMOSTRAS -->
+  <div id="tab-amostras" style="display:none;">
+    <div class="card" style="max-width:680px;">
+      <h3 style="font-weight:800;color:var(--primary);font-size:14px;margin-bottom:16px;">🧪 Etiqueta de Amostra</h3>
+      <p style="font-size:12px;color:#64748b;margin-bottom:16px;">Adicione vários números de pallet. <b>Separador</b> e <b>ADT (g/saco)</b> são opcionais — se vazios, saem em branco para anotação manual.</p>
+      <div class="form-grid-2" style="margin-bottom:14px;">
+        <div class="form-group" style="margin:0;"><label class="form-label">Data</label><input type="date" id="am-data" class="form-input"></div>
+        <div class="form-group" style="margin:0;"><label class="form-label">Linha <span class="req">*</span></label><select id="am-linha" class="form-input"></select></div>
+        <div class="form-group" style="margin:0;"><label class="form-label">Produto</label><select id="am-produto" class="form-input"><option value="">Selecione...</option></select></div>
+        <div class="form-group" style="margin:0;"><label class="form-label">Cópias por pallet</label><input type="number" id="am-qtd" class="form-input" value="1" min="1" style="width:140px;"></div>
+        <div class="form-group" style="margin:0;"><label class="form-label">Separador (opcional)</label><input type="text" id="am-separador" class="form-input" placeholder="deixe vazio p/ preencher à mão"></div>
+        <div class="form-group" style="margin:0;"><label class="form-label">ADT g/saco (opcional)</label><input type="text" id="am-adt" class="form-input" placeholder="deixe vazio p/ preencher à mão"></div>
+      </div>
+      <div class="form-group" style="margin:0 0 16px;">
+        <label class="form-label">Nº dos Pallets (adicione vários) <span class="req">*</span></label>
+        <div style="display:flex;gap:8px;">
+          <input type="text" id="am-pallet" class="form-input" placeholder="Digite um número e Enter" onkeydown="if(event.key==='Enter'){event.preventDefault();addPallet();}">
+          <button class="btn btn-secondary btn-sm" onclick="addPallet()">+ Adicionar</button>
+        </div>
+        <div id="am-pallets-chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;"></div>
+      </div>
+      <button class="btn btn-primary" onclick="gerarAmostras()">🖨️ Gerar Etiquetas (PDF)</button>
+    </div>
+  </div>
+
+  <!-- ABA ADITIVAÇÃO -->
+  <div id="tab-aditivacao" style="display:none;">
+    <div class="card" style="margin-bottom:16px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:16px;">
+        <h3 style="font-weight:800;color:var(--primary);font-size:14px;margin:0;">🧾 Registro Diário de Aditivação — Nº <span id="ad-num" style="color:#7c3aed;">—</span></h3>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn btn-sm" style="background:#16a34a;color:#fff;font-weight:800;" onclick="novoAdit()">+ Novo</button>
+          <button class="btn btn-secondary btn-sm" onclick="fichaEmBranco()">📄 Ficha em branco</button>
+        </div>
+      </div>
+      <input type="hidden" id="ad-edit-id">
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;margin-bottom:18px;">
+        <div class="form-group" style="margin:0;"><label class="form-label">Data <span class="req">*</span></label><input type="date" id="ad-data" class="form-input"></div>
+        <div class="form-group" style="margin:0;"><label class="form-label">Hora</label><input type="time" id="ad-hora" class="form-input"></div>
+        <div class="form-group" style="margin:0;"><label class="form-label">Linha <span class="req">*</span></label><select id="ad-linha" class="form-input"></select></div>
+        <div class="form-group" style="margin:0;"><label class="form-label">Encarregado do Turno</label><select id="ad-enc" class="form-input"></select></div>
+        <div class="form-group" style="margin:0;"><label class="form-label">Responsável pela Coleta</label><select id="ad-resp" class="form-input"></select></div>
+        <div class="form-group" style="margin:0;"><label class="form-label">Lote do Aditivo</label><input type="text" id="ad-lote" class="form-input"></div>
+        <div class="form-group" style="margin:0;"><label class="form-label">OP Vinculada</label><select id="ad-op" class="form-input" onchange="onSelectOP()"></select></div>
+      </div>
+      <div class="table-wrap" style="overflow-x:auto;">
+        <table class="afer-table" style="width:100%;border-collapse:collapse;">
+          <thead><tr><th>Item</th><th style="width:180px;">Atual</th><th style="width:180px;">Regulado</th></tr></thead>
+          <tbody id="ad-tbody"></tbody>
+        </table>
+      </div>
+      <div style="display:flex;justify-content:flex-end;margin-top:16px;">
+        <button class="btn btn-primary" id="btn-salvar-adit" onclick="salvarAdit()">💾 Lançar Registro</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3 style="font-weight:800;color:var(--primary);font-size:13px;margin-bottom:12px;">📋 Registros Lançados</h3>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px;">
+        <div class="form-group" style="margin:0;flex:1;min-width:160px;"><label class="form-label">Buscar</label><input type="text" id="al-busca" class="form-input" placeholder="Nº, OP ou responsável..." oninput="renderAditList()"></div>
+        <div class="form-group" style="margin:0;"><label class="form-label">Linha</label><select id="al-linha" class="form-input" style="width:160px;" onchange="renderAditList()"><option value="">Todas</option></select></div>
+        <div class="form-group" style="margin:0;"><label class="form-label">De</label><input type="date" id="al-ini" class="form-input" style="width:150px;" onchange="renderAditList()"></div>
+        <div class="form-group" style="margin:0;"><label class="form-label">Até</label><input type="date" id="al-fim" class="form-input" style="width:150px;" onchange="renderAditList()"></div>
+        <button class="btn btn-ghost btn-sm" onclick="document.getElementById('al-busca').value='';document.getElementById('al-linha').value='';document.getElementById('al-ini').value='';document.getElementById('al-fim').value='';renderAditList()">Limpar</button>
+      </div>
+      <div class="table-wrap" style="overflow-x:auto;">
+        <table class="afer-table" style="width:100%;border-collapse:collapse;">
+          <thead><tr><th>Nº</th><th>Data/Hora</th><th>Linha</th><th>OP</th><th>Responsável</th><th></th></tr></thead>
+          <tbody id="ad-list-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</main>
+
+<!-- MODAL RÓTULO -->
+<div id="modal-rotulo" class="modal-overlay hidden">
+  <div class="modal" style="max-width:720px;max-height:92vh;overflow-y:auto;">
+    <div class="modal-header"><div class="modal-title">🏷️ Rótulos — Pallets</div><button class="modal-close" onclick="closeModal('modal-rotulo')">✕</button></div>
+    <div style="font-size:12px;color:#64748b;margin-bottom:10px;" id="rot-op-info"></div>
+    <div style="display:flex;gap:12px;align-items:flex-end;margin-bottom:14px;">
+      <div class="form-group" style="margin:0;flex:1;min-width:220px;"><label class="form-label">Produto da OP</label>
+        <select id="rot-produto" class="form-input" onchange="onRotProdutoChange()"></select></div>
+      <div class="form-group" style="margin:0;"><label class="form-label">Quantidade de pallets</label><input type="number" id="rot-qtd" class="form-input" value="1" min="1" style="width:140px;" oninput="renderRotuloPrev()"></div>
+      <button class="btn btn-secondary" onclick="registrarPalletsEstoque()">✅ Registrar / ajustar estoque (qtd produzida)</button>
+      <button class="btn btn-primary" onclick="imprimirRotulo()">🖨️ Imprimir</button>
+    </div>
+    <div id="rotulo-prev" style="background:#f8fafc;border-radius:10px;padding:14px;border:1.2px solid #e2e8f0;max-height:420px;overflow-y:auto;"></div>
+    <div style="display:flex;justify-content:flex-end;margin-top:14px;"><button class="btn btn-secondary" onclick="closeModal('modal-rotulo')">Fechar</button></div>
+  </div>
+</div>
+
+<!-- MODAL CONFIRMAR -->
+<div id="modal-confirm" class="modal-overlay hidden">
+  <div class="modal" style="max-width:420px;">
+    <div class="modal-header"><div class="modal-title">Confirmar</div><button class="modal-close" onclick="closeModal('modal-confirm')">✕</button></div>
+    <p id="confirm-msg" style="font-size:14px;color:#475569;margin-bottom:20px;"></p>
+    <div style="display:flex;justify-content:flex-end;gap:10px;">
+      <button class="btn btn-ghost" onclick="closeModal('modal-confirm')">Cancelar</button>
+      <button class="btn btn-primary" id="confirm-ok-btn" style="background:var(--danger);color:#fff;">Excluir</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+<script>
+// ============================================================
+// ERP INDUSTRIAL — AFERIDOR
+// Abas: Rótulos · Amostras · Registro Diário de Aditivação
+// ============================================================
+
+let _linhas = [];
+let _funcionarios = [];
+let _ops = [];
+let _aditivacoes = [];
+let _empresa = {};
+let _produtos = [];
+let _amPallets = [];
+let _abaAtual = 'rotulos';
+let _rotuloOp = null;
+
+const ITENS_ADITIVACAO = [
+  'Rotação do Alimentador do Moinho',
+  'Rotação da Rosca do Aditivador',
+  'Média de Produção da Linha (SC/HR)',
+  'Média de Produção da Linha (SC/MIN)',
+  'Tempo de Coleta (MIN)',
+  'Peso da Coleta (g)',
+  'Aditivação por Saco (g)',
+  'Separador (Canal/RPM)',
+];
+
+// ── BOOT ───────────────────────────────────────────────────
+fetch('partials/sidebar.html').then(r => r.text()).then(html => {
+  document.getElementById('sidebar-container').innerHTML = html;
+  document.querySelector('[href="aferidor.html"]')?.classList.add('active');
+  openGroup('producao');
+}).catch(e => console.warn('sidebar não carregou:', e && e.message));
+initSidebar('aferidor.html');
+
+async function init() {
+  try {
+    const [emp, linhas, funcs, ops, adit, prods] = await Promise.all([
+      _supabase.from('empresa_config').select('*').limit(1).maybeSingle(),
+      _supabase.from('linhas_producao').select('id,nome,status').eq('status', 'ativo').order('nome'),
+      _supabase.from('funcionarios').select('id,nome,funcao,status').eq('status', 'ativo').order('nome'),
+      _supabase.from('producao').select('*').order('data', { ascending: false }).order('created_at', { ascending: false }).limit(400),
+      _supabase.from('aferidor_aditivacao').select('*').order('criado_em', { ascending: false }).limit(300),
+      _supabase.from('produtos').select('id,nome,status,validade_dias').eq('status', 'ativo').order('nome'),
+    ]);
+    _empresa = emp.data || {};
+    _linhas = linhas.data || [];
+    _funcionarios = funcs.data || [];
+    _ops = ops.data || [];
+    _produtos = prods.data || [];
+    _aditivacoes = (adit.data || []).map(a => ({ ...a, itens: Array.isArray(a.itens) ? a.itens : [] }));
+    preencherSelects();
+    setHoje();
+    renderRotulos();
+    renderAditList();
+    renderAmPallets();
+  } catch (e) {
+    console.warn('[aferidor] init:', e);
+    toast('Erro ao carregar dados: ' + (e.message || e), 'danger');
+  }
+}
+
+function setHoje() {
+  const hoje = new Date().toISOString().slice(0, 10);
+  const hora = new Date().toTimeString().slice(0, 5);
+  ['am-data', 'ad-data'].forEach(id => { const el = document.getElementById(id); if (el && !el.value) el.value = hoje; });
+  const h = document.getElementById('ad-hora'); if (h && !h.value) h.value = hora;
+}
+
+function preencherSelects() {
+  const linhaOpts = '<option value="">Selecione...</option>' + _linhas.map(l => `<option value="${escapeHtml(l.nome)}">${escapeHtml(l.nome)}</option>`).join('');
+  ['rot-filtro-linha', 'am-linha', 'ad-linha'].forEach(id => {
+    const el = document.getElementById(id); if (!el) return;
+    el.innerHTML = (id === 'rot-filtro-linha' ? '<option value="">Todas</option>' : linhaOpts);
+    if (id !== 'rot-filtro-linha') el.innerHTML = linhaOpts;
+  });
+  const rfl = document.getElementById('rot-filtro-linha');
+  if (rfl) rfl.innerHTML = '<option value="">Todas</option>' + _linhas.map(l => `<option value="${escapeHtml(l.nome)}">${escapeHtml(l.nome)}</option>`).join('');
+
+  const funcOpts = '<option value="">Selecione...</option>' + _funcionarios.map(f => `<option value="${escapeHtml(f.nome)}">${escapeHtml(f.nome)}</option>`).join('');
+  ['ad-enc', 'ad-resp'].forEach(id => { const el = document.getElementById(id); if (el) el.innerHTML = funcOpts; });
+
+  const prodOpts = '<option value="">Selecione...</option>' + _produtos.map(pr => `<option value="${escapeHtml(pr.nome)}">${escapeHtml(pr.nome)}</option>`).join('');
+  const amp = document.getElementById('am-produto'); if (amp) amp.innerHTML = prodOpts;
+
+  const opOpts = '<option value="">Selecione a OP...</option>' + _ops.map(o => `<option value="${o.id}">${fmtData(o.data)} · ${escapeHtml(o.linha)} · ${escapeHtml(o.op_numero || 'sem nº')}</option>`).join('');
+  const ado = document.getElementById('ad-op'); if (ado) ado.innerHTML = opOpts;
+}
+
+// ── HELPERS ─────────────────────────────────────────────────
+function escapeHtml(s) {
+  return (s == null ? '' : String(s)).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+function norm(s) { return (s || '').toString().trim().toLowerCase(); }
+function fmtData(d) { if (!d) return '—'; const p = String(d).slice(0, 10).split('-'); return p.length === 3 ? `${p[2]}/${p[1]}/${p[0]}` : d; }
+
+/* Uma OP pode ter mais de um produto, cada um com seus pallets, seu lote e sua
+   validade. Os pallets são numerados em sequência na OP (produto 1: 1..18,
+   produto 2: 19..23), e é esse número que existe em producao_pallets. */
+function produtosComPallets(op) {
+  let base = 0;
+  return (op.produtos_op || []).map((pp, idx) => {
+    const pal = (pp.pallets || []).reduce((s, pl) => s + (parseInt(pl.qtd) || 0), 0);
+    // producao.html grava `produto`; registros antigos do laboratório usam `nome`.
+    // Ler os dois evita o nome do produto sair "—" na etiqueta.
+    const item = { idx, produto: pp.produto || pp.nome || '—', linhaProduto: pp.linha_produto || '',
+      pallets: pal, primeiroNumero: base + 1, ultimoNumero: base + pal,
+      lote: pp.lote || null, validade: pp.validade || null, sacos: pp.total_sacos || 0, raw: pp };
+    base += pal;
+    return item;
+  });
+}
+/* VALIDADE — regra da fábrica: linha 25kg, bags e granel → 3 anos;
+   demais produtos → 1 ano. O cadastro (validade_dias) vence a regra. */
+function diasValidade(nomeProduto, linhaProduto) {
+  const prod = (_produtos || []).find(p => p.nome === nomeProduto);
+  const cad = parseInt(prod && prod.validade_dias);
+  if (cad > 0) return { dias: cad, fonte: 'cadastro' };
+  const lp = String(linhaProduto || '').toLowerCase().replace(/\s/g, '');
+  const longa = lp.includes('25kg') || lp.includes('bag') || lp.includes('bigbag') || lp.includes('granel') || lp.includes('granl');
+  return longa ? { dias: 1095, fonte: '3 anos' } : { dias: 365, fonte: '1 ano' };
+}
+function validadeDoProduto(op, pp) {
+  if (pp && pp.validade) return fmtData(pp.validade);          // o que a produção gravou
+  const r = diasValidade(pp && pp.produto, pp && pp.linhaProduto);
+  const base = op.data ? new Date(op.data + 'T12:00') : null;
+  if (!base || isNaN(base.getTime()) || !(r.dias > 0)) return '—';
+  base.setDate(base.getDate() + r.dias);
+  return fmtData(base.toISOString().split('T')[0]);
+}
+/* Lote do produto. OPs lançadas antes da correção só gravaram o lote do 1º
+   produto — nesse caso o lote é recalculado pela mesma regra da produção
+   (AAAAMMDD + código da cor), e não se usa o lote da matéria-prima. */
+/* Mesma função da producao.html — o código do lote tem que ser idêntico nos
+   dois módulos, senão o mesmo pallet teria dois lotes diferentes. */
+function corCodigoCaulimAf(produtoNome){
+  const semPrefixo=String(produtoNome||'')
+    .replace(/\bcaulim\b/gi,'').replace(/\b25\s*kg\b/gi,'')
+    .replace(/\bbig\s*bag\b/gi,'').replace(/\bbigbag\b/gi,'')
+    .replace(/\bbag\b/gi,'').replace(/\bgranel\b/gi,'')
+    .replace(/[-–—:|/,]+/g,' ')
+    .trim().replace(/\s+/g,' ');
+  const m=/^([A-Za-zÀ-ÿ]+)\s*(\d+)?$/.exec(semPrefixo);
+  if(!m) return null;
+  return m[1].charAt(0).toUpperCase()+(m[2]||'');
+}
+function loteDoProdutoOP(op, pp) {
+  if (pp && pp.lote) return pp.lote;
+  const lp = String((pp && pp.linhaProduto) || '').toLowerCase().replace(/\s/g, '');
+  const isFicha = lp.includes('25kg') || lp.includes('bag') || lp.includes('granel') || lp.includes('granl') || lp.includes('bigbag');
+  const cor = corCodigoCaulimAf(pp && pp.produto) || '';
+  if (isFicha && cor && op.data) {
+    const d = new Date(op.data + 'T12:00');
+    if (!isNaN(d.getTime()))
+      return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}${cor}`;
+  }
+  if (op.data) {
+    const lin3 = String(op.linha || 'LIN').replace(/[^A-Za-z0-9]/g, '').substring(0, 3).toUpperCase() || 'LIN';
+    return `${lin3}-${op.data.replace(/-/g, '')}`;
+  }
+  return '—';
+}
+function _isFichaProduto(pp) {
+  const lp = String((pp && pp.linhaProduto) || '').toLowerCase().replace(/\s/g, '');
+  return lp.includes('25kg') || lp.includes('bag') || lp.includes('granel') || lp.includes('granl') || lp.includes('bigbag');
+}
+
+function palletsDaOP(op) {
+  let n = 0;
+  (op.produtos_op || []).forEach(p => (p.pallets || []).forEach(pl => { n += parseInt(pl.qtd) || 0; }));
+  return n;
+}
+function produtosDaOP(op) {
+  if (op.produtos_op && op.produtos_op.length) return op.produtos_op.map(p => p.produto).filter(Boolean).join(', ');
+  return op.produto || '—';
+}
+function loteDaOP(op) {
+  const p0 = (op.produtos_op || [])[0] || {};
+  return p0.lote || op.lote_mp || '—';
+}
+function validadeDaOP(op) {
+  const p0 = (op.produtos_op || [])[0] || {};
+  const prod = (_produtos || []).find(p => p.nome === p0.produto);
+  const dias = parseInt(prod && prod.validade_dias);
+  if (!(dias > 0)) return '—';
+  const base = op.data ? new Date(op.data + 'T12:00') : null;
+  if (!base || isNaN(base.getTime())) return '—';
+  base.setDate(base.getDate() + dias);
+  return fmtData(base.toISOString().split('T')[0]);
+}
+
+// Cabeçalho de empresa (inline, reutilizado em todos os PDFs)
+function cabecalhoEmpresa(subtitulo) {
+  const emp = _empresa || {};
+  const logo = emp.logo
+    ? `<img src="${emp.logo}" style="height:48px;object-fit:contain;">`
+    : `<div style="width:48px;height:48px;background:#042D4D;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:20px;">🏭</div>`;
+  return `<div style="display:flex;align-items:center;gap:12px;border-bottom:3px solid #042D4D;padding-bottom:10px;margin-bottom:12px;">
+    ${logo}
+    <div style="flex:1;">
+      <div style="font-size:15px;font-weight:800;color:#042D4D;line-height:1.2;">${escapeHtml(emp.nome_fantasia || 'ERP Industrial')}</div>
+      ${emp.razao_social ? `<div style="font-size:10px;color:#475569;font-weight:600;margin-top:1px;">${escapeHtml(emp.razao_social)}</div>` : ''}
+      ${emp.cnpj ? `<div style="font-size:9px;color:#64748b;">CNPJ: ${escapeHtml(emp.cnpj)}</div>` : ''}
+      ${subtitulo ? `<div style="font-size:11px;font-weight:800;color:#7c3aed;letter-spacing:.5px;margin-top:3px;text-transform:uppercase;">${escapeHtml(subtitulo)}</div>` : ''}
+    </div>
+  </div>`;
+}
+
+function imprimirDoc(titulo, conteudo, sizeCss) {
+  const w = window.open('', '_blank');
+  if (!w) { toast('Permita pop-ups para imprimir.', 'warning'); return; }
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${escapeHtml(titulo)}</title>
+    <style>
+      *{box-sizing:border-box;}
+      body{margin:0;padding:0;font-family:Arial,sans-serif;}
+      @media print{@page{size:${sizeCss || 'A4'};margin:0;}body{margin:0;}div[style*="page-break-after"]{page-break-after:always;}}
+      @media screen{body{background:#f1f5f9;padding:16px;}div[style*="page-break-after"]{margin-bottom:20px;box-shadow:0 4px 16px rgba(0,0,0,.1);}}
+    </style></head><body>${conteudo}</body></html>`);
+  w.document.close();
+  setTimeout(() => w.print(), 500);
+}
+
+// ── ABAS ────────────────────────────────────────────────────
+function swTab(id, btn) {
+  _abaAtual = id;
+  ['tab-rotulos', 'tab-amostras', 'tab-aditivacao'].forEach(t => { const el = document.getElementById(t); if (el) el.style.display = ('tab-' + id) === t ? 'block' : 'none'; });
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+}
+
+// ════════════════════════════════════════════════════════════
+// ABA 1 — RÓTULOS
+// ════════════════════════════════════════════════════════════
+function renderRotulos() {
+  const busca = norm(document.getElementById('rot-busca')?.value);
+  const fLinha = document.getElementById('rot-filtro-linha')?.value || '';
+  const fIni = document.getElementById('rot-data-ini')?.value || '';
+  const fFim = document.getElementById('rot-data-fim')?.value || '';
+  let lista = _ops.slice();
+  if (fLinha) lista = lista.filter(o => o.linha === fLinha);
+  if (fIni) lista = lista.filter(o => (o.data || '') >= fIni);
+  if (fFim) lista = lista.filter(o => (o.data || '') <= fFim);
+  if (busca) lista = lista.filter(o => norm(o.op_numero).includes(busca) || norm(produtosDaOP(o)).includes(busca) || norm(o.linha).includes(busca));
+
+  const tbody = document.getElementById('rot-tbody');
+  const empty = document.getElementById('rot-empty');
+  if (!lista.length) { tbody.innerHTML = ''; empty.classList.remove('hidden'); return; }
+  empty.classList.add('hidden');
+  tbody.innerHTML = lista.map(o => `<tr>
+    <td>${fmtData(o.data)}</td>
+    <td><strong style="color:var(--primary);">${escapeHtml(o.linha)}</strong>${o.op_numero ? `<div style="font-size:10px;color:#7c3aed;">${escapeHtml(o.op_numero)}</div>` : ''}</td>
+    <td>${escapeHtml(o.turno || '—')}</td>
+    <td>${escapeHtml(o.encarregado || '—')}</td>
+    <td style="font-size:12px;">${produtosComPallets(o).length>1
+      ? produtosComPallets(o).map(pp=>escapeHtml(pp.produto)+' <span style="color:#64748b;">('+pp.pallets+' pallet'+(pp.pallets===1?'':'s')+')</span>').join('<br>')
+      : escapeHtml(produtosDaOP(o))}</td>
+    <td style="text-align:center;font-weight:700;">${palletsDaOP(o)}</td>
+    <td style="text-align:right;"><button class="btn btn-secondary btn-sm" onclick="abrirRotulos('${o.id}')">🏷️ Rótulos</button></td>
+  </tr>`).join('');
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// QR CODE — gerado no navegador, em SVG vetorial.
+//
+// Por que SVG e não imagem: a Zebra ZD220 é 203 dpi (8 pontos por milímetro).
+// Em vetor, cada módulo do QR cai exatamente na grade de pontos da cabeça de
+// impressão; em imagem redimensionada, uns módulos saem com 7 pontos e outros
+// com 8, as bordas ficam irregulares e a leitura falha na etiqueta suja.
+//
+// Correção de erro Q (25%) em vez do M padrão: a etiqueta vive com poeira de
+// caulim e atrito de stretch. Com Q, o código ainda lê bem danificado.
+// ══════════════════════════════════════════════════════════════════════════
+// Resolução da impressora, em pontos por milímetro (203 dpi ÷ 25,4).
+const DOTS_POR_MM = 8;
+function qrSvgLocal(texto, ladoMaxMm, ecLevel) {
+  if (typeof QRCode === 'undefined' || !QRCode.create) {
+    // Sem a biblioteca não existe QR: melhor dizer isso na etiqueta do que
+    // imprimir um quadrado vazio que ninguém percebe.
+    return `<div style="width:${ladoMaxMm}mm;height:${ladoMaxMm}mm;border:0.5mm solid #000;display:flex;
+      align-items:center;justify-content:center;text-align:center;font-size:7pt;font-weight:700;
+      font-family:Arial,sans-serif;padding:2mm;box-sizing:border-box;">QR NÃO GERADO<br>js/qrcode.min.js<br>não carregou</div>`;
+  }
+  const qr = QRCode.create(texto, { errorCorrectionLevel: ecLevel || 'Q' });
+  const n = qr.modules.size, d = qr.modules.data, borda = 4;   // quiet zone de 4 módulos (norma)
+  const tot = n + borda * 2;
+  // ── AJUSTE FINO QUE IMPORTA NA TÉRMICA ────────────────────────────────
+  // A contagem de módulos MUDA com o tamanho da URL (domínio + código do
+  // pallet): 37, 41, 45… Se fixássemos o lado em milímetros, o módulo cairia
+  // em fração de ponto (ex.: 8,71) e a cabeça de impressão arredondaria uns
+  // módulos para 8 pontos e outros para 9 — bordas irregulares, leitura ruim
+  // em etiqueta suja.
+  // Então fixamos o MÓDULO em número inteiro de pontos e deixamos o lado
+  // variar dentro do espaço reservado. Nunca passa de ladoMaxMm.
+  const dotsPorModulo = Math.max(3, Math.floor((ladoMaxMm * DOTS_POR_MM) / tot));
+  const ladoMm = (tot * dotsPorModulo) / DOTS_POR_MM;
+  let rects = '';
+  for (let y = 0; y < n; y++) {
+    let x = 0;
+    while (x < n) {
+      if (d[y * n + x]) {
+        const x0 = x;
+        while (x < n && d[y * n + x]) x++;
+        rects += `<rect x="${x0 + borda}" y="${y + borda}" width="${x - x0}" height="1"/>`;
+      } else x++;
+    }
+  }
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${tot} ${tot}"
+    width="${ladoMm}mm" height="${ladoMm}mm" shape-rendering="crispEdges" style="display:block;">
+    <rect width="${tot}" height="${tot}" fill="#fff"/><g fill="#000">${rects}</g></svg>`;
+}
+// URL de rastreio do pallet (o QR aponta para cá; a página mostra a situação
+// ATUAL da qualidade, que a etiqueta não tem como saber ao ser impressa).
+function urlRastreio(codigo) {
+  return (location.origin + location.pathname.replace(/[^/]+$/, '')) + 'rastreio.html?pallet=' + codigo;
+}
+
+// ── DIMENSÕES DA ETIQUETA DE PALLET — Zebra ZD220 (100 x 150 mm) ──
+// Substituiu a Avery 30365 (85,7 x 59,2 mm), que era uma folha adesiva de
+// crachá para impressora A4: a etiqueta saía pequena demais para o pallet.
+// Agora é rolo de 100 x 150 mm em impressora térmica de transferência.
+//
+// A ZD220 é MONOCROMÁTICA — não existe cinza nem cor. Todo o layout abaixo é
+// preto sólido sobre branco: cinza pontilhado na térmica fica sujo e some no
+// atrito. Por isso a etiqueta não usa o navy da marca, ao contrário dos
+// documentos do laboratório.
+//
+// Se trocar o rolo, ajuste só estes valores. O QR precisa ser múltiplo
+// inteiro de 0,125 mm (1 ponto a 203 dpi) — 49 mm dá módulo de 1,0 mm = 8
+// pontos exatos, que é o ideal.
+const ETIQUETA_PALLET = {
+  larguraMm: 100,
+  alturaMm: 150,
+  margemMm: 3,      // deriva da tração térmica é de ~1 mm; 3 mm é folga segura
+  qrLadoMm: 49,     // 49 módulos (41 + quiet zone 8) x 1,0 mm
+};
+
+// Produtos vendidos em sacos/bigbag/granel (25kg, bigbag, granel — inclui
+// Caulim 25kg) exigem o rótulo completo com ficha técnica (regulatório,
+// vai colado no próprio saco/bag). Os demais usam só a etiqueta compacta
+// de rastreabilidade interna (Avery 30365).
+function _isFichaOP(op) {
+  const linhaProd = ((op.produtos_op || [])[0] || {}).linha_produto || '';
+  const lp = linhaProd.toLowerCase().replace(/\s/g, '');
+  return lp.includes('25kg') || lp.includes('bag') || lp.includes('granel') || lp.includes('granl') || lp.includes('bigbag');
+}
+
+// ── RÓTULO COMPLETO (ficha técnica) — Caulim 25kg / linha 25kg / bags ──
+// Layout original, inalterado: cabeçalho, ficha técnica, dados da OP e QR.
+function rotuloLabelHTMLCompleto(op, i, qtd, pp) {
+  pp = pp || _rotProdutoSel();
+  const linha = op.linha || '—';
+  const data = (op.data || new Date().toISOString().slice(0, 10));
+  // nome do produto DESTE rótulo (antes vinham os dois nomes juntos)
+  const prodStr = pp.produto || produtosDaOP(op);
+  // número do pallet dentro da OP: o produto 2 começa depois dos pallets do 1º
+  const numPallet = (pp.primeiroNumero || 1) + (i - 1);
+  const codigo = `${linha.replace(/[^A-Za-z0-9]/g, '').substring(0, 3).toUpperCase()}-${data.replace(/-/g, '')}-${op.op_numero ? String(op.op_numero).split('-').pop() : String(Math.floor(Math.random() * 9000) + 1000)}-P${String(numPallet).padStart(3, '0')}`;
+  // QR local em vez de api.qrserver.com — imprime sem internet.
+  const qrHtml = qrSvgLocal(urlRastreio(codigo), 29);
+  // Ficha técnica: depende da linha DESTE produto
+  const linhaProd = pp.linhaProduto || ((op.produtos_op || [])[0] || {}).linha_produto || '';
+  const lp = linhaProd.toLowerCase().replace(/\s/g, '');
+  const isFicha = lp.includes('25kg') || lp.includes('bag') || lp.includes('granel') || lp.includes('granl') || lp.includes('bigbag');
+  const pesoLiq = (lp.includes('bag')) ? '1.000 kg' : (lp.includes('25kg') ? '25 kg/unidade' : '');
+  // Validade pela regra da fábrica: 25kg/bag/granel = 3 anos, demais = 1 ano.
+  // Se a produção já gravou a validade do produto, ela é usada.
+  const validadeRotulo = validadeDoProduto(op, pp);
+  const fichaHtml = isFicha ? `<div style="margin-bottom:12px;border:1.5px solid #1e293b;border-radius:6px;overflow:hidden;">
+    ${[['COMPOSIÇÃO', 'SILICATOS DE ALUMÍNIO'], ['UMIDADE', 'MÁXIMO 1%'], ['INDICAÇÃO DE USO', 'CARGA MINERAL'], ['MODO DE CONSERVAR', 'LOCAL VENTILADO E SECO, PROTEGIDO CONTRA PRAGAS URBANAS, ANIMAIS DOMÉSTICOS E CRIANÇAS.'], ['CLASSIFICAÇÃO', 'VEÍCULO MINERAL']].map(([r, v]) => `<div style="display:grid;grid-template-columns:160px 1fr;border-bottom:1px solid #1e293b;"><div style="padding:5px 8px;border-right:1px solid #1e293b;font-size:9px;font-weight:800;color:#1e293b;">${r}</div><div style="padding:5px 8px;font-size:9px;color:#1e293b;text-align:center;">${v}</div></div>`).join('')}
+    <div style="display:grid;grid-template-columns:160px 1fr;"><div style="padding:7px 8px;border-right:1px solid #1e293b;font-size:9px;font-weight:800;color:#1e293b;">PESO LÍQUIDO (Kg)</div><div style="padding:7px 8px;font-size:10px;font-weight:700;color:#1e293b;text-align:center;">${pesoLiq}</div></div>
+  </div>` : '';
+  const dados = [['Linha de Produção', linha], ['Turno / Horário', op.turno || '—'], ['Data de Fabricação', fmtData(data)], ['Produto', prodStr], ['Encarregado', op.encarregado || '—'], ['Equipe', op.equipe || '—'], ['OP#', op.op_numero || '—'], ['Lote', loteDoProdutoOP(op, pp)], ['Validade', validadeRotulo], ['Código Pallet', codigo]];
+  return `<div style="page-break-after:always;width:190mm;min-height:130mm;padding:14mm;box-sizing:border-box;font-family:Arial,sans-serif;background:#fff;border:1px solid #e2e8f0;margin:0 auto;">
+    ${cabecalhoEmpresa('Controle de Qualidade')}
+    <div style="display:flex;justify-content:flex-end;margin-bottom:8px;"><div style="text-align:right;"><div style="font-size:22px;font-weight:800;color:#042D4D;">Pallet #${numPallet}</div>
+      <div style="font-size:10px;color:#64748b;">${i} de ${qtd} deste produto</div></div></div>
+    ${fichaHtml}
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px;">
+      ${dados.map(([l, v]) => `<div style="padding:7px 10px;background:#f8fafc;border-radius:6px;border-left:3px solid #042D4D;"><div style="font-size:9px;color:#94a3b8;font-weight:700;text-transform:uppercase;letter-spacing:.5px;">${l}</div><div style="font-size:12px;font-weight:700;color:#042D4D;margin-top:2px;">${escapeHtml(String(v))}</div></div>`).join('')}
+    </div>
+    <div style="border:2px solid #042D4D;border-radius:10px;padding:14px;display:flex;align-items:center;justify-content:center;gap:18px;background:#fff;">
+      <div style="width:29mm;height:29mm;">${qrHtml}</div>
+      <div style="text-align:left;">
+        <div style="font-size:9px;color:#94a3b8;font-weight:700;text-transform:uppercase;margin-bottom:4px;">Rastreabilidade</div>
+        <div style="font-size:13px;font-weight:800;color:#042D4D;font-family:monospace;letter-spacing:1px;">${codigo}</div>
+        <div style="font-size:10px;color:#64748b;margin-top:4px;">Escaneie o QR Code para rastrear</div>
+      </div>
+    </div>
+    <div style="text-align:right;font-size:9px;color:#94a3b8;margin-top:8px;">Impressão: ${new Date().toLocaleString('pt-BR')}</div>
+  </div>`;
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// ETIQUETA DE PALLET — 100 x 150 mm, Zebra ZD220 (demais linhas)
+//
+// Cada dado no tamanho da distância em que é lido:
+//   • Nº do pallet, 52 pt  → achado a 5 m no barracão. É o motivo da etiqueta.
+//   • Produto, faixa preta → lido a ~1 m.
+//   • QR, 49 mm            → escaneado a ~50 cm. Espaço próprio, sem disputa.
+//   • Código, monospace    → digitado à mão quando o QR não lê. Monospace para
+//                            não confundir 0/O e 1/I.
+//   • Grade de dados       → leitura de perto, etiqueta na mão.
+//
+// Sem campo de aprovação: a etiqueta é impressa ANTES da análise, na rotina de
+// identificação de tudo que sai da linha. Se o laboratório reprovar depois, a
+// baixa é no sistema. O QR é quem mostra a situação real.
+// ══════════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════
+// AJUSTE FINAL POR MEDIÇÃO
+//
+// A etiqueta tem altura fixa e conteúdo variável (razão social em 2 linhas,
+// nome de produto longo, equipe de 6 pessoas na linha Emitec). Estimar quanto
+// cada bloco ocupa erra nas duas direções: erra para baixo e a impressão
+// corta; erra para cima e o QR encolhe sem necessidade.
+//
+// Aqui a etiqueta é montada fora da tela, MEDIDA de verdade, e o QR recebe o
+// maior tamanho que ainda caiba — descendo em passos de 1 mm até 34 mm.
+// Todo o estilo é inline, então a medida no documento principal vale para a
+// janela de impressão.
+// ══════════════════════════════════════════════════════════════════════════
+function ajustarEtiquetaParaCaber(html) {
+  let palco = document.getElementById('_etq-palco');
+  if (!palco) {
+    palco = document.createElement('div');
+    palco.id = '_etq-palco';
+    palco.style.cssText = 'position:fixed;left:-9999px;top:0;visibility:hidden;';
+    document.body.appendChild(palco);
+  }
+  palco.innerHTML = html;
+  const etq = palco.querySelector('.etq-pallet');
+  if (!etq) { palco.innerHTML = ''; return html; }
+  const box = etq.querySelector('[data-qrfit]');
+  if (box) {
+    const url = box.getAttribute('data-qrurl') || '';
+    const max = parseFloat(box.getAttribute('data-qrmax')) || 49;
+    const min = parseFloat(box.getAttribute('data-qrmin')) || 34;
+    for (let mm = max; mm >= min; mm -= 1) {
+      box.style.width = mm + 'mm';
+      box.innerHTML = qrSvgLocal(url, mm);
+      if (etq.scrollHeight <= etq.clientHeight + 1) break;   // caber é o critério
+    }
+  }
+  const out = etq.outerHTML;
+  palco.innerHTML = '';
+  return out;
+}
+
+function rotuloLabelHTMLSimples(op, i, qtd, pp) {
+  pp = pp || _rotProdutoSel();
+  const E = ETIQUETA_PALLET;
+  const numPallet = (pp.primeiroNumero || 1) + (i - 1);
+  const linha = op.linha || '—';
+  const data = (op.data || new Date().toISOString().slice(0, 10));
+  const codigo = `${linha.replace(/[^A-Za-z0-9]/g, '').substring(0, 3).toUpperCase()}-${data.replace(/-/g, '')}-${op.op_numero ? String(op.op_numero).split('-').pop() : String(Math.floor(Math.random() * 9000) + 1000)}-P${String(numPallet).padStart(3, '0')}`;
+  const validadeRotulo = validadeDoProduto(op, pp);
+  const emp = _empresa || {};
+  const nomeEmp = String(emp.razao_social || emp.nome_fantasia || 'ERP INDUSTRIAL').toUpperCase();
+  const produtoNome = String(pp.produto || '—').toUpperCase();
+  const equipe = String(op.equipe == null ? '' : op.equipe).split(/\s*[,;/]\s*/).map(x => x.trim()).filter(Boolean);
+
+  // ══════════════════════════════════════════════════════════════════════
+  // ORÇAMENTO DE ALTURA
+  //
+  // A etiqueta tem altura FIXA (150 mm) e conteúdo de tamanho variável: razão
+  // social que quebra em duas linhas, nome de produto longo, e equipe que na
+  // linha Emitec chega a 6 integrantes. Fixar todos os corpos de fonte faz o
+  // conteúdo transbordar e a impressão corta — foi o que aconteceu.
+  //
+  // Então estimamos quantas linhas cada bloco variável vai ocupar, somamos a
+  // pressão e reduzimos QR e número do pallet o suficiente para caber. A
+  // equipe vira grade de 2 ou 3 colunas em vez de crescer para baixo.
+  // ══════════════════════════════════════════════════════════════════════
+  const nomeLen = nomeEmp.length;
+  const nomePt = nomeLen > 40 ? 8 : nomeLen > 30 ? 9.5 : nomeLen > 22 ? 11 : 13;
+  // ~1,9 caractere por mm no corpo escolhido, na largura útil de ~68 mm
+  const nomeLinhas = Math.min(3, Math.ceil(nomeLen / Math.max(18, Math.round(68 * 1.95 * (10 / nomePt)))));
+  const prodPt = produtoNome.length > 26 ? 12 : produtoNome.length > 20 ? 13.5 : 15;
+  const prodLinhas = Math.min(2, Math.ceil(produtoNome.length / (prodPt >= 15 ? 20 : prodPt >= 13 ? 24 : 28)));
+
+  // Equipe: colunas em vez de linhas. Largura cheia da grade cabe 3 colunas.
+  // 3 colunas só a partir de 10 integrantes: em 2 colunas cada nome tem ~44 mm
+  // e cabe inteiro. Truncar o nome de uma pessoa é pior que usar mais uma linha.
+  const equipeCols = equipe.length >= 10 ? 3 : equipe.length >= 4 ? 2 : 1;
+  const equipeFull = equipe.length >= 4;                 // ocupa a linha inteira da grade
+  const equipeLinhasVis = Math.ceil(Math.max(1, equipe.length) / equipeCols);
+  const equipePt = equipeLinhasVis >= 5 ? 6.1 : equipeLinhasVis === 4 ? 6.6 : equipeLinhasVis === 3 ? 7 : 7.6;
+
+  // Pressão = linhas extras além do caso mínimo (1 linha em cada bloco).
+  const pressao = (nomeLinhas - 1) * 4.6 + (prodLinhas - 1) * 6.2
+                + (equipeFull ? 10.5 : 0) + Math.max(0, equipeLinhasVis - 2) * (equipePt * 0.45);
+  // QR e número do pallet cedem espaço, nessa ordem. O QR nunca fica abaixo
+  // de 34 mm — abaixo disso a leitura em etiqueta suja começa a falhar.
+  // O QR nasce no tamanho máximo. Quem decide o tamanho final é
+  // ajustarEtiquetaParaCaber(), que MEDE a etiqueta montada em vez de estimar.
+  // O modelo de pressão só escolhe o corpo do número do pallet e o arranjo da
+  // equipe — decisões que não dependem de milímetro exato.
+  const qrMax = E.qrLadoMm;
+  const numPt = pressao > 16 ? 42 : pressao > 8 ? 47 : 52;
+
+  const partes = codigo.split('-');
+  const codL1 = partes.slice(0, 2).join('-');
+  const codL2 = partes.slice(2).join('-');
+
+  const cel = (rot, val, pequeno, full) => `<div style="padding:1.5mm 1.8mm;border-bottom:0.3mm solid #000;${full ? '' : 'border-right:0.3mm solid #000;'}${full ? 'grid-column:1/-1;' : ''}box-sizing:border-box;">
+    <div style="font-size:5.8pt;font-weight:700;letter-spacing:.6px;">${rot}</div>
+    <div style="font-size:${pequeno ? '8pt' : '9.5pt'};font-weight:900;line-height:1.15;margin-top:.3mm;">${escapeHtml(String(val == null || val === '' ? '—' : val))}</div></div>`;
+
+  const celEquipe = () => {
+    const itens = equipe.length ? equipe : ['—'];
+    return `<div style="padding:1.5mm 1.8mm;border-bottom:0.3mm solid #000;${equipeFull ? 'grid-column:1/-1;' : 'border-right:0.3mm solid #000;'}box-sizing:border-box;">
+      <div style="font-size:5.8pt;font-weight:700;letter-spacing:.6px;">EQUIPE${itens.length > 1 ? ' (' + itens.length + ')' : ''}</div>
+      <div style="display:grid;grid-template-columns:repeat(${equipeCols},1fr);gap:0 2.5mm;font-size:${equipePt}pt;font-weight:900;line-height:1.28;margin-top:.3mm;">
+        ${itens.map(x => `<div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(x)}</div>`).join('')}
+      </div></div>`;
+  };
+
+  return `<div class="etq-pallet" style="page-break-after:always;width:${E.larguraMm}mm;height:${E.alturaMm}mm;
+    padding:${E.margemMm}mm;box-sizing:border-box;background:#fff;color:#000;display:flex;flex-direction:column;
+    overflow:hidden;font-family:Arial,Helvetica,sans-serif;">
+
+    <div style="display:flex;align-items:center;gap:2.5mm;padding-bottom:1.2mm;">
+      <div style="flex:1;min-width:0;">
+        <div style="font-size:${nomePt}pt;font-weight:900;letter-spacing:.3px;line-height:1.06;">${escapeHtml(nomeEmp)}</div>
+        <div style="font-size:6.3pt;line-height:1.22;margin-top:.4mm;">${emp.cnpj ? 'CNPJ ' + escapeHtml(emp.cnpj) : ''}${emp.cidade ? ' · ' + escapeHtml(emp.cidade) + (emp.uf ? '/' + escapeHtml(emp.uf) : '') : ''}<br>Controle de Qualidade · Rastreabilidade de Pallet</div>
+      </div>
+      ${emp.logo
+        ? `<div style="width:22mm;height:12mm;flex-shrink:0;display:flex;align-items:center;justify-content:flex-end;">
+             <img src="${emp.logo}" alt="" style="width:22mm;height:12mm;object-fit:contain;
+               object-position:right center;filter:grayscale(1);">
+           </div>`
+        : `<div style="border:0.5mm solid #000;padding:1mm 1.6mm;text-align:center;flex-shrink:0;">
+             <b style="font-size:7.5pt;font-weight:900;display:block;line-height:1;">QUALIDADE</b>
+             <span style="font-size:5.5pt;letter-spacing:.4px;">RASTREÁVEL</span>
+           </div>`}
+    </div>
+    <div style="border-top:0.4mm solid #000;"></div>
+
+    <div style="background:#000;color:#fff;padding:1.4mm 2mm;margin-top:1.2mm;display:flex;align-items:baseline;gap:2mm;">
+      <span style="font-size:6pt;font-weight:700;letter-spacing:1px;flex-shrink:0;">PRODUTO</span>
+      <span style="font-size:${prodPt}pt;font-weight:900;line-height:1.05;margin-left:auto;text-align:right;">${escapeHtml(produtoNome)}</span>
+    </div>
+
+    <div style="display:flex;align-items:center;gap:2mm;padding:1.2mm 0;">
+      <span style="font-size:${Math.round(numPt * 0.27)}pt;font-weight:900;line-height:1;">Nº</span>
+      <span style="font-size:${numPt}pt;font-weight:900;line-height:.82;letter-spacing:-2px;">${String(numPallet).padStart(3, '0')}</span>
+      <div style="margin-left:auto;text-align:right;min-width:0;">
+        <div style="font-size:7pt;font-weight:700;letter-spacing:.5px;">LINHA</div>
+        <div style="font-size:${linha.length > 10 ? 12 : 16}pt;font-weight:900;line-height:1.05;">${escapeHtml(linha)}</div>
+        <div style="font-size:7pt;font-weight:700;letter-spacing:.5px;margin-top:.8mm;">TURNO ${escapeHtml(String(op.turno || '—').replace(/turnos?/i, '').trim() || '—')}</div>
+      </div>
+    </div>
+    <div style="border-top:0.4mm solid #000;"></div>
+
+    <div style="display:flex;gap:2.5mm;align-items:center;padding:1.2mm 0;">
+      <div style="width:${qrMax}mm;flex-shrink:0;" data-qrfit="1"
+        data-qrurl="${escapeHtml(urlRastreio(codigo))}" data-qrmax="${qrMax}" data-qrmin="34">${qrSvgLocal(urlRastreio(codigo), qrMax)}</div>
+      <div style="flex:1;min-width:0;">
+        <div style="font-size:6pt;font-weight:700;letter-spacing:.8px;">CÓDIGO DO PALLET</div>
+        <div style="font-family:'Courier New',monospace;font-size:${qrMax < 40 ? 10 : 11.5}pt;font-weight:700;line-height:1.15;
+          margin-top:1mm;border:0.4mm solid #000;padding:1.1mm;word-break:break-all;">${escapeHtml(codL1)}<br>${escapeHtml(codL2)}</div>
+        <div style="font-size:6.3pt;line-height:1.28;margin-top:1.2mm;font-weight:700;">Escaneie para ver produto, lote,<br>validade e a situação da qualidade<br>atualizada pelo laboratório.</div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;border:0.4mm solid #000;margin-top:.8mm;">
+      ${cel('LOTE', loteDoProdutoOP(op, pp))}
+      ${cel('VALIDADE', validadeRotulo)}
+      ${cel('FABRICAÇÃO', fmtData(data))}
+      ${cel('OP', op.op_numero)}
+      ${cel('ENCARREGADO', op.encarregado, true, equipeFull)}
+      ${celEquipe()}
+    </div>
+
+    <!-- Sem rodapé: a data de emissão e o "N de M" não têm uso no galpão.
+         A rastreabilidade fica no código do pallet e no QR. -->
+  </div>`;
+}
+
+// Ponto único usado pelo restante do código: escolhe automaticamente
+// o formato certo conforme a linha do produto da OP.
+function rotuloLabelHTML(op, i, qtd, pp) {
+  pp = pp || _rotProdutoSel();
+  return _isFichaProduto(pp) ? rotuloLabelHTMLCompleto(op, i, qtd, pp) : rotuloLabelHTMLSimples(op, i, qtd, pp);
+}
+
+function abrirRotulos(opId) {
+  const op = _ops.find(o => o.id === opId);
+  if (!op) return;
+  _rotuloOp = op;
+  // Cada produto da OP tem os seus pallets: o rótulo é emitido por produto,
+  // senão a etiqueta sai com os dois nomes e o lote de um deles.
+  const pps = produtosComPallets(op);
+  const sel = document.getElementById('rot-produto');
+  sel.innerHTML = pps.map(pp => `<option value="${pp.idx}">${escapeHtml(pp.produto)} — ${pp.pallets} pallet(s)`
+    + (pp.pallets ? ` (nº ${pp.primeiroNumero} a ${pp.ultimoNumero})` : '') + `</option>`).join('')
+    || '<option value="0">(OP sem produto detalhado)</option>';
+  sel.value = '0';
+  sel.parentElement.style.display = pps.length > 1 ? '' : 'none';
+  onRotProdutoChange();
+  document.getElementById('modal-rotulo').classList.remove('hidden');
+}
+function _rotProdutoSel() {
+  const pps = produtosComPallets(_rotuloOp || {});
+  const idx = parseInt(document.getElementById('rot-produto')?.value) || 0;
+  return pps[idx] || pps[0] || { idx: 0, produto: (_rotuloOp && _rotuloOp.produto) || '—',
+    linhaProduto: '', pallets: 0, primeiroNumero: 1, ultimoNumero: 0, lote: null, validade: null };
+}
+function onRotProdutoChange() {
+  const op = _rotuloOp; if (!op) return;
+  const pp = _rotProdutoSel();
+  document.getElementById('rot-qtd').value = pp.pallets || 1;
+  const modoTxt = _isFichaProduto(pp)
+    ? '📄 Rótulo completo com ficha técnica (produto em saco/bigbag)'
+    : '🏷️ Etiqueta de pallet 100 × 150 mm — QR + rastreabilidade (térmica)';
+  const pps = produtosComPallets(op);
+  const resumo = pps.length > 1
+    ? '<br><span style="color:#b45309;">Esta OP tem ' + pps.length + ' produtos: '
+      + pps.map(x => escapeHtml(x.produto) + ' (' + x.pallets + ')').join(' · ')
+      + ' — imprima um por vez.</span>'
+    : '';
+  document.getElementById('rot-op-info').innerHTML =
+    `${op.linha} · ${op.op_numero || 'sem nº'} · <strong>${escapeHtml(pp.produto)}</strong>`
+    + ` · lote <strong>${escapeHtml(loteDoProdutoOP(op, pp))}</strong> · validade <strong>${validadeDoProduto(op, pp)}</strong>`
+    + `<br><span style="font-weight:700;color:var(--primary);">${modoTxt}</span>${resumo}`;
+  renderRotuloPrev();
+}
+
+function renderRotuloPrev() {
+  if (!_rotuloOp) return;
+  const qtd = Math.max(1, parseInt(document.getElementById('rot-qtd').value) || 1);
+  let html;
+  if (_isFichaProduto(_rotProdutoSel())) {
+    // Rótulo completo: uma folha por pallet, empilhadas para revisão.
+    html = '';
+    const ppSel = _rotProdutoSel();
+    for (let i = 1; i <= qtd; i++) html += rotuloLabelHTMLCompleto(_rotuloOp, i, qtd, ppSel);
+  } else {
+    // Etiqueta de pallet: empilhadas na pré-visualização; a impressão sai uma por etiqueta.
+    html = '<div style="display:flex;flex-direction:column;gap:10px;align-items:flex-start;">';
+    const ppSel2 = _rotProdutoSel();
+    for (let i = 1; i <= qtd; i++) html += ajustarEtiquetaParaCaber(rotuloLabelHTMLSimples(_rotuloOp, i, qtd, ppSel2));
+    html += '</div>';
+  }
+  document.getElementById('rotulo-prev').innerHTML = html;
+}
+
+// Garante que cada rótulo impresso exista como pallet no estoque (com código),
+// reconciliando com os pallets já criados na produção (por lancamento_id + numero).
+async function salvarPalletsRotulo(op, qtdFallback) {
+  try {
+    // Um registro por pallet da OP, cada um com o SEU produto. Antes gravava
+    // todos com o produto do primeiro item — numa OP de dois produtos, os
+    // pallets do segundo ficavam com o nome errado.
+    const pps = produtosComPallets(op);
+    const alvo = [];
+    if (pps.some(pp => pp.pallets > 0)) {
+      pps.forEach(pp => { for (let k = 1; k <= pp.pallets; k++) alvo.push({ numero: pp.primeiroNumero + k - 1, produto: pp.produto }); });
+    } else {
+      // OP sem detalhamento de pallets: usa a quantidade informada na tela
+      const q = Math.max(1, parseInt(qtdFallback) || 1);
+      const nome = ((op.produtos_op || [])[0] || {}).produto || op.produto || '';
+      for (let k = 1; k <= q; k++) alvo.push({ numero: k, produto: nome });
+    }
+    const { data: exist } = await _supabase.from('producao_pallets').select('id,numero').eq('lancamento_id', op.id);
+    const byNum = {}; (exist || []).forEach(p => { byNum[p.numero] = p.id; });
+    const linha = op.linha || '—';
+    const data = op.data || new Date().toISOString().slice(0, 10);
+    const turno = op.turno || null;
+    const equipe = op.equipe || null;
+    const lin3 = linha.replace(/[^A-Za-z0-9]/g, '').substring(0, 3).toUpperCase() || 'LIN';
+    const opTail = op.op_numero ? String(op.op_numero).split('-').pop() : '0000';
+    const inserts = [], updates = [];
+    alvo.forEach(t => {
+      const codigo = `${lin3}-${data.replace(/-/g, '')}-${opTail}-P${String(t.numero).padStart(3, '0')}`;
+      if (byNum[t.numero]) updates.push({ id: byNum[t.numero], codigo, equipe, produto: t.produto });
+      else inserts.push({ lancamento_id: op.id, data, linha, turno, equipe, produto: t.produto, numero: t.numero, status: 'pendente', codigo });
+    });
+    if (inserts.length) {
+      await db(_supabase.from('producao_pallets').insert(inserts), 'criar pallets');
+    }
+    for (const u of updates) {
+      await db(_supabase.from('producao_pallets').update({ codigo: u.codigo, equipe: u.equipe, produto: u.produto }).eq('id', u.id), 'atualizar pallet');
+    }
+    return alvo.length;
+  } catch (e) { console.warn('[salvarPalletsRotulo]', e); return 0; }
+}
+
+async function imprimirRotulo() {
+  if (!_rotuloOp) return;
+  // Apenas imprime. O estoque é controlado pela quantidade lançada na OP (Produção),
+  // que reconcilia os pallets automaticamente ao salvar.
+  const qtd = Math.max(1, parseInt(document.getElementById('rot-qtd').value) || 1);
+  const pp = _rotProdutoSel();   // rótulos do produto selecionado
+
+  // ── AVISO ANTES DE GERAR RÓTULO SEM PALLET ───────────────────────────────
+  // Imprimir NÃO cria o pallet no banco. Se a quantidade impressa passa da que
+  // a OP declarou, esses rótulos saem com um código que não existe em
+  // producao_pallets — e o QR deles devolve "pallet não encontrado" no
+  // rastreio, sem ninguém entender por quê.
+  const declarados = Number(pp && pp.pallets) || 0;
+  if (declarados && qtd > declarados) {
+    const ok = confirm(
+      `A OP declara ${declarados} pallet(s) para ${pp.produto || 'este produto'}, e você está imprimindo ${qtd}.\n\n` +
+      `Os rótulos de ${declarados + 1} a ${qtd} vão sair com um código que ainda NÃO existe no estoque — ` +
+      `o QR deles vai responder "pallet não encontrado".\n\n` +
+      `Para registrar, use "Registrar / ajustar estoque" antes de imprimir, ou corrija a quantidade na OP em Produção.\n\n` +
+      `Imprimir mesmo assim?`);
+    if (!ok) return;
+  }
+  if (_isFichaProduto(pp)) {
+    // Rótulo completo (ficha técnica) — uma folha A4 por pallet.
+    let html = '';
+    for (let i = 1; i <= qtd; i++) html += rotuloLabelHTMLCompleto(_rotuloOp, i, qtd, pp);
+    imprimirDoc('Rótulos de Qualidade — ' + (pp.produto || ''), html, 'A4');
+  } else {
+    // Etiqueta de pallet — uma página por pallet, no tamanho exato do rolo (100 x 150 mm).
+    let html = '';
+    for (let i = 1; i <= qtd; i++) html += ajustarEtiquetaParaCaber(rotuloLabelHTMLSimples(_rotuloOp, i, qtd, pp));
+    imprimirDoc('Etiquetas de Pallet — ' + (pp.produto || ''), html,
+      `${ETIQUETA_PALLET.larguraMm}mm ${ETIQUETA_PALLET.alturaMm}mm`);
+  }
+}
+
+async function registrarPalletsEstoque() {
+  if (!_rotuloOp) { toast('Selecione uma OP.', 'warning'); return; }
+  const qtd = Math.max(1, parseInt(document.getElementById('rot-qtd').value) || 1);
+  try {
+    // 1) cria/atualiza TODOS os pallets da OP (todos os produtos), cada um com o seu produto
+    const totalOP = await salvarPalletsRotulo(_rotuloOp, qtd);
+    // 2) sobra: pallets impressos a mais (numero > qtd produzida)
+    const { data: rows } = await _supabase.from('producao_pallets').select('id,numero,estoque_status').eq('lancamento_id', _rotuloOp.id);
+    // excedente = acima do total da OP (somando os produtos), nunca acima da
+    // quantidade do produto que está selecionado na tela — senão registrar o
+    // produto 1 apagaria os pallets do produto 2.
+    const limite = totalOP || qtd;
+    const surplus = (rows || []).filter(r => r.numero > limite);
+    const carregados = surplus.filter(r => r.estoque_status === 'carregado' || r.estoque_status === 'expedido');
+    const removiveis = surplus.filter(r => !(r.estoque_status === 'carregado' || r.estoque_status === 'expedido'));
+    if (removiveis.length) {
+      const ok = confirm(`A OP tem ${limite} pallet(s) no total, mas existem ${surplus.length} a mais registrados.\nRemover ${removiveis.length} pallet(s) sobrante(s) (não carregados) do estoque?`);
+      if (ok) await db(_supabase.from('producao_pallets').delete().in('id', removiveis.map(r => r.id)), 'remover pallets sobrantes');
+    }
+    let n = qtd;
+    try { const { count } = await _supabase.from('producao_pallets').select('id', { count: 'exact', head: true }).eq('lancamento_id', _rotuloOp.id); if (count != null) n = count; } catch (e) {}
+    let msg = `Estoque ajustado: ${n} pallet(s) na OP ${_rotuloOp.op_numero || ''}. Já podem ser lidos/carregados.`;
+    if (carregados.length) msg += ` (${carregados.length} sobrante(s) já carregado(s) foram mantidos.)`;
+    toast(msg, 'success');
+  } catch (e) { toast('Erro ao registrar: ' + (e.message || e), 'danger'); }
+}
+
+// ════════════════════════════════════════════════════════════
+// ABA 2 — AMOSTRAS
+// ════════════════════════════════════════════════════════════
+function amostraEtiquetaHTML(d) {
+  const linha = (txt) => `<div style="margin-top:2px;border-bottom:1px solid #475569;min-height:18px;"></div><div style="font-size:8px;color:#94a3b8;text-transform:uppercase;letter-spacing:.5px;">${txt}</div>`;
+  const campo = (label, valor) => `<div style="padding:5px 0;"><div style="font-size:9px;color:#94a3b8;font-weight:700;text-transform:uppercase;letter-spacing:.5px;">${label}</div><div style="font-size:13px;font-weight:700;color:#042D4D;">${escapeHtml(valor || '—')}</div></div>`;
+  const campoOuLinha = (label, valor) => (valor && String(valor).trim()) ? campo(label, valor) : linha(label);
+  return `<div style="page-break-after:always;width:100mm;min-height:70mm;padding:8mm;box-sizing:border-box;font-family:Arial,sans-serif;background:#fff;border:1px dashed #94a3b8;">
+    <div style="border-bottom:2px solid #042D4D;padding-bottom:5px;margin-bottom:6px;font-size:12px;font-weight:800;color:#042D4D;text-transform:uppercase;">🧪 Etiqueta de Amostra</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 16px;">
+      ${campo('Data', fmtData(d.data))}
+      ${campo('Nº do Pallet', d.pallet)}
+      ${campo('Linha', d.linha)}
+      ${campo('Produto', d.produto)}
+    </div>
+    <div style="margin-top:8px;display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+      <div>${campoOuLinha('Separador', d.separador)}</div>
+      <div>${campoOuLinha('ADT (g/saco)', d.adt)}</div>
+    </div>
+  </div>`;
+}
+
+function gerarAmostras() {
+  const base = {
+    data: document.getElementById('am-data').value || new Date().toISOString().slice(0, 10),
+    linha: document.getElementById('am-linha').value,
+    produto: document.getElementById('am-produto').value,
+    separador: document.getElementById('am-separador').value.trim(),
+    adt: document.getElementById('am-adt').value.trim(),
+  };
+  const copias = Math.max(1, parseInt(document.getElementById('am-qtd').value) || 1);
+  if (!base.linha) { toast('Selecione a linha.', 'warning'); return; }
+  // pallets: usa a lista de chips; se vazia, usa o que estiver digitado
+  let pallets = _amPallets.slice();
+  const pend = document.getElementById('am-pallet').value.trim();
+  if (pend && !pallets.includes(pend)) pallets.push(pend);
+  if (!pallets.length) pallets = ['']; // ao menos uma etiqueta (pallet em branco)
+  let html = '';
+  pallets.forEach(num => { for (let i = 0; i < copias; i++) html += amostraEtiquetaHTML(Object.assign({}, base, { pallet: num })); });
+  imprimirDoc('Etiquetas de Amostra', html, 'A4');
+}
+
+function addPallet() {
+  const el = document.getElementById('am-pallet');
+  const v = (el.value || '').trim();
+  if (!v) return;
+  if (!_amPallets.includes(v)) _amPallets.push(v);
+  el.value = '';
+  el.focus();
+  renderAmPallets();
+}
+function removeAmPallet(v) { _amPallets = _amPallets.filter(x => x !== v); renderAmPallets(); }
+function renderAmPallets() {
+  const box = document.getElementById('am-pallets-chips');
+  if (!box) return;
+  box.innerHTML = _amPallets.length
+    ? _amPallets.map(v => `<span style="display:inline-flex;align-items:center;gap:6px;background:#eef2f6;border:1px solid #cbd5e1;border-radius:30px;padding:4px 6px 4px 12px;font-size:12px;font-weight:700;color:#042D4D;">#${escapeHtml(v)}<button onclick="removeAmPallet('${escapeHtml(v)}')" style="background:none;border:none;cursor:pointer;color:#ef4444;font-size:14px;line-height:1;">✕</button></span>`).join('')
+    : '<span style="font-size:11px;color:#94a3b8;font-style:italic;">Nenhum pallet adicionado — adicione ao menos um.</span>';
+}
+
+function onSelectOP() {
+  const op = _ops.find(o => o.id === document.getElementById('ad-op').value);
+  if (!op) return;
+  if (op.linha) document.getElementById('ad-linha').value = op.linha;
+  if (op.encarregado) document.getElementById('ad-enc').value = op.encarregado;
+}
+
+// ════════════════════════════════════════════════════════════
+// ABA 3 — REGISTRO DIÁRIO DE ADITIVAÇÃO
+// ════════════════════════════════════════════════════════════
+function nextAditNum() {
+  const ano = new Date().getFullYear();
+  let max = 0;
+  _aditivacoes.forEach(a => { const m = /(\d+)$/.exec(a.numero || ''); if (m) max = Math.max(max, parseInt(m[1])); });
+  return `ADT-${ano}-${String(max + 1).padStart(4, '0')}`;
+}
+
+function renderAditTabela(itens) {
+  const map = {};
+  (itens || []).forEach(it => { map[it.item] = it; });
+  const rows = ITENS_ADITIVACAO.map((nome, i) => {
+    const v = map[nome] || {};
+    return `<tr>
+      <td style="font-size:12px;font-weight:600;color:var(--primary);">${nome}</td>
+      <td style="padding:4px;"><input type="text" class="form-input ad-atual" data-item="${escapeHtml(nome)}" value="${escapeHtml(v.atual || '')}" style="padding:6px 8px;font-size:13px;"></td>
+      <td style="padding:4px;"><input type="text" class="form-input ad-reg" data-item="${escapeHtml(nome)}" value="${escapeHtml(v.regulado || '')}" style="padding:6px 8px;font-size:13px;"></td>
+    </tr>`;
+  }).join('');
+  document.getElementById('ad-tbody').innerHTML = rows;
+}
+
+function coletarItensAdit() {
+  const itens = [];
+  document.querySelectorAll('#ad-tbody tr').forEach(tr => {
+    const atualEl = tr.querySelector('.ad-atual');
+    const regEl = tr.querySelector('.ad-reg');
+    if (atualEl) itens.push({ item: atualEl.dataset.item, atual: atualEl.value.trim(), regulado: (regEl?.value || '').trim() });
+  });
+  return itens;
+}
+
+function novoAdit() {
+  document.getElementById('ad-edit-id').value = '';
+  document.getElementById('ad-num').textContent = nextAditNum();
+  document.getElementById('ad-data').value = new Date().toISOString().slice(0, 10);
+  document.getElementById('ad-hora').value = new Date().toTimeString().slice(0, 5);
+  document.getElementById('ad-linha').value = '';
+  document.getElementById('ad-enc').value = '';
+  document.getElementById('ad-resp').value = '';
+  document.getElementById('ad-lote').value = '';
+  document.getElementById('ad-op').value = '';
+  renderAditTabela([]);
+  toast('Novo registro — preencha os campos.', 'info');
+}
+
+async function salvarAdit() {
+  if (!guardAction('aferidor', 'create')) return;
+  const linha = document.getElementById('ad-linha').value;
+  const data = document.getElementById('ad-data').value;
+  if (!data || !linha) { toast('Informe ao menos Data e Linha.', 'warning'); return; }
+  const editId = document.getElementById('ad-edit-id').value;
+  const opId = document.getElementById('ad-op').value || null;
+  const op = _ops.find(o => o.id === opId);
+  const agora = new Date().toISOString();
+  const dados = {
+    numero: document.getElementById('ad-num').textContent,
+    data,
+    hora: document.getElementById('ad-hora').value || null,
+    linha,
+    encarregado_turno: document.getElementById('ad-enc').value || null,
+    responsavel_coleta: document.getElementById('ad-resp').value || null,
+    lote_aditivo: document.getElementById('ad-lote').value || null,
+    lancamento_id: opId,
+    op_numero: op ? (op.op_numero || null) : null,
+    itens: coletarItensAdit(),
+    atualizado_em: agora,
+  };
+  const btn = document.getElementById('btn-salvar-adit');
+  btn.disabled = true; btn.innerHTML = '<span class="spin"></span> Lançando...';
+  try {
+    let reg;
+    if (editId) {
+      const { data: d, error } = await _supabase.from('aferidor_aditivacao').update(dados).eq('id', editId).select().single();
+      if (error) throw error; reg = d;
+      await addLog('UPDATE', 'AFERIDOR', editId, 'Aditivação atualizada: ' + dados.numero);
+      toast('Registro atualizado!', 'success');
+    } else {
+      dados.criado_em = agora;
+      const { data: d, error } = await _supabase.from('aferidor_aditivacao').insert(dados).select().single();
+      if (error) throw error; reg = d;
+      await addLog('CREATE', 'AFERIDOR', reg?.id || 'novo', 'Registro de aditivação: ' + dados.numero);
+      toast('Registro lançado!', 'success');
+    }
+    await recarregarAdit();
+    novoAdit();
+    if (reg) gerarPDFAdit(reg.id);
+  } catch (e) {
+    toast('Erro ao salvar: ' + (e.message || e), 'danger');
+  } finally {
+    btn.disabled = false; btn.innerHTML = '💾 Lançar Registro';
+  }
+}
+
+async function recarregarAdit() {
+  const { data } = await _supabase.from('aferidor_aditivacao').select('*').order('criado_em', { ascending: false }).limit(300);
+  _aditivacoes = (data || []).map(a => ({ ...a, itens: Array.isArray(a.itens) ? a.itens : [] }));
+  renderAditList();
+}
+
+function renderAditList() {
+  const tbody = document.getElementById('ad-list-tbody');
+  if (!tbody) return;
+  // popular filtro de linha uma vez
+  const all = document.getElementById('al-linha');
+  if (all && all.options.length <= 1) all.innerHTML = '<option value="">Todas</option>' + _linhas.map(l => `<option value="${escapeHtml(l.nome)}">${escapeHtml(l.nome)}</option>`).join('');
+  const busca = norm(document.getElementById('al-busca')?.value);
+  const fLinha = document.getElementById('al-linha')?.value || '';
+  const fIni = document.getElementById('al-ini')?.value || '';
+  const fFim = document.getElementById('al-fim')?.value || '';
+  let lista = _aditivacoes.slice();
+  if (fLinha) lista = lista.filter(a => a.linha === fLinha);
+  if (fIni) lista = lista.filter(a => (a.data || '') >= fIni);
+  if (fFim) lista = lista.filter(a => (a.data || '') <= fFim);
+  if (busca) lista = lista.filter(a => norm(a.numero).includes(busca) || norm(a.op_numero).includes(busca) || norm(a.responsavel_coleta).includes(busca) || norm(a.encarregado_turno).includes(busca));
+  if (!lista.length) { tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#94a3b8;padding:18px;">Nenhum registro encontrado.</td></tr>'; return; }
+  tbody.innerHTML = lista.map(a => `<tr>
+    <td style="font-weight:700;color:#7c3aed;">${escapeHtml(a.numero || '—')}</td>
+    <td>${fmtData(a.data)} ${a.hora ? escapeHtml(a.hora) : ''}</td>
+    <td>${escapeHtml(a.linha || '—')}</td>
+    <td>${escapeHtml(a.op_numero || '—')}</td>
+    <td style="font-size:12px;">${escapeHtml(a.responsavel_coleta || '—')}</td>
+    <td style="text-align:right;white-space:nowrap;">
+      <button class="btn btn-ghost btn-sm" onclick="editarAdit('${a.id}')">✏️</button>
+      <button class="btn btn-ghost btn-sm" onclick="gerarPDFAdit('${a.id}')">📄</button>
+      <button class="btn btn-ghost btn-sm" style="color:#dc2626;" onclick="excluirAdit('${a.id}')">🗑️</button>
+    </td>
+  </tr>`).join('');
+}
+
+function editarAdit(id) {
+  const a = _aditivacoes.find(x => x.id === id);
+  if (!a) return;
+  document.getElementById('ad-edit-id').value = a.id;
+  document.getElementById('ad-num').textContent = a.numero || nextAditNum();
+  document.getElementById('ad-data').value = (a.data || '').slice(0, 10);
+  document.getElementById('ad-hora').value = a.hora || '';
+  document.getElementById('ad-linha').value = a.linha || '';
+  document.getElementById('ad-enc').value = a.encarregado_turno || '';
+  document.getElementById('ad-resp').value = a.responsavel_coleta || '';
+  document.getElementById('ad-lote').value = a.lote_aditivo || '';
+  document.getElementById('ad-op').value = a.lancamento_id || '';
+  renderAditTabela(a.itens);
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+  toast('Editando ' + (a.numero || ''), 'info');
+}
+
+function excluirAdit(id) {
+  if (!guardAction('aferidor', 'delete')) return;
+  const a = _aditivacoes.find(x => x.id === id); if (!a) return;
+  document.getElementById('confirm-msg').innerHTML = `Excluir o registro <strong>${escapeHtml(a.numero || '')}</strong>?`;
+  document.getElementById('confirm-ok-btn').onclick = async () => {
+    await db(_supabase.from('aferidor_aditivacao').delete().eq('id', id), 'excluir aferição');
+    await addLog('DELETE', 'AFERIDOR', id, 'Aditivação excluída: ' + (a.numero || ''));
+    toast('Registro excluído.', 'warning');
+    closeModal('modal-confirm');
+    await recarregarAdit();
+  };
+  document.getElementById('modal-confirm').classList.remove('hidden');
+}
+
+function aditPDFHTML(reg, emBranco) {
+  const op = reg ? _ops.find(o => o.id === reg.lancamento_id) : null;
+  const cab = [
+    ['Nº', emBranco ? '' : (reg.numero || '')],
+    ['Data', emBranco ? '' : fmtData(reg.data)],
+    ['Hora', emBranco ? '' : (reg.hora || '')],
+    ['Linha', emBranco ? '' : (reg.linha || '')],
+    ['Encarregado do Turno', emBranco ? '' : (reg.encarregado_turno || '')],
+    ['Responsável pela Coleta', emBranco ? '' : (reg.responsavel_coleta || '')],
+    ['Lote do Aditivo', emBranco ? '' : (reg.lote_aditivo || '')],
+    ['OP Vinculada', emBranco ? '' : (reg.op_numero || (op ? op.op_numero : '') || '')],
+  ];
+  const map = {};
+  if (!emBranco) (reg.itens || []).forEach(it => { map[it.item] = it; });
+  const linhasTab = ITENS_ADITIVACAO.map(nome => {
+    const v = map[nome] || {};
+    const cell = (val) => emBranco
+      ? '<td style="border:1px solid #cbd5e1;height:26px;"></td>'
+      : `<td style="border:1px solid #cbd5e1;padding:6px 8px;text-align:center;font-size:12px;">${escapeHtml(val || '')}</td>`;
+    return `<tr><td style="border:1px solid #cbd5e1;padding:6px 8px;font-size:11px;font-weight:600;">${nome}</td>${cell(v.atual)}${cell(v.regulado)}</tr>`;
+  }).join('');
+  const lancadoEm = (!emBranco && reg.criado_em) ? `<div style="margin-top:14px;font-size:11px;color:#475569;font-weight:700;">Lançado em: ${new Date(reg.criado_em).toLocaleString('pt-BR')}</div>` : '';
+  return `<div style="page-break-after:always;width:190mm;min-height:270mm;padding:14mm;box-sizing:border-box;font-family:Arial,sans-serif;background:#fff;">
+    ${cabecalhoEmpresa('Registro Diário — Aditivação')}
+    ${emBranco ? '<div style="font-size:12px;font-weight:800;color:#7c3aed;text-transform:uppercase;margin-bottom:8px;">Ficha de Coleta (em branco)</div>' : ''}
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px;">
+      ${cab.map(([l, v]) => `<div style="padding:7px 10px;background:#f8fafc;border-radius:6px;border-left:3px solid #042D4D;"><div style="font-size:9px;color:#94a3b8;font-weight:700;text-transform:uppercase;letter-spacing:.5px;">${l}</div><div style="font-size:13px;font-weight:700;color:#042D4D;margin-top:2px;min-height:16px;">${escapeHtml(String(v))}</div></div>`).join('')}
+    </div>
+    <table style="width:100%;border-collapse:collapse;">
+      <thead><tr>
+        <th style="border:1px solid #042D4D;background:#042D4D;color:#fff;padding:7px;font-size:11px;text-align:left;">Item</th>
+        <th style="border:1px solid #042D4D;background:#042D4D;color:#fff;padding:7px;font-size:11px;width:120px;">Atual</th>
+        <th style="border:1px solid #042D4D;background:#042D4D;color:#fff;padding:7px;font-size:11px;width:120px;">Regulado</th>
+      </tr></thead>
+      <tbody>${linhasTab}</tbody>
+    </table>
+    ${lancadoEm}
+    <div style="margin-top:48px;display:grid;grid-template-columns:1fr 1fr;gap:36px;">
+      <div style="text-align:center;"><div style="font-size:12px;font-weight:700;color:#042D4D;min-height:16px;">${emBranco ? '' : escapeHtml(reg.responsavel_coleta || '')}</div><div style="border-top:1.5px solid #94a3b8;padding-top:6px;font-size:11px;color:#475569;">Responsável pela Coleta</div></div>
+      <div style="text-align:center;"><div style="font-size:12px;font-weight:700;color:#042D4D;min-height:16px;">${emBranco ? '' : escapeHtml(reg.encarregado_turno || '')}</div><div style="border-top:1.5px solid #94a3b8;padding-top:6px;font-size:11px;color:#475569;">Encarregado do Turno</div></div>
+    </div>
+  </div>`;
+}
+
+function gerarPDFAdit(id) {
+  const reg = _aditivacoes.find(x => x.id === id);
+  if (!reg) return;
+  imprimirDoc('Registro de Aditivação ' + (reg.numero || ''), aditPDFHTML(reg, false), 'A4');
+}
+
+function fichaEmBranco() {
+  imprimirDoc('Ficha de Coleta — Aditivação', aditPDFHTML(null, true), 'A4');
+}
+
+init();
+
+</script>
+</body>
+</html>
