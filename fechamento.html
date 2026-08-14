@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ERP Industrial — Fechamento Diário</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/supabase.js"></script>
+<script src="js/utils.js"></script>
+<style>
+  /* ── impressão: só o relatório, em preto no branco ── */
+  @media print {
+    .sidebar, .topbar, .no-print, #sidebar-container { display:none !important; }
+    .main-content { margin:0 !important; padding:0 !important; }
+    body { background:#fff !important; }
+    .card { box-shadow:none !important; border:none !important; padding:0 !important; }
+    .fx-quebra { page-break-before: always; }
+  }
+  .fx-cab { display:flex; align-items:center; gap:14px; border-bottom:3px solid var(--primary); padding-bottom:12px; margin-bottom:16px; }
+  .fx-cab img { height:52px; object-fit:contain; }
+  .fx-cab .t { font-size:19px; font-weight:800; color:var(--primary); }
+  .fx-cab .d { font-size:13px; color:#64748b; font-weight:700; }
+  .fx-sec { background:var(--primary); color:#fff; font-weight:800; font-size:13px; letter-spacing:.4px;
+            padding:8px 12px; border-radius:8px 8px 0 0; margin-top:18px; }
+  table.fx { width:100%; border-collapse:collapse; font-size:12.5px; }
+  table.fx th { background:#f1f5f9; color:var(--primary); font-weight:800; padding:7px 10px; text-align:left; border-bottom:2px solid #e2e8f0; }
+  table.fx td { padding:6px 10px; border-bottom:1px solid #f1f5f9; }
+  table.fx .num { text-align:right; font-variant-numeric:tabular-nums; }
+  table.fx tr.total td { background:#eef4f9; font-weight:800; color:var(--primary); border-top:2px solid var(--primary); }
+  .st-ok { background:#dcfce7; color:#166534; font-weight:800; padding:2px 10px; border-radius:99px; font-size:11px; }
+  .st-comprar { background:#fee2e2; color:#b91c1c; font-weight:800; padding:2px 10px; border-radius:99px; font-size:11px; }
+  .fx-aviso { background:#f0f9ff; border:1.5px solid #bae6fd; color:#075985; border-radius:10px;
+              padding:10px 14px; font-size:12px; margin-top:14px; }
+</style>
+</head>
+<body>
+<div id="sidebar-container"></div>
+<header class="topbar" id="topbar">
+  <button class="topbar-open-sidebar" onclick="toggleSidebar()">☰</button>
+  <div class="topbar-title">Fechamento Diário</div>
+  <div class="topbar-right">
+    <div class="topbar-user">
+      <div class="user-avatar" style="width:32px;height:32px;font-size:12px;" id="top-avatar">SA</div>
+      <div><div class="topbar-user-name" id="top-user-name">Super Admin</div><div class="topbar-user-profile" id="top-user-perfil">SADM</div></div>
+    </div>
+    <button class="btn btn-ghost btn-sm" onclick="doLogout()" style="color:#64748b;">Sair</button>
+  </div>
+</header>
+<main class="main-content" id="main-content">
+  <div class="page-header no-print">
+    <div class="page-header-left"><h1>Fechamento Diário da Fábrica</h1>
+      <p>Gerado direto dos lançamentos — substitui a montagem manual do PDF</p></div>
+    <div style="display:flex;gap:10px;align-items:flex-end;">
+      <div class="form-group" style="margin:0;"><label class="form-label">Data</label>
+        <input type="date" id="fx-data" class="form-input" onchange="gerar()"></div>
+      <button class="btn btn-secondary" onclick="gerar()">🔄 Atualizar</button>
+      <button class="btn btn-primary" onclick="window.print()">🖨️ Imprimir / PDF</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="fx-cab">
+      <div id="fx-logo">🏭</div>
+      <div style="flex:1;">
+        <div class="t">FECHAMENTO DIÁRIO DA FÁBRICA</div>
+        <div class="d" id="fx-cab-data">—</div>
+      </div>
+      <div style="text-align:right;font-size:11px;color:#94a3b8;" id="fx-gerado"></div>
+    </div>
+
+    <div class="fx-sec">ESTOQUE DE PRODUTO ACABADO</div>
+    <div class="table-wrap"><table class="fx" id="fx-pa"><tbody></tbody></table></div>
+
+    <div class="fx-sec">ESTOQUE DE INSUMOS</div>
+    <div class="table-wrap"><table class="fx" id="fx-ins"><tbody></tbody></table></div>
+
+    <div class="fx-aviso no-print">
+      ℹ️ <strong>Como ler:</strong> <em>Em análise</em> = produção de OPs que o laboratório ainda não liberou.
+      <em>Estoque liberado</em> = estoque total − em análise. O estoque de produto acabado parte do que foi
+      produzido e carregado <strong>dentro do ERP</strong> — a carga inicial (contagem física) entra pela
+      tabela de ajustes quando for feita, e aí os números passam a incluir o estoque anterior ao sistema.
+    </div>
+  </div>
+</main>
+<div id="toast-container" style="position:fixed;bottom:20px;right:20px;z-index:9999;display:flex;flex-direction:column;gap:8px;"></div>
+<script>
+fetch('partials/sidebar.html').then(r=>r.text()).then(html=>{
+  document.getElementById('sidebar-container').innerHTML=html;
+}).catch(e=>console.warn('[sidebar]',e));
+initSidebar('fechamento.html');
+
+function hojeISO(){const d=new Date();return [d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-');}
+function fmtN(v,dec){const x=Number(v)||0;return x.toLocaleString('pt-BR',{minimumFractionDigits:dec??((Math.abs(x%1)>0.0001)?2:0),maximumFractionDigits:dec??3});}
+function esc(s){return String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+function fmtData(d){const s=String(d).slice(0,10).split('-');return s.length===3?`${s[2]}/${s[1]}/${s[0]}`:String(d);}
+
+async function carregarCabecalho(){
+  try{
+    const{data:emp}=await _supabase.from('empresa_config').select('nome_fantasia,logo').limit(1).maybeSingle();
+    if(emp&&emp.logo)document.getElementById('fx-logo').innerHTML='<img src="'+emp.logo+'" style="height:52px;object-fit:contain;">';
+  }catch(e){}
+}
+
+async function gerar(){
+  const d=document.getElementById('fx-data').value||hojeISO();
+  document.getElementById('fx-cab-data').textContent=fmtData(d);
+  document.getElementById('fx-gerado').textContent='gerado pelo sistema em '+new Date().toLocaleString('pt-BR');
+  const{data:fx,error}=await _supabase.rpc('rpc_fechamento_dia',{p_data:d});
+  if(error){toast('Erro ao gerar: '+(error.message||error),'danger');return;}
+
+  /* ── produto acabado ── */
+  const pa=document.querySelector('#fx-pa tbody');
+  const prods=(fx.produtos||[]);
+  const t=fx.totais||{};
+  pa.innerHTML='<tr><th>PRODUTO</th><th class="num">PRODUÇÃO</th><th class="num">EM ANÁLISE</th>'+
+    '<th class="num">CARREGAMENTO</th><th class="num">ESTOQUE LIBERADO</th><th class="num">ESTOQUE TOTAL</th></tr>'+
+    (prods.length?prods.map(p=>
+      '<tr><td><strong>'+esc(p.produto)+'</strong></td>'+
+      '<td class="num">'+(p.producao_dia?fmtN(p.producao_dia,0):'')+'</td>'+
+      '<td class="num">'+(p.em_analise?fmtN(p.em_analise,0):'')+'</td>'+
+      '<td class="num">'+(p.carregado_dia?fmtN(p.carregado_dia,0):'')+'</td>'+
+      '<td class="num"><strong>'+fmtN(p.estoque_liberado,0)+'</strong></td>'+
+      '<td class="num">'+fmtN(p.estoque_total,0)+'</td></tr>').join('')
+    :'<tr><td colspan="6" style="color:#94a3b8;">Sem produção, carga ou ajuste até esta data.</td></tr>')+
+    '<tr class="total"><td>TOTAL</td>'+
+    '<td class="num">'+fmtN(t.producao_dia||0,0)+'</td>'+
+    '<td class="num">'+fmtN(t.em_analise||0,0)+'</td>'+
+    '<td class="num">'+fmtN(t.carregado_dia||0,0)+'</td>'+
+    '<td class="num">'+fmtN(t.estoque_liberado||0,0)+'</td>'+
+    '<td class="num">'+fmtN(t.estoque_total||0,0)+'</td></tr>';
+
+  /* ── insumos, agrupados ── */
+  const ins=document.querySelector('#fx-ins tbody');
+  const porGrupo={};
+  (fx.insumos||[]).forEach(i=>{(porGrupo[i.grupo]=porGrupo[i.grupo]||[]).push(i);});
+  ins.innerHTML='<tr><th>INSUMO</th><th>UN.</th><th class="num">ESTOQUE ATUAL</th><th class="num">MÍNIMO</th><th>STATUS</th></tr>'+
+    Object.keys(porGrupo).map(g=>
+      '<tr><td colspan="5" style="background:#f8fafc;font-weight:800;color:#64748b;font-size:11px;letter-spacing:.4px;">'+esc(g).toUpperCase()+'</td></tr>'+
+      porGrupo[g].map(i=>
+        '<tr><td>'+esc(i.nome)+'</td><td>'+esc(i.unidade)+'</td>'+
+        '<td class="num" style="'+(i.saldo<0?'color:#b91c1c;font-weight:800;':'')+'"><strong>'+fmtN(i.saldo)+'</strong></td>'+
+        '<td class="num">'+fmtN(i.minimo)+'</td>'+
+        '<td><span class="'+(i.status==='Comprar'?'st-comprar':'st-ok')+'">'+i.status+'</span></td></tr>').join('')
+    ).join('');
+}
+
+document.getElementById('fx-data').value=hojeISO();
+carregarCabecalho();
+gerar();
+</script>
+</body>
+</html>
