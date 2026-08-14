@@ -320,3 +320,11 @@ begin
   return jsonb_build_object('op', v_opkey, 'movimentos_removidos', v_qtd);
 end;
 $$;
+
+-- ── 006d — LENHA baixa a partir do CAMPO da OP ───────────────────────────────
+-- A lenha não passa pela ficha técnica: é apontada dentro de cada OP
+-- (producao.consumo_lenha, em m³), igual ao Excel (coluna CONSUMO DE LENHA).
+-- rpc_baixa_insumos_op foi redefinida com um bloco final que gera 1 movimento
+-- de consumo por OP para o insumo tipo LENHA (aplicada no banco em 14/08 como
+-- migration "baixa_lenha_op" — a definição vigente da function é a de lá).
+-- Se a OP apontar lenha e não existir insumo tipo LENHA ativo, vira alerta.
