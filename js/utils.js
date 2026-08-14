@@ -14,6 +14,7 @@ const MODULO_MAP = [
   { id:'dashboard',      page:'dashboard.html',      label:'Dashboard',            group:'principal',    icon:'📊' },
   { id:'notificacoes',   page:'notificacoes.html',    label:'Notificações',         group:'principal',    icon:'🔔' },
   { id:'relatorios',     page:'relatorios.html',      label:'Relatórios',           group:'principal',    icon:'📋' },
+  { id:'fechamento',     page:'fechamento.html',      label:'Fechamento Diário',    group:'principal',    icon:'📄' },
   // ADMINISTRAÇÃO
   { id:'usuarios',       page:'usuarios.html',        label:'Usuários',             group:'administracao',icon:'👥' },
   { id:'perfis',         page:'perfis.html',          label:'Perfis & Permissões',  group:'administracao',icon:'🔒' },
