@@ -1021,3 +1021,29 @@ function verFotoInline(src) {
     });
   }
 })();
+
+/* ═══════════════════════════════════════════════════════════════
+   FOTOS NO SUPABASE STORAGE (bucket 'fotos')
+   Fotos novas viram ARQUIVO no Storage e a tabela guarda só o link —
+   o banco fica leve e o navegador faz cache das imagens.
+   Cada troca gera arquivo novo (timestamp); o antigo permanece no bucket.
+   Se o upload falhar (sem internet), retorna null e o módulo salva o
+   base64 como antes — nada se perde; o migrarfotos.html move depois.
+   ═══════════════════════════════════════════════════════════════ */
+async function subirFotoStorage(dataUrl, pasta, id) {
+  try {
+    if (!dataUrl || !dataUrl.startsWith('data:')) return null;
+    const m = /^data:([^;,]+)/.exec(dataUrl) || [];
+    const mime = m[1] || 'image/jpeg';
+    const ext = { 'image/jpeg': 'jpg', 'image/jpg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif' }[mime] || 'jpg';
+    const blob = await (await fetch(dataUrl)).blob();
+    const path = pasta + '/' + (id || 'novo') + '/foto-' + Date.now() + '.' + ext;
+    const { error } = await _supabase.storage.from('fotos').upload(path, blob, { contentType: mime, cacheControl: '31536000', upsert: false });
+    if (error) throw error;
+    const { data: pub } = _supabase.storage.from('fotos').getPublicUrl(path);
+    return (pub && pub.publicUrl) || null;
+  } catch (e) {
+    console.warn('[storage] upload falhou, mantendo base64:', e.message || e);
+    return null;
+  }
+}
