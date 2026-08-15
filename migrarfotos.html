@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ERP Industrial — Migração de Fotos para o Storage</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/supabase.js"></script>
+<style>
+  body{background:#f1f5f9;}
+  .mig-wrap{max-width:860px;margin:30px auto;padding:0 16px;}
+  .mig-card{background:#fff;border:1.5px solid #e2e8f0;border-radius:14px;padding:22px 26px;margin-bottom:16px;}
+  h1{color:var(--primary,#042D4D);font-size:20px;margin:0 0 4px;}
+  .sub{font-size:13px;color:#64748b;margin-bottom:14px;}
+  table.mig{width:100%;border-collapse:collapse;font-size:13px;}
+  table.mig th{background:var(--primary,#042D4D);color:#C9FF64;padding:8px 10px;text-align:left;font-size:11.5px;letter-spacing:.3px;}
+  table.mig td{padding:7px 10px;border-bottom:1px solid #eef2f6;}
+  .st{display:inline-block;padding:2px 10px;border-radius:99px;font-size:11px;font-weight:800;}
+  .st-espera{background:#f1f5f9;color:#64748b;}
+  .st-rodando{background:#fef3c7;color:#b45309;}
+  .st-ok{background:#dcfce7;color:#15803d;}
+  .st-erro{background:#fee2e2;color:#b91c1c;}
+  .btn{font-family:inherit;font-weight:700;border:none;border-radius:10px;padding:10px 18px;cursor:pointer;font-size:14px;}
+  .btn-primary{background:var(--primary,#042D4D);color:#fff;}
+  .btn-secondary{background:#e2e8f0;color:#334155;}
+  .btn:disabled{opacity:.5;cursor:not-allowed;}
+  .barra{height:10px;background:#e2e8f0;border-radius:99px;overflow:hidden;margin-top:14px;}
+  .barra > div{height:100%;background:linear-gradient(90deg,#042D4D,#0ea5e9);width:0%;transition:width .3s;}
+  #log{font-family:monospace;font-size:11.5px;color:#475569;background:#f8fafc;border-radius:10px;padding:10px 14px;max-height:220px;overflow-y:auto;margin-top:14px;white-space:pre-wrap;}
+  .aviso{background:#fffbeb;border:1.5px solid #f59e0b;border-radius:10px;padding:12px 16px;font-size:13px;color:#92400e;margin-bottom:14px;}
+</style>
+</head>
+<body>
+<div class="mig-wrap">
+  <div class="mig-card">
+    <h1>📦 Migração de fotos: banco → Supabase Storage</h1>
+    <div class="sub">Ferramenta de uso único. Move as fotos que hoje estão salvas como texto (base64) dentro
+    das tabelas para o bucket <strong>fotos</strong> do Storage, e troca o conteúdo da coluna pelo link.
+    As telas continuam funcionando igual — só que muito mais leves. Pode rodar de novo sem risco:
+    o que já é link é pulado.</div>
+    <div class="aviso">⚠️ Antes de rodar: faça (ou confirme) o backup do banco e
+    <strong>publique o epi.html desta rodada primeiro</strong> (os PDFs de EPI foram ajustados para
+    aceitar link). Rode no computador, com internet estável. Se cair no meio, é só rodar de novo —
+    ela continua de onde parou. Dica: rode de novo de tempos em tempos — assinaturas novas de
+    Solicitações/Compras/Abastecimento ainda nascem em base64 e esta página move todas.</div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;">
+      <button class="btn btn-secondary" id="btn-verificar" onclick="verificar()">🔍 1. Só verificar (não muda nada)</button>
+      <button class="btn btn-primary" id="btn-migrar" onclick="migrar()" disabled>🚀 2. Migrar tudo</button>
+    </div>
+    <div class="barra"><div id="prog"></div></div>
+  </div>
+
+  <div class="mig-card">
+    <table class="mig">
+      <thead><tr><th>TABELA · COLUNA</th><th>EM BASE64</th><th>TAMANHO</th><th>JÁ MIGRADAS</th><th>STATUS</th></tr></thead>
+      <tbody id="tb"></tbody>
+    </table>
+    <div id="log"></div>
+  </div>
+</div>
+
+<script>
+/* v2 — cobre TUDO, em três tipos:
+   • colunas de foto simples (rodada 1, já migradas — ficam aqui p/ pegar fotos novas em base64)
+   • colunas de assinatura e imagem/PDF do EPI (os PDFs do epi.html já foram ajustados p/ aceitar link)
+   • colunas JSON com fotos/assinaturas embutidas (componentes, históricos, snapshots) — a ferramenta
+     varre o JSON inteiro e troca cada base64 achado por um link, mantendo a estrutura intacta.
+   ÚNICO que fica de fora: empresa_config.logo (usado em doc.addImage em vários módulos — fica base64).
+   ⚠️ Publique o epi.html desta rodada ANTES de rodar, senão os PDFs de EPI quebram. */
+const TAREFAS=[
+  // fotos simples (rodada 1 — reexecutar pega o que nasceu base64 offline)
+  {tabela:'linhas_producao',     cols:['foto']},
+  {tabela:'almoxarifado',        cols:['foto']},
+  {tabela:'produtos',            cols:['foto']},
+  {tabela:'equipamentos_linhas', cols:['foto']},
+  {tabela:'equipamentos_gerais', cols:['foto']},
+  {tabela:'frota_veiculos',      cols:['foto']},
+  {tabela:'funcionarios',        cols:['foto']},
+  {tabela:'desgaste_registros',  cols:['foto_entrada','foto_saida','foto_entrada_thumb','foto_saida_thumb']},
+  {tabela:'desgaste_estoque',    cols:['foto','foto_thumb']},
+  // rodada 2 — assinaturas e mídias do EPI
+  {tabela:'epi_cadastro',        cols:['imagem_url','pdf_url']},
+  {tabela:'epi_entregas',        cols:['assinatura']},
+  {tabela:'almoxarifado_solicitacoes', cols:['assinatura','aprovador_assinatura','assinatura_comprador']},
+  {tabela:'abastecimento_registros',   cols:['assinatura_responsavel','assinatura_motorista']},
+  {tabela:'manutencao',          cols:['assinatura']},
+  {tabela:'terceiros_remessas',  cols:['assinatura','assinatura_autorizador']},
+  // rodada 2 — fotos/assinaturas DENTRO de JSON (varredura recursiva)
+  {tabela:'equipamentos_linhas', cols:['componentes'],            json:true},
+  {tabela:'equipamentos_gerais', cols:['componentes'],            json:true},
+  {tabela:'manutencao',          cols:['fotos_servico','assinaturas_tecnicos','assinaturas_servico'], json:true},
+  {tabela:'compras_solicitacoes',cols:['historico','snapshot'],   json:true},
+  {tabela:'compras_pedidos',     cols:['historico'],              json:true},
+  {tabela:'compras_recebimentos',cols:['historico'],              json:true},
+  {tabela:'frota_veiculos',      cols:['documentos','inspecoes','componentes'], json:true},
+  {tabela:'terceiros_remessas',  cols:['fotos'],                  json:true},
+];
+const BUCKET='fotos';
+let _dados=null; // preenchido pelo verificar()
+
+function fmtMB(b){return (b/1048576).toLocaleString('pt-BR',{maximumFractionDigits:2})+' MB';}
+function log(m){const el=document.getElementById('log');el.textContent+=m+'\n';el.scrollTop=el.scrollHeight;}
+function setSt(i,cls,txt){document.getElementById('st-'+i).innerHTML='<span class="st st-'+cls+'">'+txt+'</span>';}
+function setProg(p){document.getElementById('prog').style.width=Math.round(p)+'%';}
+
+function renderTabela(){
+  document.getElementById('tb').innerHTML=TAREFAS.map((t,i)=>
+    '<tr><td><strong>'+t.tabela+'</strong>'+(t.json?' <span style="font-size:10px;font-weight:800;background:#ede9fe;color:#7c3aed;border-radius:6px;padding:1px 6px;">JSON</span>':'')+
+    '<br><span style="font-size:11px;color:#94a3b8;">'+t.cols.join(', ')+'</span></td>'+
+    '<td id="qt-'+i+'">—</td><td id="tam-'+i+'">—</td><td id="ja-'+i+'">—</td>'+
+    '<td id="st-'+i+'"><span class="st st-espera">aguardando</span></td></tr>').join('');
+}
+
+/* Varredura recursiva de JSON: conta e troca strings base64 mantendo a estrutura */
+function contarB64(v,acc){
+  if(typeof v==='string'){if(v.startsWith('data:')){acc.n++;acc.bytes+=v.length;}return;}
+  if(Array.isArray(v)){v.forEach(x=>contarB64(x,acc));return;}
+  if(v&&typeof v==='object'){Object.values(v).forEach(x=>contarB64(x,acc));}
+}
+async function trocarB64(v,subir){
+  if(typeof v==='string'){
+    if(v.startsWith('data:')){const u=await subir(v);return[u||v,u?1:0];}
+    return[v,0];
+  }
+  if(Array.isArray(v)){let t=0;const arr=[];for(const x of v){const[r,n]=await trocarB64(x,subir);arr.push(r);t+=n;}return[arr,t];}
+  if(v&&typeof v==='object'){let t=0;const o={};for(const k of Object.keys(v)){const[r,n]=await trocarB64(v[k],subir);o[k]=r;t+=n;}return[o,t];}
+  return[v,0];
+}
+function parseTalvez(raw){
+  if(raw==null)return null;
+  if(typeof raw==='object')return raw;
+  if(typeof raw==='string'&&(raw.trim().startsWith('{')||raw.trim().startsWith('['))){
+    try{return JSON.parse(raw);}catch(e){return null;}
+  }
+  return null;
+}
+
+async function verificar(){
+  document.getElementById('btn-verificar').disabled=true;
+  document.getElementById('log').textContent='';
+  _dados=[];
+  let totalB64=0;
+  for(let i=0;i<TAREFAS.length;i++){
+    const t=TAREFAS[i];
+    setSt(i,'rodando','lendo...');
+    try{
+      const{data,error}=await _supabase.from(t.tabela).select('id,'+t.cols.join(','));
+      if(error)throw error;
+      const pend=[];let bytes=0,jaLink=0;
+      (data||[]).forEach(r=>{
+        t.cols.forEach(c=>{
+          const raw=r[c];
+          if(t.json){
+            const obj=parseTalvez(raw);
+            if(!obj)return;
+            const acc={n:0,bytes:0};contarB64(obj,acc);
+            if(acc.n>0){pend.push({id:r.id,col:c,obj,wasString:typeof raw==='string',n:acc.n});bytes+=acc.bytes;}
+          }else{
+            if(typeof raw==='string'&&raw.startsWith('data:')){pend.push({id:r.id,col:c,valor:raw});bytes+=raw.length;}
+            else if(typeof raw==='string'&&raw.startsWith('http'))jaLink++;
+          }
+        });
+      });
+      _dados.push({idx:i,tarefa:t,pend,bytes});
+      totalB64+=bytes;
+      const qtd=t.json?pend.reduce((s,p)=>s+p.n,0):pend.length;
+      document.getElementById('qt-'+i).textContent=qtd;
+      document.getElementById('tam-'+i).textContent=pend.length?fmtMB(bytes):'—';
+      document.getElementById('ja-'+i).textContent=jaLink||'—';
+      setSt(i,pend.length?'espera':'ok',pend.length?'pronta p/ migrar':'nada a fazer');
+    }catch(e){
+      _dados.push({idx:i,tarefa:t,pend:[],bytes:0,erroLeitura:e.message});
+      setSt(i,'erro','erro: '+(e.message||e).slice(0,40));
+      log('❌ '+t.tabela+': '+(e.message||e));
+    }
+  }
+  log('Verificação concluída. Total em base64: '+fmtMB(totalB64));
+  document.getElementById('btn-verificar').disabled=false;
+  document.getElementById('btn-migrar').disabled=!_dados.some(d=>d.pend.length);
+}
+
+function extDoMime(dataUrl){
+  const m=/^data:([^;,]+)/.exec(dataUrl);
+  const mime=(m&&m[1])||'application/octet-stream';
+  const mapa={'image/jpeg':'jpg','image/jpg':'jpg','image/png':'png','image/webp':'webp','image/gif':'gif','application/pdf':'pdf'};
+  return {mime, ext:mapa[mime]||'bin'};
+}
+
+async function migrar(){
+  if(!_dados){alert('Rode a verificação primeiro.');return;}
+  if(!confirm('Migrar as fotos para o Storage agora? (backup do banco feito?)'))return;
+  document.getElementById('btn-migrar').disabled=true;
+  document.getElementById('btn-verificar').disabled=true;
+  const todos=_dados.filter(d=>d.pend.length);
+  const totalItens=todos.reduce((s,d)=>s+d.pend.length,0);
+  let feitos=0,erros=0;
+  // sobe UM base64 e devolve a URL pública (usado pelos dois tipos de tarefa)
+  let _seq=0;
+  const subirUm=async(tabela,id,col,dataUrl)=>{
+    const {mime,ext}=extDoMime(dataUrl);
+    const blob=await (await fetch(dataUrl)).blob();
+    const path=tabela+'/'+id+'/'+col+'-'+(_seq++)+'-'+Date.now()+'.'+ext;
+    const{error:eUp}=await _supabase.storage.from(BUCKET).upload(path,blob,{contentType:mime,cacheControl:'31536000',upsert:false});
+    if(eUp)throw new Error('upload: '+eUp.message);
+    const{data:pub}=_supabase.storage.from(BUCKET).getPublicUrl(path);
+    if(!pub||!pub.publicUrl)throw new Error('sem URL pública');
+    return pub.publicUrl;
+  };
+  for(const d of todos){
+    const t=d.tarefa;let okTab=0;
+    setSt(d.idx,'rodando','migrando...');
+    for(const p of d.pend){
+      try{
+        if(t.json){
+          // varre o JSON, sobe cada base64 e regrava a coluna com a MESMA estrutura
+          let falhouUm=false;
+          const subir=async(du)=>{try{return await subirUm(t.tabela,p.id,p.col,du);}catch(e){falhouUm=true;log('❌ '+t.tabela+'.'+p.col+' id='+p.id+' (item interno): '+(e.message||e));return null;}};
+          const[novo,trocas]=await trocarB64(p.obj,subir);
+          if(trocas>0){
+            const upd={};upd[p.col]=p.wasString?JSON.stringify(novo):novo;
+            const{error:eUpd}=await _supabase.from(t.tabela).update(upd).eq('id',p.id);
+            if(eUpd)throw new Error('update: '+eUpd.message);
+          }
+          if(falhouUm)throw new Error('nem todos os itens internos subiram (rode de novo)');
+          okTab++;feitos++;
+        }else{
+          const url=await subirUm(t.tabela,p.id,p.col,p.valor);
+          const upd={};upd[p.col]=url;
+          const{error:eUpd}=await _supabase.from(t.tabela).update(upd).eq('id',p.id);
+          if(eUpd)throw new Error('update: '+eUpd.message);
+          okTab++;feitos++;
+        }
+      }catch(e){
+        erros++;feitos++;
+        log('❌ '+t.tabela+'.'+p.col+' id='+p.id+': '+(e.message||e));
+      }
+      setProg(feitos/totalItens*100);
+    }
+    document.getElementById('ja-'+d.idx).textContent=okTab;
+    setSt(d.idx, okTab===d.pend.length?'ok':'erro', okTab===d.pend.length?'✅ concluída':'⚠️ '+okTab+'/'+d.pend.length);
+    log('• '+t.tabela+': '+okTab+'/'+d.pend.length+' migradas.');
+  }
+  setProg(100);
+  log('─'.repeat(40));
+  log(erros?('Terminou com '+erros+' erro(s) — pode rodar de novo, o que deu certo não repete.')
+           :'✅ Migração completa! Abra os módulos e confira as fotos. O banco ficou ~'+fmtMB(todos.reduce((s,d)=>s+d.bytes,0))+' mais leve nas consultas.');
+  document.getElementById('btn-verificar').disabled=false;
+}
+
+renderTabela();
+</script>
+</body>
+</html>
