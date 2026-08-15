@@ -1047,3 +1047,21 @@ async function subirFotoStorage(dataUrl, pasta, id) {
     return null;
   }
 }
+
+/* Converte um link de imagem (Storage) em base64 para uso no jsPDF
+   (doc.addImage não aceita URL). Se já for base64, devolve como está. */
+async function fotoParaDataUrl(src) {
+  if (!src || typeof src !== 'string' || src.startsWith('data:')) return src || null;
+  try {
+    const blob = await (await fetch(src)).blob();
+    return await new Promise((res, rej) => {
+      const fr = new FileReader();
+      fr.onload = () => res(fr.result);
+      fr.onerror = rej;
+      fr.readAsDataURL(blob);
+    });
+  } catch (e) {
+    console.warn('[fotoParaDataUrl]', e.message || e);
+    return null;
+  }
+}
