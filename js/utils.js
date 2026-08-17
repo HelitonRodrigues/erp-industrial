@@ -150,6 +150,16 @@ const MODULO_FUNCIONALIDADES = {
     { id:'indicadores', label:'📈 Indicadores' },
     { id:'auditoria', label:'🛡️ Auditoria' },
   ],
+  plancustos: [
+    { id:'resumo', label:'📊 Resumo' },
+    { id:'capacidade', label:'📅 Capacidade' },
+    { id:'metas', label:'🎯 Metas & Produção' },
+    { id:'linhas', label:'⚙️ Config. das Linhas' },
+    { id:'total', label:'🧮 Total' },
+    { id:'real', label:'⚖️ Planejado × Realizado' },
+    { id:'ajustes', label:'🛠️ Ajustes' },
+    { id:'historico', label:'📜 Histórico' },
+  ],
   custo_precificacao: [
     { id:'config', label:'📅 Capacidade' },
     { id:'metas', label:'🎯 Metas & Produção' },
