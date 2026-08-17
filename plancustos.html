@@ -816,132 +816,511 @@ async function salvarPlano(){
 /* ================================================================
    EDITOR DO PLANO
 ================================================================ */
-function voltarLanding(){
-  if(_sujo&&!confirm('Há alterações não salvas. Sair mesmo assim?'))return;
-  init();
+/* ================================================================
+   CAMADA DE TELA — organização por ABAS (reestruturada em 15/08):
+   📊 Geral (consolidado) · uma aba por LINHA FÍSICA · 📅 Calendário ·
+   💰 Custos & Preços. Visualização limpa por padrão; edição só no
+   modo ✏️ Editar. Ordem de leitura: Geral → Linha → Capacidade →
+   Planejado → Produzido → Alvo → Resultado.
+================================================================ */
+let _abaAtiva='geral', _modoEdicao=false;
+
+function irAba(a){_abaAtiva=a;renderPlano();}
+function toggleEdicao(){_modoEdicao=!_modoEdicao;renderPlano();}
+
+/* precificação derivada do custo — usada no Geral (alvo) e na aba Custos */
+function computarPrecificacao(cc){
+  const cfg=_plano.config||{};
+  const precos={},margens={},faturamentoPorB={},peqs={};
+  let faturamentoAuto=0;
+  BUCKETS.forEach(b=>{
+    const m=cc.metas[b]||0;if(m<=0)return;
+    const cvUn=(cc.varBucket[b]||0)/m;
+    const margAlvo=Number((cfg.margemAlvo||{})[b])||0.22;
+    const manual=(cfg.precoVendaManual||{})[b];
+    const preco=(manual!=null&&manual!=='')?Number(manual):(cvUn>0?cvUn/(1-margAlvo):0);
+    const fixoB=(cc.totalBucket[b]||0)-(cc.varBucket[b]||0);
+    const margRS=preco-cvUn;
+    precos[b]={preco,manual:manual!=null&&manual!=='',cvUn};
+    margens[b]={rs:margRS,pct:preco>0?margRS/preco:0};
+    peqs[b]=margRS>0?fixoB/margRS:null;
+    faturamentoPorB[b]=m*preco;faturamentoAuto+=faturamentoPorB[b];
+  });
+  const fatManual=cfg.faturamentoManual||{ativo:false,valor:0};
+  const faturamento=fatManual.ativo?(Number(fatManual.valor)||0):faturamentoAuto;
+  const alvoPct=(Number(cfg.alvoMaximoPct)||38)/100;
+  const custoSobreFat=faturamento>0?cc.totalGeral/faturamento:null;
+  return {precos,margens,peqs,faturamentoPorB,faturamentoAuto,faturamento,fatManual,
+          alvoPct,custoSobreFat,dentroAlvo:custoSobreFat!=null&&custoSobreFat<=alvoPct,
+          sobra:faturamento-cc.totalGeral};
 }
+
+function kpi(v,l,cor){return `<div class="pc-kpi"><div class="v" ${cor?`style="color:${cor};"`:''}>${v}</div><div class="l">${l}</div></div>`;}
 
 function renderPlano(){
   document.getElementById('pc-header-actions').innerHTML=`
     <button class="btn btn-secondary" onclick="voltarLanding()">← Planos</button>
+    <button class="btn ${_modoEdicao?'btn-primary':'btn-secondary'}" onclick="toggleEdicao()">${_modoEdicao?'✅ Concluir edição':'✏️ Editar'}</button>
     <button class="btn btn-secondary" onclick="window.print()">🖨️ Imprimir</button>
     <button class="btn btn-secondary" id="pc-salvar-btn" onclick="salvarPlano()">💾 Salvar</button>`;
   const comp=computarPlano();
-  document.getElementById('pc-conteudo').innerHTML=`
-    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;align-items:center;">
-      <div style="font-size:18px;font-weight:800;color:var(--primary);">${MESES[_plano.mes]} / ${_plano.ano}</div>
-      <input type="text" class="form-input" style="width:260px;" placeholder="Nome do plano (opcional)"
-        value="${esc(_plano.nome||'')}" onchange="_plano.nome=this.value.trim()||null;marcarSujo()">
-      ${!_plano.config||!_plano.config.insumos?`<button class="btn btn-secondary btn-sm" onclick="importarConfigDepois()">📥 Importar preços do Custo & Precificação</button>`
-        :`<span class="pc-badge ok" title="${esc(_plano.config.origem||'')}">✓ preços importados</span>`}
-    </div>
-    ${renderKPIs(comp)}
-    ${renderCalendario()}
-    ${renderEstrutura(comp)}
-    ${renderCustos(comp)}
-    ${renderPlanoReal(comp)}`;
-}
-
-async function importarConfigDepois(){
-  const imp=await importarConfigCP();
-  if(!imp){toast('Nenhum planejamento encontrado no Custo & Precificação.','warning');return;}
-  _plano.config=imp;marcarSujo();renderPlano();
-  toast(`Preços e réguas importados de "${imp.origem}".`,'success');
-}
-
-function renderKPIs(comp){
-  const totalSacos=Object.values(comp.porProduto).reduce((s,p)=>s+p.planejado,0);
-  const totalDemanda=Object.values(comp.porProduto).reduce((s,p)=>s+p.demanda,0);
-  const diasTrab=Object.values(_plano.calendario||{}).filter(v=>v==='trabalha'||v==='domingo-especial').length;
-  const nLinhas=new Set((_plano.itens||[]).map(i=>i.linha_id)).size;
+  const cfg=_plano.config||{};
+  const cc=(cfg.insumos&&cfg.insumos.length)?computarCustos(comp):null;
   const real=computarRealizado();
-  const totalReal=Object.values(real.porProduto).reduce((s,p)=>s+p.total,0);
-  const pct=totalSacos>0?totalReal/totalSacos*100:null;
-  return `<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;">
-    <div class="pc-kpi"><div class="v">${diasTrab}</div><div class="l">dias de trabalho</div></div>
-    <div class="pc-kpi"><div class="v">${nLinhas}</div><div class="l">linha(s) no plano</div></div>
-    <div class="pc-kpi"><div class="v">${Object.keys(comp.porProduto).length}</div><div class="l">produto(s)</div></div>
-    <div class="pc-kpi"><div class="v">${fmtN(totalDemanda,0)}</div><div class="l">demanda (un)</div></div>
-    <div class="pc-kpi"><div class="v">${fmtN(totalSacos,0)}</div><div class="l">planejado (un)</div></div>
-    <div class="pc-kpi" style="border-color:#bae6fd;"><div class="v" style="color:#0369a1;">${_realCarregado?fmtN(totalReal,0):'…'}</div><div class="l">realizado (un)</div></div>
-    <div class="pc-kpi" style="border-color:#bae6fd;"><div class="v" style="color:${pct==null?'#94a3b8':pct>=100?'#15803d':'#0369a1'};">${pct==null?'—':fmtN(pct,0)+'%'}</div><div class="l">do planejado</div></div>
-    ${(()=>{const cc=(_plano.config&&_plano.config.insumos)?computarCustos(comp):null;
-      return cc?`<div class="pc-kpi"><div class="v">R$ ${fmtN(cc.totalGeral/1000,1)}k</div><div class="l">custo planejado</div></div>
-      <div class="pc-kpi"><div class="v">${cc.custoTonGeral!=null?'R$ '+fmtN(cc.custoTonGeral,0):'—'}</div><div class="l">custo/ton</div></div>`:'';})()}
-  </div>`;
-}
-
-/* ── calendário ── */
-function renderCalendario(){
-  const ano=_plano.ano,mes=_plano.mes;
-  const diasNoMes=new Date(ano,mes,0).getDate();
-  const primeiroDow=new Date(ano,mes-1,1).getDay();
-  const cels=[];
-  ['D','S','T','Q','Q','S','S'].forEach(d=>cels.push(`<div class="cab">${d}</div>`));
-  for(let i=0;i<primeiroDow;i++)cels.push('<div></div>');
-  for(let d=1;d<=diasNoMes;d++){
-    const k=`${ano}-${String(mes).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-    const st=_plano.calendario[k]||'folga';
-    const rot={trabalha:'trab',folga:'folga',feriado:'fer',['domingo-especial']:'dom.esp'}[st]||'';
-    cels.push(`<div class="pc-dia ${st}" onclick="toggleDia('${k}')">${d}<small>${rot}</small></div>`);
-  }
-  return `<div class="pc-card">
-    <div class="pc-sec-tit">📅 Calendário do mês
-      <span class="pc-hint" style="font-weight:400;margin-left:6px;">clique no dia para alternar · trabalha → folga → feriado (domingo tem "domingo especial")</span>
-      <span style="margin-left:auto;display:flex;gap:6px;align-items:center;">
-        <label class="pc-hint">h do domingo especial</label>
-        <input type="number" class="form-input" style="width:64px;padding:4px 8px;" min="0" max="24"
-          value="${_plano.horas_domingo_especial??8}" onchange="_plano.horas_domingo_especial=parseFloat(this.value)||0;marcarSujo();renderPlano()">
-      </span>
-    </div>
-    <div class="pc-cal">${cels.join('')}</div>
-  </div>`;
-}
-function toggleDia(k){
-  const atual=_plano.calendario[k]||'folga';
-  const dow=new Date(k+'T12:00:00').getDay();
-  const ciclo=dow===0?['folga','domingo-especial','trabalha']:['trabalha','folga','feriado'];
-  const idx=ciclo.indexOf(atual);
-  _plano.calendario[k]=ciclo[(idx+1)%ciclo.length];
-  marcarSujo();renderPlano();
-}
-
-/* ── estrutura: linhas → turnos → produtos ── */
-function renderEstrutura(comp){
   const grupos=gruposDoPlano();
-  const linhasDisponiveis=_linhas.filter(l=>!grupos.some(g=>g.linha_id===l.id));
+  const linhasIds=grupos.map(g=>g.linha_id);
+  if(_abaAtiva!=='geral'&&_abaAtiva!=='calendario'&&_abaAtiva!=='custos'&&!linhasIds.includes(_abaAtiva))_abaAtiva='geral';
+
+  const abas=[
+    {id:'geral',rotulo:'📊 Geral'},
+    ...linhasIds.map(lid=>({id:lid,rotulo:'🏭 '+esc(linhaNome(lid))})),
+    {id:'calendario',rotulo:'📅 Calendário'},
+    {id:'custos',rotulo:'💰 Custos & Preços'},
+  ];
+  const barra=`<div style="display:flex;gap:2px;border-bottom:2px solid #e2e8f0;margin-bottom:14px;flex-wrap:wrap;align-items:center;">
+    ${abas.map(a=>`<button class="tab-btn ${_abaAtiva===a.id?'active':''}" onclick="irAba('${a.id}')">${a.rotulo}</button>`).join('')}
+    ${_modoEdicao?`<span style="margin-left:auto;display:flex;gap:6px;align-items:center;">
+      <select id="pc-add-linha" class="form-input" style="width:170px;padding:4px 8px;">
+        <option value="">+ Adicionar linha...</option>
+        ${_linhas.filter(l=>!linhasIds.includes(l.id)).map(l=>`<option value="${l.id}">${esc(l.nome)}</option>`).join('')}
+      </select>
+      <button class="btn btn-secondary btn-sm" onclick="addLinha()">Adicionar</button></span>`:''}
+  </div>`;
+
+  let corpo='';
+  if(_abaAtiva==='geral')corpo=renderAbaGeral(comp,cc,real);
+  else if(_abaAtiva==='calendario')corpo=renderAbaCalendario();
+  else if(_abaAtiva==='custos')corpo=renderAbaCustos(comp,cc);
+  else corpo=renderAbaLinha(_abaAtiva,comp,cc,real);
+
+  document.getElementById('pc-conteudo').innerHTML=`
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;align-items:center;">
+      <div style="font-size:18px;font-weight:800;color:var(--primary);">${MESES[_plano.mes]} / ${_plano.ano}</div>
+      ${_modoEdicao?`<input type="text" class="form-input" style="width:240px;" placeholder="Nome do plano (opcional)"
+        value="${esc(_plano.nome||'')}" onchange="_plano.nome=this.value.trim()||null;marcarSujo()">`
+        :(_plano.nome?`<span class="pc-hint" style="font-size:13px;">${esc(_plano.nome)}</span>`:'')}
+      ${!cfg.insumos?`<button class="btn btn-secondary btn-sm" onclick="importarConfigDepois()">📥 Importar preços do Custo & Precificação</button>`:''}
+      <button class="btn btn-secondary btn-sm" style="margin-left:auto;" onclick="atualizarRealizado()" title="Rebusca as OPs do mês na Produção">🔄 Atualizar realizado</button>
+    </div>
+    ${barra}${corpo}`;
+}
+
+/* helpers de realizado por linha (nome da OP ↔ id do cadastro) */
+function realDaLinha(real,lid){
+  const alvo=normNome(linhaNome(lid));
+  for(const [nome,v] of Object.entries(real.porLinha)){if(normNome(nome)===alvo)return v;}
+  return null;
+}
+function realProdutoNaLinha(rp,lid){
+  const alvo=normNome(linhaNome(lid));
+  let t=0;Object.entries(rp.porLinha).forEach(([n,q])=>{if(normNome(n)===alvo)t+=q;});
+  return t;
+}
+
+/* ═══ ABA GERAL — consolidado, sem detalhes individuais ═══ */
+function renderAbaGeral(comp,cc,real){
+  const totalPlan=Object.values(comp.porProduto).reduce((s,p)=>s+p.planejado,0);
+  const totalReal=Object.values(real.porProduto).reduce((s,p)=>s+p.total,0);
+  const saldo=totalPlan-totalReal;
+  const ating=totalPlan>0?totalReal/totalPlan*100:null;
+  const prec=cc?computarPrecificacao(cc):null;
+
+  const kpis=`<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;">
+    ${prec?kpi((prec.custoSobreFat!=null?fmtN(prec.custoSobreFat*100,1)+'%':'—'),
+        `🎯 alvo: custo ≤ ${Math.round(prec.alvoPct*100)}% fat.`,prec.dentroAlvo?'#15803d':'#b91c1c'):''}
+    ${kpi(ating!=null?fmtN(ating,0)+'%':'—','atingimento do plano',ating==null?null:ating>=100?'#15803d':'#0369a1')}
+    ${kpi(fmtN(totalPlan,0),'planejado (un)')}
+    ${kpi(_realCarregado?fmtN(totalReal,0):'…','produzido (un)','#0369a1')}
+    ${kpi(fmtN(saldo,0),'saldo (un)',saldo<=0?'#15803d':'#b45309')}
+    ${cc?kpi('R$ '+fmtN(cc.totalGeral/1000,1)+'k','custo planejado'):''}
+    ${cc&&cc.custoTonGeral!=null?kpi('R$ '+fmtN(cc.custoTonGeral,0),'custo/ton'):''}
+    ${prec?kpi('R$ '+fmtN(prec.faturamento/1000,1)+'k','faturamento '+(prec.fatManual.ativo?'(manual)':'previsto')):''}
+    ${prec?kpi('R$ '+fmtN(prec.sobra/1000,1)+'k','sobra (antes impostos)',prec.sobra>=0?'#15803d':'#b91c1c'):''}
+  </div>`;
+
+  /* tabela por linha — só totais; detalhe fica na aba da linha */
+  const idPorNome={};_linhas.forEach(l=>{idPorNome[normNome(l.nome)]=l.id;});
+  const linhasPlano=Object.keys(comp.porLinha);
+  const linhasReaisFora=Object.keys(real.porLinha).filter(n=>{
+    const id=idPorNome[normNome(n)];return !id||!linhasPlano.includes(id);
+  });
+  const linhaRow=(lid,nomeReal)=>{
+    const p=lid?comp.porLinha[lid]:null;
+    const r=lid?realDaLinha(real,lid):real.porLinha[nomeReal];
+    const plan=p?p.sacos:0, prod=r?r.sacos:0, sd=plan-prod;
+    const at=plan>0?prod/plan*100:null;
+    const custoL=cc&&lid&&cc.linhas[lid]?cc.linhas[lid]:null;
+    return `<tr ${lid?`style="cursor:pointer;" onclick="irAba('${lid}')" title="Abrir a aba desta linha"`:''}>
+      <td><strong>${esc(lid?linhaNome(lid):nomeReal)}</strong>${lid?'':' <span class="pc-badge" style="background:#fef3c7;color:#b45309;">não planejada</span>'}</td>
+      <td class="num">${p?fmtN(p.horasDisp)+' h':'—'}</td>
+      <td class="num">${plan?fmtN(plan,0):'—'}</td>
+      <td class="num" style="color:#0369a1;font-weight:700;">${_realCarregado?fmtN(prod,0):'…'}</td>
+      <td class="num" style="color:${sd<=0?'#15803d':'#b45309'};font-weight:700;">${plan?fmtN(sd,0):'—'}</td>
+      <td class="num" style="font-weight:800;color:${at==null?'#94a3b8':at>=100?'#15803d':'#0369a1'};">${at!=null?fmtN(at,0)+'%':'—'}</td>
+      <td class="num">${custoL?'R$ '+fmtN(custoL.total,0):'—'}</td>
+      <td class="num">${custoL&&custoL.custoTon!=null?'R$ '+fmtN(custoL.custoTon,2):'—'}</td>
+      <td>${lid?`<button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();irAba('${lid}')">abrir →</button>`:''}</td>
+    </tr>`;
+  };
+  const tabelaLinhas=`<div class="pc-card">
+    <div class="pc-sec-tit">🏭 Por linha <span class="pc-hint" style="font-weight:400;">— clique para abrir a aba da linha</span></div>
+    <div class="table-wrap"><table class="pc-resumo">
+      <thead><tr><th>Linha</th><th class="num">Capacidade (h disp.)</th><th class="num">Planejado</th><th class="num">Produzido</th><th class="num">Saldo</th><th class="num">Atingimento</th><th class="num">Custo</th><th class="num">R$/ton</th><th></th></tr></thead>
+      <tbody>
+        ${linhasPlano.map(lid=>linhaRow(lid,null)).join('')}
+        ${linhasReaisFora.map(n=>linhaRow(null,n)).join('')}
+        ${!linhasPlano.length&&!linhasReaisFora.length?'<tr><td colspan="9" class="pc-hint" style="text-align:center;">Nenhuma linha — ative o modo ✏️ Editar e adicione.</td></tr>':''}
+      </tbody>
+    </table></div>
+  </div>`;
+
+  return kpis+tabelaLinhas+renderPlanoRealGeral(comp,real)+(cc?renderCustoPlanoRealGeral(comp,cc):'');
+}
+
+/* plano × realizado consolidado por linha de produto (só no Geral) */
+function renderPlanoRealGeral(comp,real){
+  const planoPorNorm={};
+  Object.entries(comp.porProduto).forEach(([nome,p])=>{planoPorNorm[normNome(nome)]={nome,...p};});
+  const chaves=[...new Set([...Object.keys(planoPorNorm),...Object.keys(real.porProduto)])];
+  chaves.sort((a,b)=>((planoPorNorm[a]?.nome||real.porProduto[a]?.nome||'')).localeCompare((planoPorNorm[b]?.nome||real.porProduto[b]?.nome||''),'pt'));
+  if(!chaves.length)return '';
+  const linhas=chaves.map(k=>{
+    const p=planoPorNorm[k],r=real.porProduto[k];
+    const nome=p?.nome||r?.nome||'—';
+    const plan=p?.planejado||0,prod=r?.total||0,sd=plan-prod;
+    const at=plan>0?prod/plan*100:null;
+    const lp=p?new Set(Object.keys(p.linhas||{}).map(lid=>normNome(linhaNome(lid)))):new Set();
+    const onde=r?Object.entries(r.porLinha).map(([ln,q])=>{
+      const fora=plan>0&&!lp.has(normNome(ln));
+      return (fora?`<span style="color:#b45309;font-weight:700;" title="produzido em linha fora do plano deste produto">⚠ ${esc(ln)}</span>`:esc(ln))+`: ${fmtN(q,0)}`;
+    }).join(' · '):'—';
+    const det=r&&r.det&&Object.keys(r.det).length>1?`<div class="pc-hint">${Object.entries(r.det).map(([n,q])=>esc(n)+': '+fmtN(q,0)).join(' · ')}</div>`:'';
+    const badge=!p&&r?'<span class="pc-badge" style="background:#fef3c7;color:#b45309;">não planejado</span>':
+      p&&!r?(_realCarregado?'<span class="pc-badge livre">sem produção</span>':'<span class="pc-badge livre">…</span>'):
+      at>=100?'<span class="pc-badge ok">✓ atendido</span>':`<span class="pc-badge" style="background:#e0f2fe;color:#0369a1;">${fmtN(at,0)}%</span>`;
+    return `<tr><td><strong>${esc(nome)}</strong>${det}</td>
+      <td class="num">${p&&p.demanda?fmtN(p.demanda,0):'—'}</td>
+      <td class="num" style="font-weight:700;">${plan?fmtN(plan,0):'—'}</td>
+      <td class="num" style="font-weight:800;color:#0369a1;">${_realCarregado?fmtN(prod,0):'…'}</td>
+      <td class="num" style="font-weight:700;color:${sd<=0?'#15803d':'#b45309'};">${plan?fmtN(sd,0):'—'}</td>
+      <td>${badge}</td><td class="pc-hint">${onde}</td></tr>`;
+  }).join('');
   return `<div class="pc-card">
-    <div class="pc-sec-tit">🏭 Estrutura do plano
-      <span style="margin-left:auto;">
-        <select id="pc-add-linha" class="form-input" style="width:200px;padding:6px 10px;display:inline-block;">
-          <option value="">+ Adicionar linha...</option>
-          ${linhasDisponiveis.map(l=>`<option value="${l.id}">${esc(l.nome)}</option>`).join('')}
-        </select>
-        <button class="btn btn-secondary btn-sm" onclick="addLinha()">Adicionar</button>
-      </span>
-    </div>
-    ${grupos.length?`<div class="pc-linhas-grid">${grupos.map(g=>renderGrupoLinha(g,comp)).join('')}</div>`
-      :'<div class="pc-hint" style="text-align:center;padding:24px;">Nenhuma linha no plano — adicione acima. Depois, dentro da linha, adicione os turnos e as linhas de produto.</div>'}
+    <div class="pc-sec-tit">⚖️ Plano × Realizado — por linha de produto (todas as linhas)</div>
+    <div class="table-wrap"><table class="pc-resumo">
+      <thead><tr><th>Linha de produto</th><th class="num">Demanda</th><th class="num">Planejado</th><th class="num">Produzido</th><th class="num">Saldo</th><th>Situação</th><th>Onde</th></tr></thead>
+      <tbody>${linhas}</tbody>
+    </table></div>
+    <div class="pc-hint" style="margin-top:6px;">Realizado direto das OPs da Produção (${_realOps.length} registro(s) no mês). Ajuste fino por linha nas abas de cada linha.</div>
   </div>`;
 }
-function renderGrupoLinha(g,comp){
-  const turnosDisp=_turnos.filter(t=>!g.turnos.some(x=>x.turno_id===t.id));
-  return `<div class="pc-linha">
-    <div class="pc-linha-cab">
-      <strong style="color:var(--primary);font-size:14px;">🏭 ${esc(linhaNome(g.linha_id))}</strong>
-      <span style="margin-left:auto;display:flex;gap:6px;align-items:center;">
-        <select id="pc-add-turno-${g.linha_id}" class="form-input" style="width:160px;padding:5px 8px;">
+
+/* custo plano × ajustado pela produção real (só no Geral, se houver custos) */
+function renderCustoPlanoRealGeral(comp,cc){
+  if(!_realCarregado||!_realOps.length)return '';
+  const ccReal=computarCustos(compDoRealizado());
+  if(!ccReal||ccReal.tonTotal<=0)return '';
+  const linhas=BUCKETS.filter(b=>(cc.metas[b]||0)>0||(ccReal.metas[b]||0)>0).map(b=>{
+    const cp=cc.totalBucket[b]||0,cr=ccReal.totalBucket[b]||0,tp=cc.ton[b]||0,tr=ccReal.ton[b]||0;
+    return `<tr><td><strong>${BUCKET_LABEL[b]}</strong></td>
+      <td class="num">${fmtN(tp,1)}</td><td class="num" style="color:#0369a1;">${fmtN(tr,1)}</td>
+      <td class="num">R$ ${fmtN(cp,2)}</td><td class="num" style="color:#0369a1;font-weight:700;">R$ ${fmtN(cr,2)}</td>
+      <td class="num" style="font-weight:700;color:${cr-cp<=0?'#15803d':'#b45309'};">${cr-cp>=0?'+':''}R$ ${fmtN(cr-cp,2)}</td>
+      <td class="num">${tp>0?'R$ '+fmtN(cp/tp,2):'—'}</td>
+      <td class="num" style="color:#0369a1;font-weight:700;">${tr>0?'R$ '+fmtN(cr/tr,2):'—'}</td></tr>`;
+  }).join('');
+  return `<div class="pc-card">
+    <div class="pc-sec-tit">💵 Custo: plano × ajustado pela produção real
+      <span class="pc-hint" style="font-weight:400;">mesmo motor de custos com as quantidades reais das OPs</span></div>
+    <div class="table-wrap"><table class="pc-resumo">
+      <thead><tr><th>Família</th><th class="num">Ton plan.</th><th class="num">Ton real</th><th class="num">Custo plano</th><th class="num">Custo ajustado</th><th class="num">Δ</th><th class="num">R$/ton plano</th><th class="num">R$/ton real</th></tr></thead>
+      <tbody>${linhas}
+        <tr style="background:#eef4f9;font-weight:800;"><td>TOTAL</td>
+          <td class="num">${fmtN(cc.tonTotal,1)}</td><td class="num" style="color:#0369a1;">${fmtN(ccReal.tonTotal,1)}</td>
+          <td class="num">R$ ${fmtN(cc.totalGeral,2)}</td><td class="num" style="color:#0369a1;">R$ ${fmtN(ccReal.totalGeral,2)}</td>
+          <td class="num" style="color:${ccReal.totalGeral-cc.totalGeral<=0?'#15803d':'#b45309'};">${ccReal.totalGeral-cc.totalGeral>=0?'+':''}R$ ${fmtN(ccReal.totalGeral-cc.totalGeral,2)}</td>
+          <td class="num">${cc.custoTonGeral!=null?'R$ '+fmtN(cc.custoTonGeral,2):'—'}</td>
+          <td class="num" style="color:#0369a1;">${ccReal.custoTonGeral!=null?'R$ '+fmtN(ccReal.custoTonGeral,2):'—'}</td></tr>
+      </tbody>
+    </table></div>
+  </div>`;
+}
+
+/* ═══ ABA DE UMA LINHA — tudo daquela linha, nada das outras ═══ */
+function renderAbaLinha(lid,comp,cc,real){
+  const g=gruposDoPlano().find(x=>x.linha_id===lid);
+  const p=comp.porLinha[lid]||{horasDisp:0,horasUsadas:0,sacos:0,lenha:0};
+  const r=realDaLinha(real,lid);
+  const plan=p.sacos||0,prod=r?r.sacos:0,saldo=plan-prod;
+  const ating=plan>0?prod/plan*100:null;
+  const ocup=p.horasDisp>0?p.horasUsadas/p.horasDisp*100:0;
+  const custoL=cc&&cc.linhas[lid]?cc.linhas[lid]:null;
+
+  /* ALVO/META primeiro, como pedido */
+  const kpis=`<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;">
+    ${kpi(fmtN(plan,0),'🎯 meta (planejado un)')}
+    ${kpi(_realCarregado?fmtN(prod,0):'…','produzido (un)','#0369a1')}
+    ${kpi(fmtN(saldo,0),'saldo (un)',saldo<=0?'#15803d':'#b45309')}
+    ${kpi(ating!=null?fmtN(ating,0)+'%':'—','atingimento',ating==null?null:ating>=100?'#15803d':'#0369a1')}
+    ${kpi(fmtN(p.horasDisp)+' h','capacidade (h disp.)')}
+    ${kpi(fmtN(ocup,0)+'%','ocupação do plano',ocup>100?'#b91c1c':null)}
+    ${r?kpi(fmtN(r.ht,1)+' h','H.T real · H.P '+fmtN(r.hp,1),'#0369a1'):''}
+    ${custoL?kpi('R$ '+fmtN(custoL.total/1000,1)+'k','custo da linha'):''}
+    ${custoL&&custoL.custoTon!=null?kpi('R$ '+fmtN(custoL.custoTon,2),'custo/ton da linha'):''}
+  </div>`;
+
+  /* plano da linha (turnos e produtos) — leitura limpa; edição no modo editar */
+  const plano=`<div class="pc-card">
+    <div class="pc-sec-tit">📋 Plano da linha
+      ${_modoEdicao?`<span style="margin-left:auto;display:flex;gap:6px;align-items:center;">
+        <select id="pc-add-turno-${lid}" class="form-input" style="width:150px;padding:5px 8px;">
           <option value="">+ Turno...</option>
-          ${turnosDisp.map(t=>`<option value="${t.id}">${esc(t.nome)}</option>`).join('')}
+          ${_turnos.filter(t=>!(g?g.turnos.some(x=>x.turno_id===t.id):false)).map(t=>`<option value="${t.id}">${esc(t.nome)}</option>`).join('')}
         </select>
-        <button class="btn btn-secondary btn-sm" onclick="addTurno('${g.linha_id}')">Adicionar turno</button>
-        <button class="btn btn-danger btn-sm" onclick="removerLinha('${g.linha_id}')" title="Remove a linha e tudo dentro dela">🗑️</button>
-      </span>
+        <button class="btn btn-secondary btn-sm" onclick="addTurno('${lid}')">Adicionar turno</button>
+        <button class="btn btn-danger btn-sm" onclick="removerLinha('${lid}')" title="Remove a linha do plano">🗑️ Remover linha</button></span>`
+      :'<span class="pc-hint" style="font-weight:400;margin-left:auto;">para alterar, use ✏️ Editar no topo</span>'}
     </div>
-    ${g.turnos.filter(tg=>tg.turno_id).map(tg=>renderTurno(g,tg,comp)).join('')}
-    ${!g.turnos.some(tg=>tg.turno_id)?'<div class="pc-hint" style="padding:12px 14px;">Linha adicionada — agora escolha um turno acima e clique em "Adicionar turno".</div>':''}
+    ${g&&g.turnos.some(t=>t.turno_id)?g.turnos.filter(t=>t.turno_id).map(tg=>renderTurno(g,tg,comp)).join('')
+      :'<div class="pc-hint" style="padding:10px 0;">Nenhum turno nesta linha ainda'+(_modoEdicao?' — adicione acima.':' — ative o ✏️ Editar para montar.')+'</div>'}
   </div>`;
+
+  /* plano × realizado DESTA linha */
+  const chaves=new Set();
+  Object.entries(comp.porProduto).forEach(([nome,pp])=>{if(pp.linhas[lid])chaves.add(normNome(nome));});
+  Object.values(real.porProduto).forEach(rp=>{if(realProdutoNaLinha(rp,lid)>0)chaves.add(normNome(rp.nome));});
+  const nomeDe=k=>{
+    const pl=Object.keys(comp.porProduto).find(n=>normNome(n)===k);
+    if(pl)return pl;
+    const re=Object.values(real.porProduto).find(rp=>normNome(rp.nome)===k);
+    return re?re.nome:k;
+  };
+  const linhasPR=[...chaves].map(k=>{
+    const nome=nomeDe(k);
+    const planQ=(comp.porProduto[Object.keys(comp.porProduto).find(n=>normNome(n)===k)]||{}).linhas?.[lid]||0;
+    const rp=Object.values(real.porProduto).find(x=>normNome(x.nome)===k);
+    const prodQ=rp?realProdutoNaLinha(rp,lid):0;
+    const sd=planQ-prodQ;
+    const at=planQ>0?prodQ/planQ*100:null;
+    const badge=!planQ&&prodQ?'<span class="pc-badge" style="background:#fef3c7;color:#b45309;">não planejado nesta linha</span>':
+      planQ&&!prodQ?(_realCarregado?'<span class="pc-badge livre">sem produção</span>':'<span class="pc-badge livre">…</span>'):
+      at>=100?'<span class="pc-badge ok">✓</span>':`<span class="pc-badge" style="background:#e0f2fe;color:#0369a1;">${fmtN(at,0)}%</span>`;
+    return `<tr><td><strong>${esc(nome)}</strong></td>
+      <td class="num">${planQ?fmtN(planQ,0):'—'}</td>
+      <td class="num" style="color:#0369a1;font-weight:800;">${_realCarregado?fmtN(prodQ,0):'…'}</td>
+      <td class="num" style="font-weight:700;color:${sd<=0?'#15803d':'#b45309'};">${planQ?fmtN(sd,0):'—'}</td>
+      <td>${badge}</td></tr>`;
+  }).join('');
+  const planoReal=`<div class="pc-card">
+    <div class="pc-sec-tit">⚖️ Plano × Realizado — só ${esc(linhaNome(lid))}</div>
+    <div class="table-wrap"><table class="pc-resumo">
+      <thead><tr><th>Linha de produto</th><th class="num">Planejado aqui</th><th class="num">Produzido aqui</th><th class="num">Saldo</th><th>Situação</th></tr></thead>
+      <tbody>${linhasPR||'<tr><td colspan="5" class="pc-hint" style="text-align:center;">Nada planejado nem produzido nesta linha.</td></tr>'}</tbody>
+    </table></div>
+    <div class="pc-hint" style="margin-top:6px;">
+      Horas: plano ${fmtN(p.horasDisp)} h disp. · real H.T ${r?fmtN(r.ht,1):'—'} h, H.P ${r?fmtN(r.hp,1):'—'} h
+      &nbsp;·&nbsp; Lenha: plano ${fmtN(p.lenha,1)} m³ · real ${r?fmtN(r.lenha,1):'—'} m³
+    </div>
+  </div>`;
+
+  /* custos desta linha */
+  const custos=custoL?`<div class="pc-card">
+    <div class="pc-sec-tit">💰 Custos — só ${esc(linhaNome(lid))}</div>
+    <div class="table-wrap"><table class="pc-resumo">
+      <thead><tr><th></th><th class="num">Valor</th><th>Como é calculado</th></tr></thead>
+      <tbody>
+        <tr><td><strong>👥 Folha (equipe desta linha)</strong></td><td class="num">R$ ${fmtN(custoL.folha,2)}</td><td class="pc-hint">salários da equipe dos turnos × encargos (pessoa em N turnos divide)</td></tr>
+        <tr><td><strong>🔥 Lenha</strong></td><td class="num">R$ ${fmtN(custoL.lenha,2)}</td><td class="pc-hint">${fmtN(p.lenha,1)} m³ do plano × preço do m³</td></tr>
+        <tr><td><strong>🏭 Compartilhados (fatia)</strong></td><td class="num">R$ ${fmtN(custoL.compart,2)}</td><td class="pc-hint">rateio pela tonelagem desta linha (${fmtN(custoL.ton,1)} t)</td></tr>
+        <tr><td><strong>📦 Diretos (produção daqui)</strong></td><td class="num">R$ ${fmtN(custoL.diretos,2)}</td><td class="pc-hint">embalagem, MP, pallet... proporcional ao que esta linha produz de cada família</td></tr>
+        <tr style="background:#eef4f9;font-weight:800;"><td>TOTAL</td><td class="num">R$ ${fmtN(custoL.total,2)}</td><td class="pc-hint">R$ ${custoL.custoTon!=null?fmtN(custoL.custoTon,2):'—'} por tonelada</td></tr>
+      </tbody>
+    </table></div>
+    <div class="pc-hint" style="margin-top:6px;">Preços e réguas dos insumos: aba 💰 Custos & Preços.</div>
+  </div>`:'';
+
+  return kpis+plano+planoReal+custos;
 }
+
+/* ═══ ABA CALENDÁRIO ═══ */
+function renderAbaCalendario(){
+  return renderCalendario()+`<div class="pc-card pc-hint">O calendário vale para a fábrica inteira. As horas de cada linha saem dele + jornada de cada turno − eficiência − paradas previstas.</div>`;
+}
+
+/* ═══ ABA CUSTOS & PREÇOS (configuração de preços, insumos, precificação e alvo) ═══ */
+function renderAbaCustos(comp,cc){
+  const cfg=_plano.config||{};
+  if(!cfg.insumos||!cfg.insumos.length){
+    return `<div class="pc-card"><div class="pc-sec-tit">💰 Custos & Preços</div>
+      <div class="pc-hint">Este plano ainda não tem os preços e réguas. Clique em
+      <strong>“📥 Importar preços do Custo & Precificação”</strong> no topo — os 43 insumos vêm
+      com os valores que você já ajustou lá.</div></div>`;
+  }
+  if(!cc)return '';
+  const prec=computarPrecificacao(cc);
+  const produtosPlano=Object.keys(comp.porProduto).sort((a,b)=>a.localeCompare(b,'pt'));
+
+  const mapeamento=`<div class="pc-card">
+    <div class="pc-sec-tit">🧩 Família de custo de cada linha de produto
+      ${cc.naoMapeados.length?`<span class="pc-badge excede">${cc.naoMapeados.length} sem família</span>`:''}</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+      ${produtosPlano.map(nome=>{
+        const b=bucketDoProduto(nome);const manual=ehMapeadoManual(nome);
+        return `<label style="display:flex;align-items:center;gap:6px;border:1.5px ${manual?'solid #e2e8f0':(b?'dashed #7dd3fc':'solid #fca5a5')};border-radius:8px;padding:5px 9px;font-size:12px;" title="${manual?'definido por você':(b?'sugestão automática — confirme ou troque':'sem família')}">
+          <span>${esc(nome)}${!manual&&b?' <span style="font-size:9px;font-weight:800;color:#0369a1;">auto</span>':''}</span>
+          <select class="form-input" style="padding:3px 6px;width:150px;" onchange="setMapaProduto('${esc(nome)}',this.value)">
+            <option value="">— família —</option>
+            ${BUCKETS.map(bk=>`<option value="${bk}" ${b===bk?'selected':''}>${BUCKET_LABEL[bk]}</option>`).join('')}
+          </select></label>`;
+      }).join('')||'<span class="pc-hint">Monte o plano primeiro (abas das linhas).</span>'}
+    </div>
+    ${cc.naoMapeados.length?'<div class="pc-hint" style="color:#b45309;margin-top:6px;">⚠ Sem família = fora do custo. Escolha acima.</div>':''}
+  </div>`;
+
+  const folhaAviso=!_folhaMes?'<span class="pc-badge excede">sem folha de pagamento cadastrada</span>':
+    (_folhaMes._aproximada?`<span class="pc-badge" style="background:#fef3c7;color:#b45309;">usando folha de ${_folhaMes.mes}/${_folhaMes.ano}</span>`:
+    `<span class="pc-badge ok">folha de ${_folhaMes.mes}/${_folhaMes.ano}</span>`);
+  const maoDeObra=`<div class="pc-card">
+    <div class="pc-sec-tit">👥 Mão de obra</div>
+    <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;">
+      ${folhaAviso}
+      <label style="font-size:11.5px;color:#64748b;display:flex;align-items:center;gap:6px;">Fator de encargos
+        <input type="number" class="form-input" style="width:76px;padding:4px 8px;" min="1" step="0.01"
+          value="${Number(cfg.fatorEncargos)||1}" onchange="setConfigCampo('fatorEncargos',parseFloat(this.value)||1)"></label>
+      <button class="btn btn-secondary btn-sm" onclick="abrirEquipeAdmin()">🏢 Administrativo (${(cfg.equipeAdmin||[]).length})</button>
+      <span class="pc-hint">Operação: R$ ${fmtN(cc.folhaModTotal,2)} · Administrativo: R$ ${fmtN(cc.folhaAdmin,2)}
+        ${cc.semFolha?` · <span style="color:#b45309;font-weight:700;">${cc.semFolha} pessoa(s) sem salário na folha</span>`:''}</span>
+      <span class="pc-hint" style="width:100%;">As equipes de produção são definidas em cada turno, nas abas das linhas (modo ✏️ Editar).</span>
+    </div>
+  </div>`;
+
+  /* tabela de insumos — TUDO editável */
+  const linhaInsumo=x=>{
+    const i=x.ins;
+    const podeEditar=!x.especial;
+    const ehDireto=i.tipoRateio==='direto';
+    const modo=ehDireto?null:modoCompart(i);
+    const reguaHtml=x.especial==='folha_mod'?'equipe das linhas':x.especial==='folha_admin'?'equipe admin':
+      x.especial==='lenha'?'m³ do plano × preço':
+      ehDireto?({direta:'1 por unidade',pallet:'un ÷ sacos/pallet',mp_20:'ton 20kg',mp_10:'ton conc.',mp_25:'ton 25kg',mp_caulim_total:'ton caulim',manual:'qtd manual'}[i.formulaQtd]||i.formulaQtd):
+      `<select class="form-input" style="padding:2px 4px;font-size:11px;width:110px;" onchange="setInsumoCfg('${i.id}','modo',this.value)">
+        <option value="qtdpreco" ${modo==='qtdpreco'?'selected':''}>qtd × preço</option>
+        <option value="mensal" ${modo==='mensal'?'selected':''}>valor mensal</option>
+        <option value="porton" ${modo==='porton'?'selected':''}>R$/ton × ton</option>
+      </select>`;
+    let campoPreco='—',campoQtd=x.qtd!=null?fmtN(x.qtd,2):'—';
+    if(podeEditar&&ehDireto){
+      campoPreco=`<input type="number" class="form-input" style="width:84px;padding:3px 6px;text-align:right;" step="0.0001" value="${i.precoUnitario??''}" onchange="setInsumoCfg('${i.id}','precoUnitario',this.value)">`;
+      if(i.formulaQtd==='manual')campoQtd=`<input type="number" class="form-input" style="width:84px;padding:3px 6px;text-align:right;" step="0.01" value="${i.quantidadeManual??''}" onchange="setInsumoCfg('${i.id}','quantidadeManual',this.value)">`;
+      else if(i.formulaQtd==='pallet')campoQtd=`${x.qtd!=null?fmtN(x.qtd,2):'—'}<div class="pc-hint" style="white-space:nowrap;">÷ <input type="number" class="form-input" style="width:56px;padding:1px 4px;text-align:right;display:inline-block;" value="${i.sacosPorPallet??''}" onchange="setInsumoCfg('${i.id}','sacosPorPallet',this.value)">/pallet</div>`;
+    }else if(podeEditar&&!ehDireto){
+      if(modo==='qtdpreco'){
+        campoPreco=`<input type="number" class="form-input" style="width:84px;padding:3px 6px;text-align:right;" step="0.0001" value="${i.precoUnitario??''}" onchange="setInsumoCfg('${i.id}','precoUnitario',this.value)">`;
+        campoQtd=`<input type="number" class="form-input" style="width:84px;padding:3px 6px;text-align:right;" step="0.01" value="${i.quantidadeLivre??''}" onchange="setInsumoCfg('${i.id}','quantidadeLivre',this.value)">`;
+      }else if(modo==='mensal'){
+        campoPreco=`<input type="number" class="form-input" style="width:100px;padding:3px 6px;text-align:right;" step="0.01" value="${i.valorMensal??''}" onchange="setInsumoCfg('${i.id}','valorMensal',this.value)" title="valor do mês inteiro">`;
+      }else{
+        campoPreco=`<input type="number" class="form-input" style="width:84px;padding:3px 6px;text-align:right;" step="0.0001" value="${i.custoPorTon??''}" onchange="setInsumoCfg('${i.id}','custoPorTon',this.value)" title="R$ por tonelada">`;
+      }
+    }
+    const classif=x.especial?'VARIAVEL':(i.classificacao||'VARIAVEL');
+    const btnClassif=podeEditar
+      ?`<button class="pc-badge ${classif==='FIXO'?'livre':'ok'}" style="border:none;cursor:pointer;" title="alternar VARIÁVEL/FIXO" onclick="setInsumoCfg('${i.id}','classificacao','${classif==='FIXO'?'VARIAVEL':'FIXO'}')">${classif==='FIXO'?'FIXO':'VAR'}</button>`
+      :`<span class="pc-badge ${classif==='FIXO'?'livre':'ok'}">${classif==='FIXO'?'FIXO':'VAR'}</span>`;
+    const temPct=i.pctManual&&Object.keys(i.pctManual).length;
+    const linhaPct=_pctAberto.has(i.id)?`<tr style="background:#f8fafc;"><td colspan="8" style="padding:6px 12px;">
+        <span class="pc-hint" style="font-weight:700;">Rateio manual (%):</span>
+        ${BUCKETS.map(b=>`<label class="pc-hint" style="margin-left:8px;">${BUCKET_LABEL[b]} <input type="number" class="form-input" style="width:58px;padding:2px 4px;text-align:right;display:inline-block;" min="0" max="100" value="${(i.pctManual||{})[b]??''}" onchange="setInsumoPct('${i.id}','${b}',this.value)">%</label>`).join('')}
+        <button class="btn btn-ghost btn-sm" style="color:#dc2626;" onclick="limparPctManual('${i.id}')">limpar</button>
+        ${(()=>{const soma=BUCKETS.reduce((t,b)=>t+(Number((i.pctManual||{})[b])||0),0);return soma&&Math.abs(soma-100)>0.5?`<span style="color:#b45309;font-weight:700;font-size:11px;">⚠ soma ${fmtN(soma,0)}%</span>`:'';})()}
+      </td></tr>`:'';
+    return `<tr>
+      <td class="pc-hint">${esc(i.classe||'')}</td>
+      <td><strong>${esc(i.insumo)}</strong>${temPct?' <span class="pc-badge" style="background:#ede9fe;color:#7c3aed;">% manual</span>':''}</td>
+      <td class="pc-hint">${ehDireto?'direto · '+(BUCKET_LABEL[i.produtoBase]||i.produtoBase||''):'compartilhado'}</td>
+      <td>${btnClassif}</td>
+      <td class="num">${campoPreco}</td>
+      <td class="num">${campoQtd} <span class="pc-hint">${esc(i.unidade||'')}</span></td>
+      <td class="num" style="font-weight:800;color:var(--primary);">R$ ${fmtN(x.valor,2)}</td>
+      <td class="pc-hint" style="white-space:nowrap;">${reguaHtml}
+        ${podeEditar?`<button class="btn btn-ghost btn-sm" title="rateio % manual" onclick="togglePctManual('${i.id}')">%</button>
+        <button class="btn btn-ghost btn-sm" style="color:#dc2626;" title="remover do cálculo" onclick="setInsumoCfg('${i.id}','removido',true)">🗑</button>`:''}
+      </td>
+    </tr>${linhaPct}`;
+  };
+  const diretos=cc.itens.filter(x=>x.ins.tipoRateio==='direto'&&!x.especial);
+  const compart=cc.itens.filter(x=>!(x.ins.tipoRateio==='direto'&&!x.especial));
+  const removidos=(cfg.insumos||[]).filter(i=>i.removido);
+  const insumosCard=`<div class="pc-card">
+    <div class="pc-sec-tit">📦 Insumos <span class="pc-hint" style="font-weight:400;">— clique em VAR/FIXO para alternar, % para rateio manual, 🗑 para remover</span>
+      <button class="btn btn-secondary btn-sm" style="margin-left:auto;" onclick="addInsumoPersonalizado()">➕ Insumo personalizado</button></div>
+    <details open>
+      <summary style="cursor:pointer;font-size:12.5px;font-weight:800;color:#334155;">Diretos (${diretos.length}) — R$ ${fmtN(diretos.reduce((s,x)=>s+x.valor,0),2)}</summary>
+      <div class="table-wrap" style="margin:8px 0 14px;"><table class="pc-resumo">
+        <thead><tr><th>Classe</th><th>Insumo</th><th>Tipo</th><th></th><th class="num">Preço / Valor</th><th class="num">Qtd</th><th class="num">Total</th><th>Régua / ações</th></tr></thead>
+        <tbody>${diretos.map(linhaInsumo).join('')}</tbody></table></div>
+    </details>
+    <details open>
+      <summary style="cursor:pointer;font-size:12.5px;font-weight:800;color:#334155;">Compartilhados (${compart.length}) — R$ ${fmtN(compart.reduce((s,x)=>s+x.valor,0),2)}</summary>
+      <div class="table-wrap" style="margin-top:8px;"><table class="pc-resumo">
+        <thead><tr><th>Classe</th><th>Insumo</th><th>Tipo</th><th></th><th class="num">Preço / Valor</th><th class="num">Qtd</th><th class="num">Total</th><th>Régua / ações</th></tr></thead>
+        <tbody>${compart.map(linhaInsumo).join('')}</tbody></table></div>
+    </details>
+    ${removidos.length?`<div class="pc-hint" style="margin-top:8px;">🗑 Removidos: ${removidos.map(i=>`${esc(i.insumo)} <button class="btn btn-ghost btn-sm" style="color:#16a34a;padding:0 4px;" onclick="setInsumoCfg('${i.id}','removido',false)">↩ restaurar</button>`).join(' · ')}</div>`:''}
+  </div>`;
+
+  const familias=`<div class="pc-card">
+    <div class="pc-sec-tit">💵 Custo, preço e faturamento por família
+      <span class="pc-hint" style="font-weight:400;">preço em branco = sugerido pela margem; digitado = manual</span></div>
+    <div class="table-wrap"><table class="pc-resumo">
+      <thead><tr><th>Família</th><th class="num">Un. plan.</th><th class="num">Ton</th><th class="num">Custo total</th><th class="num">Custo/ton</th><th class="num">Custo/un</th><th class="num">Variável/un</th><th class="num">Margem alvo %</th><th class="num">Preço venda</th><th class="num">Margem R$ (un)</th><th class="num">P. equilíbrio</th><th class="num">Faturamento</th></tr></thead>
+      <tbody>
+        ${BUCKETS.filter(b=>(cc.metas[b]||0)>0).map(b=>{
+          const m=cc.metas[b],t=cc.ton[b]||0,tot=cc.totalBucket[b];
+          const p=prec.precos[b],mg=prec.margens[b];
+          const marg=Number((cfg.margemAlvo||{})[b])||0.22;
+          return `<tr><td><strong>${BUCKET_LABEL[b]}</strong></td>
+            <td class="num">${fmtN(m,0)}</td><td class="num">${fmtN(t,1)}</td>
+            <td class="num" style="font-weight:800;">R$ ${fmtN(tot,2)}</td>
+            <td class="num">R$ ${fmtN(t>0?tot/t:0,2)}</td>
+            <td class="num">R$ ${fmtN(m>0?tot/m:0,2)}</td>
+            <td class="num">R$ ${fmtN(p.cvUn,2)}</td>
+            <td class="num"><input type="number" class="form-input" style="width:60px;padding:3px 6px;text-align:right;" min="0" max="95" value="${Math.round(marg*100)}" onchange="setMargemBucket('${b}',this.value)"></td>
+            <td class="num"><input type="number" class="form-input" style="width:86px;padding:3px 6px;text-align:right;font-weight:800;" step="0.01" placeholder="${fmtN(p.preco,2)}" value="${p.manual?p.preco:''}" onchange="setPrecoVendaManual('${b}',this.value)" title="${p.manual?'manual — apague para voltar ao sugerido':'sugerido pela margem'}"></td>
+            <td class="num" style="color:${mg.rs>=0?'#15803d':'#b91c1c'};font-weight:700;">R$ ${fmtN(mg.rs,2)} (${fmtN(mg.pct*100,1)}%)</td>
+            <td class="num">${prec.peqs[b]!=null?fmtN(prec.peqs[b],0)+' un':'—'}</td>
+            <td class="num" style="font-weight:700;">R$ ${fmtN(prec.faturamentoPorB[b]||0,2)}</td></tr>`;
+        }).join('')||'<tr><td colspan="12" class="pc-hint" style="text-align:center;">Mapeie as famílias acima.</td></tr>'}
+        <tr style="background:#eef4f9;font-weight:800;"><td>TOTAL</td><td class="num"></td>
+          <td class="num">${fmtN(cc.tonTotal,1)}</td><td class="num">R$ ${fmtN(cc.totalGeral,2)}</td>
+          <td class="num">R$ ${fmtN(cc.custoTonGeral||0,2)}</td><td colspan="6"></td>
+          <td class="num">R$ ${fmtN(prec.faturamentoAuto,2)}</td></tr>
+      </tbody>
+    </table></div>
+
+    <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin-top:14px;border:2px solid ${prec.dentroAlvo?'#bbf7d0':'#fecaca'};background:${prec.dentroAlvo?'#f0fdf4':'#fef2f2'};border-radius:12px;padding:12px 16px;">
+      <strong style="font-size:13px;color:${prec.dentroAlvo?'#15803d':'#b91c1c'};">🎯 Alvo: custo ≤
+        <input type="number" class="form-input" style="width:60px;padding:3px 6px;text-align:right;display:inline-block;" min="1" max="99" value="${Math.round(prec.alvoPct*100)}" onchange="setConfigCampo('alvoMaximoPct',parseFloat(this.value)||38)">% do faturamento</strong>
+      <span style="font-size:13px;font-weight:800;color:${prec.dentroAlvo?'#15803d':'#b91c1c'};">
+        ${prec.custoSobreFat!=null?'Hoje: '+fmtN(prec.custoSobreFat*100,1)+'% '+(prec.dentroAlvo?'✅ dentro do alvo':'🔴 fora do alvo'):'—'}</span>
+      <label style="font-size:11.5px;color:#64748b;display:flex;align-items:center;gap:6px;margin-left:auto;">
+        <input type="checkbox" ${prec.fatManual.ativo?'checked':''} onchange="setFaturamentoManual('ativo',this.checked)"> faturamento manual
+        ${prec.fatManual.ativo?`<input type="number" class="form-input" style="width:120px;padding:3px 6px;text-align:right;" step="0.01" value="${prec.fatManual.valor||''}" onchange="setFaturamentoManual('valor',this.value)">`:''}
+      </label>
+      <div style="width:100%;font-size:12px;color:#475569;">
+        Faturamento ${prec.fatManual.ativo?'manual':'previsto'}: <strong>R$ ${fmtN(prec.faturamento,2)}</strong>
+        · Custo: <strong>R$ ${fmtN(cc.totalGeral,2)}</strong>
+        · Sobra (antes de impostos/comercial): <strong style="color:${prec.sobra>=0?'#15803d':'#b91c1c'};">R$ ${fmtN(prec.sobra,2)}</strong>
+        ${!prec.dentroAlvo&&prec.custoSobreFat!=null?`<br>🧭 <strong>Para entrar no alvo:</strong> reduzir o custo em <strong>R$ ${fmtN(cc.totalGeral-prec.faturamento*prec.alvoPct,2)}</strong> — ou faturar mais <strong>R$ ${fmtN(cc.totalGeral/prec.alvoPct-prec.faturamento,2)}</strong>.`:''}
+      </div>
+    </div>
+    <div class="pc-hint" style="margin-top:8px;">Preços importados de: ${esc(cfg.origem||'—')}. Réguas finas (refeição/EPI por pessoa, stretch por pallet, grupos de energia) rateiam por tonelagem nesta versão.</div>
+  </div>`;
+
+  return mapeamento+maoDeObra+insumosCard+familias;
+}
+
+/* ═══ TURNO — leitura limpa / edição completa ═══ */
 function renderTurno(g,tg,comp){
   const t=turnoDe(tg.turno_id);
   const ref=tg.itens.find(i=>!i._ph)||tg.itens[0]||{};
@@ -950,7 +1329,9 @@ function renderTurno(g,tg,comp){
   const horasUsadas=tg.itens.filter(i=>!i._ph).reduce((s,it)=>{const c=comp.porItem[it.id];return s+(it.ativo===false?0:(it.cap_hora>0?(c?.qtd||0)/it.cap_hora:0));},0);
   const sobra=horas.dispH-horasUsadas;
   const prodOpts=nomesProdutosParaLinha(g.linha_id);
-  return `<div class="pc-turno">
+  const nomesEquipe=(ref.equipe||[]).map(fid=>(_funcionarios.find(f=>f.id===fid)?.nome||'?').split(' ')[0]).join(', ');
+
+  const cab=_modoEdicao?`
     <div class="pc-turno-cab">
       <strong style="color:#334155;">⏱️ ${t?esc(t.nome):'⚠️ turno removido do cadastro'}</strong>
       <div class="fg"><label>Eficiência %</label>
@@ -967,53 +1348,89 @@ function renderTurno(g,tg,comp){
           value="${ref.lenha_m3_turno||0}" onchange="setTurnoCampo('${g.linha_id}','${tg.turno_id}','lenha_m3_turno',parseFloat(this.value)||0)"></div>
       <div class="fg"><label>Equipe</label>
         <button class="btn btn-secondary btn-sm" onclick="abrirEquipe('${g.linha_id}','${tg.turno_id}')">👥 ${(ref.equipe||[]).length} pessoa(s)</button></div>
-      <div class="pc-hint" style="margin-left:auto;">
-        ${horas.diasTrabalho}d · bruto ${fmtN(horas.horasBrutas)}h − perda ${fmtN(horas.perdaH)}h → <strong>disp. ${fmtN(horas.dispH)}h</strong>
-        · usado ${fmtN(horasUsadas)}h · ${sobra>=0?`<span style="color:#0369a1;">sobra ${fmtN(sobra)}h</span>`:`<span style="color:#b91c1c;font-weight:800;">falta ${fmtN(-sobra)}h</span>`}
-      </div>
-      <button class="btn btn-danger btn-sm" onclick="removerTurno('${g.linha_id}','${tg.turno_id}')">✕</button>
-    </div>
+      <button class="btn btn-danger btn-sm" style="margin-left:auto;" onclick="removerTurno('${g.linha_id}','${tg.turno_id}')">✕ turno</button>
+    </div>`
+  :`<div class="pc-turno-cab" style="margin-bottom:4px;">
+      <strong style="color:#334155;">⏱️ ${t?esc(t.nome):'⚠️ turno removido'}</strong>
+      <span class="pc-hint">eficiência ${ref.eficiencia??90}% · extras ${ref.extras||0} h/dia · paradas prev. ${ref.paradas_h||0} h · lenha ${ref.lenha_m3_turno||0} m³/dia
+        · 👥 ${(ref.equipe||[]).length?`${(ref.equipe||[]).length} (${esc(nomesEquipe)})`:'sem equipe'}</span>
+    </div>`;
+
+  const resumoHoras=`<div class="pc-hint" style="margin-bottom:6px;">
+    ${horas.diasTrabalho} dia(s) · bruto ${fmtN(horas.horasBrutas)} h − perda ${fmtN(horas.perdaH)} h → <strong>disp. ${fmtN(horas.dispH)} h</strong>
+    · usado ${fmtN(horasUsadas)} h · ${sobra>=0?`<span style="color:#0369a1;">sobra ${fmtN(sobra)} h</span>`:`<span style="color:#b91c1c;font-weight:800;">falta ${fmtN(-sobra)} h</span>`}</div>`;
+
+  const linhasProd=tg.itens.filter(it=>!it._ph).map(it=>{
+    const c=comp.porItem[it.id]||{qtd:0,qtdMax:0,horasProd:0,excede:false};
+    const badge=it.ativo===false?'<span class="pc-badge livre">fechado</span>':
+      c.excede?`<span class="pc-badge excede" title="demanda acima da capacidade (máx ${fmtN(c.qtdMax,0)})">⚠ excede</span>`:
+      '<span class="pc-badge ok">ok</span>';
+    if(_modoEdicao)return `<tr style="${it.ativo===false?'opacity:.5;':''}">
+      <td><strong>${esc(it.produto_nome)}</strong></td>
+      <td><input type="number" class="form-input" style="padding:3px 6px;" min="0" value="${it.cap_hora||0}" onchange="setItemCampo('${it.id}','cap_hora',parseFloat(this.value)||0)"></td>
+      <td><input type="number" class="form-input" style="padding:3px 6px;" min="0" value="${it.demanda||''}" placeholder="—" onchange="setItemCampo('${it.id}','demanda',this.value===''?0:parseFloat(this.value)||0)"></td>
+      <td><input type="number" class="form-input" style="padding:3px 6px;" min="0" value="${it.qtd_manual??''}" placeholder="auto" onchange="setItemCampo('${it.id}','qtd_manual',this.value===''?null:parseFloat(this.value)||0)"></td>
+      <td style="font-weight:800;color:var(--primary);">${fmtN(c.qtd,0)}</td>
+      <td class="pc-hint">${fmtN(c.horasProd)} h</td>
+      <td>${badge}</td>
+      <td style="white-space:nowrap;">
+        <button class="btn btn-ghost btn-sm" title="${it.ativo===false?'reabrir':'fechar (sai da conta)'}" onclick="setItemCampo('${it.id}','ativo',${it.ativo===false?'true':'false'})">${it.ativo===false?'▶':'⏸'}</button>
+        <button class="btn btn-ghost btn-sm" style="color:#dc2626;" onclick="removerItem('${it.id}')">✕</button></td></tr>`;
+    return `<tr style="${it.ativo===false?'opacity:.5;':''}">
+      <td><strong>${esc(it.produto_nome)}</strong></td>
+      <td class="num">${fmtN(it.cap_hora||0,0)}/h</td>
+      <td class="num">${it.demanda?fmtN(it.demanda,0):'—'}</td>
+      <td class="num">${it.qtd_manual!=null&&it.qtd_manual!==''?fmtN(it.qtd_manual,0):'auto'}</td>
+      <td class="num" style="font-weight:800;color:var(--primary);">${fmtN(c.qtd,0)}</td>
+      <td class="num pc-hint">${fmtN(c.horasProd)} h</td>
+      <td>${badge}</td><td></td></tr>`;
+  }).join('');
+
+  return `<div class="pc-turno">
+    ${cab}${resumoHoras}
     <table class="pc-prod">
       <thead><tr><th>Linha de produto</th><th>Média/h</th><th>Demanda</th><th>Qtd manual</th><th>Planejado</th><th>Horas</th><th>Status</th><th></th></tr></thead>
-      <tbody>
-        ${tg.itens.filter(it=>!it._ph).map(it=>{
-          const c=comp.porItem[it.id]||{qtd:0,qtdMax:0,horasProd:0,excede:false};
-          const badge=it.ativo===false?'<span class="pc-badge livre">fechado</span>':
-            c.excede?`<span class="pc-badge excede" title="Demanda maior que a capacidade nas horas disponíveis (máx ${fmtN(c.qtdMax,0)})">⚠ excede cap.</span>`:
-            '<span class="pc-badge ok">ok</span>';
-          return `<tr style="${it.ativo===false?'opacity:.5;':''}">
-            <td><strong>${esc(it.produto_nome)}</strong></td>
-            <td><input type="number" class="form-input" style="padding:3px 6px;" min="0"
-              value="${it.cap_hora||0}" onchange="setItemCampo('${it.id}','cap_hora',parseFloat(this.value)||0)"></td>
-            <td><input type="number" class="form-input" style="padding:3px 6px;" min="0"
-              value="${it.demanda||''}" placeholder="—" onchange="setItemCampo('${it.id}','demanda',this.value===''?0:parseFloat(this.value)||0)"></td>
-            <td><input type="number" class="form-input" style="padding:3px 6px;" min="0"
-              value="${it.qtd_manual??''}" placeholder="auto" onchange="setItemCampo('${it.id}','qtd_manual',this.value===''?null:parseFloat(this.value)||0)"></td>
-            <td style="font-weight:800;color:var(--primary);">${fmtN(c.qtd,0)}</td>
-            <td class="pc-hint">${fmtN(c.horasProd)}h</td>
-            <td>${badge}</td>
-            <td style="white-space:nowrap;">
-              <button class="btn btn-ghost btn-sm" title="${it.ativo===false?'Reabrir':'Fechar (sai da conta sem apagar)'}"
-                onclick="setItemCampo('${it.id}','ativo',${it.ativo===false?'true':'false'})">${it.ativo===false?'▶':'⏸'}</button>
-              <button class="btn btn-ghost btn-sm" style="color:#dc2626;" onclick="removerItem('${it.id}')">✕</button>
-            </td>
-          </tr>`;
-        }).join('')||'<tr><td colspan="8" class="pc-hint" style="text-align:center;">Nenhum produto neste turno.</td></tr>'}
-      </tbody>
+      <tbody>${linhasProd||'<tr><td colspan="8" class="pc-hint" style="text-align:center;">Nenhuma linha de produto neste turno.</td></tr>'}</tbody>
     </table>
-    <div style="margin-top:6px;display:flex;gap:6px;align-items:center;">
-      <select id="pc-add-prod-${g.linha_id}-${tg.turno_id}" class="form-input" style="width:240px;padding:5px 8px;">
+    ${_modoEdicao?`<div style="margin-top:6px;display:flex;gap:6px;align-items:center;">
+      <select id="pc-add-prod-${g.linha_id}-${tg.turno_id}" class="form-input" style="width:260px;padding:5px 8px;">
         <option value="">+ Linha de produto...</option>
         ${prodOpts.map(p=>`<option value="${esc(p.nome)}" data-cap="${p.capHora||0}">${esc(p.nome)}${p.capHora?' ('+p.capHora+'/h)':' (de outra linha — informe a média/h)'}</option>`).join('')}
       </select>
-      <button class="btn btn-secondary btn-sm" onclick="addProduto('${g.linha_id}','${tg.turno_id}')">Adicionar produto</button>
-    </div>
+      <button class="btn btn-secondary btn-sm" onclick="addProduto('${g.linha_id}','${tg.turno_id}')">Adicionar</button></div>`:''}
   </div>`;
 }
-/* O plano trabalha com LINHAS DE PRODUTO (Concentrado 10kg, Linha 25kg, Bag...),
-   não com produtos específicos (Liga, Sikal...) — igual à planilha e às OPs
-   (produtos_op.linha_produto). Oferta: as linhas de produto cadastradas NA
-   linha física (com a média/h dela) primeiro, depois as das outras linhas. */
+
+/* adicionar linha (a partir da barra de abas, em modo edição) */
+function addLinha(){
+  const sel=document.getElementById('pc-add-linha');
+  if(!sel||!sel.value){toast('Escolha a linha.','warning');return;}
+  const lid=sel.value;
+  _plano.itens.push({id:novoId(),linha_id:lid,turno_id:null,produto_nome:'__placeholder__',ativo:false,_ph:true});
+  marcarSujo();_abaAtiva=lid;renderPlano();
+  toast('Linha adicionada — agora inclua os turnos e as linhas de produto.','success');
+}
+
+
+/* ── funções mantidas da versão anterior (mutações, equipe, calendário) ── */
+function voltarLanding(){
+  if(_sujo&&!confirm('Há alterações não salvas. Sair mesmo assim?'))return;
+  init();
+}
+async function importarConfigDepois(){
+  const imp=await importarConfigCP();
+  if(!imp){toast('Nenhum planejamento encontrado no Custo & Precificação.','warning');return;}
+  _plano.config=imp;marcarSujo();renderPlano();
+  toast(`Preços e réguas importados de "${imp.origem}".`,'success');
+}
+function toggleDia(k){
+  const atual=_plano.calendario[k]||'folga';
+  const dow=new Date(k+'T12:00:00').getDay();
+  const ciclo=dow===0?['folga','domingo-especial','trabalha']:['trabalha','folga','feriado'];
+  const idx=ciclo.indexOf(atual);
+  _plano.calendario[k]=ciclo[(idx+1)%ciclo.length];
+  marcarSujo();renderPlano();
+}
 function nomesProdutosParaLinha(linhaId){
   const linha=_linhas.find(l=>l.id===linhaId);
   const daLinha=(linha?.produtos||[]).filter(p=>p&&p.nome)
@@ -1025,23 +1442,11 @@ function nomesProdutosParaLinha(linhaId){
   });});
   return [...daLinha,...outras.sort((a,b)=>a.nome.localeCompare(b.nome,'pt'))];
 }
-/* peso (kg) de uma linha de produto = peso da família dela (config.pesos);
-   se por acaso for um produto específico do cadastro, usa o peso dele */
 function pesoDoProdutoLinha(nome){
   const cad=_produtosCad.find(x=>normNome(x.nome)===normNome(nome));
   if(cad&&Number(cad.peso_unidade_kg)>0)return Number(cad.peso_unidade_kg);
   const b=bucketDoProduto(nome);
   return b?pesoBucket(b):0;
-}
-
-/* ── mutações ── */
-function addLinha(){
-  const sel=document.getElementById('pc-add-linha');
-  if(!sel.value){toast('Escolha a linha.','warning');return;}
-  // linha entra vazia; turno e produtos na sequência
-  _plano.itens.push({id:novoId(),linha_id:sel.value,turno_id:null,produto_nome:'__placeholder__',ativo:false,_ph:true});
-  // placeholder só para o grupo aparecer; limpo ao adicionar o primeiro turno
-  marcarSujo();renderPlano();
 }
 function addTurno(linhaId){
   const sel=document.getElementById('pc-add-turno-'+linhaId);
@@ -1069,13 +1474,10 @@ function setItemCampo(itemId,campo,valor){
   const it=_plano.itens.find(i=>i.id===itemId);if(!it)return;
   it[campo]=valor;marcarSujo();renderPlano();
 }
-/* campos do turno (eficiência, extras, paradas, lenha) vivem replicados nos
-   itens do turno — setar propaga para todos, mantendo o modelo plano */
 function setTurnoCampo(linhaId,turnoId,campo,valor){
   _plano.itens.forEach(i=>{if(i.linha_id===linhaId&&i.turno_id===turnoId)i[campo]=valor;});
   marcarSujo();renderPlano();
 }
-/* ── equipe do turno ── */
 let _eqCtx=null;
 function abrirEquipe(linhaId,turnoId){
   _eqCtx={linhaId,turnoId};
@@ -1116,7 +1518,6 @@ function abrirEquipeAdmin(){
   filtrarEquipe();
   document.getElementById('m-equipe').classList.remove('hidden');
 }
-
 function removerItem(itemId){
   const it=_plano.itens.find(i=>i.id===itemId);if(!it)return;
   const resto=_plano.itens.filter(i=>i.id!==itemId);
@@ -1142,10 +1543,6 @@ function removerLinha(linhaId){
   _plano.itens=_plano.itens.filter(i=>i.linha_id!==linhaId);
   marcarSujo();renderPlano();
 }
-
-/* Realizado convertido para o formato do motor de custos: o MESMO motor roda
-   com as quantidades reais — custo "ajustado pela produção real". Linhas das
-   OPs viram linha_id quando o nome bate com o cadastro. */
 function compDoRealizado(){
   const real=computarRealizado();
   const idPorNome={};_linhas.forEach(l=>{idPorNome[normNome(l.nome)]=l.id;});
@@ -1162,374 +1559,32 @@ function compDoRealizado(){
   });
   return {porProduto,porLinha};
 }
-
-/* ── CUSTOS DO PLANO — mapeamento, mão de obra, insumos, famílias, por linha ── */
-function renderCustos(comp){
-  const cfg=_plano.config||{};
-  if(!cfg.insumos||!cfg.insumos.length){
-    return `<div class="pc-card">
-      <div class="pc-sec-tit">💰 Custos do plano</div>
-      <div class="pc-hint">Este plano ainda não tem os preços e réguas de custo. Clique em
-      <strong>“📥 Importar preços do Custo & Precificação”</strong> (no topo) para trazer os 43 insumos
-      com os valores que você já ajustou — aí esta seção calcula tudo.</div>
-    </div>`;
-  }
-  const cc=computarCustos(comp);
-  if(!cc)return '';
-  const produtosPlano=Object.keys(comp.porProduto).sort((a,b)=>a.localeCompare(b,'pt'));
-
-  /* mapeamento produto → família */
-  const mapeamento=`
-    <div style="margin-bottom:14px;">
-      <div style="font-size:12.5px;font-weight:800;color:#334155;margin-bottom:6px;">🧩 Família de custo de cada linha de produto
-        ${cc.naoMapeados.length?`<span class="pc-badge excede" style="margin-left:6px;">${cc.naoMapeados.length} sem família</span>`:''}
-      </div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;">
-        ${produtosPlano.map(nome=>{
-          const b=bucketDoProduto(nome);
-          const manual=ehMapeadoManual(nome);
-          return `<label style="display:flex;align-items:center;gap:6px;border:1.5px ${manual?'solid #e2e8f0':(b?'dashed #7dd3fc':'solid #fca5a5')};border-radius:8px;padding:5px 9px;font-size:12px;" title="${manual?'definido por você':(b?'sugestão automática pelo nome — confirme ou troque':'sem família')}">
-            <span>${esc(nome)}${!manual&&b?' <span style="font-size:9px;font-weight:800;color:#0369a1;">auto</span>':''}</span>
-            <select class="form-input" style="padding:3px 6px;width:150px;" onchange="setMapaProduto('${esc(nome)}',this.value)">
-              <option value="">— família —</option>
-              ${BUCKETS.map(bk=>`<option value="${bk}" ${b===bk?'selected':''}>${BUCKET_LABEL[bk]}</option>`).join('')}
-            </select>
-          </label>`;
-        }).join('')||'<span class="pc-hint">Adicione produtos ao plano primeiro.</span>'}
-      </div>
-      ${cc.naoMapeados.length?`<div class="pc-hint" style="color:#b45309;margin-top:6px;">⚠ Produto sem família fica fora do custo — escolha a família acima.</div>`:''}
-    </div>`;
-
-  /* mão de obra */
-  const folhaAviso=!_folhaMes?'<span class="pc-badge excede">sem folha de pagamento cadastrada</span>':
-    (_folhaMes._aproximada?`<span class="pc-badge" style="background:#fef3c7;color:#b45309;">usando folha de ${_folhaMes.mes}/${_folhaMes.ano} (não há de ${_plano.mes}/${_plano.ano})</span>`:
-    `<span class="pc-badge ok">folha de ${_folhaMes.mes}/${_folhaMes.ano}</span>`);
-  const maoDeObra=`
-    <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin-bottom:14px;background:#f8fafc;border:1.5px solid #e2e8f0;border-radius:10px;padding:10px 14px;">
-      <strong style="font-size:12.5px;color:#334155;">👥 Mão de obra</strong>
-      ${folhaAviso}
-      <label style="font-size:11.5px;color:#64748b;display:flex;align-items:center;gap:6px;">Fator de encargos
-        <input type="number" class="form-input" style="width:76px;padding:4px 8px;" min="1" step="0.01"
-          value="${Number(cfg.fatorEncargos)||1}" onchange="setConfigCampo('fatorEncargos',parseFloat(this.value)||1)"></label>
-      <button class="btn btn-secondary btn-sm" onclick="abrirEquipeAdmin()">🏢 Administrativo (${(cfg.equipeAdmin||[]).length})</button>
-      <span class="pc-hint">Operação: R$ ${fmtN(cc.folhaModTotal,2)} · Administrativo: R$ ${fmtN(cc.folhaAdmin,2)}
-        ${cc.semFolha?` · <span style="color:#b45309;font-weight:700;">${cc.semFolha} pessoa(s) da equipe sem salário na folha</span>`:''}</span>
-    </div>`;
-
-  /* tabela de insumos — TUDO editável: régua, quantidade, preço, VAR/FIXO, % manual, remover */
-  const linhaInsumo=x=>{
-    const i=x.ins;
-    const podeEditar=!x.especial;
-    const ehDireto=i.tipoRateio==='direto';
-    const modo=ehDireto?null:modoCompart(i);
-    // régua (texto ou seletor)
-    const reguaHtml=x.especial==='folha_mod'?'equipe das linhas':x.especial==='folha_admin'?'equipe admin':
-      x.especial==='lenha'?'m³ do plano × preço':
-      ehDireto?({direta:'1 por unidade',pallet:'un ÷ sacos/pallet',mp_20:'ton 20kg',mp_10:'ton conc.',mp_25:'ton 25kg',mp_caulim_total:'ton caulim',manual:'qtd manual'}[i.formulaQtd]||i.formulaQtd):
-      `<select class="form-input" style="padding:2px 4px;font-size:11px;width:110px;" onchange="setInsumoCfg('${i.id}','modo',this.value)">
-        <option value="qtdpreco" ${modo==='qtdpreco'?'selected':''}>qtd × preço</option>
-        <option value="mensal" ${modo==='mensal'?'selected':''}>valor mensal</option>
-        <option value="porton" ${modo==='porton'?'selected':''}>R$/ton × ton</option>
-      </select>`;
-    // campos por régua
-    let campoPreco='—',campoQtd=x.qtd!=null?fmtN(x.qtd,2):'—';
-    if(podeEditar&&ehDireto){
-      campoPreco=`<input type="number" class="form-input" style="width:84px;padding:3px 6px;text-align:right;" step="0.0001" value="${i.precoUnitario??''}" onchange="setInsumoCfg('${i.id}','precoUnitario',this.value)">`;
-      if(i.formulaQtd==='manual')campoQtd=`<input type="number" class="form-input" style="width:84px;padding:3px 6px;text-align:right;" step="0.01" value="${i.quantidadeManual??''}" onchange="setInsumoCfg('${i.id}','quantidadeManual',this.value)">`;
-      else if(i.formulaQtd==='pallet')campoQtd=`${x.qtd!=null?fmtN(x.qtd,2):'—'}<div class="pc-hint" style="white-space:nowrap;">÷ <input type="number" class="form-input" style="width:56px;padding:1px 4px;text-align:right;display:inline-block;" value="${i.sacosPorPallet??''}" onchange="setInsumoCfg('${i.id}','sacosPorPallet',this.value)" title="sacos por pallet">/pallet</div>`;
-    }else if(podeEditar&&!ehDireto){
-      if(modo==='qtdpreco'){
-        campoPreco=`<input type="number" class="form-input" style="width:84px;padding:3px 6px;text-align:right;" step="0.0001" value="${i.precoUnitario??''}" onchange="setInsumoCfg('${i.id}','precoUnitario',this.value)">`;
-        campoQtd=`<input type="number" class="form-input" style="width:84px;padding:3px 6px;text-align:right;" step="0.01" value="${i.quantidadeLivre??''}" onchange="setInsumoCfg('${i.id}','quantidadeLivre',this.value)">`;
-      }else if(modo==='mensal'){
-        campoPreco=`<input type="number" class="form-input" style="width:100px;padding:3px 6px;text-align:right;" step="0.01" value="${i.valorMensal??''}" onchange="setInsumoCfg('${i.id}','valorMensal',this.value)" title="valor do mês inteiro">`;
-      }else{
-        campoPreco=`<input type="number" class="form-input" style="width:84px;padding:3px 6px;text-align:right;" step="0.0001" value="${i.custoPorTon??''}" onchange="setInsumoCfg('${i.id}','custoPorTon',this.value)" title="R$ por tonelada">`;
-      }
-    }
-    const classif=x.especial?'VARIAVEL':(i.classificacao||'VARIAVEL');
-    const btnClassif=podeEditar
-      ?`<button class="pc-badge ${classif==='FIXO'?'livre':'ok'}" style="border:none;cursor:pointer;" title="Clique para alternar VARIÁVEL/FIXO" onclick="setInsumoCfg('${i.id}','classificacao','${classif==='FIXO'?'VARIAVEL':'FIXO'}')">${classif==='FIXO'?'FIXO':'VAR'}</button>`
-      :`<span class="pc-badge ${classif==='FIXO'?'livre':'ok'}">${classif==='FIXO'?'FIXO':'VAR'}</span>`;
-    const temPct=i.pctManual&&Object.keys(i.pctManual).length;
-    const linhaPct=_pctAberto.has(i.id)?`<tr style="background:#f8fafc;"><td colspan="8" style="padding:6px 12px;">
-        <span class="pc-hint" style="font-weight:700;">Rateio manual (%):</span>
-        ${BUCKETS.map(b=>`<label class="pc-hint" style="margin-left:8px;">${BUCKET_LABEL[b]} <input type="number" class="form-input" style="width:58px;padding:2px 4px;text-align:right;display:inline-block;" min="0" max="100" value="${(i.pctManual||{})[b]??''}" onchange="setInsumoPct('${i.id}','${b}',this.value)">%</label>`).join('')}
-        <button class="btn btn-ghost btn-sm" style="color:#dc2626;" onclick="limparPctManual('${i.id}')">limpar (volta p/ tonelagem)</button>
-        ${(()=>{const soma=BUCKETS.reduce((t,b)=>t+(Number((i.pctManual||{})[b])||0),0);return soma&&Math.abs(soma-100)>0.5?`<span style="color:#b45309;font-weight:700;font-size:11px;">⚠ soma ${fmtN(soma,0)}% (o restante fica sem alocação)</span>`:'';})()}
-      </td></tr>`:'';
-    return `<tr>
-      <td class="pc-hint">${esc(i.classe||'')}</td>
-      <td><strong>${esc(i.insumo)}</strong>${temPct?' <span class="pc-badge" style="background:#ede9fe;color:#7c3aed;">% manual</span>':''}</td>
-      <td class="pc-hint">${ehDireto?'direto · '+(BUCKET_LABEL[i.produtoBase]||i.produtoBase||''):'compartilhado'}</td>
-      <td>${btnClassif}</td>
-      <td class="num">${campoPreco}</td>
-      <td class="num">${campoQtd} <span class="pc-hint">${esc(i.unidade||'')}</span></td>
-      <td class="num" style="font-weight:800;color:var(--primary);">R$ ${fmtN(x.valor,2)}</td>
-      <td class="pc-hint" style="white-space:nowrap;">${reguaHtml}
-        ${podeEditar?`<button class="btn btn-ghost btn-sm" title="Rateio % manual entre famílias" onclick="togglePctManual('${i.id}')">%</button>
-        <button class="btn btn-ghost btn-sm" style="color:#dc2626;" title="Remover do cálculo (dá para restaurar)" onclick="setInsumoCfg('${i.id}','removido',true)">🗑</button>`:''}
-      </td>
-    </tr>${linhaPct}`;
-  };
-  const removidos=(cfg.insumos||[]).filter(i=>i.removido);
-  const cardRemovidos=removidos.length?`<div class="pc-hint" style="margin-bottom:12px;">🗑 Removidos do cálculo: ${removidos.map(i=>`${esc(i.insumo)} <button class="btn btn-ghost btn-sm" style="color:#16a34a;padding:0 4px;" onclick="setInsumoCfg('${i.id}','removido',false)">↩ restaurar</button>`).join(' · ')}</div>`:'';
-  const diretos=cc.itens.filter(x=>x.ins.tipoRateio==='direto'&&!x.especial);
-  const compart=cc.itens.filter(x=>!(x.ins.tipoRateio==='direto'&&!x.especial));
-  const tabelaInsumos=`
-    <details style="margin-bottom:14px;" open>
-      <summary style="cursor:pointer;font-size:12.5px;font-weight:800;color:#334155;">📦 Insumos DIRETOS (${diretos.length}) — R$ ${fmtN(diretos.reduce((s,x)=>s+x.valor,0),2)}</summary>
-      <div class="table-wrap" style="margin-top:8px;"><table class="pc-resumo">
-        <thead><tr><th>Classe</th><th>Insumo</th><th>Tipo</th><th></th><th class="num">Preço / Valor</th><th class="num">Qtd</th><th class="num">Total</th><th>Régua</th></tr></thead>
-        <tbody>${diretos.map(linhaInsumo).join('')}</tbody>
-      </table></div>
-    </details>
-    <details style="margin-bottom:6px;">
-      <summary style="cursor:pointer;font-size:12.5px;font-weight:800;color:#334155;">🏭 Insumos COMPARTILHADOS (${compart.length}) — R$ ${fmtN(compart.reduce((s,x)=>s+x.valor,0),2)}</summary>
-      <div class="table-wrap" style="margin-top:8px;"><table class="pc-resumo">
-        <thead><tr><th>Classe</th><th>Insumo</th><th>Tipo</th><th></th><th class="num">Preço / Valor</th><th class="num">Qtd</th><th class="num">Total</th><th>Régua / ações</th></tr></thead>
-        <tbody>${compart.map(linhaInsumo).join('')}</tbody>
-      </table></div>
-    </details>
-    <div style="margin-bottom:12px;"><button class="btn btn-secondary btn-sm" onclick="addInsumoPersonalizado()">➕ Insumo personalizado</button></div>
-    ${cardRemovidos}`;
-
-  /* famílias (buckets) + precificação completa */
-  const precos={},margens={},faturamentoPorB={},peqs={};
-  let faturamentoAuto=0;
-  BUCKETS.forEach(b=>{
-    const m=cc.metas[b]||0;if(m<=0)return;
-    const cvUn=(cc.varBucket[b]||0)/m;
-    const margAlvo=Number((cfg.margemAlvo||{})[b])||0.22;
-    const manual=(cfg.precoVendaManual||{})[b];
-    const preco=(manual!=null&&manual!=='')?Number(manual):(cvUn>0?cvUn/(1-margAlvo):0);
-    const fixoB=(cc.totalBucket[b]||0)-(cc.varBucket[b]||0);
-    const margRS=preco-cvUn;
-    precos[b]={preco,manual:manual!=null&&manual!=='',cvUn};
-    margens[b]={rs:margRS,pct:preco>0?margRS/preco:0};
-    peqs[b]=margRS>0?fixoB/margRS:null;
-    faturamentoPorB[b]=m*preco;
-    faturamentoAuto+=faturamentoPorB[b];
-  });
-  const fatManual=cfg.faturamentoManual||{ativo:false,valor:0};
-  const faturamento=fatManual.ativo?(Number(fatManual.valor)||0):faturamentoAuto;
-  const alvoPct=(Number(cfg.alvoMaximoPct)||38)/100;
-  const custoSobreFat=faturamento>0?cc.totalGeral/faturamento:null;
-  const dentroAlvo=custoSobreFat!=null&&custoSobreFat<=alvoPct;
-  const sobra=faturamento-cc.totalGeral;
-
-  const familias=`
-    <div style="font-size:12.5px;font-weight:800;color:#334155;margin-bottom:6px;">💵 Custo, preço e faturamento por família
-      <span class="pc-hint" style="font-weight:400;">— preço em branco = sugerido pela margem alvo; digitado = manual</span></div>
-    <div class="table-wrap" style="margin-bottom:10px;"><table class="pc-resumo">
-      <thead><tr><th>Família</th><th class="num">Un. plan.</th><th class="num">Ton</th><th class="num">Custo total</th><th class="num">Custo/ton</th><th class="num">Custo/un</th><th class="num">Variável/un</th><th class="num">Margem alvo %</th><th class="num">Preço venda</th><th class="num">Margem R$ (un)</th><th class="num">P. equilíbrio</th><th class="num">Faturamento</th></tr></thead>
-      <tbody>
-        ${BUCKETS.filter(b=>(cc.metas[b]||0)>0).map(b=>{
-          const m=cc.metas[b],t=cc.ton[b]||0,tot=cc.totalBucket[b];
-          const p=precos[b],mg=margens[b];
-          const marg=Number((cfg.margemAlvo||{})[b])||0.22;
-          return `<tr>
-            <td><strong>${BUCKET_LABEL[b]}</strong></td>
-            <td class="num">${fmtN(m,0)}</td><td class="num">${fmtN(t,1)}</td>
-            <td class="num" style="font-weight:800;">R$ ${fmtN(tot,2)}</td>
-            <td class="num">R$ ${fmtN(t>0?tot/t:0,2)}</td>
-            <td class="num">R$ ${fmtN(m>0?tot/m:0,2)}</td>
-            <td class="num">R$ ${fmtN(p.cvUn,2)}</td>
-            <td class="num"><input type="number" class="form-input" style="width:60px;padding:3px 6px;text-align:right;" min="0" max="95" value="${Math.round(marg*100)}" onchange="setMargemBucket('${b}',this.value)"></td>
-            <td class="num"><input type="number" class="form-input" style="width:86px;padding:3px 6px;text-align:right;font-weight:800;color:${p.manual?'#042D4D':'#15803d'};" step="0.01" placeholder="${fmtN(p.preco,2)}" value="${p.manual?p.preco:''}" onchange="setPrecoVendaManual('${b}',this.value)" title="${p.manual?'preço manual — apague para voltar ao sugerido':'sugerido pela margem alvo'}"></td>
-            <td class="num" style="color:${mg.rs>=0?'#15803d':'#b91c1c'};font-weight:700;">R$ ${fmtN(mg.rs,2)} (${fmtN(mg.pct*100,1)}%)</td>
-            <td class="num" title="unidades para pagar o custo fixo da família">${peqs[b]!=null?fmtN(peqs[b],0)+' un':'—'}</td>
-            <td class="num" style="font-weight:700;">R$ ${fmtN(faturamentoPorB[b]||0,2)}</td>
-          </tr>`;
-        }).join('')||'<tr><td colspan="12" class="pc-hint" style="text-align:center;">Mapeie as linhas de produto nas famílias acima.</td></tr>'}
-        <tr style="background:#eef4f9;"><td style="font-weight:800;">TOTAL</td>
-          <td class="num"></td><td class="num" style="font-weight:800;">${fmtN(cc.tonTotal,1)}</td>
-          <td class="num" style="font-weight:800;">R$ ${fmtN(cc.totalGeral,2)}</td>
-          <td class="num" style="font-weight:800;">R$ ${fmtN(cc.custoTonGeral||0,2)}</td>
-          <td colspan="6"></td>
-          <td class="num" style="font-weight:800;">R$ ${fmtN(faturamentoAuto,2)}</td></tr>
-      </tbody>
-    </table></div>
-
-    <!-- ALVO custo/faturamento -->
-    <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin-bottom:14px;border:2px solid ${dentroAlvo?'#bbf7d0':'#fecaca'};background:${dentroAlvo?'#f0fdf4':'#fef2f2'};border-radius:12px;padding:12px 16px;">
-      <strong style="font-size:13px;color:${dentroAlvo?'#15803d':'#b91c1c'};">🎯 Alvo: custo ≤
-        <input type="number" class="form-input" style="width:60px;padding:3px 6px;text-align:right;display:inline-block;" min="1" max="99" value="${Math.round(alvoPct*100)}" onchange="setConfigCampo('alvoMaximoPct',parseFloat(this.value)||38)">% do faturamento</strong>
-      <span style="font-size:13px;font-weight:800;color:${dentroAlvo?'#15803d':'#b91c1c'};">
-        ${custoSobreFat!=null?'Hoje: '+fmtN(custoSobreFat*100,1)+'% '+(dentroAlvo?'✅ dentro do alvo':'🔴 fora do alvo'):'—'}</span>
-      <label style="font-size:11.5px;color:#64748b;display:flex;align-items:center;gap:6px;margin-left:auto;">
-        <input type="checkbox" ${fatManual.ativo?'checked':''} onchange="setFaturamentoManual('ativo',this.checked)"> faturamento manual
-        ${fatManual.ativo?`<input type="number" class="form-input" style="width:120px;padding:3px 6px;text-align:right;" step="0.01" value="${fatManual.valor||''}" onchange="setFaturamentoManual('valor',this.value)">`:''}
-      </label>
-      <div style="width:100%;font-size:12px;color:#475569;">
-        Faturamento ${fatManual.ativo?'manual':'previsto'}: <strong>R$ ${fmtN(faturamento,2)}</strong>
-        · Custo: <strong>R$ ${fmtN(cc.totalGeral,2)}</strong>
-        · Sobra (antes de impostos/comercial): <strong style="color:${sobra>=0?'#15803d':'#b91c1c'};">R$ ${fmtN(sobra,2)}</strong>
-        ${!dentroAlvo&&custoSobreFat!=null?`<br>🧭 <strong>Para entrar no alvo:</strong> reduzir o custo em <strong>R$ ${fmtN(cc.totalGeral-faturamento*alvoPct,2)}</strong> — ou faturar mais <strong>R$ ${fmtN(cc.totalGeral/alvoPct-faturamento,2)}</strong> (volume ou preço).`:''}
-      </div>
-    </div>`;
-
-    /* revisão por linha */
-  const porLinha=`
-    <div style="font-size:12.5px;font-weight:800;color:#334155;margin-bottom:6px;">🏭 Revisão por linha
-      <span class="pc-hint" style="font-weight:400;">— folha e lenha são da própria linha; compartilhados entram pela fatia de tonelagem; diretos seguem a produção da linha</span></div>
-    <div class="table-wrap"><table class="pc-resumo">
-      <thead><tr><th>Linha</th><th class="num">Ton plan.</th><th class="num">Folha (equipe)</th><th class="num">Lenha</th><th class="num">Compartilhados</th><th class="num">Diretos</th><th class="num">Custo total</th><th class="num">Custo/ton</th></tr></thead>
-      <tbody>
-        ${Object.entries(cc.linhas).map(([lid,v])=>`<tr>
-          <td><strong>${esc(linhaNome(lid))}</strong></td>
-          <td class="num">${fmtN(v.ton,1)}</td>
-          <td class="num">R$ ${fmtN(v.folha,2)}</td>
-          <td class="num">R$ ${fmtN(v.lenha,2)}</td>
-          <td class="num">R$ ${fmtN(v.compart,2)}</td>
-          <td class="num">R$ ${fmtN(v.diretos,2)}</td>
-          <td class="num" style="font-weight:800;color:var(--primary);">R$ ${fmtN(v.total,2)}</td>
-          <td class="num" style="font-weight:800;">${v.custoTon!=null?'R$ '+fmtN(v.custoTon,2):'—'}</td>
-        </tr>`).join('')||'<tr><td colspan="8" class="pc-hint" style="text-align:center;">Sem linhas com produção mapeada.</td></tr>'}
-      </tbody>
-    </table></div>`;
-
-  /* custo ajustado pela produção real — mesmo motor, quantidades das OPs */
-  let planoReal='';
-  if(_realCarregado&&_realOps.length){
-    const ccReal=computarCustos(compDoRealizado());
-    if(ccReal&&ccReal.tonTotal>0){
-      const linhasCmp=BUCKETS.filter(b=>(cc.metas[b]||0)>0||(ccReal.metas[b]||0)>0).map(b=>{
-        const cp=cc.totalBucket[b]||0,cr=ccReal.totalBucket[b]||0;
-        const tp=cc.ton[b]||0,tr=ccReal.ton[b]||0;
-        return `<tr><td><strong>${BUCKET_LABEL[b]}</strong></td>
-          <td class="num">${fmtN(tp,1)}</td><td class="num" style="color:#0369a1;">${fmtN(tr,1)}</td>
-          <td class="num">R$ ${fmtN(cp,2)}</td><td class="num" style="color:#0369a1;font-weight:700;">R$ ${fmtN(cr,2)}</td>
-          <td class="num" style="font-weight:700;color:${cr-cp<=0?'#15803d':'#b45309'};">${cr-cp>=0?'+':''}R$ ${fmtN(cr-cp,2)}</td>
-          <td class="num">${tp>0?'R$ '+fmtN(cp/tp,2):'—'}</td>
-          <td class="num" style="color:#0369a1;font-weight:700;">${tr>0?'R$ '+fmtN(cr/tr,2):'—'}</td></tr>`;
-      }).join('');
-      planoReal=`
-        <div style="font-size:12.5px;font-weight:800;color:#334155;margin:14px 0 6px;">⚖️ Custo: plano × ajustado pela produção real
-          <span class="pc-hint" style="font-weight:400;">— o mesmo motor de custos rodando com as quantidades REAIS das OPs (diretos e lenha reais; fixos iguais; variáveis por tonelagem real). Preços reais de NF entram na próxima rodada.</span></div>
-        <div class="table-wrap"><table class="pc-resumo">
-          <thead><tr><th>Família</th><th class="num">Ton plan.</th><th class="num">Ton real</th><th class="num">Custo plano</th><th class="num">Custo ajustado</th><th class="num">Δ</th><th class="num">R$/ton plano</th><th class="num">R$/ton real</th></tr></thead>
-          <tbody>${linhasCmp}
-            <tr style="background:#eef4f9;"><td style="font-weight:800;">TOTAL</td>
-              <td class="num" style="font-weight:800;">${fmtN(cc.tonTotal,1)}</td>
-              <td class="num" style="font-weight:800;color:#0369a1;">${fmtN(ccReal.tonTotal,1)}</td>
-              <td class="num" style="font-weight:800;">R$ ${fmtN(cc.totalGeral,2)}</td>
-              <td class="num" style="font-weight:800;color:#0369a1;">R$ ${fmtN(ccReal.totalGeral,2)}</td>
-              <td class="num" style="font-weight:800;color:${ccReal.totalGeral-cc.totalGeral<=0?'#15803d':'#b45309'};">${ccReal.totalGeral-cc.totalGeral>=0?'+':''}R$ ${fmtN(ccReal.totalGeral-cc.totalGeral,2)}</td>
-              <td class="num" style="font-weight:800;">${cc.custoTonGeral!=null?'R$ '+fmtN(cc.custoTonGeral,2):'—'}</td>
-              <td class="num" style="font-weight:800;color:#0369a1;">${ccReal.custoTonGeral!=null?'R$ '+fmtN(ccReal.custoTonGeral,2):'—'}</td></tr>
-          </tbody>
-        </table></div>`;
-    }
+function renderCalendario(){
+  const ano=_plano.ano,mes=_plano.mes;
+  const diasNoMes=new Date(ano,mes,0).getDate();
+  const primeiroDow=new Date(ano,mes-1,1).getDay();
+  const cels=[];
+  ['D','S','T','Q','Q','S','S'].forEach(d=>cels.push(`<div class="cab">${d}</div>`));
+  for(let i=0;i<primeiroDow;i++)cels.push('<div></div>');
+  for(let d=1;d<=diasNoMes;d++){
+    const k=`${ano}-${String(mes).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const st=_plano.calendario[k]||'folga';
+    const rot={trabalha:'trab',folga:'folga',feriado:'fer',['domingo-especial']:'dom.esp'}[st]||'';
+    cels.push(`<div class="pc-dia ${st}" onclick="toggleDia('${k}')">${d}<small>${rot}</small></div>`);
   }
   return `<div class="pc-card">
-    <div class="pc-sec-tit">💰 Custos do plano
-      <span class="pc-hint" style="font-weight:400;">preços importados de: ${esc(cfg.origem||'—')}</span>
+    <div class="pc-sec-tit">📅 Calendário do mês
+      <span class="pc-hint" style="font-weight:400;margin-left:6px;">clique no dia para alternar · trabalha → folga → feriado (domingo tem "domingo especial")</span>
+      <span style="margin-left:auto;display:flex;gap:6px;align-items:center;">
+        <label class="pc-hint">h do domingo especial</label>
+        <input type="number" class="form-input" style="width:64px;padding:4px 8px;" min="0" max="24"
+          value="${_plano.horas_domingo_especial??8}" onchange="_plano.horas_domingo_especial=parseFloat(this.value)||0;marcarSujo();renderPlano()">
+      </span>
     </div>
-    ${mapeamento}
-    ${maoDeObra}
-    ${tabelaInsumos}
-    ${familias}
-    ${porLinha}
-    ${planoReal}
-    <div class="pc-hint" style="margin-top:10px;">Réguas finas do CP (refeição/EPI por pessoa, stretch por pallet, grupos de energia/arrendamento, desgaste por massa útil) entram na próxima rodada — hoje esses itens rateiam por tonelagem. O <strong>custo realizado</strong> (ledger de insumos + OPs) vem junto.</div>
+    <div class="pc-cal">${cels.join('')}</div>
   </div>`;
 }
 
-/* ── PLANO × REALIZADO — painéis por produto e por linha ── */
-function renderPlanoReal(comp){
-  const real=computarRealizado();
-  // união das chaves normalizadas de produto (plano ∪ realizado)
-  const planoPorNorm={};
-  Object.entries(comp.porProduto).forEach(([nome,p])=>{planoPorNorm[normNome(nome)]={nome,...p};});
-  const chaves=[...new Set([...Object.keys(planoPorNorm),...Object.keys(real.porProduto)])];
-  chaves.sort((a,b)=>{
-    const na=(planoPorNorm[a]?.nome||real.porProduto[a]?.nome||'');
-    const nb=(planoPorNorm[b]?.nome||real.porProduto[b]?.nome||'');
-    return na.localeCompare(nb,'pt');
-  });
-  // nomes de linha planejadas por produto (para marcar remanejamento)
-  const linhasPlanejadasDe=k=>{
-    const p=planoPorNorm[k];if(!p)return new Set();
-    return new Set(Object.keys(p.linhas||{}).map(lid=>normNome(linhaNome(lid))));
-  };
-  const linhasProduto=chaves.map(k=>{
-    const p=planoPorNorm[k],r=real.porProduto[k];
-    const nome=p?.nome||r?.nome||'—';
-    const demanda=p?.demanda||0,planejado=p?.planejado||0,realT=r?.total||0;
-    const pct=planejado>0?realT/planejado*100:null;
-    const saldo=realT-planejado;
-    const lp=linhasPlanejadasDe(k);
-    const ondeReal=r?Object.entries(r.porLinha).map(([ln,q])=>{
-      const fora=planejado>0&&!lp.has(normNome(ln));
-      return `${fora?'<span style="color:#b45309;font-weight:700;" title="Produzido em linha que não estava no plano deste produto">⚠ '+esc(ln)+'</span>':esc(ln)}: ${fmtN(q,0)}`;
-    }).join(' · '):'—';
-    let badge;
-    if(!p&&r)badge='<span class="pc-badge" style="background:#fef3c7;color:#b45309;">não planejado</span>';
-    else if(p&&!r)badge=_realCarregado?'<span class="pc-badge livre">sem produção</span>':'<span class="pc-badge livre">…</span>';
-    else if(pct>=100)badge='<span class="pc-badge ok">✓ atendido</span>';
-    else badge=`<span class="pc-badge" style="background:#e0f2fe;color:#0369a1;">${fmtN(pct,0)}%</span>`;
-    const pesoKg=pesoDoProdutoLinha(nome);
-    const ton=pesoKg>0?realT*pesoKg/1000:null;
-    const det=r&&r.det&&Object.keys(r.det).length>1
-      ?`<div class="pc-hint" style="margin-top:2px;">${Object.entries(r.det).map(([n,q])=>esc(n)+': '+fmtN(q,0)).join(' · ')}</div>`:'';
-    return `<tr>
-      <td><strong>${esc(nome)}</strong>${det}</td>
-      <td class="num">${demanda?fmtN(demanda,0):'—'}</td>
-      <td class="num" style="font-weight:700;">${planejado?fmtN(planejado,0):'—'}</td>
-      <td class="num" style="font-weight:800;color:#0369a1;">${realT?fmtN(realT,0):(_realCarregado?'0':'…')}</td>
-      <td class="num" style="color:${planejado?(saldo>=0?'#15803d':'#b91c1c'):'#94a3b8'};font-weight:700;">${planejado?fmtN(saldo,0):'—'}</td>
-      <td class="num">${ton!=null?fmtN(ton,1):'—'}</td>
-      <td>${badge}</td>
-      <td class="pc-hint">${ondeReal}</td>
-    </tr>`;
-  }).join('');
-
-  // ── ocupação por linha (plano por linha_id ∪ realizado por nome) ──
-  const planoLinhaPorNorm={};
-  Object.entries(comp.porLinha).forEach(([lid,v])=>{planoLinhaPorNorm[normNome(linhaNome(lid))]={nome:linhaNome(lid),...v};});
-  const chavesLinha=[...new Set([...Object.keys(planoLinhaPorNorm),...Object.keys(real.porLinha).map(n=>normNome(n))])];
-  const realLinhaPorNorm={};
-  Object.entries(real.porLinha).forEach(([nome,v])=>{realLinhaPorNorm[normNome(nome)]={nome,...v};});
-  const linhasOcup=chavesLinha.map(k=>{
-    const p=planoLinhaPorNorm[k],r=realLinhaPorNorm[k];
-    const nome=p?.nome||r?.nome||'—';
-    const badge=!p&&r?'<span class="pc-badge" style="background:#fef3c7;color:#b45309;">não planejada</span>':
-                p&&!r?(_realCarregado?'<span class="pc-badge livre">sem produção</span>':'<span class="pc-badge livre">…</span>'):'';
-    return `<tr>
-      <td><strong>${esc(nome)}</strong> ${badge}</td>
-      <td class="num">${p?fmtN(p.horasDisp):'—'}</td>
-      <td class="num" style="color:#0369a1;font-weight:700;">${r?fmtN(r.ht):'—'}</td>
-      <td class="num" style="color:#b45309;">${r?fmtN(r.hp):'—'}</td>
-      <td class="num">${p?fmtN(p.sacos,0):'—'}</td>
-      <td class="num" style="color:#0369a1;font-weight:700;">${r?fmtN(r.sacos,0):'—'}</td>
-      <td class="num">${p?fmtN(p.lenha,1):'—'}</td>
-      <td class="num" style="color:#0369a1;">${r?fmtN(r.lenha,1):'—'}</td>
-    </tr>`;
-  }).join('');
-
-  if(!chaves.length&&!chavesLinha.length)return '';
-  return `<div class="pc-card">
-    <div class="pc-sec-tit">⚖️ Plano × Realizado — por produto
-      <span class="pc-hint" style="font-weight:400;">a cobrança é por produto no mês, somando todas as linhas; ⚠ marca produção em linha fora do plano</span>
-      <button class="btn btn-secondary btn-sm" style="margin-left:auto;" onclick="atualizarRealizado()">🔄 Atualizar realizado</button>
-    </div>
-    <div class="table-wrap"><table class="pc-resumo">
-      <thead><tr><th>Produto</th><th class="num">Demanda</th><th class="num">Planejado</th><th class="num">Realizado</th><th class="num">Saldo</th><th class="num">Ton real</th><th>Situação</th><th>Onde (realizado)</th></tr></thead>
-      <tbody>${linhasProduto||'<tr><td colspan="8" class="pc-hint" style="text-align:center;">Nada planejado nem produzido neste mês ainda.</td></tr>'}</tbody>
-    </table></div>
-    <div class="pc-sec-tit" style="margin-top:18px;">🏭 Ocupação por linha
-      <span class="pc-hint" style="font-weight:400;">informativo — mostra como o recurso foi usado; H.T inclui paradas produtivas, H.P é hora parada</span>
-    </div>
-    <div class="table-wrap"><table class="pc-resumo">
-      <thead><tr><th>Linha</th><th class="num">Horas disp. (plano)</th><th class="num">H.T real</th><th class="num">H.P real</th><th class="num">Un. planejadas</th><th class="num">Un. produzidas</th><th class="num">Lenha plan. (m³)</th><th class="num">Lenha real (m³)</th></tr></thead>
-      <tbody>${linhasOcup||'<tr><td colspan="8" class="pc-hint" style="text-align:center;">Sem linhas.</td></tr>'}</tbody>
-    </table></div>
-    <div class="pc-hint" style="margin-top:8px;">O realizado vem direto das OPs da Produção (${_realOps.length} registro(s) no mês${_realCarregado?'':' — carregando…'}). Fase 3 traz os insumos realizados do ledger e o custo plano × real.</div>
-  </div>`;
-}
-
-/* avisa antes de fechar com alteração pendente */
 window.addEventListener('beforeunload',e=>{if(_sujo){e.preventDefault();e.returnValue='';}});
 
 init();
