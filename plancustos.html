@@ -822,7 +822,8 @@ const ESCOPO_IDS = [
   'manutfab', 'manutelet', 'manutmaq', 'oficina',  // Manutenção: fábrica, elétrica, máquinas, oficina
   'epi',                                           // EPI
 ];
-const TABELA_PLANEJAMENTOS = 'planejamentos_custo';
+const TABELA_PLANEJAMENTOS = 'plancustos_planejamentos'; // tabela EXCLUSIVA deste módulo — zero vínculo com o Custo & Precificação
+const TABELA_CP_ANTIGA = 'planejamentos_custo';           // usada SÓ pelo botão de importar cópias (leitura, one-way)
 const TABELA_FOLHAS_PAGAMENTO = 'folhas_pagamento'; // uma folha por mês/ano — a Folha agora é um módulo separado
 
 function criarEstadoInicial() {
@@ -2405,9 +2406,11 @@ function renderLandingPlanejamentos() {
   </tr>`).join('') || `<tr><td colspan="7" class="cp-muted">${state._verLixeira ? 'A Lixeira está vazia.' : 'Nenhum planejamento criado ainda — clique em "+ Criar Planejamento" pra começar.'}</td></tr>`;
 
   return `<div class="card" style="margin-bottom:16px;text-align:center;padding:32px 20px;">
-    <div style="font-size:15px;font-weight:800;color:var(--primary);margin-bottom:6px;">📁 Custo &amp; Precificação</div>
-    <p class="cp-ajuda" style="margin-bottom:16px;">Escolha um planejamento salvo abaixo pra continuar, ou crie um novo mês/cenário do zero.</p>
+    <div style="font-size:15px;font-weight:800;color:var(--primary);margin-bottom:6px;">🧭 Planejamento &amp; Custos</div>
+    <p class="cp-ajuda" style="margin-bottom:16px;">Escolha um planejamento salvo abaixo pra continuar, ou crie um novo mês/cenário do zero.
+    Este módulo tem dados <strong>próprios</strong> — nada aqui altera os módulos antigos.</p>
     <button class="btn btn-primary" onclick="criarNovoPlanejamentoLanding()">+ Criar Planejamento</button>
+    <button class="btn btn-secondary" style="margin-left:8px;" onclick="importarCopiasDoCP()" title="Copia os planejamentos do Custo & Precificação para cá — cópias independentes, sem vínculo">📥 Importar cópias do C&amp;P</button>
     ${naLixeira > 0 || state._verLixeira ? `<button class="btn btn-secondary" style="margin-left:8px;" onclick="toggleLixeira()">${state._verLixeira ? '← Voltar aos planejamentos' : `🗑️ Lixeira (${naLixeira})`}</button>` : ''}
     ${state._verLixeira ? '<p class="cp-ajuda" style="margin-top:10px;">Estes planejamentos foram excluídos mas continuam no banco. Clique em <strong>Restaurar</strong> pra trazer de volta.</p>' : ''}
   </div>
@@ -2418,6 +2421,34 @@ function renderLandingPlanejamentos() {
       <tbody>${linhasTabela}</tbody>
     </table></div>
   </div>`;
+}
+
+/* Importa CÓPIAS dos planejamentos do módulo antigo (one-way, leitura única).
+   Cada cópia vira um registro PC-xxxx nesta tabela — apagar/editar aqui nunca
+   toca no Custo & Precificação, e vice-versa. */
+async function importarCopiasDoCP() {
+  if (!confirm('Copiar os planejamentos do Custo & Precificação para este módulo?\n\nSão CÓPIAS independentes: mexer aqui não altera lá (nem o contrário). Pode rodar mais de uma vez — gera cópias novas.')) return;
+  try {
+    const { data, error } = await _supabase.from(TABELA_CP_ANTIGA)
+      .select('codigo,nome,mes,ano,estado,totais').eq('status', 'ativo').order('numero');
+    if (error) throw error;
+    if (!data || !data.length) { toast('Nenhum planejamento ativo encontrado no Custo & Precificação.', 'warning'); return; }
+    let n = 0;
+    for (const p of data) {
+      const numero = _proximoNumeroPlanejamento() + n;
+      const registro = {
+        codigo: 'PC-' + String(numero).padStart(4, '0'), numero,
+        nome: ((p.nome || p.codigo || '') + ' (cópia do C&P)').trim(),
+        mes: p.mes, ano: p.ano, estado: p.estado, totais: p.totais, status: 'ativo',
+      };
+      const { error: e2 } = await _supabase.from(TABELA_PLANEJAMENTOS).insert(registro);
+      if (e2) throw e2;
+      n++;
+    }
+    toast(`✅ ${n} planejamento(s) copiado(s) — independentes a partir de agora.`, 'success');
+    await carregarPlanejamentosDoBanco();
+    render();
+  } catch (e) { toast('Erro ao importar: ' + (e.message || e), 'danger'); }
 }
 
 async function criarNovoPlanejamentoLanding() {
@@ -7063,7 +7094,7 @@ async function salvarComoNovoPlanejamento(nome) {
   if (typeof _supabase === 'undefined' || !_supabase) { if (typeof toast === 'function') toast('Sem conexão com o banco.', 'danger'); return; }
   const r = computar(state);
   const numero = _proximoNumeroPlanejamento();
-  const codigo = 'CP-' + String(numero).padStart(4, '0');
+  const codigo = 'PC-' + String(numero).padStart(4, '0');
   const registro = {
     codigo, numero, nome: (nome || '').trim() || codigo, mes: state.mes, ano: state.ano,
     estado: serializarEstadoAtual(),
@@ -7215,7 +7246,7 @@ function novoPlanejamentoEmBranco() {
   render();
 }
 
-const SQL_PLANEJAMENTOS_CUSTO = `CREATE TABLE IF NOT EXISTS planejamentos_custo (
+const SQL_PLANEJAMENTOS_CUSTO = `CREATE TABLE IF NOT EXISTS plancustos_planejamentos (
   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
   codigo text NOT NULL,
   numero integer NOT NULL,
@@ -7231,7 +7262,8 @@ const SQL_PLANEJAMENTOS_CUSTO = `CREATE TABLE IF NOT EXISTS planejamentos_custo 
 );
 
 -- Permissões (RLS desabilitado para acesso total, igual ao resto do sistema)
-ALTER TABLE planejamentos_custo DISABLE ROW LEVEL SECURITY;`;
+ALTER TABLE plancustos_planejamentos ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "authenticated_all" ON plancustos_planejamentos FOR ALL TO authenticated USING (true) WITH CHECK (true);`;
 
 const SQL_FOLHAS_PAGAMENTO = `CREATE TABLE IF NOT EXISTS folhas_pagamento (
   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
