@@ -112,6 +112,13 @@ function acoesDoModulo(moduloId) {
 // nível do módulo). Para dar controle por tela a um módulo, inclua-o aqui
 // com os ids das suas abas (o id deve bater com o argumento usado na função
 // de troca de aba da página, para o enforcement por guardTab/data-tab-perm).
+// ⚠️ Este catálogo é a fonte que o perfis.html desenha e que enforceTabs() usa
+// para ESCONDER aba ausente. Aba que existe na tela e falta aqui desaparece
+// para todo perfil não-admin; aba listada aqui que não existe mais na tela
+// aparece no perfis.html como opção fantasma. Ao criar/remover/renomear uma
+// aba num módulo, atualize a lista dele aqui no MESMO commit.
+// Conferido contra os botões reais (showTab/switchEpiTab/funcTab/switchRhTab)
+// em 20/08/2026.
 const MODULO_FUNCIONALIDADES = {
   // Abas reais de cada módulo — extraídas dos próprios arquivos.
   // Módulo que não aparece aqui tem permissão só no nível do módulo (tela única).
@@ -132,8 +139,9 @@ const MODULO_FUNCIONALIDADES = {
   ],
   carregamento: [
     { id:'estoque', label:'🏭 Estoque' },
-    { id:'ordens', label:'📋 Carregamento' },
+    { id:'ordens', label:'🚛 Carregamento' },
     { id:'carregados', label:'✅ Carregados' },
+    { id:'mes', label:'📆 Mês' },
     { id:'barracoes', label:'⚙️ Barracões' },
   ],
   compras: [
@@ -151,12 +159,14 @@ const MODULO_FUNCIONALIDADES = {
     { id:'auditoria', label:'🛡️ Auditoria' },
   ],
   custo_precificacao: [
+    { id:'resumo', label:'📊 Resumo' },
     { id:'config', label:'📅 Capacidade' },
     { id:'metas', label:'🎯 Metas & Produção' },
     { id:'linha', label:'⚙️ Configuração da Linha' },
     { id:'custos', label:'🧾 Custos & Resultado' },
     { id:'impacto', label:'🧪 Impacto' },
     { id:'geral', label:'📋 Geral' },
+    { id:'real', label:'⚖️ Planejado x Realizado' },
   ],
   desgaste: [
     { id:'resumo',   label:'📊 Resumo' },
@@ -205,10 +215,10 @@ const MODULO_FUNCIONALIDADES = {
     { id:'afericoes', label:'⚙️ Aferições' },
     { id:'composicao', label:'🧱 Composições' },
     { id:'pallets', label:'📦 Análise de Pallets' },
-    { id:'fluxo', label:'🔬 Fluxo Automatizado' },
     { id:'ensaios', label:'🧪 Ensaios & Limites' },
     { id:'correcoes', label:'🛠️ Correções' },
     { id:'caulim', label:'🪨 Caulim' },
+    { id:'laudo', label:'📜 Laudo' },
   ],
   manutencao: [
     { id:'cronograma', label:'📅 Cronograma' },
@@ -226,9 +236,8 @@ const MODULO_FUNCIONALIDADES = {
     { id:'matrix', label:'📋 Matriz' },
   ],
   rh: [
-    { id:'tab-escala', label:'📅 Escala Mensal' },
-    { id:'tab-ferias', label:'🏖️ Férias' },
-    { id:'tab-folha',  label:'📋 Folha de Pagamento' },
+    { id:'tab-escalas', label:'🗓️ Escalas' },
+    { id:'tab-folha',   label:'📋 Folha de Pagamento' },
   ],
   solicitacoes: [
     { id:'solicitacao', label:'📝 Solicitação' },
