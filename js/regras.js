@@ -127,5 +127,65 @@
     return (ht - hp) / ht * 100;
   };
 
+  /* ── LENHA (recebimento e descarga) ─────────────────────────────────────────
+   * Espelha, célula por célula, o documento "RECEBIMENTO E DESCARGA DE LENHA"
+   * que a fábrica preenchia na planilha:
+   *   LIQUIDO        = BRUTO − TARA                          (C15 = C13−C14)
+   *   MÉDIA (altura) = média de TODAS as medidas dos 2 lados (J17 = AVERAGE(C17:H18))
+   *   VOLUME (m³)    = MÉDIA × LARGURA × COMPRIMENTO         (I21 = J17*C19*C20)
+   *   MÉDIA EM Kg/m³ = LIQUIDO ÷ VOLUME                      (C21 = C15/I21)
+   *   Emitir nota de = TOTAL m³ × PREÇO do m³                (fechamento semanal)
+   * Falta dado → devolve null e QUEM CHAMA avisa. Volume ou preço chutado aqui
+   * viraria nota fiscal errada lá.
+   */
+
+  // Peso líquido. Sem clamp: bruto menor que tara devolve negativo de propósito,
+  // para a tela poder gritar em vez de esconder um erro de balança.
+  Regras.lenhaLiquido = function (bruto, tara) {
+    var b = Number(bruto), t = Number(tara);
+    if (!isFinite(b) || !isFinite(t)) return null;
+    return b - t;
+  };
+
+  // Altura média da carga: uma média só, com as medidas dos DOIS lados juntas
+  // (é o que a planilha faz). Ignora campo vazio; sem nenhuma medida, null.
+  Regras.lenhaAlturaMedia = function (lado1, lado2) {
+    var todas = [].concat(Array.isArray(lado1) ? lado1 : [], Array.isArray(lado2) ? lado2 : []);
+    var soma = 0, n = 0;
+    for (var i = 0; i < todas.length; i++) {
+      var v = todas[i];
+      if (v === null || v === undefined || v === '') continue;
+      var x = Number(String(v).replace(',', '.'));
+      if (!isFinite(x) || x <= 0) continue;
+      soma += x; n++;
+    }
+    return n ? soma / n : null;
+  };
+
+  // Volume em m³. Precisa dos três; faltando um, null (não existe volume parcial).
+  Regras.lenhaVolume = function (alturaMedia, largura, comprimento) {
+    var a = Number(alturaMedia), l = Number(largura), c = Number(comprimento);
+    if (!(a > 0) || !(l > 0) || !(c > 0)) return null;
+    return a * l * c;
+  };
+
+  // Densidade da carga (Kg/m³) — é o número que denuncia carga molhada ou medição
+  // torta. Carga de trator não passa na balança (bruto e tara zerados na
+  // planilha): sem peso líquido, devolve null. A planilha mostrava "0 Kg/m³"
+  // nesses casos — zero ali não é densidade zero, é "não pesado", e número
+  // plausível-mas-falso é pior que um traço na tela.
+  Regras.lenhaKgM3 = function (liquido, volume) {
+    var q = Number(liquido), v = Number(volume);
+    if (!(q > 0) || !(v > 0)) return null;
+    return q / v;
+  };
+
+  // Valor a faturar no fechamento. Preço não cadastrado → null (nunca R$ 0).
+  Regras.lenhaValor = function (totalM3, precoM3) {
+    var m = Number(totalM3), p = Number(precoM3);
+    if (!isFinite(m) || !isFinite(p) || p <= 0) return null;
+    return m * p;
+  };
+
   global.Regras = Regras;
 })(typeof window !== 'undefined' ? window : this);
