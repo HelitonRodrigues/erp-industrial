@@ -1,0 +1,880 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ERP Industrial — RH & Escala</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/supabase.js"></script>
+<script src="js/utils.js"></script>
+
+<!-- CSS da Folha de Pagamento (copiado do custo-precificacao.html para preservar o layout) -->
+<style>
+.cp-destaque{color:#15803d;font-weight:800;}
+.cp-h3{font-size:13px;font-weight:800;color:var(--primary);text-transform:uppercase;letter-spacing:.03em;margin-bottom:12px;}
+.cp-ajuda{color:#64748b;font-size:12.5px;margin:4px 0 14px;}
+.cp-muted{color:#94a3b8;font-weight:400;text-transform:none;font-size:.85em;}
+.cp-field-row{flex-direction:row !important;align-items:center;gap:8px;margin:8px 0 !important;flex-wrap:wrap;}
+.cp-field-row .form-label{flex:1 1 auto;min-width:150px;margin:0;}
+.cp-field-row .form-input{width:120px;flex:none;}
+.cp-input-tabela{width:90px !important;padding:5px 7px !important;font-size:12.5px;}
+.cp-kpi-linha{display:flex;justify-content:space-between;align-items:baseline;padding:5px 0;font-size:12.5px;border-bottom:1px dotted #eef2f6;}
+.cp-kpi-linha span{color:#64748b;}
+.cp-kpi-linha strong{font-size:14px;font-variant-numeric:tabular-nums;}
+.cp-num{text-align:right;font-variant-numeric:tabular-nums;}
+.cp-num-forte{font-weight:800;}
+.cp-fechar-btn{background:none;border:none;font-size:14px;line-height:1;cursor:pointer;color:#94a3b8;padding:2px 4px;border-radius:4px;}
+.cp-fechar-btn:hover{color:var(--danger);background:#ffe4e6;}
+.cp-equipe-row .cp-input-tabela{width:100%!important;}
+.cp-calc-auxiliar .cp-field-row{margin:6px 0;}
+.cp-table-scroll{overflow-x:auto;}
+/* a tabela da folha é larga: rolagem horizontal dentro do card */
+#tab-folha .cp-table-scroll{max-width:100%;}
+#tab-folha table{border-collapse:collapse;}
+</style>
+</head>
+<body>
+<div id="sidebar-container"></div>
+<header class="topbar" id="topbar">
+  <button class="topbar-open-sidebar" onclick="toggleSidebar()">☰</button>
+  <div class="topbar-title">RH & Escala</div>
+  <div class="topbar-right">
+    <div class="topbar-user">
+      <div class="user-avatar" style="width:32px;height:32px;font-size:12px;" id="top-avatar">SA</div>
+      <div><div class="topbar-user-name" id="top-user-name">Super Admin</div><div class="topbar-user-profile" id="top-user-perfil">SADM</div></div>
+    </div>
+    <button class="btn btn-ghost btn-sm" onclick="doLogout()" style="color:#64748b;">Sair</button>
+  </div>
+</header>
+<main class="main-content" id="main-content">
+  <div class="page-header">
+    <div class="page-header-left"><h1>RH &amp; Escala</h1><p>Escalas de turno e folha de pagamento</p></div>
+  </div>
+
+  <div style="display:flex;border-bottom:2px solid #e2e8f0;margin-bottom:20px;">
+    <button class="tab-btn active" id="tab-btn-escalas" onclick="switchRhTab('tab-escalas')">🗓️ Escalas</button>
+    <button class="tab-btn" id="tab-btn-folha" onclick="switchRhTab('tab-folha')">📋 Folha de Pagamento</button>
+  </div>
+
+  <!-- TAB ESCALAS — lê as escalas montadas em escala.html (tabela `escalas`) -->
+  <div id="tab-escalas">
+    <div id="esc-app"></div>
+  </div>
+
+  <!-- TAB FOLHA DE PAGAMENTO (veio do custo-precificacao.html; layout e regras preservados) -->
+  <div id="tab-folha" style="display:none;">
+    <div id="fp-app"></div>
+  </div>
+</main>
+
+<!-- MODAL CONFIRMAÇÃO -->
+<div id="modal-confirm" class="modal-overlay hidden">
+  <div class="modal" style="max-width:420px;">
+    <div class="modal-header"><div class="modal-title">⚠️ Confirmar</div><button class="modal-close" onclick="closeModal('modal-confirm')">✕</button></div>
+    <p id="confirm-msg" style="font-size:14px;color:#475569;line-height:1.6;"></p>
+    <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('modal-confirm')">Cancelar</button><button class="btn btn-danger" id="confirm-ok-btn">Confirmar</button></div>
+  </div>
+</div>
+<div id="toast-container"></div>
+
+<script>
+/* ══════════════════════════════════════════════════════════════════════════
+   ESCALAS — só leitura. Quem monta a escala é o escala.html; aqui o RH vê
+   todas num lugar só, com quem está em cada linha, quem está de férias e quem
+   está afastado. Lê a MESMA tabela `escalas`, sem cópia de regra: se um dia o
+   escala.html mudar o formato, isto acompanha ou aparece vazio — não inventa.
+   ══════════════════════════════════════════════════════════════════════════ */
+let _escalas = [], _escCarregado = false, _escAberta = null, _escFiltro = '', _escStatus = '';
+
+fetch('partials/sidebar.html').then(r=>r.text()).then(html=>{
+  document.getElementById('sidebar-container').innerHTML=html;
+  document.querySelector('[href="rh.html"]')?.classList.add('active');
+  openGroup('rh');
+});
+initSidebar('rh.html');
+
+async function initEscalas(forcar) {
+  if (_escCarregado && !forcar) { renderEscalas(); return; }
+  const app = document.getElementById('esc-app');
+  if (app) app.innerHTML = '<div class="card" style="text-align:center;padding:30px;color:#94a3b8;">Carregando escalas…</div>';
+  const { data, error } = await _supabase.from('escalas').select('*').order('periodo_inicio', { ascending: false });
+  if (error) {
+    if (app) app.innerHTML = `<div class="card"><div class="alert-info" style="background:#fef2f2;border-color:#fca5a5;color:#991b1b;">
+      Não consegui ler as escalas: ${escEsc(error.message || 'erro desconhecido')}</div></div>`;
+    console.error('Escalas:', error);
+    return;
+  }
+  _escalas = data || [];
+  _escCarregado = true;
+  renderEscalas();
+}
+
+function escEsc(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function escData(d) { if (!d) return '—'; const [a,m,g] = String(d).slice(0,10).split('-'); return `${g}/${m}/${a}`; }
+function escPessoa(p) { return p && p.nome ? p.nome : null; }
+
+/* Turno 1 mora nas colunas da raiz; turno 2 mora no jsonb `turno2`. Trato os
+   dois com a mesma forma para não escrever a tela duas vezes. */
+function escTurnos(e) {
+  const t = [];
+  const base = { turno_nome: e.turno_nome, encarregado: e.encarregado, operador: e.operador,
+                 linhas: e.linhas, limpeza: e.limpeza, ferias: e.ferias, ausencias: e.ausencias };
+  if (base.turno_nome || (base.linhas || []).length) t.push(base);
+  const t2 = e.turno2;
+  if (t2 && (t2.turno_nome || (t2.linhas || []).length)) t.push(t2);
+  return t;
+}
+function escTotalPessoas(e) {
+  const ids = new Set();
+  escTurnos(e).forEach((t) => {
+    (t.linhas || []).forEach((l) => (l.membros || []).forEach((m) => ids.add(m.funcionario_id || m.nome)));
+    (t.limpeza || []).forEach((m) => ids.add(m.funcionario_id || m.nome));
+    [t.encarregado, t.operador].forEach((p) => { if (p && (p.funcionario_id || p.nome)) ids.add(p.funcionario_id || p.nome); });
+  });
+  return ids.size;
+}
+function escContar(e, campo) {
+  return escTurnos(e).reduce((a, t) => a + ((t[campo] || []).length), 0);
+}
+
+function escSelo(status) {
+  const s = String(status || '').toLowerCase();
+  const map = { ativa: ['badge-success', 'ativa'], finalizada: ['badge-gray', 'finalizada'], rascunho: ['badge-warning', 'rascunho'] };
+  const [cls, txt] = map[s] || ['badge-info', s || '—'];
+  return `<span class="badge ${cls}">${escEsc(txt)}</span>`;
+}
+
+function setEscFiltro(v) { _escFiltro = v; renderEscalas(); }
+function setEscStatus(v) { _escStatus = v; renderEscalas(); }
+function abrirEscala(id) { _escAberta = (_escAberta === id ? null : id); renderEscalas(); }
+
+function renderEscalas() {
+  const app = document.getElementById('esc-app');
+  if (!app) return;
+  const termo = _escFiltro.trim().toLowerCase();
+  const lista = _escalas.filter((e) => {
+    if (_escStatus && String(e.status || '').toLowerCase() !== _escStatus) return false;
+    if (!termo) return true;
+    const alvo = [e.nome, e.turno_nome, (e.turno2 || {}).turno_nome,
+      escPessoa(e.encarregado), escPessoa(e.operador)].filter(Boolean).join(' ').toLowerCase();
+    if (alvo.includes(termo)) return true;
+    // procura também pelo nome de quem está escalado
+    return escTurnos(e).some((t) => (t.linhas || []).some((l) => (l.membros || []).some((m) => String(m.nome || '').toLowerCase().includes(termo))));
+  });
+  const statusUnicos = [...new Set(_escalas.map((e) => String(e.status || '').toLowerCase()).filter(Boolean))].sort();
+
+  const filtros = `<div class="card" style="margin-bottom:16px;">
+    <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;">
+      <div class="form-group" style="margin:0;flex:1;min-width:220px;">
+        <label class="form-label">Buscar</label>
+        <input class="form-input" type="text" placeholder="Escala, turno, encarregado ou nome de quem está escalado"
+               value="${escEsc(_escFiltro)}" oninput="setEscFiltro(this.value)">
+      </div>
+      <div class="form-group" style="margin:0;">
+        <label class="form-label">Situação</label>
+        <select class="form-input" style="width:180px;" onchange="setEscStatus(this.value)">
+          <option value="">Todas</option>
+          ${statusUnicos.map((s) => `<option value="${escEsc(s)}" ${_escStatus === s ? 'selected' : ''}>${escEsc(s)}</option>`).join('')}
+        </select>
+      </div>
+      <button class="btn btn-secondary btn-sm" onclick="initEscalas(true)">↻ Atualizar</button>
+      <a class="btn btn-primary btn-sm" href="escala.html" style="text-decoration:none;">+ Montar escala</a>
+    </div>
+    <p style="font-size:12px;color:#64748b;margin:10px 0 0;">
+      As escalas são montadas em <strong>Escala</strong>. Aqui é só a visão do RH — ${_escalas.length} escala(s) no total.
+    </p>
+  </div>`;
+
+  if (!lista.length) {
+    app.innerHTML = filtros + `<div class="card" style="text-align:center;padding:34px;color:#94a3b8;">
+      ${_escalas.length ? 'Nenhuma escala bate com o filtro.' : 'Nenhuma escala criada ainda — monte a primeira em <a href="escala.html">Escala</a>.'}</div>`;
+    return;
+  }
+
+  const cartoes = lista.map((e) => {
+    const turnos = escTurnos(e);
+    const aberta = _escAberta === e.id;
+    const detalhe = !aberta ? '' : turnos.map((t) => {
+      const linhas = (t.linhas || []).filter((l) => (l.membros || []).length);
+      const blocoLinhas = linhas.length ? `<div class="table-wrap"><table>
+          <thead><tr><th style="width:160px;">Linha</th><th>Equipe</th><th class="num" style="width:70px;">Pessoas</th></tr></thead>
+          <tbody>${linhas.map((l) => `<tr>
+            <td><strong>${escEsc(l.nome || '—')}</strong></td>
+            <td>${(l.membros || []).map((m) => `${escEsc(m.nome || '—')}${m.funcao ? ` <span style="color:#94a3b8;font-size:11px;">${escEsc(m.funcao)}</span>` : ''}`).join('<br>')}</td>
+            <td class="num">${(l.membros || []).length}</td></tr>`).join('')}</tbody></table></div>`
+        : '<p style="font-size:12.5px;color:#94a3b8;margin:4px 0;">Nenhuma linha com equipe neste turno.</p>';
+      const extras = [
+        ['🧹 Limpeza', t.limpeza], ['🏖️ Férias', t.ferias], ['⚠️ Ausências', t.ausencias],
+      ].filter(([, arr]) => (arr || []).length).map(([rot, arr]) => `<div style="margin-top:8px;">
+          <div style="font-size:12px;font-weight:700;color:#334155;">${rot} <span style="color:#94a3b8;font-weight:600;">(${arr.length})</span></div>
+          <div style="font-size:12.5px;color:#475569;">${arr.map((m) => `${escEsc(m.nome || '—')}${m.tipo ? ` <span style="color:#94a3b8;font-size:11px;">${escEsc(m.tipo)}</span>` : ''}`).join(' · ')}</div>
+        </div>`).join('');
+      return `<div style="border-top:1px solid #e2e8f0;padding-top:12px;margin-top:12px;">
+        <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:baseline;margin-bottom:8px;">
+          <strong style="font-size:13.5px;color:var(--primary);">${escEsc(t.turno_nome || 'Turno')}</strong>
+          ${escPessoa(t.encarregado) ? `<span style="font-size:12.5px;color:#475569;">Encarregado: <strong>${escEsc(t.encarregado.nome)}</strong></span>` : ''}
+          ${escPessoa(t.operador) ? `<span style="font-size:12.5px;color:#475569;">Operador: <strong>${escEsc(t.operador.nome)}</strong></span>` : ''}
+        </div>
+        ${blocoLinhas}${extras}</div>`;
+    }).join('');
+
+    return `<div class="card" style="margin-bottom:12px;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;cursor:pointer;" onclick="abrirEscala('${e.id}')">
+        <div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <strong style="font-size:14.5px;color:var(--primary);">${escEsc(e.nome || 'Escala sem nome')}</strong>
+            ${escSelo(e.status)}
+          </div>
+          <div style="font-size:12.5px;color:#64748b;margin-top:3px;">
+            ${escData(e.periodo_inicio)} a ${escData(e.periodo_fim)} ·
+            ${turnos.map((t) => escEsc(t.turno_nome || 'turno')).join(' + ') || '—'} ·
+            <strong>${escTotalPessoas(e)}</strong> pessoa(s)
+            ${escContar(e, 'ferias') ? ` · ${escContar(e, 'ferias')} de férias` : ''}
+            ${escContar(e, 'ausencias') ? ` · ${escContar(e, 'ausencias')} ausente(s)` : ''}
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <a class="btn btn-ghost btn-sm" href="escala.html" onclick="event.stopPropagation();" style="text-decoration:none;">Abrir em Escala</a>
+          <span style="font-size:12px;color:#64748b;">${aberta ? '▲ fechar' : '▼ ver equipe'}</span>
+        </div>
+      </div>
+      ${detalhe}
+    </div>`;
+  }).join('');
+
+  app.innerHTML = filtros + cartoes;
+  if (typeof applyPermUI === 'function') applyPermUI();
+}
+
+function switchRhTab(tab) {
+  if (tab === 'tab-folha' && typeof guardTab === 'function' && !guardTab('rh', 'tab-folha')) return;
+  ['tab-escalas', 'tab-folha'].forEach((t) => { const el = document.getElementById(t); if (el) el.style.display = t === tab ? 'block' : 'none'; });
+  document.querySelectorAll('.tab-btn').forEach((b) => { b.classList.remove('active'); if (b.getAttribute('onclick')?.includes(tab)) b.classList.add('active'); });
+  if (tab === 'tab-folha') initFolhaPagamento();
+  if (tab === 'tab-escalas') initEscalas();
+}
+
+async function init() { await initEscalas(); }
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+   FOLHA DE PAGAMENTO — movida do custo-precificacao.html (mesma tabela
+   `folhas_pagamento`, mesmo layout, mesmas regras).
+
+   O código abaixo veio VERBATIM do módulo antigo. Para não reescrever nada
+   (e não introduzir erro de transcrição), existe um pequeno "shim": um
+   objeto `state` e uma função `render()` com o mesmo contrato que o código
+   original esperava. O Custo & Precificação continua LENDO esta tabela para
+   calcular o custo de mão de obra — quem edita a folha agora é o RH.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+const TABELA_FOLHAS_PAGAMENTO = 'folhas_pagamento';
+
+/* shim: o mínimo que o código original usava do `state` do CP */
+const state = {
+  folhasPagamento: [],      // histórico completo (Supabase)
+  folhaAtualId: null,       // folha aberta para edição
+  funcionariosReais: [],    // cadastro de funcionários ativos
+  empresa: {},              // empresa_config (cabeçalho da impressão)
+  mes: new Date().getMonth() + 1,
+  ano: new Date().getFullYear(),
+  _folhaSeq: 0,
+  _folhaFormAberto: false,
+  _folhaErroCriar: null,
+  _tabelaFolhasPagamentoExiste: true,
+  _erroFuncionarios: null,  // mensagem quando o cadastro não pôde ser lido
+};
+let _fpCarregado = false;
+
+/* shim: no CP `render()` repintava a tela inteira; aqui repinta só a aba */
+function render() {
+  const app = document.getElementById('fp-app');
+  const aviso = state._erroFuncionarios
+    ? `<div class="alert-info" style="background:#fef2f2;border-color:#fca5a5;color:#991b1b;margin-bottom:12px;">
+        <strong>Não consegui ler o cadastro de funcionários.</strong> Sem ele os nomes da folha aparecem como
+        “(removido do cadastro)” mesmo estando cadastrados. Detalhe: ${esc(state._erroFuncionarios)}</div>`
+    : '';
+  if (app) app.innerHTML = aviso + renderModuloFolha();
+  if (typeof applyPermUI === 'function') applyPermUI();
+}
+/* o módulo antigo chamava isto ao sair da folha; no RH volta para a Escala */
+function voltarParaCustoPrecificacao() { switchRhTab('tab-escalas'); }
+
+/* helpers que o bloco da Folha usa (cópias do custo-precificacao.html) */
+function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+function fmtBRL(v) { if (v == null || !isFinite(v)) return '—'; return Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }); }
+function fmtNum(v, dec) { if (v == null || !isFinite(v)) return '—'; return Number(v).toLocaleString('pt-BR', { minimumFractionDigits: dec, maximumFractionDigits: dec }); }
+function folhaDoMes(mes, ano) {
+  return state.folhasPagamento.find((f) => Number(f.mes) === Number(mes) && Number(f.ano) === Number(ano)) || null;
+}
+/* _normalizarNomeFolha NÃO é declarado aqui de propósito: ele vem no bloco
+   copiado abaixo, com a regra ORIGINAL (maiúsculas + espaços colapsados),
+   que é a que casa os nomes da planilha com o cadastro de funcionários. */
+/* o CP tinha um modal de confirmação próprio; no RH a folha usa confirm() */
+function renderModalConfirmacao() { return ''; }
+function abrirConfirmacao(cfg) {
+  if (!cfg) return;
+  const msg = String(cfg.mensagem || cfg.titulo || 'Confirmar?').replace(/<[^>]*>/g, '');
+  if (confirm(msg) && typeof cfg.onConfirmar === 'function') cfg.onConfirmar();
+}
+
+/* ---- máscara de moeda: digita só números, formata sozinho (ex.: 228030 -> 2.280,30) ---- */
+function _moedaDigitsParaNumero(digits) { return (parseInt(digits || '0', 10)) / 100; }
+function _moedaFormatarDigits(digits) { return _moedaDigitsParaNumero(digits).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+function formatarMoedaNumero(valor) { return (Number(valor) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+function onInputMoeda(input) {
+  const digits = input.value.replace(/\D/g, '');
+  input.value = _moedaFormatarDigits(digits);
+}
+function onChangeMoedaFolha(input) {
+  const digits = input.value.replace(/\D/g, '');
+  setFolhaPagamentoCampo(input.dataset.fid, input.dataset.campo, _moedaDigitsParaNumero(digits));
+}
+function campoMoedaFolhaHtml(funcionarioId, campo, valor) {
+  return `<input class="form-input cp-input-tabela" type="text" inputmode="numeric" data-fid="${funcionarioId}" data-campo="${campo}"
+    value="${formatarMoedaNumero(valor)}" oninput="onInputMoeda(this)" onchange="onChangeMoedaFolha(this)">`;
+}
+
+function _printCSS() {
+  return `body{font-family:Arial,sans-serif;font-size:11px;padding:20px;color:#1e293b;}
+    .cabecalho{display:flex;align-items:center;gap:14px;border-bottom:3px solid #1e3a5f;padding-bottom:10px;margin-bottom:14px;}
+    .cabecalho img{width:56px;height:56px;object-fit:cover;border-radius:8px;}
+    .cabecalho-empresa{font-size:13px;font-weight:800;color:#1e3a5f;}
+    .cabecalho-detalhe{font-size:9.5px;color:#64748b;}
+    h1{font-size:16px;color:#1e3a5f;margin:0 0 4px;}
+    h2{font-size:14px;color:#1e3a5f;margin:22px 0 8px;border-bottom:2px solid #1e3a5f;padding-bottom:4px;page-break-after:avoid;}
+    h3{font-size:12px;color:#1e3a5f;margin:14px 0 4px;}
+    p.sub{color:#64748b;margin:0 0 10px;}
+    table{width:100%;border-collapse:collapse;margin-bottom:10px;}
+    th{background:#1e3a5f;color:#fff;padding:5px 7px;text-align:left;font-size:10px;}
+    td{padding:4px 7px;border-bottom:1px solid #e2e8f0;font-size:10.5px;}
+    tfoot td{font-weight:700;background:#f1f5f9;}
+    .num{text-align:right;}
+    .secao{page-break-inside:avoid;margin-bottom:10px;}
+    .alerta{padding:6px 9px;border-radius:4px;font-size:10.5px;margin:4px 0;border-left:3px solid #94a3b8;}
+    .alerta-warning{background:#fef9c3;border-left-color:#c77d22;}
+    .alerta-danger{background:#ffe4e6;border-left-color:#dc2626;}
+    .alerta-success{background:#dcfce7;border-left-color:#16a34a;}
+    .rodape{margin-top:18px;font-size:9.5px;color:#94a3b8;border-top:1px solid #e2e8f0;padding-top:8px;}
+    @media print{@page{margin:1.2cm;}}`;
+}
+
+function _printCabecalho() {
+  const emp = state.empresa || {};
+  const nome = emp.nome_fantasia || emp.razao_social || 'ERP Industrial';
+  const razaoSocial = (emp.razao_social && emp.razao_social !== nome) ? emp.razao_social : '';
+  const endereco = [
+    [emp.rua, emp.numero].filter(Boolean).join(', '),
+    emp.complemento,
+    emp.bairro,
+    [emp.cidade, emp.uf].filter(Boolean).join('/'),
+    emp.cep ? `CEP ${emp.cep}` : '',
+  ].filter(Boolean).join(' — ');
+  const docs = [emp.cnpj ? `CNPJ ${emp.cnpj}` : '', emp.ie ? `IE ${emp.ie}` : ''].filter(Boolean).join(' · ');
+  const contato = [emp.telefone, emp.email].filter(Boolean).join(' · ');
+  return `<div class="cabecalho">
+    ${emp.logo ? `<img src="${emp.logo}">` : ''}
+    <div>
+      <div class="cabecalho-empresa">${esc(nome)}</div>
+      ${razaoSocial ? `<div class="cabecalho-detalhe">${esc(razaoSocial)}</div>` : ''}
+      ${docs ? `<div class="cabecalho-detalhe">${esc(docs)}</div>` : ''}
+      ${endereco ? `<div class="cabecalho-detalhe">${esc(endereco)}</div>` : ''}
+      ${contato ? `<div class="cabecalho-detalhe">${esc(contato)}</div>` : ''}
+    </div>
+  </div>`;
+}
+
+const SQL_FOLHAS_PAGAMENTO = `CREATE TABLE IF NOT EXISTS folhas_pagamento (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  codigo text NOT NULL,
+  numero integer NOT NULL,
+  nome text,
+  mes integer NOT NULL,
+  ano integer NOT NULL,
+  dados jsonb NOT NULL,
+  totais jsonb,
+  status text DEFAULT 'ativo',
+  criado_por text,
+  created_at timestamptz DEFAULT now(),
+  atualizado_em timestamptz DEFAULT now()
+);
+
+-- Se a tabela já existia sem a coluna "totais" (versão anterior deste SQL), isso adiciona sem apagar nada:
+ALTER TABLE folhas_pagamento ADD COLUMN IF NOT EXISTS totais jsonb;
+
+-- Permissões (RLS desabilitado para acesso total, igual ao resto do sistema)
+ALTER TABLE folhas_pagamento DISABLE ROW LEVEL SECURITY;`;
+
+/* ---------- MÓDULO: Folha de Pagamento (independente, um mês por competência) ---------- */
+
+function _acharFolhaAberta() {
+  return state.folhasPagamento.find((f) => f.id === state.folhaAtualId) || null;
+}
+function abrirModuloFolha() {
+  state.folhaAtualId = null; // sempre abre mostrando a tabela/histórico primeiro
+  state._folhaFormAberto = false;
+  render();
+}
+function voltarParaHistoricoFolha() { state.folhaAtualId = null; render(); }
+
+function novoRegistroFolha(func) {
+  return {
+    numTitulo: '', codigoFornecedor: func && func.codigo_fornecedor ? String(func.codigo_fornecedor) : '',
+    salarioLiquido: 0, dsr: 0, adNoturno: 0, extra100: 0, extra55: 0, vale: 0,
+    fgts: 0, inss: 0, desconto: 0, irrf: 0, contAssist: 0, salarioBruto: 0,
+    local: (func && (func.setor || func.funcao)) || '', natureza: '',
+  };
+}
+function calcularTotaisFolha(dados) {
+  const vals = Object.values(dados || {});
+  return {
+    funcionarios: vals.length,
+    totalBruto: vals.reduce((a, d) => a + (Number(d.salarioBruto) || 0), 0),
+    totalLiquido: vals.reduce((a, d) => a + (Number(d.salarioLiquido) || 0), 0),
+  };
+}
+function nomeFuncionarioNaFolha(funcionarioId, registro) {
+  if (registro && registro.extra) return registro.nomeExtra || '(sem nome)';
+  const func = state.funcionariosReais.find((f) => f.id === funcionarioId);
+  return func ? func.nome : '(removido do cadastro)';
+}
+function funcaoFuncionarioNaFolha(funcionarioId, registro) {
+  if (registro && registro.extra) return registro.funcaoExtra || '';
+  const func = state.funcionariosReais.find((f) => f.id === funcionarioId);
+  return func ? (func.funcao || '') : '';
+}
+
+async function criarNovaFolhaPagamento(mes, ano, nome, copiarDeId) {
+  state._folhaErroCriar = null;
+  if (typeof _supabase === 'undefined' || !_supabase) { state._folhaErroCriar = 'Sem conexão com o banco (Supabase não disponível).'; render(); return; }
+  const jaExiste = folhaDoMes(mes, ano);
+  if (jaExiste) { if (typeof toast === 'function') toast(`Já existe uma folha para ${String(mes).padStart(2, '0')}/${ano} (${jaExiste.codigo}).`, 'warning'); state.folhaAtualId = jaExiste.id; render(); return; }
+  let dados = {};
+  if (copiarDeId) {
+    const origem = state.folhasPagamento.find((f) => f.id === copiarDeId);
+    if (origem) dados = JSON.parse(JSON.stringify(origem.dados || {}));
+  } else {
+    state.funcionariosReais.forEach((f) => { dados[f.id] = novoRegistroFolha(f); });
+  }
+  const numero = state.folhasPagamento.reduce((max, f) => Math.max(max, f.numero || 0), 0) + 1;
+  const codigo = 'FP-' + String(numero).padStart(4, '0');
+  const totais = calcularTotaisFolha(dados);
+  try {
+    const { data, error } = await _supabase.from(TABELA_FOLHAS_PAGAMENTO).insert({ codigo, numero, nome: nome || codigo, mes, ano, dados, totais }).select().single();
+    if (error) throw error;
+    state.folhasPagamento.unshift(data);
+    state.folhaAtualId = data.id;
+    state._folhaFormAberto = false;
+    if (typeof addLog === 'function') addLog('CREATE', 'folhas_pagamento', data.id, `Folha ${codigo} criada (${mes}/${ano})`);
+    render();
+    if (typeof toast === 'function') toast(`Folha ${codigo} criada.`, 'success');
+  } catch (e) {
+    console.error(e);
+    state._folhaErroCriar = 'Erro ao criar folha: ' + (e && e.message ? e.message : String(e));
+    render();
+    if (typeof toast === 'function') toast(state._folhaErroCriar, 'danger');
+  }
+}
+async function confirmarCriarFolha() {
+  const mes = Number((document.getElementById('cp-novafolha-mes') || {}).value) || state.mes;
+  const ano = Number((document.getElementById('cp-novafolha-ano') || {}).value) || state.ano;
+  const nome = (document.getElementById('cp-novafolha-nome') || {}).value || '';
+  const copiarDeId = (document.getElementById('cp-novafolha-copiar') || {}).value || null;
+  const btn = document.getElementById('cp-btn-confirmar-criar-folha');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Criando...'; }
+  await criarNovaFolhaPagamento(mes, ano, nome, copiarDeId);
+  if (btn) { btn.disabled = false; btn.textContent = 'Criar'; }
+}
+function _normalizarNomeFolha(nome) {
+  return (nome || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().trim().replace(/\s+/g, ' ');
+}
+// Converte "HELITON JOSE DE ALMEIDA RODRIGUES" -> "Heliton José de Almeida Rodrigues"
+// (conectores como de/da/do/dos/das/e ficam em minúsculo, exceto se forem a primeira palavra)
+const CONECTORES_NOME_MINUSCULO = ['de', 'da', 'do', 'das', 'dos', 'e'];
+function _tituloCaseNome(nome) {
+  const partes = (nome || '').trim().toLowerCase().split(/\s+/);
+  return partes.map((p, i) => (i > 0 && CONECTORES_NOME_MINUSCULO.includes(p)) ? p : (p.charAt(0).toUpperCase() + p.slice(1))).join(' ');
+}
+// Próximo número de título automático: maior número já usado nesta folha + 1 (só considera os que já são numéricos)
+function _proximoNumTitulo(folha) {
+  const numeros = Object.values(folha.dados || {}).map((d) => parseInt(d.numTitulo, 10)).filter((n) => !isNaN(n));
+  if (!numeros.length) return '';
+  return String(Math.max(...numeros) + 1);
+}
+// Dados reais da planilha enviada (05_PGT_03-06-2026.xlsx, aba "SILICATE FILIAL").
+const DADOS_PLANILHA_SILICATE_FILIAL = [
+  ['26520312', '2031', 'AMAURI FELIZARDO DA SILVA', 2109.41, 9.85, 0, 0, 41.06, 1018.08, 285.62, 317.02, 0, 74.90, 50.90, 3570.31],
+  ['26567312', '6731', 'ANDERSON COSTA DIAS', 1205.75, 22.04, 0, 30.42, 0, 892.32, 187.57, 186.69, 0, 59.90, 0, 2344.66],
+  ['26524492', '2449', 'CLAYTON ROBERTO DA SILVA DIAS', 1135.15, 3.77, 0, 0, 15.72, 892.32, 180.02, 178.20, 0, 0, 44.62, 2250.29],
+  ['26551972', '5197', 'DAMIÃO DOS SANTOS BERLATO', 510.36, 22.04, 61.40, 30.42, 0, 892.32, 187.57, 186.69, 0, 755.29, 0, 2344.66],
+  ['26520662', '2066', 'DANIEL LIMA DA CRUZ', 2165.49, 23.58, 0, 0, 98.27, 1018.08, 291.30, 325.53, 0, 81.25, 50.90, 3641.25],
+  ['26520822', '2082', 'EDILSON FERREIRA DA SILVA', 1200.78, 0, 0, 0, 0, 576.91, 159.62, 217.59, 0, 0, 0, 1995.28],
+  ['26527782', '2778', 'FABIANO DE OLIVEIRA LIMA', 1187.55, 14.60, 60.84, 0, 0, 892.32, 184.49, 183.24, 0, 0, 43.13, 2306.24],
+  ['26521312', '2131', 'GENILDO LOPES DE ARAUJO', 643.26, 0, 0, 0, 0, 892.32, 136.64, 129.41, 0, 522.68, 43.13, 2230.80],
+  ['26575232', '7523', 'GESSE PONTES DE SOUZA', 1050.73, 14.60, 60.84, 0, 0, 892.32, 172.60, 169.85, 0, 148.72, 44.62, 2306.24],
+  ['26575612', '7561', 'GILBERTO ARAUJO ANDRADE JUNIOR', 1168.90, 10.95, 45.63, 0, 0, 892.32, 182.99, 181.54, 0, 0, 44.62, 2287.38],
+  ['26550302', '5030', 'GUSTAVO FELIPE DOS SANTOS LIMA', 508.72, 9.36, 30.42, 0, 0, 505.65, 104.31, 114.66, 0, 280.48, 25.28, 1434.79],
+  ['26533602', '3360', 'HELITON JOSE DE ALMEIDA RODRIGUES', 3148.75, 0, 0, 0, 0, 1050.00, 377.00, 461.25, 0, 0, 52.50, 4712.50],
+  ['26521382', '2138', 'HENRIQUE ARAUJO WAGNER', 1439.98, 19.36, 80.67, 0, 0, 1081.33, 224.26, 227.98, 0, 0, 54.07, 2803.36],
+  ['26575542', '7554', 'HEVERTON LUIZ DE LIMA CARVALHO', 1027.41, 0, 0, 0, 0, 892.32, 178.46, 176.45, 0, 90.00, 44.62, 2230.80],
+  ['26521472', '2147', 'JEAN APARECIDO DE MATOS', 811.65, 13.38, 55.77, 0, 0, 892.32, 183.99, 182.67, 0, 368.69, 44.62, 2299.95],
+  ['26521492', '2149', 'JEAN RODRIGUES DOS SANTOS', 1164.67, 9.73, 40.56, 0, 0, 892.32, 182.48, 180.97, 0, 0, 43.13, 2281.09],
+  ['26521662', '2166', 'JOSE CARLOS RODRIGUES LEME', 1654.28, 2.05, 0, 0, 8.56, 1104.00, 245.47, 256.80, 0, 0, 53.36, 3068.44],
+  ['26521692', '2169', 'JOSE ELIZAR PIRES', 1191.84, 15.83, 65.96, 0, 0, 892.32, 185.00, 183.81, 0, 0, 44.62, 2312.59],
+  ['26526412', '2641', 'JULIEL DE PAULA SANTOS', 685.39, 13.43, 55.97, 0, 0, 892.32, 184.01, 182.69, 0, 495.18, 44.62, 2300.20],
+  ['26576572', '7657', 'JULIO EMANUELL GUIMARÃES DE LIMA', 403.78, 0, 0, 0, 0, 0, 35.69, 33.46, 0, 0, 8.92, 446.16],
+  ['26521842', '2184', 'JURACI MACHADO DE PROENCA', 3590.04, 0, 0, 0, 0, 2102.14, 588.60, 831.55, 833.77, 0, 0, 7357.50],
+  ['26549922', '4992', 'KAIQUE DE OLIVEIRA PROENÇA', 2998.50, 0, 0, 0, 0, 1428.57, 400.00, 501.50, 0, 0, 71.43, 5000.00],
+  ['26550192', '5019', 'LAURI APARECIDO BENTO', 1180.34, 13.38, 55.77, 0, 0, 892.32, 183.99, 182.67, 0, 0, 44.62, 2299.95],
+  ['26550352', '5035', 'LUCAS HENRIQUE DOS SANTOS THEMISK BRAZ', 538.60, 26.88, 75.14, 36.86, 0, 1081.33, 227.37, 231.47, 0, 936.74, 54.07, 2842.21],
+  ['26550182', '5018', 'LUCIANO DE BRITO', 1250.59, 79.41, 90.62, 175.31, 64.95, 1081.33, 277.28, 304.52, 0, 775.58, 54.07, 3466.09],
+  ['26575622', '7562', 'LUCIANO DOS SANTOS LIMA', 1151.74, 7.30, 30.42, 0, 0, 892.32, 181.48, 179.84, 0, 0, 44.62, 2268.52],
+  ['26575712', '7571', 'MARCELLY CARVALHO RIBEIRO', 1118.90, 0, 0, 0, 0, 892.32, 178.46, 176.45, 0, 0, 43.13, 2230.80],
+  ['26525872', '2587', 'MARCELO RODRIGUES MOREIRA', 654.65, 19.70, 82.08, 0, 0, 892.32, 202.60, 203.61, 0, 737.38, 44.62, 2532.58],
+  ['26548352', '4835', 'MILTON GOMES NETO', 1197.78, 17.09, 0.96, 20.28, 49.98, 892.32, 185.52, 184.39, 0, 0, 44.62, 2319.11],
+  ['26522232', '2223', 'NARCIZO MARQUES DA SILVA', 2114.64, 55.22, 62.01, 160.21, 7.86, 892.32, 267.28, 289.52, 0, 0, 44.62, 3341.10],
+  ['26522242', '2224', 'NATANAEL CAMARGO DANTAS', 1738.23, 93.40, 0, 292.03, 97.13, 892.32, 233.06, 238.19, 0, 0, 44.62, 2913.36],
+  ['26534462', '3446', 'OSIAS UBALDO DE ALMEIDA', 1128.24, 15.04, 62.67, 0, 0, 892.32, 184.68, 183.44, 0, 59.89, 44.62, 2308.51],
+  ['26528002', '2800', 'RAFAEL GONÇALVES DE ALMEIDA', 1300.85, 20.58, 55.31, 30.42, 0, 892.32, 202.96, 204.01, 0, 98.29, 41.64, 2537.11],
+  ['26548052', '4805', 'RODOLFO PIRES', 1458.38, 33.81, 45.63, 0, 95.25, 892.32, 208.43, 210.17, 0, 0, 44.62, 2605.49],
+  ['26522592', '2259', 'RODRIGO DA SILVA LIMA', 2453.14, 101.61, 8.45, 27.77, 387.15, 1018.08, 323.55, 373.91, 0, 148.35, 50.90, 4044.38],
+  ['26576592', '7659', 'RODRIGO OLIVEIRA PINTO', 200.78, 0, 0, 0, 0, 0, 17.84, 17.84, 0, 0, 4.46, 223.08],
+  ['26552142', '5214', 'RYAN ALMEIDA DA SILVA', 1117.41, 0, 0, 0, 0, 892.32, 178.46, 176.45, 0, 0, 44.62, 2230.80],
+  ['26522782', '2278', 'SERGIO SIQUEIRA DA SILVA', 1767.58, 0, 0, 0, 0, 0, 178.46, 176.45, 0, 286.77, 0, 2230.80],
+  ['26569162', '6916', 'SILAS BUENO DE CAMARGO', 2316.92, 8.39, 0, 0, 34.94, 1159.95, 289.58, 322.97, 0, 193.32, 0, 3993.16],
+  ['26550202', '5020', 'VAGNER FOGACA DE OLIVEIRA RIBAS', 458.41, 15.58, 64.90, 0, 0, 892.32, 184.90, 183.69, 0, 776.86, 0, 2311.28],
+  ['26576582', '7658', 'VITOR HUGO DOS SANTOS THEMISKI BRAZ', 403.78, 0, 0, 0, 0, 0, 35.69, 33.46, 0, 0, 8.92, 446.16],
+];
+async function criarFolhaJulho2026ComPlanilha() {
+  if (folhaDoMes(7, 2026)) { if (typeof toast === 'function') toast('Já existe uma folha para 07/2026.', 'warning'); return; }
+  const dados = {};
+  let matchCount = 0;
+  DADOS_PLANILHA_SILICATE_FILIAL.forEach((linha) => {
+    const [numTitulo, codigoFornecedor, nomePlanilha, salarioLiquido, dsr, adNoturno, extra100, extra55, vale, fgts, inss, irrf, desconto, contAssist, salarioBruto] = linha;
+    const nomeNormalizado = _normalizarNomeFolha(nomePlanilha);
+    const funcMatch = state.funcionariosReais.find((f) => _normalizarNomeFolha(f.nome) === nomeNormalizado);
+    const registro = { numTitulo, codigoFornecedor, salarioLiquido, dsr, adNoturno, extra100, extra55, vale, fgts, inss, irrf, desconto, contAssist, salarioBruto, local: 'PRODUÇÃO', natureza: '201110801' };
+    if (funcMatch) {
+      matchCount++;
+      dados[funcMatch.id] = registro;
+    } else {
+      state._itemMultiploSeq = (state._itemMultiploSeq || 0) + 1;
+      const idExtra = 'extra_' + state._itemMultiploSeq;
+      dados[idExtra] = { ...registro, nomeExtra: _tituloCaseNome(nomePlanilha), funcaoExtra: '', extra: true };
+    }
+  });
+  const numero = state.folhasPagamento.reduce((max, f) => Math.max(max, f.numero || 0), 0) + 1;
+  const codigo = 'FP-' + String(numero).padStart(4, '0');
+  const totais = calcularTotaisFolha(dados);
+  try {
+    const { data, error } = await _supabase.from(TABELA_FOLHAS_PAGAMENTO).insert({ codigo, numero, nome: 'Folha Julho/2026 (base planilha enviada)', mes: 7, ano: 2026, dados, totais }).select().single();
+    if (error) throw error;
+    state.folhasPagamento.unshift(data);
+    state.folhaAtualId = data.id;
+    render();
+    if (typeof toast === 'function') toast(`Folha Julho/2026 criada: ${matchCount} funcionário(s) encontrados no cadastro, ${DADOS_PLANILHA_SILICATE_FILIAL.length - matchCount} incluído(s) como extra.`, 'success');
+  } catch (e) {
+    console.error(e);
+    state._folhaErroCriar = 'Erro ao criar folha de Julho/2026: ' + (e && e.message ? e.message : String(e));
+    render();
+  }
+}
+
+function setNomeFolhaAtual(valor) {
+  const folha = _acharFolhaAberta(); if (!folha) return;
+  folha.nome = valor;
+  render();
+  salvarFolhaPagamentoAtual();
+}
+let _folhaPgtoSaveTimer = null;
+function _agendarSalvarFolhaPagamento() {
+  clearTimeout(_folhaPgtoSaveTimer);
+  _folhaPgtoSaveTimer = setTimeout(() => { salvarFolhaPagamentoAtual(); }, 700);
+}
+async function salvarFolhaPagamentoAtual() {
+  const folha = _acharFolhaAberta(); if (!folha || typeof _supabase === 'undefined' || !_supabase) return;
+  try {
+    const { error } = await _supabase.from(TABELA_FOLHAS_PAGAMENTO).update({ dados: folha.dados, totais: folha.totais, nome: folha.nome, atualizado_em: new Date().toISOString() }).eq('id', folha.id);
+    if (error) throw error;
+  } catch (e) { console.error('Erro ao salvar folha:', e); }
+}
+async function excluirFolhaPagamento(id) {
+  if (typeof _supabase === 'undefined' || !_supabase) return;
+  try {
+    const { error } = await _supabase.from(TABELA_FOLHAS_PAGAMENTO).delete().eq('id', id);
+    if (error) throw error;
+    state.folhasPagamento = state.folhasPagamento.filter((f) => f.id !== id);
+    if (state.folhaAtualId === id) state.folhaAtualId = null;
+    render();
+    if (typeof toast === 'function') toast('Folha excluída.', 'success');
+  } catch (e) { console.error(e); if (typeof toast === 'function') toast('Erro ao excluir: ' + e.message, 'danger'); }
+}
+function setFolhaPagamentoCampo(funcionarioId, campo, valor) {
+  const folha = _acharFolhaAberta(); if (!folha) return;
+  if (!folha.dados[funcionarioId]) folha.dados[funcionarioId] = novoRegistroFolha();
+  const camposTexto = ['numTitulo', 'codigoFornecedor', 'local', 'natureza'];
+  folha.dados[funcionarioId][campo] = camposTexto.includes(campo) ? valor : (Number(valor) || 0);
+  folha.totais = calcularTotaisFolha(folha.dados);
+  render();
+  _agendarSalvarFolhaPagamento();
+}
+function adicionarFuncionarioNaFolha(funcionarioId) {
+  const folha = _acharFolhaAberta(); if (!folha || !funcionarioId) return;
+  if (folha.dados[funcionarioId]) return;
+  const func = state.funcionariosReais.find((f) => f.id === funcionarioId);
+  folha.dados[funcionarioId] = { ...novoRegistroFolha(func), numTitulo: _proximoNumTitulo(folha) };
+  folha.totais = calcularTotaisFolha(folha.dados);
+  render();
+  salvarFolhaPagamentoAtual();
+}
+function removerFuncionarioDaFolha(funcionarioId) {
+  const folha = _acharFolhaAberta(); if (!folha) return;
+  delete folha.dados[funcionarioId];
+  folha.totais = calcularTotaisFolha(folha.dados);
+  render();
+  salvarFolhaPagamentoAtual();
+}
+function adicionarFuncionarioExtraNaFolha(nome, funcao) {
+  const folha = _acharFolhaAberta(); if (!folha) return;
+  const n = (nome || '').trim(); if (!n) { if (typeof toast === 'function') toast('Informe o nome do funcionário.', 'warning'); return; }
+  const nomeNorm = _normalizarNomeFolha(n);
+  // se o nome digitado bate com alguém do cadastro real (funcionarios.html), vincula pelo ID de
+  // verdade em vez de criar um "extra" duplicado
+  const jaNoCadastro = state.funcionariosReais.find((f) => _normalizarNomeFolha(f.nome) === nomeNorm);
+  if (jaNoCadastro) {
+    if (folha.dados[jaNoCadastro.id]) { if (typeof toast === 'function') toast(`"${jaNoCadastro.nome}" já está nesta folha.`, 'warning'); return; }
+    folha.dados[jaNoCadastro.id] = { ...novoRegistroFolha(jaNoCadastro), numTitulo: _proximoNumTitulo(folha) };
+    folha.totais = calcularTotaisFolha(folha.dados);
+    render();
+    salvarFolhaPagamentoAtual();
+    if (typeof toast === 'function') toast(`"${jaNoCadastro.nome}" já existe no cadastro — vinculado automaticamente (sem duplicar).`, 'success');
+    return;
+  }
+  const jaComoExtra = Object.values(folha.dados).some((d) => d.extra && _normalizarNomeFolha(d.nomeExtra) === nomeNorm);
+  if (jaComoExtra) { if (typeof toast === 'function') toast(`"${n}" já está incluído nesta folha.`, 'warning'); return; }
+  state._folhaSeq = (state._folhaSeq || 0) + 1;
+  const id = 'extra_' + state._folhaSeq;
+  folha.dados[id] = { ...novoRegistroFolha(), numTitulo: _proximoNumTitulo(folha), nomeExtra: _tituloCaseNome(n), funcaoExtra: (funcao || '').trim(), extra: true };
+  folha.totais = calcularTotaisFolha(folha.dados);
+  render();
+  salvarFolhaPagamentoAtual();
+  if (typeof toast === 'function') toast(`"${_tituloCaseNome(n)}" incluído nesta folha.`, 'success');
+}
+
+function renderModuloFolha() {
+  if (state._tabelaFolhasPagamentoExiste === false) {
+    return `<div class="card"><div style="background:#fef9c3;border:1.5px solid #fcd34d;border-radius:12px;padding:20px;">
+      <div style="font-size:15px;font-weight:800;color:#92400e;margin-bottom:8px;">⚠️ Tabela não encontrada no Supabase</div>
+      <p style="color:#78350f;font-size:13px;margin-bottom:12px;">A tabela <code>folhas_pagamento</code> precisa ser criada. Execute o SQL abaixo no <strong>SQL Editor</strong> do Supabase e recarregue a página:</p>
+      <textarea onclick="this.select()" readonly style="width:100%;height:200px;font-family:monospace;font-size:11px;padding:10px;border-radius:8px;border:1px solid #fcd34d;background:#fff;color:#1e293b;resize:vertical;">${esc(SQL_FOLHAS_PAGAMENTO)}</textarea>
+    </div></div>`;
+  }
+  const folha = _acharFolhaAberta();
+  return folha ? renderFolhaEdicao(folha) : renderFolhaHistorico();
+}
+
+function renderFolhaHistorico() {
+  const linhas = state.folhasPagamento.map((f) => `<tr style="cursor:pointer;" onclick="state.folhaAtualId='${f.id}';render();">
+    <td><span class="badge badge-info">${esc(f.codigo)}</span></td>
+    <td>${esc(f.nome || '—')}</td>
+    <td>${String(f.mes).padStart(2, '0')}/${f.ano}</td>
+    <td class="cp-num">${(f.totais || {}).funcionarios || 0}</td>
+    <td class="cp-num">${fmtBRL((f.totais || {}).totalBruto || 0)}</td>
+    <td>${f.created_at ? new Date(f.created_at).toLocaleDateString('pt-BR') : '—'}</td>
+    <td style="white-space:nowrap;" onclick="event.stopPropagation();">
+      <button class="btn btn-secondary btn-sm" onclick="state.folhaAtualId='${f.id}';render();">Abrir</button>
+      <button class="btn btn-ghost btn-sm" onclick="imprimirFolhaPagamento('${f.id}')">🖨️ PDF</button>
+      <button class="btn btn-ghost btn-sm" style="color:var(--danger);" onclick="excluirFolhaPagamento('${f.id}')">✕</button>
+    </td>
+  </tr>`).join('') || '<tr><td colspan="7" class="cp-muted">Nenhuma folha lançada ainda.</td></tr>';
+
+  const nomesMeses = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+  const opcoesMes = nomesMeses.map((nome, i) => `<option value="${i + 1}" ${state.mes === i + 1 ? 'selected' : ''}>${nome}</option>`).join('');
+  const anoBase = state.ano || new Date().getFullYear();
+  const opcoesAno = [];
+  for (let a = anoBase - 2; a <= anoBase + 3; a++) opcoesAno.push(`<option value="${a}" ${a === anoBase ? 'selected' : ''}>${a}</option>`);
+
+  const erroCriarHtml = state._folhaErroCriar ? `<div style="background:#fee2e2;border:1px solid #fca5a5;border-radius:8px;padding:10px 12px;margin-bottom:10px;color:#991b1b;font-size:12.5px;">⚠️ ${esc(state._folhaErroCriar)}</div>` : '';
+
+  const formCriar = state._folhaFormAberto ? `<div class="card" style="margin-bottom:16px;">
+    <h3 class="cp-h3">Criar novo mês</h3>
+    ${erroCriarHtml}
+    <div class="cp-field-row">
+      <div class="form-group"><label class="form-label">Mês</label><select class="form-input" id="cp-novafolha-mes">${opcoesMes}</select></div>
+      <div class="form-group"><label class="form-label">Ano</label><select class="form-input" id="cp-novafolha-ano">${opcoesAno.join('')}</select></div>
+      <div class="form-group" style="flex:1;min-width:200px;"><label class="form-label">Nome (opcional)</label><input class="form-input" type="text" id="cp-novafolha-nome" placeholder="ex.: Folha Junho/2026"></div>
+    </div>
+    <div class="form-group"><label class="form-label">Copiar dados de uma folha já lançada (opcional) <span class="cp-muted">— evita digitar funcionário por funcionário, só ajuste o que mudou</span></label>
+      <select class="form-input" id="cp-novafolha-copiar">
+        <option value="">Começar do zero (busca funcionários ativos do cadastro)</option>
+        ${state.folhasPagamento.map((f) => `<option value="${f.id}">${esc(f.codigo)} — ${String(f.mes).padStart(2, '0')}/${f.ano}${f.nome ? ' — ' + esc(f.nome) : ''}</option>`).join('')}
+      </select>
+    </div>
+    <button class="btn btn-primary" id="cp-btn-confirmar-criar-folha" onclick="confirmarCriarFolha()">Criar</button>
+    <button class="btn btn-ghost" onclick="state._folhaFormAberto=false;state._folhaErroCriar=null;render();">Cancelar</button>
+  </div>` : '';
+
+  return `<div class="card" style="margin-bottom:16px;text-align:center;padding:28px 20px;">
+    <div style="font-size:15px;font-weight:800;color:var(--primary);margin-bottom:6px;">📋 Folha de Pagamento</div>
+    <p class="cp-ajuda" style="margin-bottom:16px;">Histórico de todas as competências lançadas pelo RH. Abra uma pra consultar/editar, ou crie um novo mês — pode copiar de um mês anterior pra não digitar tudo de novo.</p>
+    ${state._folhaFormAberto ? '' : `<button class="btn btn-primary" onclick="state._folhaFormAberto=true;render();">+ Criar novo mês</button>
+      ${!folhaDoMes(7, 2026) ? `<button class="btn btn-secondary" onclick="criarFolhaJulho2026ComPlanilha()">📥 Criar Julho/2026 com a planilha enviada</button>` : ''}`}
+  </div>
+  ${formCriar}
+  <div class="card">
+    <div class="table-wrap"><table>
+      <thead><tr><th>Código</th><th>Nome</th><th>Mês/Ano</th><th>Funcionários</th><th>Total Bruto</th><th>Criado em</th><th></th></tr></thead>
+      <tbody>${linhas}</tbody>
+    </table></div>
+  </div>`;
+}
+
+function linhaFolhaPagamento(funcionarioId, registro) {
+  const nome = nomeFuncionarioNaFolha(funcionarioId, registro);
+  const funcao = funcaoFuncionarioNaFolha(funcionarioId, registro);
+  const campoNum = (campo) => campoMoedaFolhaHtml(funcionarioId, campo, registro[campo]);
+  const campoTxt = (campo, largura) => `<input class="form-input cp-input-tabela" style="width:${largura || '90px'};" type="text" value="${esc(registro[campo] || '')}" onchange="setFolhaPagamentoCampo('${funcionarioId}','${campo}', this.value)">`;
+  return `<tr>
+    <td>${campoTxt('numTitulo', '90px')}</td>
+    <td>${campoTxt('codigoFornecedor', '80px')}</td>
+    <td style="white-space:nowrap;">${esc(nome)}${funcao ? ` <span class="cp-muted">(${esc(funcao)})</span>` : ''}${registro.extra ? ' <span class="badge badge-gray">extra</span>' : ''}</td>
+    <td>${campoNum('salarioLiquido')}</td>
+    <td>${campoNum('dsr')}</td>
+    <td>${campoNum('adNoturno')}</td>
+    <td>${campoNum('extra100')}</td>
+    <td>${campoNum('extra55')}</td>
+    <td>${campoNum('vale')}</td>
+    <td>${campoNum('fgts')}</td>
+    <td>${campoNum('inss')}</td>
+    <td>${campoNum('desconto')}</td>
+    <td>${campoNum('irrf')}</td>
+    <td>${campoNum('contAssist')}</td>
+    <td>${campoNum('salarioBruto')}</td>
+    <td>${campoTxt('local', '110px')}</td>
+    <td>${campoTxt('natureza', '100px')}</td>
+    <td><button class="cp-fechar-btn" onclick="removerFuncionarioDaFolha('${funcionarioId}')" title="Remover desta folha">✕</button></td>
+  </tr>`;
+}
+
+function renderFolhaEdicao(folha) {
+  const idsNaFolha = new Set(Object.keys(folha.dados || {}));
+  const disponiveis = state.funcionariosReais.filter((f) => !idsNaFolha.has(f.id));
+  const opcoes = disponiveis.map((f) => `<option value="${f.id}">${esc(f.nome)}${f.funcao ? ' — ' + esc(f.funcao) : ''}</option>`).join('');
+  const entradasOrdenadas = Object.entries(folha.dados || {}).sort(([fidA, regA], [fidB, regB]) => {
+    return nomeFuncionarioNaFolha(fidA, regA).localeCompare(nomeFuncionarioNaFolha(fidB, regB), 'pt-BR', { sensitivity: 'base' });
+  });
+  const linhas = entradasOrdenadas.map(([fid, reg]) => linhaFolhaPagamento(fid, reg)).join('');
+  const totais = folha.totais || calcularTotaisFolha(folha.dados);
+  return `<div class="card" style="margin-bottom:14px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
+      <div>
+        <button class="btn btn-ghost btn-sm" style="color:#1e3a5f;font-weight:700;border:1px solid #cbd5e1;" onclick="voltarParaHistoricoFolha()">◀ Voltar ao histórico</button>
+        <h3 class="cp-h3" style="margin:6px 0 2px;">📋 ${esc(folha.codigo)} — ${String(folha.mes).padStart(2, '0')}/${folha.ano}</h3>
+        <input class="form-input" style="max-width:320px;" type="text" value="${esc(folha.nome || '')}" placeholder="Nome da folha" onchange="setNomeFolhaAtual(this.value)">
+      </div>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-primary" onclick="salvarFolhaPagamentoAtual(); if(typeof toast==='function') toast('Folha salva.','success');">💾 Salvar</button>
+        <button class="btn btn-secondary" onclick="imprimirFolhaPagamento('${folha.id}')">🖨️ Gerar PDF</button>
+      </div>
+    </div>
+  </div>
+  <div class="card" style="margin-bottom:14px;">
+    <div class="cp-kpi-linha"><span>Funcionários nesta folha</span><strong>${totais.funcionarios}</strong></div>
+    <div class="cp-kpi-linha"><span>Total Salário Bruto <span class="cp-muted">(alimenta Custo &amp; Precificação)</span></span><strong class="cp-destaque">${fmtBRL(totais.totalBruto)}</strong></div>
+    <div class="cp-kpi-linha"><span>Total Salário Líquido</span><strong>${fmtBRL(totais.totalLiquido)}</strong></div>
+  </div>
+  <div class="card">
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
+      <select class="form-input" style="flex:1;min-width:240px;" onchange="adicionarFuncionarioNaFolha(this.value); this.value='';">
+        <option value="">+ Adicionar funcionário do cadastro...</option>${opcoes}
+      </select>
+      <input class="form-input" style="max-width:220px;" type="text" id="cp-folha-extra-nome" placeholder="Nome do novo funcionário">
+      <input class="form-input" style="max-width:160px;" type="text" id="cp-folha-extra-funcao" placeholder="Função">
+      <button class="btn btn-secondary" onclick="adicionarFuncionarioExtraNaFolha(document.getElementById('cp-folha-extra-nome').value, document.getElementById('cp-folha-extra-funcao').value); document.getElementById('cp-folha-extra-nome').value=''; document.getElementById('cp-folha-extra-funcao').value='';">+ Incluir novo funcionário</button>
+    </div>
+    <div class="table-wrap cp-table-scroll"><table>
+      <thead><tr><th>Nº Título</th><th>Cód. Fornec.</th><th>Funcionário</th><th>Salário Líq.</th><th>DSR</th><th>Ad. Noturno</th><th>Extra 100%</th><th>Extra 55%</th><th>Vale</th><th>FGTS</th><th>INSS</th><th>Desconto</th><th>IRRF</th><th>Cont/Assist</th><th>Salário Bruto</th><th>Local</th><th>Natureza</th><th></th></tr></thead>
+      <tbody>${linhas || '<tr><td colspan="18" class="cp-muted">Nenhum funcionário nesta folha ainda.</td></tr>'}</tbody>
+    </table></div>
+  </div>`;
+}
+
+function imprimirFolhaPagamento(folhaId) {
+  const folha = state.folhasPagamento.find((f) => f.id === folhaId);
+  if (!folha) return;
+  const w = window.open('', '_blank');
+  if (!w) { if (typeof toast === 'function') toast('Permita pop-ups para gerar o relatório.', 'warning'); return; }
+  const linhas = Object.entries(folha.dados || {})
+    .sort(([fidA, regA], [fidB, regB]) => nomeFuncionarioNaFolha(fidA, regA).localeCompare(nomeFuncionarioNaFolha(fidB, regB), 'pt-BR', { sensitivity: 'base' }))
+    .map(([fid, reg]) => {
+    const nome = nomeFuncionarioNaFolha(fid, reg);
+    return `<tr><td>${esc(reg.numTitulo || '')}</td><td>${esc(reg.codigoFornecedor || '')}</td><td>${esc(nome)}</td>
+      <td class="num">${fmtBRL(reg.salarioLiquido)}</td><td class="num">${fmtBRL(reg.dsr)}</td><td class="num">${fmtBRL(reg.adNoturno)}</td>
+      <td class="num">${fmtBRL(reg.extra100)}</td><td class="num">${fmtBRL(reg.extra55)}</td><td class="num">${fmtBRL(reg.vale)}</td>
+      <td class="num">${fmtBRL(reg.fgts)}</td><td class="num">${fmtBRL(reg.inss)}</td><td class="num">${fmtBRL(reg.desconto)}</td>
+      <td class="num">${fmtBRL(reg.irrf)}</td><td class="num">${fmtBRL(reg.contAssist)}</td><td class="num">${fmtBRL(reg.salarioBruto)}</td>
+      <td>${esc(reg.local || '')}</td><td>${esc(reg.natureza || '')}</td></tr>`;
+  }).join('');
+  const totais = folha.totais || calcularTotaisFolha(folha.dados);
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Folha de Pagamento — ${String(folha.mes).padStart(2, '0')}/${folha.ano}</title>
+    <style>${_printCSS()}table{font-size:9px;}</style></head><body>
+    ${_printCabecalho()}
+    <h1>FOLHA DE PAGAMENTO — ${String(folha.mes).padStart(2, '0')}/${folha.ano}</h1>
+    <p class="sub">${esc(folha.codigo)}${folha.nome ? ' — ' + esc(folha.nome) : ''} · Emitido em ${new Date().toLocaleString('pt-BR')}</p>
+    <table><thead><tr><th>Nº Título</th><th>Cód.Forn.</th><th>Funcionário</th><th>Sal.Líq.</th><th>DSR</th><th>Ad.Not.</th><th>Extra100%</th><th>Extra55%</th><th>Vale</th><th>FGTS</th><th>INSS</th><th>Desconto</th><th>IRRF</th><th>Cont/Assist</th><th>Sal.Bruto</th><th>Local</th><th>Natureza</th></tr></thead>
+    <tbody>${linhas}</tbody>
+    <tfoot><tr><td colspan="14">Total (${totais.funcionarios} funcionários)</td><td class="num">${fmtBRL(totais.totalBruto)}</td><td colspan="2"></td></tr></tfoot></table>
+    </body></html>`;
+  w.document.write(html);
+  w.document.close();
+  setTimeout(() => w.print(), 500);
+}
+
+/* carga da folha — só na primeira vez que a aba é aberta */
+async function carregarFolhasPagamento() {
+  if (typeof _supabase === 'undefined' || !_supabase) return;
+  try {
+    const { data, error } = await _supabase.from(TABELA_FOLHAS_PAGAMENTO).select('*').order('ano', { ascending: false }).order('mes', { ascending: false });
+    if (error) {
+      if (/does not exist|relation|42P01/i.test(error.message || '')) { state._tabelaFolhasPagamentoExiste = false; return; }
+      throw error;
+    }
+    state._tabelaFolhasPagamentoExiste = true;
+    state.folhasPagamento = data || [];
+  } catch (e) {
+    console.error('Erro ao carregar folhas de pagamento:', e);
+    state._tabelaFolhasPagamentoExiste = false;
+  }
+}
+
+async function initFolhaPagamento() {
+  if (_fpCarregado) { render(); return; }
+  const app = document.getElementById('fp-app');
+  if (app) app.innerHTML = '<div class="card" style="text-align:center;padding:30px;color:#94a3b8;">Carregando folhas…</div>';
+  /* `codigo_fornecedor` NÃO existe na tabela funcionarios: pedir a coluna fazia
+     o PostgREST devolver erro, `data` vinha nulo, a lista ficava vazia e TODO
+     funcionário da folha aparecia como "(removido do cadastro)". O código do
+     fornecedor já é digitado por linha na própria folha, então não faz falta
+     aqui. Se um dia a coluna existir, é só voltar a pedi-la. */
+  const [funcs, emp] = await Promise.all([
+    _supabase.from('funcionarios').select('id,nome,funcao,setor,status').eq('status', 'ativo').order('nome'),
+    _supabase.from('empresa_config').select('nome_fantasia,razao_social,logo,cnpj,ie,cep,rua,numero,complemento,bairro,cidade,uf,telefone,email').limit(1).maybeSingle(),
+  ]);
+  /* Falha de leitura não pode virar lista vazia em silêncio — foi assim que o
+     defeito passou despercebido. Agora ela aparece na tela. */
+  state._erroFuncionarios = (funcs && funcs.error) ? (funcs.error.message || 'erro ao ler o cadastro') : null;
+  if (state._erroFuncionarios) console.error('Folha: erro ao ler funcionarios', funcs.error);
+  state.funcionariosReais = (funcs && funcs.data) || [];
+  state.empresa = (emp && emp.data) || {};
+  await carregarFolhasPagamento();
+  _fpCarregado = true;
+  render();
+}
+
+document.head.insertAdjacentHTML('beforeend','<style>.tab-btn{padding:10px 20px;background:none;border:none;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;color:#64748b;border-bottom:2px solid transparent;margin-bottom:-2px;transition:all .15s;}.tab-btn.active{color:var(--accent);border-bottom-color:var(--primary);}.alert-info{background:#eff6ff;border:1px solid #93c5fd;color:#1e40af;padding:12px 16px;border-radius:8px;margin-bottom:8px;}</style>');
+init();
+</script>
+</body>
+</html>
