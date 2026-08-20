@@ -48,6 +48,7 @@ const MODULO_MAP = [
   { id:'almoxarifado',   page:'almoxarifado.html',    label:'Almoxarifado',         group:'suprimentos',  icon:'📦' },
   { id:'solicitacoes',   page:'solicitacoes.html',    label:'Solicitações',         group:'suprimentos',  icon:'📝' },
   { id:'compras',        page:'compras.html',         label:'Compras',              group:'suprimentos',  icon:'🛒' },
+  { id:'lenha',          page:'lenha.html',           label:'Lenha',                group:'suprimentos',  icon:'🪵' },
   // CUSTOS
   { id:'custos',         page:'custos.html',          label:'Gestão de Custos',     group:'custos',       icon:'💰' },
   // LOGÍSTICA
@@ -229,6 +230,11 @@ const MODULO_FUNCIONALIDADES = {
     { id:'docs', label:'📁 Documentação' },
     { id:'prev', label:'🔧 Preventiva' },
     { id:'kpis', label:'📊 KPIs' },
+  ],
+  lenha: [
+    { id:'recebimentos', label:'📥 Recebimentos' },
+    { id:'fechamentos', label:'📅 Fechamentos' },
+    { id:'fornecedores', label:'🌲 Fornecedores & Motoristas' },
   ],
   perfis: [
     { id:'cards', label:'🃏 Cards' },
