@@ -98,7 +98,7 @@
 
   /* ── EFICIÊNCIA DE PRODUÇÃO (realizado) ──────────────────────────────────────
    * ATENÇÃO: existe OUTRA "eficiência" no sistema — o FATOR DE PLANEJAMENTO do
-   * planejamento.html (um %, default 100, que o planejador ajusta para descontar
+   * Planejamento & Custos (um %, default 100, que o planejador ajusta para descontar
    * horas: perda = brutos × (100−efic)/100). Aquilo é ENTRADA de planejamento,
    * não medição, e NÃO deve ser unificado com isto. Isto aqui é o REALIZADO:
    * quanto se produziu contra a meta.

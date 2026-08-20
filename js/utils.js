@@ -29,13 +29,17 @@ const MODULO_MAP = [
   { id:'produtos',       page:'produtos.html',        label:'Produtos',             group:'cadastros',    icon:'📦' },
   { id:'motivos',        page:'motivos.html',         label:'Motivos de Parada',    group:'cadastros',    icon:'🛑' },
   // PRODUÇÃO
-  { id:'planejamento',   page:'planejamento.html',    label:'Planejamento',         group:'producao',     icon:'📋' },
   { id:'escala',         page:'escala.html',          label:'Escala de Equipe',     group:'producao',     icon:'🧤' },
   { id:'producao',       page:'producao.html',        label:'Produção',             group:'producao',     icon:'⚙️' },
   { id:'desgaste',       page:'desgaste.html',        label:'Controle de Desgaste', group:'producao',     icon:'🔨' },
   { id:'aferidor',       page:'aferidor.html',        label:'Aferidor',             group:'producao',     icon:'🏷️' },
-  { id:'custo_precificacao', page:'custo-precificacao.html', label:'Custo & Precificação', group:'producao', icon:'💵' },
-  { id:'plancustos',     page:'plancustos.html',      label:'Planejamento & Custos', group:'producao',    icon:'🧭' },
+  /* Um planejamento só. Antes existiam três entradas aqui — Planejamento
+     (planejamento.html), Custo & Precificação e Planejamento & Custos
+     (plancustos.html) — com dois planejamentos vivos em tabelas diferentes.
+     Ficou o custo-precificacao.html, sob o nome Planejamento & Custos. O id
+     segue `custo_precificacao` de propósito: é a chave das permissões já
+     concedidas aos perfis, e trocá-la tiraria o acesso de todo mundo. */
+  { id:'custo_precificacao', page:'custo-precificacao.html', label:'Planejamento & Custos', group:'producao', icon:'🧭' },
   // QUALIDADE
   { id:'laboratorio',    page:'laboratorio.html',     label:'Laboratório',          group:'qualidade',    icon:'🧪' },
   { id:'bpf',            page:'bpf.html',             label:'BPF',                  group:'qualidade',    icon:'📋' },
