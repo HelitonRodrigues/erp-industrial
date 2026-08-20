@@ -541,6 +541,29 @@ function applyActionGuards(moduloId, containerEl) {
 }
 
 // ── SIDEBAR FILTRADA POR PERMISSÃO ────────────────────────
+/* O <aside> da sidebar NÃO está no HTML dos módulos: cada página faz
+   fetch('partials/sidebar.html') e injeta em #sidebar-container — e chama
+   initSidebar() na linha seguinte, sem esperar o fetch. Quem preenchesse os
+   campos antes disso escrevia em elemento inexistente e o texto de exemplo do
+   partial ("Super Admin / SADM") ficava na tela como se fosse o usuário logado.
+   Isto espera o nó existir. Se nunca chegar, AVISA em vez de seguir calado. */
+function _esperarSidebar(timeoutMs) {
+  timeoutMs = timeoutMs || 4000;
+  return new Promise(resolve => {
+    if (document.getElementById('sidebar')) return resolve(true);
+    const ini = Date.now();
+    const timer = setInterval(() => {
+      if (document.getElementById('sidebar')) { clearInterval(timer); resolve(true); }
+      else if (Date.now() - ini > timeoutMs) {
+        clearInterval(timer);
+        console.warn('[sidebar] partials/sidebar.html não chegou em ' + timeoutMs +
+                     'ms — menu, usuário e empresa ficam sem preencher.');
+        resolve(false);
+      }
+    }, 30);
+  });
+}
+
 async function initSidebar(paginaAtiva) {
   // Resolver moduloId a partir do nome do arquivo (ex: 'producao.html' → 'producao')
   const moduloEntry = paginaAtiva ? MODULO_MAP.find(m => m.page === paginaAtiva) : null;
@@ -550,15 +573,21 @@ async function initSidebar(paginaAtiva) {
   const user = requireAuth(moduloId);
   if (!user) return;
 
-  // Dados do usuário na topbar e sidebar
-  const initials = (user.nome || 'SA').split(' ').map(x => x[0]).join('').substring(0, 2).toUpperCase();
+  // A sidebar chega por fetch — sem esperar, o rodapé dela ficava com o nome
+  // de exemplo do partial em vez do usuário de verdade.
+  await _esperarSidebar();
+
+  // Dados do usuário na topbar e no rodapé da sidebar.
+  // Nada de default 'Super Admin'/'SADM': se o dado faltar, mostra '—' e não
+  // um nome plausível que não é o de quem está logado.
+  const initials = (user.nome || '?').split(' ').map(x => x[0]).join('').substring(0, 2).toUpperCase();
   const setEl = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
   setEl('sb-avatar',      initials);
   setEl('top-avatar',     initials);
-  setEl('sb-user-name',   (user.nome || 'Super Admin').split(' ')[0]);
-  setEl('top-user-name',  user.nome || 'Super Admin');
-  setEl('sb-user-perfil', user.perfil || 'SADM');
-  setEl('top-user-perfil', (user.perfil || 'SADM'));
+  setEl('sb-user-name',   (user.nome || '—').split(' ')[0]);
+  setEl('top-user-name',  user.nome || '—');
+  setEl('sb-user-perfil', user.perfil || '—');
+  setEl('top-user-perfil', (user.perfil || '—'));
 
   // Dados da empresa
   try {
@@ -625,10 +654,10 @@ async function initSidebar(paginaAtiva) {
 
 function _buildSidebar(user, paginaAtiva) {
   const sidebar = document.getElementById('sidebar');
-  if (!sidebar) return;
+  if (!sidebar) { console.warn('[sidebar] #sidebar ausente — menu não construído.'); return; }
 
   const nav = sidebar.querySelector('.sidebar-nav');
-  if (!nav) return;
+  if (!nav) { console.warn('[sidebar] .sidebar-nav ausente — menu não construído.'); return; }
 
   // Determinar módulos visíveis
   const modulos = PERFIS_ADMIN.includes(user.perfil)
