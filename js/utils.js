@@ -35,7 +35,6 @@ const MODULO_MAP = [
   { id:'desgaste',       page:'desgaste.html',        label:'Controle de Desgaste', group:'producao',     icon:'🔨' },
   { id:'aferidor',       page:'aferidor.html',        label:'Aferidor',             group:'producao',     icon:'🏷️' },
   { id:'custo_precificacao', page:'custo-precificacao.html', label:'Custo & Precificação', group:'producao', icon:'💵' },
-  { id:'plancustos',     page:'plancustos.html',      label:'Planejamento & Custos', group:'producao',    icon:'🧭' },
   // QUALIDADE
   { id:'laboratorio',    page:'laboratorio.html',     label:'Laboratório',          group:'qualidade',    icon:'🧪' },
   { id:'bpf',            page:'bpf.html',             label:'BPF',                  group:'qualidade',    icon:'📋' },
