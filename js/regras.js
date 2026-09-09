@@ -187,5 +187,165 @@
     return m * p;
   };
 
+  /* ── QUANTIDADE NA UNIDADE DO CADASTRO ─────────────────────────────────────
+   * O apontamento de produção grava TUDO no campo `total_sacos` da OP. Para o
+   * ensacado isso é saco e fecha. Para o GRANEL a OP lança a carga em QUILO
+   * (3 × 14.000 kg + 2.100 = 44.100), mas o produto é cadastrado em TONELADA e
+   * a média/h também (14 ton/h) — comparar 44.100 com 14 ton/h dava performance
+   * de 45.867%. Converte pelo CADASTRO do produto (produtos.unidade), nunca
+   * pelo nome: produto medido em unidade de massa com mais de 1 kg por unidade
+   * tem o apontamento em kg.
+   */
+  Regras.UNIDADE_KG = { kg: 1, quilo: 1, quilos: 1, t: 1000, ton: 1000, tonelada: 1000, toneladas: 1000 };
+
+  Regras.qtdNaUnidadeDoProduto = function (qtdApontada, unidadeProduto) {
+    var q = Number(qtdApontada) || 0;
+    var u = (unidadeProduto == null ? '' : String(unidadeProduto)).toLowerCase().trim();
+    var kgPorUnidade = Regras.UNIDADE_KG[u] || 0;
+    return kgPorUnidade > 1 ? q / kgPorUnidade : q;
+  };
+
+  // Unidade de um produto pelo NOME, na lista do cadastro. '' se não achar.
+  Regras.unidadeDoProduto = function (nomeProduto, produtos) {
+    var alvo = Regras.normalizarNome(nomeProduto);
+    if (!alvo || !Array.isArray(produtos)) return '';
+    for (var i = 0; i < produtos.length; i++) {
+      if (Regras.normalizarNome(produtos[i] && produtos[i].nome) === alvo) {
+        return String((produtos[i].unidade || '')).trim();
+      }
+    }
+    return '';
+  };
+
+  /* ── CAPACIDADE HORÁRIA (média sc/h) ───────────────────────────────────────
+   * Acha a média/h de um produto entre as fontes de cadastro (planejamento
+   * primeiro, cadastro da linha depois — a ordem é de quem chama).
+   *
+   * Casa por nome EXATO e, só se não achar, tenta aproximado — e aí exige
+   * candidato ÚNICO. O casamento aproximado antigo comparava token a token sem
+   * filtrar unidade de medida: "kg" fazia "Concentrado 10kg" casar com
+   * "Impermeabilizante 10kg", e como o laço não parava no primeiro achado, o
+   * ÚLTIMO vencia. A Linha 3 media concentrado contra 230 sc/h em vez de 500 e
+   * a performance saía 185%.
+   *
+   * Devolve { capHora, nome, origem, chave, exato } ou NULL. Null = falta
+   * cadastro: quem chama AVISA, em vez de herdar a média de outro produto.
+   */
+  Regras._TOKEN_RUIDO = { kg: 1, g: 1, gr: 1, mg: 1, ton: 1, t: 1, l: 1, ml: 1, un: 1,
+                          sc: 1, pc: 1, de: 1, da: 1, do: 1, das: 1, dos: 1, e: 1,
+                          com: 1, linha: 1 };
+
+  Regras._tokensNome = function (s) {
+    return Regras.normalizarNome(s).match(/[a-z]+|[0-9]+/g) || [];
+  };
+
+  // Parecidos = compartilham um token que IDENTIFICA produto: 3+ caracteres e
+  // fora da lista de ruído (unidade, conectivo, "linha"). Número curto como
+  // "10", "20", "25" não casa — é justamente o que diferencia os produtos.
+  Regras.nomesParecidos = function (a, b) {
+    if (Regras.normalizarNome(a) === Regras.normalizarNome(b)) return true;
+    var ta = Regras._tokensNome(a), tb = Regras._tokensNome(b);
+    for (var i = 0; i < ta.length; i++) {
+      if (ta[i].length > 2 && !Regras._TOKEN_RUIDO[ta[i]] && tb.indexOf(ta[i]) >= 0) return true;
+    }
+    return false;
+  };
+
+  Regras.capacidadeHora = function (chaves, fontes) {
+    if (!Array.isArray(fontes)) return null;
+    var cands = [];
+    for (var i = 0; i < fontes.length; i++) {
+      if ((Number(fontes[i] && fontes[i].capHora) || 0) > 0) cands.push(fontes[i]);
+    }
+    if (!cands.length) return null;
+    var lista = [];
+    var brutas = Array.isArray(chaves) ? chaves : [chaves];
+    for (var b = 0; b < brutas.length; b++) if (brutas[b]) lista.push(brutas[b]);
+
+    var achar = function (c, chave, exato) {
+      return { capHora: Number(c.capHora), nome: c.nome, origem: c.origem || '',
+               chave: chave, exato: exato };
+    };
+    // 1) exato, na ordem das chaves (linha de produto antes do nome do produto)
+    for (var k = 0; k < lista.length; k++) {
+      var alvo = Regras.normalizarNome(lista[k]);
+      for (var j = 0; j < cands.length; j++) {
+        if (Regras.normalizarNome(cands[j].nome) === alvo) return achar(cands[j], lista[k], true);
+      }
+    }
+    // 2) aproximado e SEM ambiguidade. Dois candidatos casando devolve null de
+    //    propósito: escolher um dos dois é exatamente o que quebrou antes.
+    for (var m = 0; m < lista.length; m++) {
+      var achados = [];
+      for (var n = 0; n < cands.length; n++) {
+        if (Regras.nomesParecidos(cands[n].nome, lista[m])) achados.push(cands[n]);
+      }
+      if (achados.length === 1) return achar(achados[0], lista[m], false);
+    }
+    return null;
+  };
+
+  /* ── OEE ───────────────────────────────────────────────────────────────────
+   * OEE = Disponibilidade × Performance × Qualidade.
+   *
+   * DISPONIBILIDADE = horas PRODUZINDO ÷ horas planejadas. "Produzindo" é o
+   *   horímetro. Parada produtiva (esvaziando silo) é máquina parada, mesmo com
+   *   o operador trabalhando: somá-la ao H.T fazia H.T + H.P estourar o turno
+   *   (91,97 h contra 88 h planejadas na Linha 2) e inflava a disponibilidade.
+   * PERFORMANCE = produzido ÷ (média/h × horas produzindo). Acima de 100% não é
+   *   erro de conta: é média/h cadastrada abaixo do que a linha faz.
+   * QUALIDADE = pallets aprovados ÷ pallets JULGADOS. Pendente não penaliza nem
+   *   vira 100%: sem nenhum julgado, qualidade é NULL.
+   *
+   * Fator sem base vem null. O OEE exige disponibilidade E performance; sem
+   * qualidade devolve `parcial: true` e quem chama avisa na tela — nunca troca
+   * qualidade ausente por 100%, que era o que inflava o número no producao.html.
+   */
+  Regras.oee = function (o) {
+    o = o || {};
+    var hProd = Number(o.horasProduzindo) || 0;
+    var hPlan = Number(o.horasPlanejadas) || 0;
+    var feito = Number(o.produzido) || 0;
+    var meta  = Number(o.metaProduzido) || 0;
+    var apr   = Number(o.palletsAprovados) || 0;
+    var rep   = Number(o.palletsReprovados) || 0;
+
+    var disponibilidade = hPlan > 0 ? (hProd / hPlan) * 100 : null;
+    var performance     = meta  > 0 ? (feito / meta) * 100 : null;
+    var julgados        = apr + rep;
+    var qualidade       = julgados > 0 ? (apr / julgados) * 100 : null;
+
+    var faltam = [];
+    if (disponibilidade == null) faltam.push('horas planejadas no planejamento');
+    if (performance == null)     faltam.push('média sc/h no planejamento');
+    if (qualidade == null)       faltam.push('pallet julgado no laboratório');
+
+    var temBase = disponibilidade != null && performance != null;
+    var oee = temBase
+      ? (disponibilidade / 100) * (performance / 100) * (qualidade != null ? qualidade / 100 : 1) * 100
+      : null;
+
+    return { disponibilidade: disponibilidade, performance: performance, qualidade: qualidade,
+             julgados: julgados, oee: oee, parcial: temBase && qualidade == null, faltam: faltam };
+  };
+
+  /* OEE da fábrica: média das linhas PONDERADA pelo tempo planejado de cada uma.
+   * Média simples fazia a Longa Vida (6 turnos) pesar igual à Emitec (12), e
+   * linha sem base entrava como 0 e derrubava o número. Aqui linha sem OEE fica
+   * fora da conta — e quem chama diz quantas ficaram.
+   * itens: [{ oee, peso }]. Devolve { oee, peso, dentro, fora } — oee null se
+   * nenhuma linha tem base.
+   */
+  Regras.oeeConsolidado = function (itens) {
+    var somaPeso = 0, somaPond = 0, dentro = 0, fora = 0;
+    (Array.isArray(itens) ? itens : []).forEach(function (x) {
+      var v = x && x.oee, p = Number(x && x.peso) || 0;
+      if (v == null || !isFinite(v) || p <= 0) { fora++; return; }
+      somaPond += v * p; somaPeso += p; dentro++;
+    });
+    return { oee: somaPeso > 0 ? somaPond / somaPeso : null, peso: somaPeso,
+             dentro: dentro, fora: fora };
+  };
+
   global.Regras = Regras;
 })(typeof window !== 'undefined' ? window : this);
