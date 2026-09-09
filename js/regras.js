@@ -347,5 +347,82 @@
              dentro: dentro, fora: fora };
   };
 
+  /* ── EPI: SITUAÇÃO DE UMA ENTREGA ──────────────────────────────────────────
+   * Três coisas tiram uma entrega da fila de atraso, e é aqui que elas moram —
+   * o dashboard contava só "data de troca no passado" e chegava a 48 EPIs
+   * vencidos onde o módulo mostrava 9:
+   *   1) DEVOLVIDA  — o EPI voltou, o prazo dela morreu.
+   *   2) SUBSTITUÍDA — já existe entrega mais nova do MESMO EPI para o MESMO
+   *      funcionário. Quem manda é sempre a última; a antiga é histórico.
+   *      (33 das 48 eram isso: troca de máscara PFF2 lançada mês a mês.)
+   *   3) DESLIGADO  — entrega de quem saiu da empresa não é pendência de EPI.
+   * Férias e afastado CONTINUAM contando: a pessoa volta e o EPI tem de estar
+   * em dia.
+   */
+  Regras.EPI_DIAS_PROXIMO = 5;
+
+  // Dias até a troca: negativo = atrasado, null = entrega sem prazo definido.
+  Regras.diasAte = function (dataISO, hojeISO) {
+    if (!dataISO) return null;
+    var hoje = hojeISO ? new Date(hojeISO + 'T00:00:00') : new Date();
+    hoje.setHours(0, 0, 0, 0);
+    var alvo = new Date(String(dataISO).slice(0, 10) + 'T00:00:00');
+    return Math.round((alvo - hoje) / 86400000);
+  };
+
+  Regras.epiSubstituida = function (entrega, todas) {
+    if (!entrega || !Array.isArray(todas)) return false;
+    for (var i = 0; i < todas.length; i++) {
+      var x = todas[i];
+      if (!x || x.id === entrega.id) continue;
+      if (x.funcionario_id !== entrega.funcionario_id || x.epi_id !== entrega.epi_id) continue;
+      if (x.data_entrega > entrega.data_entrega) return true;
+      if (x.data_entrega === entrega.data_entrega &&
+          String(x.created_at || '') > String(entrega.created_at || '')) return true;
+    }
+    return false;
+  };
+
+  // 'devolvida' | 'substituida' | 'vencido' | 'proximo' | 'em_dia'
+  Regras.epiStatusEntrega = function (entrega, todas, hojeISO) {
+    if (!entrega) return 'em_dia';
+    if (entrega.devolvido_em) return 'devolvida';
+    if (Regras.epiSubstituida(entrega, todas)) return 'substituida';
+    var dias = Regras.diasAte(entrega.data_prevista_troca, hojeISO);
+    if (dias === null) return 'em_dia';
+    if (dias < 0) return 'vencido';
+    if (dias <= Regras.EPI_DIAS_PROXIMO) return 'proximo';
+    return 'em_dia';
+  };
+
+  /* Entrega de funcionário DESLIGADO não é pendência. `funcionarios` é a lista
+   * do cadastro (id + status); ausente da lista também conta como desligado,
+   * senão entrega órfã viraria alerta eterno.
+   */
+  Regras.EPI_STATUS_DESLIGADO = 'inativo';
+  Regras.epiFuncNaAtiva = function (entrega, funcionarios) {
+    if (!Array.isArray(funcionarios)) return true;   // sem lista, não filtra
+    for (var i = 0; i < funcionarios.length; i++) {
+      if (funcionarios[i] && funcionarios[i].id === entrega.funcionario_id) {
+        return String(funcionarios[i].status || '') !== Regras.EPI_STATUS_DESLIGADO;
+      }
+    }
+    return false;
+  };
+
+  // Entregas que são pendência de verdade, por situação. Uma chamada, um número
+  // igual em qualquer módulo.
+  Regras.epiPendencias = function (entregas, funcionarios, hojeISO) {
+    var lista = Array.isArray(entregas) ? entregas : [];
+    var vencidas = [], proximas = [];
+    lista.forEach(function (e) {
+      if (!Regras.epiFuncNaAtiva(e, funcionarios)) return;
+      var st = Regras.epiStatusEntrega(e, lista, hojeISO);
+      if (st === 'vencido') vencidas.push(e);
+      else if (st === 'proximo') proximas.push(e);
+    });
+    return { vencidas: vencidas, proximas: proximas };
+  };
+
   global.Regras = Regras;
 })(typeof window !== 'undefined' ? window : this);
