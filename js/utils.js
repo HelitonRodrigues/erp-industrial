@@ -131,7 +131,6 @@ const MODULO_FUNCIONALIDADES = {
   ],
   almoxarifado: [
     { id:'estoque', label:'📦 Estoque' },
-    { id:'insumos', label:'🌿 Insumos' },
     { id:'limpeza', label:'🧼 Produtos de Limpeza' },
     { id:'movimentos', label:'🔄 Movimentos' },
     { id:'relatorio', label:'📊 Relatório' },
@@ -188,11 +187,35 @@ const MODULO_FUNCIONALIDADES = {
     { id:'metas', label:'🎯 Metas' },
     { id:'fechamento', label:'🔒 Fechamento' },
   ],
+  aferidor: [
+    { id:'rotulos', label:'🏷️ Rótulos' },
+    { id:'amostras', label:'🧪 Amostras' },
+    { id:'aditivacao', label:'🧾 Registro Diário — Aditivação' },
+  ],
+  insumos: [
+    { id:'resumo', label:'📊 Resumo' },
+    { id:'estoque', label:'📦 Estoque' },
+    { id:'movs', label:'🔄 Movimentos' },
+    { id:'ficha', label:'🧬 Ficha Técnica' },
+    { id:'lotes', label:'🏷️ Lotes' },
+    { id:'entradas', label:'🚚 Entradas de MP' },
+    { id:'dia', label:'📅 Dia' },
+    { id:'mes', label:'🗓️ Mês' },
+    { id:'inventario', label:'🧮 Inventário' },
+    { id:'fechamento', label:'📄 Ficha Diária' },
+  ],
+  producao: [
+    { id:'tab-linhas', label:'🏭 Por Linha' },
+    { id:'tab-metas', label:'🎯 Meta por Encarregado' },
+    { id:'tab-indicadores', label:'📊 Indicadores' },
+    { id:'tab-produtos', label:'📦 Por Produto' },
+  ],
   epi: [
-    { id:'tab-cadastro', label:'📦 Cadastro de EPIs' },
     { id:'tab-fichas', label:'📋 Fichas por Funcionário' },
+    { id:'tab-cadastro', label:'📦 Cadastro de EPIs' },
     { id:'tab-alertas', label:'⚠️ Painel de Alertas' },
     { id:'tab-treinamentos', label:'🎓 Treinamentos' },
+    { id:'tab-inativos', label:'⚫ Inativos' },
   ],
   expedicao: [
     { id:'ordens', label:'📋 Ordens' },
@@ -213,10 +236,9 @@ const MODULO_FUNCIONALIDADES = {
   laboratorio: [
     { id:'analises', label:'📋 Análises' },
     { id:'afericoes', label:'⚙️ Aferições' },
-    { id:'composicao', label:'🧱 Composições' },
     { id:'pallets', label:'📦 Análise de Pallets' },
     { id:'ensaios', label:'🧪 Ensaios & Limites' },
-    { id:'correcoes', label:'🛠️ Correções' },
+    { id:'entrada', label:'📥 Entrada (CAI)' },
     { id:'caulim', label:'🪨 Caulim' },
     { id:'laudo', label:'📜 Laudo' },
   ],
@@ -287,7 +309,11 @@ function canTab(moduloId, abaId) {
   const mp = (u.permissoes || {})[moduloId];
   if (!mp) return false;
   if (!mp.abas) return !!mp.view;          // tela única / legado
-  return !!(mp.abas[abaId] && mp.abas[abaId].view);
+  const t = mp.abas[abaId];
+  // Mesma regra do checkPermTab: aba sem registro é aba criada DEPOIS que o
+  // perfil foi salvo — herda o acesso do módulo em vez de sumir calada.
+  if (!t) return !!mp.view;
+  return !!t.view;
 }
 
 /**
@@ -302,7 +328,13 @@ function checkPermTab(moduloId, abaId, acao) {
   if (!mp) return false;
   if (mp.abas) {
     const t = mp.abas[abaId];
-    if (!t || !t.view) return false;
+    // Aba SEM registro no perfil = aba criada depois que o perfil foi salvo.
+    // Antes isso era tratado como "negado" e a aba nova sumia calada para todo
+    // mundo — foi o que aconteceu com as telas novas do EPI. Agora ela herda o
+    // que o perfil já tem no módulo, e só fica negada quando alguém realmente
+    // desmarcou (aí existe registro, com view:false).
+    if (!t) return !!mp.view && (acao === 'view' ? true : !!mp[acao]);
+    if (!t.view) return false;
     return acao === 'view' ? true : !!t[acao];
   }
   if (!mp.view) return false;              // tela única → nível de módulo
