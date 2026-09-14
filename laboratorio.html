@@ -134,6 +134,8 @@
 .pal-prod-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:10px 0 6px;padding-top:8px;border-top:1px dashed #e2e8f0;}
 .pal-prod-head:first-child{border-top:none;padding-top:0;margin-top:0;}
 .pal-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(64px,1fr));gap:5px;}
+.pal-chip.granel{grid-column:span 2;}
+.pal-chip.granel .pal-n{font-size:13.5px;letter-spacing:-.2px;}
 .pal-chip{position:relative;padding:4px 2px 3px;border-radius:7px;border:1.6px solid;text-align:center;
   user-select:none;transition:transform .12s,box-shadow .12s;}
 .pal-chip.sel{box-shadow:0 0 0 3px var(--primary);transform:scale(1.07);z-index:2;}
@@ -1875,7 +1877,7 @@ function renderPallets(){
         border-left:4px solid ${base.length?'#2563eb':'var(--danger)'};font-size:12.5px;
         color:${base.length?'#1e40af':'#991b1b'};margin-bottom:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
         <span>${base.length
-          ? `<strong>${base.length} pallet(s)</strong> para “${esc(gv('fp-busca'))}”.`
+          ? `<strong>${base.length} item(ns)</strong> para “${esc(gv('fp-busca'))}”.`
           : `Nada encontrado para “${esc(gv('fp-busca'))}”. Se veio do bico de leitura, confira se o QR foi lido inteiro.`}</span>
         ${_palAchado?`<button class="btn btn-primary btn-sm" onclick="abrirAchadoPallet()">🔬 Abrir o ensaio deste pallet</button>`:''}
         <button class="btn btn-ghost btn-sm" onclick="limparBuscaPallet()">Limpar busca</button>
@@ -1940,9 +1942,13 @@ function renderPallets(){
     const blocoProduto=(nome,pals)=>{
       const idsJson=esc(JSON.stringify(pals.map(x=>x.id)));
       const nSel=pals.filter(x=>_palSel.has(x.id)).length;
+      const granelBloco=pals.length&&pals.every(ehGranel);
+      const medida=granelBloco
+        ? fmtTon(pals.reduce((s,x)=>s+toneladasDoPallet(x),0))+' produzida(s)'
+        : pals.length+' pallet(s)';
       return `<div class="pal-prod-head">
         <span class="pal-prod-nome">${nomesProd.length>1||nome!=='—'?chipProduto(nome,{fs:'14px'}):''}</span>
-        <span style="font-size:12px;color:#94a3b8;font-weight:700;">${pals.length} pallet(s)</span>
+        <span style="font-size:12px;color:#94a3b8;font-weight:700;">${medida}</span>
         <button class="pal-btn-todos" onclick='selecionarTodosPal(${gi},${idsJson},this)'>${nSel===pals.length?'✕ desmarcar todos':'☑ marcar todos'}</button>
       </div>
       <div class="pal-grid">${pals.map(p=>cartaoPallet(p,gi)).join('')}</div>`;
@@ -1988,15 +1994,17 @@ function cartaoPallet(p,gi){
   const m=statusPalletMeta(p.status);
   const an=analiseDoPallet(p.id);
   const travado=palletTravadoPorEstoque(p);
+  const granel=ehGranel(p);
   const dica=[p.produto||'—',
+    granel?('produção do turno: '+fmtTon(toneladasDoPallet(p))):null,
     an?'com ensaio':'sem ensaio',
     travado?'já carregado':null,
     p.responsavel_lab?('lab: '+p.responsavel_lab+(p.hora_lab?' '+String(p.hora_lab).slice(0,5):'')):null,
     'clique para selecionar'].filter(Boolean).join(' · ');
-  return `<div id="pal-box-${p.id}" class="pal-chip${_palSel.has(p.id)?' sel':''}"
+  return `<div id="pal-box-${p.id}" class="pal-chip${granel?' granel':''}${_palSel.has(p.id)?' sel':''}"
       style="background:${m.bg};border-color:${m.cor};${travado?'opacity:.7;':''}" title="${esc(dica)}">
     <span class="pal-dot" style="background:${an?'#16a34a':'#dc2626'};" title="${an?'com ensaio':'sem ensaio'}"></span>
-    <div class="pal-n" style="color:${m.cor};" onclick="togglePalSel('${p.id}',${gi})">#${p.numero==null?'—':p.numero}</div>
+    <div class="pal-n" style="color:${m.cor};" onclick="togglePalSel('${p.id}',${gi})">${granel?fmtTon(toneladasDoPallet(p)):'#'+(p.numero==null?'—':p.numero)}</div>
     <div class="pal-st" style="color:${m.cor};" onclick="togglePalSel('${p.id}',${gi})">${m.ic}${travado?' 🚛':''}</div>
     <div class="pal-acts">
       <button onclick="event.stopPropagation();abrirPalletLab('${p.id}')" title="Ensaio completo do pallet">🔬</button>
@@ -2146,6 +2154,19 @@ function embalagemTipoDoPallet(p){
   if(/granel/.test(n)) return 'granel';
   return 'saco';
 }
+/* GRANEL — a Longa Vida não faz pallet: a carga sai solta no caminhão e o
+   laboratório analisa a PRODUÇÃO DO TURNO, em tonelada. O registro aqui é um
+   só por OP, e o que interessa na tela é o total, não o número do pallet. */
+function ehGranel(p){ return embalagemTipoDoPallet(p)==='granel'; }
+function toneladasDoPallet(p){
+  const prod=(p&&p.producao)||{};
+  const itens=Array.isArray(prod.produtos_op)?prod.produtos_op:[];
+  const doProduto=itens.filter(x=>_lauNorm(x.produto)===_lauNorm(p.produto));
+  const kg=(doProduto.length?doProduto:itens).reduce((s,x)=>s+(Number(x.total_sacos)||0),0);
+  return kg/1000;
+}
+function fmtTon(t){ return (Number(t)||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:3})+' t'; }
+
 function embalagemLabel(pOuTipo){
   const tipo=typeof pOuTipo==='string'?pOuTipo:embalagemTipoDoPallet(pOuTipo);
   return {saco:'Pallet (sacos)',bigbag:'Big Bag',bombona:'Bombona',balde:'Balde',sache:'Sachê',granel:'Granel'}[tipo]||'Pallet';
@@ -2424,7 +2445,7 @@ function abrirBulkAcao(status,gi){
 
   const travados=sel.filter(palletTravadoPorEstoque);
   if(travados.length){
-    toast(`${travados.length} pallet(s) já estão carregados/expedidos e não podem mais ser julgados aqui (#${travados.map(p=>p.numero).join(', #')}).`,'danger');
+    toast(`${travados.length} item(ns) já estão carregados/expedidos e não podem mais ser julgados aqui (${travados.map(p=>ehGranel(p)?fmtTon(toneladasDoPallet(p)):'#'+p.numero).join(', ')}).`,'danger');
     return;
   }
   // Um ensaio é de UM produto: traço, limites e peneiras são do produto.
@@ -2581,13 +2602,15 @@ function abrirPalletLab(id,idsSelecionados){
     ${selecionados.length?`
     <div style="padding:11px 14px;border-radius:10px;background:#eff6ff;border:1.5px solid #bfdbfe;margin-bottom:12px;">
       <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:1px;color:#1e40af;margin-bottom:7px;">
-        Pallets selecionados — a decisão vale para todos</div>
+        ${selecionados.every(ehGranel)?'Produção do turno — a decisão vale para o total':'Pallets selecionados — a decisão vale para todos'}</div>
       <div style="display:flex;flex-wrap:wrap;gap:5px;">
-        ${selecionados.map(x=>`<span class="badge" style="background:#fff;border:1.4px solid #2563eb;color:#1e40af;font-weight:800;${x.id===p.id?'box-shadow:0 0 0 2px #bfdbfe;':''}">#${esc(x.numero??'—')}</span>`).join('')}
+        ${selecionados.map(x=>`<span class="badge" style="background:#fff;border:1.4px solid #2563eb;color:#1e40af;font-weight:800;${x.id===p.id?'box-shadow:0 0 0 2px #bfdbfe;':''}">${ehGranel(x)?esc(fmtTon(toneladasDoPallet(x))):'#'+esc(x.numero??'—')}</span>`).join('')}
       </div>
       <div style="font-size:11.5px;color:#1e40af;margin-top:7px;">
-        <strong>${selecionados.length} pallet(s)</strong> — o ensaio é feito sobre o pallet
-        <strong>#${esc(p.numero??'—')}</strong> e o resultado é gravado nos ${selecionados.length}.
+        ${selecionados.every(ehGranel)
+          ? `<strong>${esc(fmtTon(selecionados.reduce((s,x)=>s+toneladasDoPallet(x),0)))}</strong> — granel não vai em pallet: o ensaio vale para a produção inteira do turno.`
+          : `<strong>${selecionados.length} pallet(s)</strong> — o ensaio é feito sobre o pallet
+             <strong>#${esc(p.numero??'—')}</strong> e o resultado é gravado nos ${selecionados.length}.`}
         ${selecionados.filter(x=>x.status==='aprovado'||x.status==='reprovado').length
           ? `<span style="color:#b45309;">⚠️ ${selecionados.filter(x=>x.status==='aprovado'||x.status==='reprovado').length} já tem decisão e será sobrescrito.</span>`:''}
       </div>
@@ -2740,7 +2763,11 @@ function abrirPalletLab(id,idsSelecionados){
 
   openModal('modal-pallet-lab',
     (selecionados.length
-      ? (_palIntencao==='reprovado'?'🔴 Reprovar':'✅ Aprovar')+' '+selecionados.length+' pallet(s) — ensaio de '+chipProduto(p.produto)
+      ? (_palIntencao==='reprovado'?'🔴 Reprovar':'✅ Aprovar')+' '
+        +(selecionados.every(ehGranel)
+            ? fmtTon(selecionados.reduce((s,x)=>s+toneladasDoPallet(x),0))
+            : selecionados.length+' pallet(s)')
+        +' — ensaio de '+chipProduto(p.produto)
       : '🔬 Ensaio do pallet — '+chipProduto(p.produto)+' · #'+(p.numero??'')),body,
     `<button class="btn btn-secondary" onclick="closeModal('modal-pallet-lab')">Cancelar</button>
      <button class="btn btn-primary" id="btn-salvar-plab" onclick="salvarStatusPallet()">💾 Salvar ensaio e decidir</button>`,{lg:true});
