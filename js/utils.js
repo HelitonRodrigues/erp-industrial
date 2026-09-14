@@ -59,6 +59,7 @@ const MODULO_MAP = [
   { id:'epi',            page:'epi.html',             label:'EPI',                  group:'seguranca',    icon:'🦺' },
   // RH
   { id:'rh',             page:'rh.html',              label:'RH & Escala',          group:'rh',           icon:'📅' },
+  { id:'ferias',         page:'ferias.html',          label:'Férias',               group:'rh',           icon:'🏖️' },
 ];
 
 // Rótulos dos grupos para render do sidebar
@@ -93,6 +94,7 @@ const ACAO_LABELS_FULL = {
 
 // Ações EXTRAS por módulo, acrescentadas às de aba (ex.: fluxos de aprovação).
 const MODULO_ACOES_EXTRAS = {
+  ferias:       ['imprimir'],
   almoxarifado: ['cancelar', 'finalizar'],
   compras:      ['cancelar', 'finalizar'],
   aprovacoes:   ['cancelar', 'finalizar'],
