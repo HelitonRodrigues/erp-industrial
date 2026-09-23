@@ -89,7 +89,7 @@ const ACOES_TAB  = ['view', 'create', 'edit', 'delete', 'aprovar', 'export', 'im
 const ACAO_LABELS_FULL = {
   view:'Ver', create:'Criar', edit:'Editar', delete:'Excluir',
   export:'Exportar', aprovar:'Aprovar', cancelar:'Cancelar/Rejeitar',
-  finalizar:'Finalizar/Concluir', imprimir:'Imprimir/PDF',
+  finalizar:'Finalizar/Concluir', imprimir:'Imprimir/PDF', assinar:'Assinar/Validar',
 };
 
 // Ações EXTRAS por módulo, acrescentadas às de aba (ex.: fluxos de aprovação).
@@ -99,6 +99,9 @@ const MODULO_ACOES_EXTRAS = {
   compras:      ['cancelar', 'finalizar'],
   aprovacoes:   ['cancelar', 'finalizar'],
   solicitacoes: ['aprovar', 'cancelar'],
+  // Laboratório → aba Caulim: quem ASSINA (valida) as análises externas.
+  // O banco confere a mesma permissão (auth_pode_acao, migração 039).
+  laboratorio:  ['assinar'],
 };
 // Ações disponíveis para as abas de um módulo (base de aba + extras).
 function acoesDaAba(moduloId) {
