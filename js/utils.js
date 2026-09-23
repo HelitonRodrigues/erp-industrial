@@ -243,6 +243,7 @@ const MODULO_FUNCIONALIDADES = {
     { id:'entrada', label:'📥 Entrada (CAI)' },
     { id:'caulim', label:'🪨 Caulim' },
     { id:'laudo', label:'📜 Laudo' },
+    { id:'correcoes', label:'✏️ Correções' },
   ],
   manutencao: [
     { id:'cronograma', label:'📅 Cronograma' },
