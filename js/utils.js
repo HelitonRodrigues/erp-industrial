@@ -35,6 +35,7 @@ const MODULO_MAP = [
   { id:'desgaste',       page:'desgaste.html',        label:'Controle de Desgaste', group:'producao',     icon:'🔨' },
   { id:'aferidor',       page:'aferidor.html',        label:'Aferidor',             group:'producao',     icon:'🏷️' },
   { id:'custo_precificacao', page:'custo-precificacao.html', label:'Custo & Precificação', group:'producao', icon:'💵' },
+  { id:'felisbina',      page:'felisbina.html',       label:'Felisbina',            group:'producao',     icon:'🏪' },
   // QUALIDADE
   { id:'laboratorio',    page:'laboratorio.html',     label:'Laboratório',          group:'qualidade',    icon:'🧪' },
   { id:'bpf',            page:'bpf.html',             label:'BPF',                  group:'qualidade',    icon:'📋' },
@@ -258,6 +259,13 @@ const MODULO_FUNCIONALIDADES = {
     { id:'docs', label:'📁 Documentação' },
     { id:'prev', label:'🔧 Preventiva' },
     { id:'kpis', label:'📊 KPIs' },
+  ],
+  felisbina: [
+    { id:'lancamento', label:'📝 Lançamento do dia' },
+    { id:'estoque', label:'📦 Estoque' },
+    { id:'movimentos', label:'📋 Movimentos' },
+    { id:'resumo', label:'📊 Resumo do mês' },
+    { id:'cadastro', label:'⚙️ Cadastro & Ficha' },
   ],
   lenha: [
     { id:'recebimentos', label:'📥 Recebimentos' },
