@@ -1,0 +1,763 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ERP Industrial — Felisbina</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<script src="js/supabase.js"></script>
+<script src="js/utils.js"></script>
+<style>
+.kpi-row{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;}
+.kpi{background:#fff;border:1.5px solid #e2e8f0;border-radius:12px;padding:10px 18px;min-width:132px;}
+.kpi-v{font-size:22px;font-weight:800;color:var(--primary);line-height:1.1;}
+.kpi-l{font-size:11px;color:#64748b;margin-top:3px;}
+.kpi.alerta{border-color:#fca5a5;background:#fef2f2;}
+.kpi.alerta .kpi-v{color:#b91c1c;}
+.seg{display:inline-flex;border:1.5px solid #cbd5e1;border-radius:10px;overflow:hidden;background:#fff;flex-wrap:wrap;}
+.seg button{border:none;background:#fff;padding:9px 16px;font-weight:700;font-size:13px;color:#475569;cursor:pointer;font-family:inherit;}
+.seg button+button{border-left:1.5px solid #e2e8f0;}
+.seg button.on{background:var(--primary);color:var(--accent);}
+.barra{display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin-bottom:14px;}
+.barra .form-group{margin:0;}
+.tb-lanc input{width:92px;text-align:right;padding:7px 8px;font-size:14px;}
+.tb-lanc input.lote{width:120px;text-align:left;}
+.tb-lanc td{vertical-align:middle;}
+.tb-lanc tr.mexeu{background:#f0fdf4;}
+.saldo{font-weight:800;color:var(--primary);text-align:right;white-space:nowrap;}
+.saldo.neg{color:#b91c1c;}
+.num{text-align:right;white-space:nowrap;}
+.q-pos{color:#15803d;font-weight:700;}
+.q-neg{color:#b91c1c;font-weight:700;}
+.chip{display:inline-block;font-size:10px;font-weight:700;padding:2px 8px;border-radius:6px;white-space:nowrap;}
+.chip-prod{background:#dbeafe;color:#1e40af;}
+.chip-rev{background:#fef3c7;color:#92400e;}
+.chip-ins{background:#f1f5f9;color:#475569;}
+.chip-ok{background:#dcfce7;color:#166534;}
+.chip-bx{background:#fee2e2;color:#991b1b;}
+.chip-mn{background:#ffedd5;color:#9a3412;}
+.aviso-sep{background:#f0f9ff;border:1.5px solid #bae6fd;color:#075985;border-radius:10px;padding:9px 14px;font-size:12px;margin-bottom:14px;}
+.baixa-box{background:#f8fafc;border:1.5px dashed #cbd5e1;border-radius:12px;padding:12px 14px;margin-top:12px;font-size:13px;}
+.baixa-box b{color:var(--primary);}
+.grupo-tit{font-size:13px;font-weight:800;color:var(--primary);text-transform:uppercase;letter-spacing:.5px;margin:18px 0 6px;}
+.ficha-row{display:grid;grid-template-columns:1fr 90px 30px 90px 34px;gap:6px;align-items:center;margin-bottom:6px;}
+.ficha-row span{font-size:12px;color:#64748b;text-align:center;}
+@media(max-width:700px){.tb-lanc input{width:70px;}.ficha-row{grid-template-columns:1fr 64px 20px 64px 30px;}}
+</style>
+</head>
+<body>
+<div id="sidebar-container"></div>
+<header class="topbar" id="topbar">
+  <button class="topbar-open-sidebar" onclick="toggleSidebar()">☰</button>
+  <div class="topbar-title">🏪 Felisbina</div>
+  <div class="topbar-right">
+    <div class="topbar-user">
+      <div class="user-avatar" style="width:32px;height:32px;font-size:12px;" id="top-avatar">—</div>
+      <div><div class="topbar-user-name" id="top-user-name">—</div><div class="topbar-user-profile" id="top-user-perfil">—</div></div>
+    </div>
+    <button class="btn btn-ghost btn-sm" onclick="doLogout()" style="color:#64748b;">Sair</button>
+  </div>
+</header>
+
+<main class="main-content" id="main-content">
+  <div class="page-header">
+    <div class="page-header-left">
+      <h1>Felisbina</h1>
+      <p>Produção de varejo, revenda (Preparador e Tintas) e insumos próprios — unidade separada da fábrica</p>
+    </div>
+  </div>
+  <div class="aviso-sep">🔒 Tudo aqui é da Felisbina: <b>não entra</b> em Produção, Laboratório, Insumos &amp; MP nem nos custos da fábrica.</div>
+
+  <div class="tabs">
+    <button class="tab-btn active" id="tbtn-lancamento" onclick="showTab('lancamento')">📝 Lançamento do dia</button>
+    <button class="tab-btn" id="tbtn-estoque" onclick="showTab('estoque')">📦 Estoque</button>
+    <button class="tab-btn" id="tbtn-movimentos" onclick="showTab('movimentos')">📋 Movimentos</button>
+    <button class="tab-btn" id="tbtn-resumo" onclick="showTab('resumo')">📊 Resumo do mês</button>
+    <button class="tab-btn" id="tbtn-cadastro" onclick="showTab('cadastro')">⚙️ Cadastro &amp; Ficha</button>
+  </div>
+
+  <!-- ══════════ LANÇAMENTO ══════════ -->
+  <div id="tab-lancamento">
+    <div class="card">
+      <div class="barra">
+        <div class="form-group"><label class="form-label">Data</label>
+          <input type="date" class="form-input" id="l-data" style="width:160px;" onchange="carregarLanc()"></div>
+        <div class="form-group"><label class="form-label">Setor</label>
+          <div class="seg" id="l-grupo"></div></div>
+        <div class="form-group"><label class="form-label">O que lançar</label>
+          <div class="seg" id="l-cat">
+            <button class="on" data-v="itens" onclick="setLancCat('itens')">Produtos</button>
+            <button data-v="insumos" onclick="setLancCat('insumos')">Insumos</button>
+          </div></div>
+        <div class="form-group" style="flex:1;min-width:180px;"><label class="form-label">Buscar</label>
+          <input type="text" class="form-input" id="l-busca" placeholder="Nome do item..." oninput="renderLanc()" autocomplete="off"></div>
+      </div>
+      <p id="l-dica" style="font-size:12px;color:#64748b;margin:-4px 0 10px;"></p>
+      <div class="table-wrap">
+        <table class="tb-lanc">
+          <thead id="l-head"></thead>
+          <tbody id="l-body"></tbody>
+        </table>
+      </div>
+      <div id="l-baixa"></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;flex-wrap:wrap;">
+        <button class="btn btn-secondary" onclick="limparLanc()">Limpar</button>
+        <button class="btn btn-primary" id="l-btn" onclick="salvarLanc()">💾 Salvar lançamento</button>
+      </div>
+    </div>
+    <div class="card">
+      <h3 style="font-size:15px;color:var(--primary);margin-bottom:8px;" id="l-dia-tit">Já lançado neste dia</h3>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Item</th><th>Tipo</th><th style="text-align:right;">Quantidade</th><th>Lote / Doc.</th><th>Origem</th><th>Quem</th><th></th></tr></thead>
+        <tbody id="l-dia"></tbody>
+      </table></div>
+      <div id="l-dia-vazio" class="empty-state hidden" style="padding:18px;"><p>Nada lançado ainda neste dia para este setor.</p></div>
+    </div>
+  </div>
+
+  <!-- ══════════ ESTOQUE ══════════ -->
+  <div id="tab-estoque" style="display:none;">
+    <div class="kpi-row" id="e-kpis"></div>
+    <div class="card">
+      <div class="search-bar" style="flex-wrap:wrap;">
+        <div class="search-input-wrap" style="flex:1;min-width:200px;"><span class="search-icon">🔍</span>
+          <input type="text" class="form-input" id="e-busca" placeholder="Buscar item..." oninput="renderEstoque()" autocomplete="off"></div>
+        <select class="form-input" id="e-grupo" style="width:160px;" onchange="renderEstoque()"></select>
+        <select class="form-input" id="e-cat" style="width:160px;" onchange="renderEstoque()">
+          <option value="">Todas as categorias</option><option value="produto">Produtos</option><option value="revenda">Revenda</option><option value="insumo">Insumos</option>
+        </select>
+        <label style="font-size:12px;color:#475569;display:flex;align-items:center;gap:6px;"><input type="checkbox" id="e-zero" onchange="renderEstoque()"> mostrar zerados</label>
+        <button class="btn btn-secondary" onclick="carregarTudo()">↻ Atualizar</button>
+        <button class="btn btn-secondary" onclick="csvEstoque()">⬇️ CSV</button>
+      </div>
+      <div id="e-lista"></div>
+    </div>
+  </div>
+
+  <!-- ══════════ MOVIMENTOS ══════════ -->
+  <div id="tab-movimentos" style="display:none;">
+    <div class="card">
+      <div class="search-bar" style="flex-wrap:wrap;">
+        <div class="search-input-wrap" style="flex:1;min-width:200px;"><span class="search-icon">🔍</span>
+          <input type="text" class="form-input" id="m-busca" placeholder="Item, lote, documento..." oninput="renderMovs()" autocomplete="off"></div>
+        <select class="form-input" id="m-grupo" style="width:150px;" onchange="renderMovs()"></select>
+        <select class="form-input" id="m-tipo" style="width:150px;" onchange="renderMovs()">
+          <option value="">Todos os tipos</option><option value="producao">Produção</option><option value="entrada">Entrada</option>
+          <option value="carregamento">Carregamento</option><option value="consumo">Consumo</option><option value="perda">Perda</option>
+          <option value="doacao">Doação</option><option value="diferenca">Diferença</option><option value="inicial">Estoque inicial</option>
+        </select>
+        <input type="date" class="form-input" id="m-ini" style="width:150px;" onchange="carregarMovs()">
+        <input type="date" class="form-input" id="m-fim" style="width:150px;" onchange="carregarMovs()">
+        <button class="btn btn-secondary" onclick="csvMovs()">⬇️ CSV</button>
+      </div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Data</th><th>Item</th><th>Setor</th><th>Tipo</th><th style="text-align:right;">Quantidade</th><th>Lote / Doc.</th><th>Origem</th><th>Quem</th><th></th></tr></thead>
+        <tbody id="m-tb"></tbody>
+      </table></div>
+      <div id="m-vazio" class="empty-state hidden"><div class="empty-icon">📋</div><h3>Nenhum movimento</h3><p>Ajuste o período ou os filtros.</p></div>
+      <p id="m-info" style="font-size:11px;color:#94a3b8;margin-top:8px;"></p>
+    </div>
+  </div>
+
+  <!-- ══════════ RESUMO ══════════ -->
+  <div id="tab-resumo" style="display:none;">
+    <div class="card">
+      <div class="barra">
+        <div class="form-group"><label class="form-label">De</label><input type="date" class="form-input" id="r-ini" style="width:155px;" onchange="carregarResumo()"></div>
+        <div class="form-group"><label class="form-label">Até</label><input type="date" class="form-input" id="r-fim" style="width:155px;" onchange="carregarResumo()"></div>
+        <div class="form-group"><label class="form-label">Setor</label><select class="form-input" id="r-grupo" style="width:150px;" onchange="renderResumo()"></select></div>
+        <div class="form-group"><label class="form-label">Mostrar</label>
+          <select class="form-input" id="r-cat" style="width:190px;" onchange="renderResumo()">
+            <option value="itens">Produtos e revenda</option><option value="insumo">Insumos</option><option value="">Tudo</option>
+          </select></div>
+        <label style="font-size:12px;color:#475569;display:flex;align-items:center;gap:6px;padding-bottom:10px;"><input type="checkbox" id="r-zero" onchange="renderResumo()"> mostrar itens sem movimento</label>
+        <div style="flex:1;"></div>
+        <button class="btn btn-secondary" onclick="csvResumo()">⬇️ CSV</button>
+        <button class="btn btn-primary" onclick="pdfResumo()">📄 PDF do período</button>
+      </div>
+      <div id="r-lista"></div>
+    </div>
+  </div>
+
+  <!-- ══════════ CADASTRO ══════════ -->
+  <div id="tab-cadastro" style="display:none;">
+    <div class="card">
+      <div class="search-bar" style="flex-wrap:wrap;">
+        <div class="search-input-wrap" style="flex:1;min-width:200px;"><span class="search-icon">🔍</span>
+          <input type="text" class="form-input" id="c-busca" placeholder="Buscar item..." oninput="renderCadastro()" autocomplete="off"></div>
+        <select class="form-input" id="c-grupo" style="width:150px;" onchange="renderCadastro()"></select>
+        <select class="form-input" id="c-cat" style="width:160px;" onchange="renderCadastro()">
+          <option value="">Todas as categorias</option><option value="produto">Produtos</option><option value="revenda">Revenda</option><option value="insumo">Insumos</option>
+        </select>
+        <button class="btn btn-primary" onclick="abrirItem(null)">+ Novo item</button>
+      </div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Item</th><th>Setor</th><th>Categoria</th><th>Un.</th><th style="text-align:right;">Mínimo</th><th>Ficha (baixa por unidade)</th><th>Situação</th><th></th></tr></thead>
+        <tbody id="c-tb"></tbody>
+      </table></div>
+    </div>
+  </div>
+</main>
+
+<!-- ══════════ MODAL ITEM ══════════ -->
+<div id="m-item" class="modal-overlay hidden">
+  <div class="modal modal-lg" style="max-width:720px;">
+    <div class="modal-header">
+      <div class="modal-title" id="mi-tit">Item</div>
+      <button class="modal-close" onclick="closeModal('m-item')">✕</button>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:12px;">
+      <div class="form-group" style="margin:0;"><label class="form-label">Nome <span class="req">*</span></label><input class="form-input" id="mi-nome" maxlength="120"></div>
+      <div class="form-grid-3">
+        <div class="form-group" style="margin:0;"><label class="form-label">Setor</label><select class="form-input" id="mi-grupo"></select></div>
+        <div class="form-group" style="margin:0;"><label class="form-label">Categoria</label>
+          <select class="form-input" id="mi-cat" onchange="renderFichaEdit()">
+            <option value="produto">Produto (fabricado)</option><option value="revenda">Revenda</option><option value="insumo">Insumo</option>
+          </select></div>
+        <div class="form-group" style="margin:0;"><label class="form-label">Unidade</label><input class="form-input" id="mi-un" placeholder="un, cx, rolo..." maxlength="12"></div>
+      </div>
+      <div class="form-grid-3">
+        <div class="form-group" style="margin:0;"><label class="form-label">Estoque mínimo</label><input type="number" min="0" step="any" class="form-input" id="mi-min"></div>
+        <div class="form-group" style="margin:0;"><label class="form-label">Situação</label>
+          <select class="form-input" id="mi-status"><option value="ativo">Ativo</option><option value="inativo">Inativo</option></select></div>
+        <div class="form-group" style="margin:0;" id="mi-ini-box"><label class="form-label">Estoque inicial (só no cadastro)</label>
+          <div style="display:flex;gap:6px;"><input type="number" min="0" step="any" class="form-input" id="mi-ini" placeholder="0"><input type="date" class="form-input" id="mi-ini-data"></div></div>
+      </div>
+      <div class="form-group" style="margin:0;"><label class="form-label">Observações</label><textarea class="form-input" id="mi-obs" rows="2"></textarea></div>
+      <div id="mi-ficha-box">
+        <label class="form-label" style="display:block;margin-bottom:4px;">📋 Ficha — o que sai dos insumos ao produzir</label>
+        <p style="font-size:11px;color:#64748b;margin-bottom:8px;">Ex.: caixa com 12 frascos → <b>1</b> caixa a cada <b>12</b>. Frasco, rótulo e tampa → 1 a cada 1.</p>
+        <div id="mi-ficha"></div>
+        <button class="btn btn-secondary btn-sm" onclick="addFichaRow()">+ Adicionar insumo</button>
+      </div>
+      <div id="mi-erro" class="hidden alert alert-danger"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('m-item')">Cancelar</button>
+      <button class="btn btn-primary" id="mi-btn" onclick="salvarItem()">💾 Salvar item</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ MODAL CONFIRMAR ══════════ -->
+<div id="m-conf" class="modal-overlay hidden">
+  <div class="modal" style="max-width:440px;">
+    <div class="modal-header"><div class="modal-title">⚠️ Confirmar</div>
+      <button class="modal-close" onclick="closeModal('m-conf')">✕</button></div>
+    <p id="conf-msg" style="font-size:14px;color:#475569;line-height:1.6;padding:4px 0;"></p>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('m-conf')">Cancelar</button>
+      <button class="btn btn-danger" id="conf-ok">Confirmar</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+
+<script>
+/* ═══════════════════════════════════════════════════════════════════════════
+   MÓDULO FELISBINA — unidade separada (varejo, revenda e insumos próprios)
+   Substitui a planilha "SILICATE (PRODUÇÃO) / (INSUMOS) / PREPARADOR / TINTAS /
+   TOPDRY". Tabelas próprias (felis_*): nada daqui entra em producao,
+   producao_pallets, laboratório, insumos_movimentos nem custos.
+   Estoque = livro-razão felis_movimentos (quantidade com sinal).
+   ═══════════════════════════════════════════════════════════════════════════ */
+fetch('partials/sidebar.html').then(r=>r.text()).then(html=>{
+  document.getElementById('sidebar-container').innerHTML=html;
+  document.querySelector('[href="felisbina.html"]')?.classList.add('active');
+  openGroup('producao');
+}).catch(e=>console.warn('[sidebar]',e));
+initSidebar('felisbina.html');
+
+const MOD='felisbina';
+const GRUPOS=['Silicate','Topdry','Preparador','Tintas'];
+const TIPO_LBL={inicial:'Estoque inicial',producao:'Produção',entrada:'Entrada',carregamento:'Carregamento',consumo:'Consumo',perda:'Perda',doacao:'Doação',diferenca:'Diferença'};
+const CAT_LBL={produto:'Produto',revenda:'Revenda',insumo:'Insumo'};
+let _itens=[], _ficha=[], _saldo={}, _emp={}, _aba='lancamento';
+let _lanc={grupo:'Silicate',cat:'itens',saldoDia:{},movsDia:[],val:{}};
+let _movs=[], _resumo=[], _editItem=null, _fichaEdit=[];
+
+/* ── formatação ──────────────────────────────────────────────────────────── */
+const nf=(v,d)=>{ if(v===null||v===undefined||v===''||!isFinite(Number(v)))return '—';
+  const n=Number(v); const dd=d==null?(Number.isInteger(n)?0:2):d;
+  return n.toLocaleString('pt-BR',{minimumFractionDigits:dd,maximumFractionDigits:Math.max(dd,d==null?4:dd)}); };
+const dbr=d=>d?new Date(String(d).slice(0,10)+'T00:00:00').toLocaleDateString('pt-BR'):'—';
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const hoje=()=>{const d=new Date();return new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,10);};
+const num=v=>{ if(v===null||v===undefined)return 0; const s=String(v).trim().replace(/\./g,'').replace(',','.'); const n=Number(s); return isFinite(n)?n:0; };
+const itemPorId=id=>_itens.find(i=>i.id===id);
+const usuario=()=>{const u=(typeof getUser==='function')?getUser():null;return u?(u.nome||u.email||null):null;};
+function mesAtual(){const d=new Date(hoje()+'T00:00:00');const i=new Date(d.getFullYear(),d.getMonth(),1);const f=new Date(d.getFullYear(),d.getMonth()+1,0);
+  const iso=x=>new Date(x.getTime()-x.getTimezoneOffset()*60000).toISOString().slice(0,10);return [iso(i),iso(f)];}
+function chipCat(c){return '<span class="chip '+(c==='produto'?'chip-prod':c==='revenda'?'chip-rev':'chip-ins')+'">'+CAT_LBL[c]+'</span>';}
+
+/* ── carga inicial ───────────────────────────────────────────────────────── */
+async function init(){
+  document.getElementById('l-data').value=hoje();
+  const [mi,mf]=mesAtual();
+  ['m-ini','r-ini'].forEach(id=>document.getElementById(id).value=mi);
+  ['m-fim','r-fim'].forEach(id=>document.getElementById(id).value=mf);
+  const optG='<option value="">Todos os setores</option>'+GRUPOS.map(g=>'<option>'+g+'</option>').join('');
+  ['e-grupo','m-grupo','r-grupo','c-grupo'].forEach(id=>document.getElementById(id).innerHTML=optG);
+  document.getElementById('mi-grupo').innerHTML=GRUPOS.map(g=>'<option>'+g+'</option>').join('');
+  document.getElementById('l-grupo').innerHTML=GRUPOS.map(g=>'<button data-v="'+g+'" onclick="setLancGrupo(\''+g+'\')"'+(g===_lanc.grupo?' class="on"':'')+'>'+g+'</button>').join('');
+  const em=await db(_supabase.from('empresa_config').select('*').limit(1).maybeSingle(),'carregar empresa');
+  _emp=(em&&em.data)||{};
+  await carregarTudo();
+  await carregarLanc();
+}
+async function carregarTudo(){
+  const [it,fi,sa]=await Promise.all([
+    db(_supabase.from('felis_itens').select('*').order('ordem').order('nome'),'carregar itens'),
+    db(_supabase.from('felis_ficha').select('*'),'carregar ficha'),
+    db(_supabase.from('felis_saldos').select('*'),'carregar saldos'),
+  ]);
+  _itens=(it&&it.data)||[]; _ficha=(fi&&fi.data)||[];
+  _saldo={}; ((sa&&sa.data)||[]).forEach(s=>_saldo[s.item_id]=Number(s.saldo)||0);
+  renderEstoque(); renderCadastro();
+}
+
+function showTab(t){
+  if(!guardTab(MOD,t))return;
+  _aba=t;
+  ['lancamento','estoque','movimentos','resumo','cadastro'].forEach(x=>{
+    const p=document.getElementById('tab-'+x), b=document.getElementById('tbtn-'+x);
+    if(p)p.style.display=(x===t)?'':'none';
+    if(b)b.classList.toggle('active',x===t);
+  });
+  if(t==='movimentos'&&!_movs.length)carregarMovs();
+  if(t==='resumo')carregarResumo();
+  if(t==='estoque')renderEstoque();
+  const main=document.getElementById('main-content');
+  if(main&&typeof applyActionGuards==='function')applyActionGuards(MOD,main);
+}
+
+/* ═══════════════════ LANÇAMENTO DO DIA ═══════════════════ */
+function setLancGrupo(g){ _lanc.grupo=g; document.querySelectorAll('#l-grupo button').forEach(b=>b.classList.toggle('on',b.dataset.v===g)); carregarLanc(); }
+function setLancCat(c){ _lanc.cat=c; document.querySelectorAll('#l-cat button').forEach(b=>b.classList.toggle('on',b.dataset.v===c)); renderLanc(); }
+
+/* Colunas de cada tela. A convenção é a da planilha: tudo positivo; a
+   Diferença positiva é o que FALTOU na contagem (sai do estoque). */
+function colsLanc(){
+  if(_lanc.cat==='insumos') return [['entrada','Entrada'],['consumo','Consumo manual'],['perda','Perda'],['doacao','Doação'],['diferenca','Diferença']];
+  if(_lanc.grupo==='Preparador'||_lanc.grupo==='Tintas') return [['entrada','Entrada'],['carregamento','Carregado'],['diferenca','Diferença']];
+  return [['producao','Produção'],['lote','Lote'],['carregamento','Carregado'],['diferenca','Diferença']];
+}
+function itensLanc(){
+  const b=(document.getElementById('l-busca').value||'').trim().toLowerCase();
+  return _itens.filter(i=>i.status==='ativo'&&i.grupo===_lanc.grupo&&(_lanc.cat==='insumos'?i.categoria==='insumo':i.categoria!=='insumo')
+    &&(!b||i.nome.toLowerCase().includes(b)));
+}
+async function carregarLanc(){
+  const d=document.getElementById('l-data').value||hoje();
+  _lanc.val={};
+  const [r,m]=await Promise.all([
+    db(_supabase.rpc('felis_resumo',{p_ini:d,p_fim:d}),'carregar saldo do dia'),
+    db(_supabase.from('felis_movimentos').select('*').eq('data',d).order('criado_em'),'carregar lançamentos do dia'),
+  ]);
+  _lanc.saldoDia={}; ((r&&r.data)||[]).forEach(x=>_lanc.saldoDia[x.item_id]=Number(x.final)||0);
+  _lanc.movsDia=(m&&m.data)||[];
+  renderLanc(); renderDia();
+}
+function efeito(tipo,v){ if(!v)return 0; return (tipo==='producao'||tipo==='entrada')?v:-v; }
+function renderLanc(){
+  const cols=colsLanc(), lista=itensLanc();
+  const isIns=_lanc.cat==='insumos';
+  document.getElementById('l-dica').innerHTML=isIns
+    ? 'O consumo normal dos insumos sai <b>sozinho</b> quando você lança a produção (pela ficha). Aqui entra só o que chegou, a perda, a doação e o acerto de contagem.'
+    : (_lanc.grupo==='Preparador'||_lanc.grupo==='Tintas'
+       ? 'Revenda: lance o que <b>chegou</b> e o que foi <b>carregado</b>. Diferença = o que faltou na contagem.'
+       : 'Lance o que foi <b>produzido</b> e o que foi <b>carregado</b>. A produção já baixa embalagem, rótulo, tampa e caixa pela ficha.');
+  document.getElementById('l-head').innerHTML='<tr><th>Item</th><th style="text-align:right;">Saldo no dia</th>'+
+    cols.map(c=>'<th'+(c[0]==='lote'?'':' style="text-align:right;"')+'>'+c[1]+'</th>').join('')+'<th style="text-align:right;">Fica</th></tr>';
+  const tb=document.getElementById('l-body');
+  if(!lista.length){ tb.innerHTML='<tr><td colspan="'+(cols.length+3)+'" style="text-align:center;color:#94a3b8;padding:18px;">Nenhum item ativo neste setor.</td></tr>'; renderBaixa(); return; }
+  tb.innerHTML=lista.map(i=>{
+    const v=_lanc.val[i.id]||{};
+    const antes=_lanc.saldoDia[i.id]||0;
+    return '<tr id="lr-'+i.id+'" class="'+(Object.values(v).some(x=>x)?'mexeu':'')+'"><td><div style="font-weight:700;font-size:13px;">'+esc(i.nome)+'</div><div style="font-size:10px;color:#94a3b8;">'+esc(i.unidade||'un')+'</div></td>'+
+      '<td class="saldo'+(antes<0?' neg':'')+'">'+nf(antes)+'</td>'+
+      cols.map(c=>c[0]==='lote'
+        ? '<td><input class="form-input lote" value="'+esc(v.lote||'')+'" oninput="setVal(\''+i.id+'\',\'lote\',this.value)" placeholder="lote"></td>'
+        : '<td class="num"><input class="form-input" inputmode="decimal" value="'+(v[c[0]]||'')+'" oninput="setVal(\''+i.id+'\',\''+c[0]+'\',this.value)"'+(c[0]==='diferenca'?' title="Positivo = faltou; negativo = sobrou"':'')+'></td>').join('')+
+      '<td class="saldo" id="lf-'+i.id+'">'+nf(saldoFica(i.id))+'</td></tr>';
+  }).join('');
+  renderBaixa();
+}
+function consumoFichaPendente(){
+  // consumo dos insumos que a produção digitada vai gerar
+  const out={};
+  Object.entries(_lanc.val).forEach(([pid,v])=>{
+    const q=num(v.producao); if(!q)return;
+    _ficha.filter(f=>f.produto_id===pid).forEach(f=>{ out[f.insumo_id]=(out[f.insumo_id]||0)+Math.round(q*Number(f.qtd)/Number(f.por||1)*10000)/10000; });
+  });
+  return out;
+}
+function saldoFica(id){
+  const v=_lanc.val[id]||{}; let s=_lanc.saldoDia[id]||0;
+  ['producao','entrada','carregamento','consumo','perda','doacao'].forEach(t=>s+=efeito(t,num(v[t])));
+  s-=num(v.diferenca);
+  const cf=consumoFichaPendente(); if(cf[id])s-=cf[id];
+  return s;
+}
+function setVal(id,k,val){
+  const v=_lanc.val[id]||(_lanc.val[id]={}); v[k]=val;
+  const tr=document.getElementById('lr-'+id); if(tr)tr.classList.toggle('mexeu',Object.values(v).some(x=>x));
+  const f=document.getElementById('lf-'+id); if(f){const s=saldoFica(id); f.textContent=nf(s); f.classList.toggle('neg',s<0);}
+  if(k==='producao')renderBaixa();
+}
+function renderBaixa(){
+  const box=document.getElementById('l-baixa');
+  const cf=consumoFichaPendente(); const ids=Object.keys(cf);
+  if(!ids.length){ box.innerHTML=''; return; }
+  box.innerHTML='<div class="baixa-box"><b>Vai sair dos insumos (pela ficha):</b><div style="display:flex;flex-wrap:wrap;gap:6px 18px;margin-top:6px;">'+
+    ids.map(id=>{const it=itemPorId(id); const fica=(_lanc.saldoDia[id]||0)-cf[id]+(function(){const v=_lanc.val[id]||{};let s=0;['entrada','consumo','perda','doacao'].forEach(t=>s+=efeito(t,num(v[t])));return s-num(v.diferenca);})();
+      return '<span>'+esc(it?it.nome:'?')+': <b>−'+nf(cf[id])+'</b> <span style="color:'+(fica<0?'#b91c1c':'#64748b')+';font-size:11px;">(fica '+nf(fica)+')</span></span>';}).join('')+
+    '</div></div>';
+}
+function limparLanc(){ _lanc.val={}; renderLanc(); }
+async function salvarLanc(){
+  if(!guardActionTab(MOD,'lancamento','create'))return;
+  const d=document.getElementById('l-data').value;
+  if(!d){ toast('Escolha a data.','warning'); return; }
+  const itens=[]; let negativos=[];
+  Object.entries(_lanc.val).forEach(([id,v])=>{
+    ['producao','entrada','carregamento','consumo','perda','doacao'].forEach(t=>{
+      const q=num(v[t]); if(!q)return;
+      if(q<0){ negativos.push(itemPorId(id)?.nome); return; }
+      itens.push({item_id:id,tipo:t,quantidade:q,lote:t==='producao'?(v.lote||null):null});
+    });
+    const dif=num(v.diferenca); if(dif) itens.push({item_id:id,tipo:'diferenca',quantidade:-dif});
+  });
+  if(negativos.length){ toast('Só a Diferença aceita número negativo. Confira: '+negativos.join(', '),'warning'); return; }
+  if(!itens.length){ toast('Nada para salvar — preencha pelo menos um campo.','info'); return; }
+  const btn=document.getElementById('l-btn'); btn.disabled=true; btn.innerHTML='<span class="spin"></span> Salvando...';
+  try{
+    const {data,error}=await db(_supabase.rpc('felis_lancar',{p_data:d,p_itens:itens,p_usuario:usuario()}),'salvar lançamento');
+    if(error)return;
+    addLog('CREATE','FELISBINA',d,'Lançamento '+_lanc.grupo+' '+d+': '+(data&&data.movimentos)+' movimento(s), '+(data&&data.consumos)+' baixa(s) pela ficha');
+    toast('Lançamento salvo'+(data&&data.consumos?' · '+data.consumos+' baixa(s) de insumo pela ficha':'')+'.','success');
+    _movs=[];
+    await carregarTudo(); await carregarLanc();
+  }finally{ btn.disabled=false; btn.innerHTML='💾 Salvar lançamento'; }
+}
+function renderDia(){
+  const d=document.getElementById('l-data').value;
+  document.getElementById('l-dia-tit').textContent='Já lançado em '+dbr(d)+' — '+_lanc.grupo;
+  const lista=_lanc.movsDia.filter(m=>{const it=itemPorId(m.item_id);return it&&it.grupo===_lanc.grupo;});
+  document.getElementById('l-dia-vazio').classList.toggle('hidden',lista.length>0);
+  document.getElementById('l-dia').innerHTML=lista.map(m=>linhaMov(m,false)).join('');
+}
+function linhaMov(m,comData){
+  const it=itemPorId(m.item_id)||{nome:'?',grupo:'—'};
+  const q=Number(m.quantidade);
+  const podeApagar=m.origem!=='ficha';
+  return '<tr>'+(comData?'<td style="white-space:nowrap;">'+dbr(m.data)+'</td>':'')+
+    '<td style="font-size:13px;font-weight:600;">'+esc(it.nome)+'</td>'+(comData?'<td style="font-size:12px;">'+esc(it.grupo)+'</td>':'')+
+    '<td style="font-size:12px;">'+TIPO_LBL[m.tipo]+'</td>'+
+    '<td class="num '+(q<0?'q-neg':'q-pos')+'">'+(q>0?'+':'')+nf(q)+'</td>'+
+    '<td style="font-size:12px;">'+esc([m.lote,m.documento].filter(Boolean).join(' · ')||'—')+'</td>'+
+    '<td style="font-size:11px;color:#64748b;">'+(m.origem==='ficha'?'pela ficha':m.origem==='planilha'?'planilha':'manual')+'</td>'+
+    '<td style="font-size:11px;color:#64748b;">'+esc(m.usuario||'—')+'</td>'+
+    '<td>'+(podeApagar?'<button class="btn btn-ghost btn-sm" style="color:#dc2626;" title="Excluir movimento" onclick="excluirMov(\''+m.id+'\')">🗑️</button>':'')+'</td></tr>';
+}
+function excluirMov(id){
+  if(!guardActionTab(MOD,_aba==='lancamento'?'lancamento':'movimentos','delete'))return;
+  const m=_lanc.movsDia.concat(_movs).find(x=>x.id===id); if(!m)return;
+  const it=itemPorId(m.item_id);
+  document.getElementById('conf-msg').innerHTML='Excluir <b>'+TIPO_LBL[m.tipo]+'</b> de <b>'+nf(Math.abs(m.quantidade))+'</b> — '+esc(it?it.nome:'')+' em '+dbr(m.data)+'?'+
+    (m.tipo==='producao'?'<br><span style="font-size:12px;color:#b45309;">As baixas de insumo geradas por esta produção também saem.</span>':'');
+  document.getElementById('conf-ok').onclick=async()=>{
+    const {error}=await db(_supabase.from('felis_movimentos').delete().eq('id',id),'excluir movimento');
+    closeModal('m-conf');
+    if(error)return;
+    addLog('DELETE','FELISBINA',id,'Excluído '+m.tipo+' '+(it?it.nome:'')+' '+m.quantidade+' em '+m.data);
+    toast('Movimento excluído.','success');
+    _movs=_movs.filter(x=>x.id!==id&&x.origem_id!==id);
+    await carregarTudo(); await carregarLanc(); if(_aba==='movimentos')renderMovs();
+  };
+  document.getElementById('m-conf').classList.remove('hidden');
+}
+
+/* ═══════════════════ ESTOQUE ═══════════════════ */
+function estoqueFiltrado(){
+  const b=(document.getElementById('e-busca').value||'').trim().toLowerCase();
+  const g=document.getElementById('e-grupo').value, c=document.getElementById('e-cat').value, z=document.getElementById('e-zero').checked;
+  return _itens.filter(i=>(!g||i.grupo===g)&&(!c||i.categoria===c)&&(!b||i.nome.toLowerCase().includes(b))
+    &&(z||Math.abs(_saldo[i.id]||0)>1e-9||i.status==='ativo'&&Number(i.estoque_minimo)>0));
+}
+function situacao(i){
+  const s=_saldo[i.id]||0, mn=Number(i.estoque_minimo)||0;
+  if(s<0)return '<span class="chip chip-bx">NEGATIVO</span>';
+  if(mn>0&&s<mn)return '<span class="chip chip-mn">ABAIXO DO MÍNIMO</span>';
+  return '<span class="chip chip-ok">OK</span>';
+}
+function renderEstoque(){
+  const lista=estoqueFiltrado();
+  const neg=_itens.filter(i=>(_saldo[i.id]||0)<0).length;
+  const bx=_itens.filter(i=>{const s=_saldo[i.id]||0,mn=Number(i.estoque_minimo)||0;return s>=0&&mn>0&&s<mn;}).length;
+  const somaCat=c=>_itens.filter(i=>i.categoria===c).reduce((t,i)=>t+Math.max(0,_saldo[i.id]||0),0);
+  const kpi=(v,l,al)=>'<div class="kpi'+(al?' alerta':'')+'"><div class="kpi-v">'+v+'</div><div class="kpi-l">'+l+'</div></div>';
+  document.getElementById('e-kpis').innerHTML=kpi(nf(somaCat('produto'),0),'Produtos em estoque (un)')+kpi(nf(somaCat('revenda'),0),'Revenda em estoque (un)')+
+    kpi(_itens.filter(i=>i.categoria==='insumo'&&(_saldo[i.id]||0)>0).length,'Insumos com saldo')+kpi(bx,'Abaixo do mínimo',bx>0)+kpi(neg,'Saldo negativo',neg>0);
+  const box=document.getElementById('e-lista');
+  if(!lista.length){ box.innerHTML='<div class="empty-state"><div class="empty-icon">📦</div><h3>Nada para mostrar</h3><p>Ajuste os filtros ou marque "mostrar zerados".</p></div>'; return; }
+  let html='';
+  GRUPOS.forEach(g=>{
+    const gl=lista.filter(i=>i.grupo===g); if(!gl.length)return;
+    html+='<div class="grupo-tit">'+g+'</div><div class="table-wrap"><table><thead><tr><th>Item</th><th>Categoria</th><th>Un.</th><th style="text-align:right;">Saldo</th><th style="text-align:right;">Mínimo</th><th>Situação</th></tr></thead><tbody>'+
+      gl.map(i=>{const s=_saldo[i.id]||0;return '<tr'+(i.status==='inativo'?' style="opacity:.55;"':'')+'><td style="font-weight:600;font-size:13px;">'+esc(i.nome)+'</td><td>'+chipCat(i.categoria)+'</td><td style="font-size:12px;">'+esc(i.unidade||'un')+'</td>'+
+        '<td class="saldo'+(s<0?' neg':'')+'">'+nf(s)+'</td><td class="num" style="font-size:12px;color:#64748b;">'+(Number(i.estoque_minimo)>0?nf(i.estoque_minimo):'—')+'</td><td>'+situacao(i)+'</td></tr>';}).join('')+
+      '</tbody></table></div>';
+  });
+  box.innerHTML=html;
+}
+function csvEstoque(){
+  if(!guardActionTab(MOD,'estoque','export'))return;
+  exportarCSV(['Setor','Categoria','Item','Unidade','Saldo','Minimo'],
+    estoqueFiltrado().map(i=>[i.grupo,CAT_LBL[i.categoria],i.nome,i.unidade,nf(_saldo[i.id]||0),i.estoque_minimo||0]),'felisbina_estoque_'+hoje());
+}
+
+/* ═══════════════════ MOVIMENTOS ═══════════════════ */
+async function carregarMovs(){
+  const ini=document.getElementById('m-ini').value, fim=document.getElementById('m-fim').value;
+  let q=_supabase.from('felis_movimentos').select('*').order('data',{ascending:false}).order('criado_em',{ascending:false}).limit(3000);
+  if(ini)q=q.gte('data',ini); if(fim)q=q.lte('data',fim);
+  const {data}=await db(q,'carregar movimentos');
+  _movs=data||[];
+  renderMovs();
+}
+function movsFiltrados(){
+  const b=(document.getElementById('m-busca').value||'').trim().toLowerCase();
+  const g=document.getElementById('m-grupo').value, t=document.getElementById('m-tipo').value;
+  return _movs.filter(m=>{const it=itemPorId(m.item_id)||{};
+    if(g&&it.grupo!==g)return false; if(t&&m.tipo!==t)return false;
+    if(b&&![it.nome,m.lote,m.documento,m.obs].join(' ').toLowerCase().includes(b))return false; return true;});
+}
+function renderMovs(){
+  const l=movsFiltrados();
+  document.getElementById('m-vazio').classList.toggle('hidden',l.length>0);
+  document.getElementById('m-tb').innerHTML=l.slice(0,1500).map(m=>linhaMov(m,true)).join('');
+  document.getElementById('m-info').textContent=l.length>1500?'Mostrando 1.500 de '+l.length+' — use os filtros para ver o resto.':(l.length+' movimento(s).');
+}
+function csvMovs(){
+  if(!guardActionTab(MOD,'movimentos','export'))return;
+  exportarCSV(['Data','Setor','Item','Tipo','Quantidade','Lote','Documento','Origem','Usuario','Obs'],
+    movsFiltrados().map(m=>{const it=itemPorId(m.item_id)||{};return [dbr(m.data),it.grupo,it.nome,TIPO_LBL[m.tipo],nf(m.quantidade),m.lote,m.documento,m.origem,m.usuario,m.obs];}),'felisbina_movimentos');
+}
+
+/* ═══════════════════ RESUMO DO MÊS ═══════════════════ */
+async function carregarResumo(){
+  const ini=document.getElementById('r-ini').value, fim=document.getElementById('r-fim').value;
+  if(!ini||!fim)return;
+  const {data}=await db(_supabase.rpc('felis_resumo',{p_ini:ini,p_fim:fim}),'carregar resumo');
+  _resumo=(data||[]).map(r=>{const o={...r};['anterior','producao','entrada','carregamento','consumo','perda','doacao','diferenca','final'].forEach(k=>o[k]=Number(r[k])||0);return o;});
+  renderResumo();
+}
+function resumoFiltrado(){
+  const g=document.getElementById('r-grupo').value, c=document.getElementById('r-cat').value, z=document.getElementById('r-zero').checked;
+  return _resumo.map(r=>({...r,it:itemPorId(r.item_id)})).filter(r=>r.it
+    &&(!g||r.it.grupo===g)&&(c===''||(c==='itens'?r.it.categoria!=='insumo':r.it.categoria===c))
+    &&(z||r.anterior||r.producao||r.entrada||r.carregamento||r.consumo||r.perda||r.doacao||r.diferenca||r.final))
+    .sort((a,b)=>GRUPOS.indexOf(a.it.grupo)-GRUPOS.indexOf(b.it.grupo)||(a.it.categoria==='insumo')-(b.it.categoria==='insumo')||a.it.ordem-b.it.ordem||a.it.nome.localeCompare(b.it.nome));
+}
+function colsResumo(lista){
+  const temIns=lista.some(r=>r.it.categoria==='insumo');
+  const cols=[['anterior','Estoque anterior'],['producao','Produzido'],['entrada','Entrada'],['carregamento','Carregado']];
+  if(temIns)cols.push(['consumo','Consumo'],['perda','Perda'],['doacao','Doação']);
+  cols.push(['diferenca','Diferença'],['final','Estoque final']);
+  // coluna vazia no período inteiro some (ex.: Produzido na revenda)
+  return cols.filter(([k])=>k==='anterior'||k==='final'||lista.some(r=>r[k]));
+}
+function renderResumo(){
+  const lista=resumoFiltrado(); const box=document.getElementById('r-lista');
+  if(!lista.length){ box.innerHTML='<div class="empty-state"><div class="empty-icon">📊</div><h3>Nada no período</h3><p>Troque o período, o setor ou marque "mostrar itens sem movimento".</p></div>'; return; }
+  const cols=colsResumo(lista); let html='';
+  GRUPOS.forEach(g=>{
+    const gl=lista.filter(r=>r.it.grupo===g); if(!gl.length)return;
+    const tot={}; cols.forEach(([k])=>tot[k]=gl.reduce((t,r)=>t+r[k],0));
+    html+='<div class="grupo-tit">'+g+'</div><div class="table-wrap"><table><thead><tr><th>Item</th>'+cols.map(c=>'<th style="text-align:right;">'+c[1]+'</th>').join('')+'</tr></thead><tbody>'+
+      gl.map(r=>'<tr><td style="font-size:13px;font-weight:600;">'+esc(r.it.nome)+(r.it.categoria==='insumo'?' <span class="chip chip-ins">insumo</span>':'')+'</td>'+
+        cols.map(([k])=>'<td class="num'+(k==='final'?' saldo':'')+(k==='final'&&r[k]<0?' neg':'')+'">'+(r[k]?nf(r[k]):(k==='anterior'||k==='final'?'0':'<span style="color:#cbd5e1;">—</span>'))+'</td>').join('')+'</tr>').join('')+
+      '</tbody></table></div>';
+  });
+  box.innerHTML=html;
+}
+function csvResumo(){
+  if(!guardActionTab(MOD,'resumo','export'))return;
+  const l=resumoFiltrado();
+  exportarCSV(['Setor','Categoria','Item','Estoque anterior','Produzido','Entrada','Carregado','Consumo','Perda','Doacao','Diferenca','Estoque final'],
+    l.map(r=>[r.it.grupo,CAT_LBL[r.it.categoria],r.it.nome,nf(r.anterior),nf(r.producao),nf(r.entrada),nf(r.carregamento),nf(r.consumo),nf(r.perda),nf(r.doacao),nf(r.diferenca),nf(r.final)]),
+    'felisbina_resumo_'+document.getElementById('r-ini').value+'_a_'+document.getElementById('r-fim').value);
+}
+
+/* Logo da empresa no PDF (mesma rotina do lenha.html: base64 ou Storage, sai PNG). */
+let _logoCache=undefined;
+async function logoPNG(){
+  if(_logoCache!==undefined)return _logoCache;
+  _logoCache=null;
+  try{
+    let src=_emp.logo||''; if(!src)return _logoCache;
+    if(!src.startsWith('data:')&&typeof fotoParaDataUrl==='function')src=await fotoParaDataUrl(src)||'';
+    if(!src)return _logoCache;
+    const img=await new Promise((ok,erro)=>{const i=new Image();i.crossOrigin='anonymous';i.onload=()=>ok(i);i.onerror=()=>erro(new Error('logo não carregou'));i.src=src;});
+    const cv=document.createElement('canvas'); cv.width=img.naturalWidth||img.width; cv.height=img.naturalHeight||img.height;
+    if(!cv.width||!cv.height)return _logoCache;
+    cv.getContext('2d').drawImage(img,0,0);
+    _logoCache={url:cv.toDataURL('image/png'),prop:cv.width/cv.height};
+  }catch(e){ console.warn('[felisbina] logo não entrou no PDF:',e.message||e); _logoCache=null; }
+  return _logoCache;
+}
+function _empCab(){
+  const nome=_emp.razao_social||_emp.nome_fantasia||'SILICATE INDUSTRIA E COMERCIO';
+  const end=[(_emp.rua||'')+(_emp.numero?', '+_emp.numero:''),_emp.bairro,(_emp.cep?'CEP '+_emp.cep:'')].filter(Boolean).join(' - ');
+  const cid=[_emp.cidade,_emp.uf||_emp.estado].filter(Boolean).join(' - ');
+  return {nome,end,cid,cnpj:_emp.cnpj?'CNPJ '+_emp.cnpj:''};
+}
+async function pdfResumo(){
+  if(!guardActionTab(MOD,'resumo','export'))return;
+  const lista=resumoFiltrado();
+  if(!lista.length){ toast('Nada para imprimir no período/filtro escolhido.','warning'); return; }
+  try{
+    const {jsPDF}=window.jspdf;
+    const doc=new jsPDF({unit:'mm',format:'a4',orientation:'landscape'});
+    const PW=297, M=10, {nome,end,cid,cnpj}=_empCab(), logo=await logoPNG();
+    const ini=document.getElementById('r-ini').value, fim=document.getElementById('r-fim').value;
+    const selG=document.getElementById('r-grupo'), selC=document.getElementById('r-cat');
+    const sub='Felisbina  ·  '+(selG.value||'Todos os setores')+'  ·  '+selC.options[selC.selectedIndex].text;
+    const cab=()=>{
+      let tx=M;
+      if(logo&&logo.url){const h=14,lw=Math.max(8,Math.min(40,h*(logo.prop||1)));try{doc.addImage(logo.url,'PNG',M,7,lw,h);tx=M+lw+4;}catch(e){}}
+      doc.setFont('helvetica','bold');doc.setFontSize(11);doc.setTextColor(4,45,77);doc.text(nome,tx,12.5);
+      doc.setFont('helvetica','normal');doc.setFontSize(7);doc.setTextColor(90);
+      if(end)doc.text(end,tx,16.5); doc.text([cid,cnpj].filter(Boolean).join('   -   '),tx,20);
+      doc.setFont('helvetica','bold');doc.setFontSize(12);doc.setTextColor(4,45,77);
+      doc.text('RESUMO DE PRODUÇÃO E ESTOQUE',PW-M,12.5,{align:'right'});
+      doc.setFont('helvetica','normal');doc.setFontSize(8);doc.setTextColor(60);
+      doc.text(dbr(ini)+' a '+dbr(fim),PW-M,17,{align:'right'}); doc.text(sub,PW-M,21,{align:'right'});
+      doc.setDrawColor(4,45,77);doc.setLineWidth(0.6);doc.line(M,23.5,PW-M,23.5);
+    };
+    cab();
+    const cols=colsResumo(lista);
+    const R=v=>({content:v,styles:{halign:'right'}});
+    let y=29;
+    GRUPOS.forEach(g=>{
+      const gl=lista.filter(r=>r.it.grupo===g); if(!gl.length)return;
+      if(y>175){doc.addPage();cab();y=29;}
+      doc.setFont('helvetica','bold');doc.setFontSize(9.5);doc.setTextColor(4,45,77);doc.text(g.toUpperCase(),M,y);
+      const tot={}; cols.forEach(([k])=>tot[k]=gl.reduce((t,r)=>t+r[k],0));
+      doc.autoTable({
+        startY:y+2, theme:'grid',
+        head:[['ITEM'].concat(cols.map(c=>c[1].toUpperCase()))],
+        body:gl.map(r=>[r.it.nome+(r.it.categoria==='insumo'?'  (insumo)':'')].concat(cols.map(([k])=>R(r[k]?nf(r[k]):(k==='anterior'||k==='final'?'0':'—'))))),
+        foot:[['TOTAL '+g.toUpperCase()].concat(cols.map(([k])=>R(nf(tot[k]))))],
+        showFoot:'lastPage',
+        headStyles:{fillColor:[4,45,77],textColor:[201,255,100],fontSize:7,halign:'center'},
+        footStyles:{fillColor:[240,244,248],textColor:[4,45,77],fontStyle:'bold',fontSize:7.8},
+        bodyStyles:{fontSize:7.6,cellPadding:1.5,textColor:[20,30,45]},
+        alternateRowStyles:{fillColor:[248,250,252]},
+        columnStyles:{0:{cellWidth:70}},
+        didParseCell:d=>{ if(d.section==='body'&&d.column.index===cols.length){ d.cell.styles.fontStyle='bold'; } },
+        margin:{left:M,right:M,top:28,bottom:14},
+        didDrawPage:d=>{ if(d.pageNumber>1)cab(); },
+      });
+      y=(doc.lastAutoTable?doc.lastAutoTable.finalY:y)+9;
+    });
+    const u=usuario(); const ger='Gerado em '+new Date().toLocaleString('pt-BR')+(u?' por '+u:'')+'  ·  Unidade Felisbina — fora do laboratório e dos custos da fábrica';
+    const n=doc.getNumberOfPages();
+    for(let i=1;i<=n;i++){doc.setPage(i);doc.setDrawColor(203,213,225);doc.setLineWidth(0.3);doc.line(M,200,PW-M,200);
+      doc.setFont('helvetica','normal');doc.setFontSize(7);doc.setTextColor(120);doc.text(ger,M,204);doc.text('Página '+i+' de '+n,PW-M,204,{align:'right'});}
+    doc.setProperties({title:'Felisbina — resumo '+dbr(ini)+' a '+dbr(fim)});
+    const w=window.open(doc.output('bloburl'),'_blank'); if(!w)doc.save('felisbina_resumo_'+ini+'_a_'+fim+'.pdf');
+    addLog('EXPORT','FELISBINA',null,'PDF resumo '+ini+' a '+fim);
+  }catch(e){ toast('Falha ao gerar o PDF: '+(e.message||e),'danger'); }
+}
+
+/* ═══════════════════ CADASTRO & FICHA ═══════════════════ */
+function textoFicha(pid){
+  const f=_ficha.filter(x=>x.produto_id===pid); if(!f.length)return '<span style="color:#cbd5e1;">—</span>';
+  return f.map(x=>{const it=itemPorId(x.insumo_id);const p=Number(x.por||1);return esc(it?it.nome:'?')+' <b>'+nf(x.qtd)+(p!==1?'/'+nf(p):'')+'</b>';}).join('<br>');
+}
+function renderCadastro(){
+  const b=(document.getElementById('c-busca').value||'').trim().toLowerCase();
+  const g=document.getElementById('c-grupo').value, c=document.getElementById('c-cat').value;
+  const l=_itens.filter(i=>(!g||i.grupo===g)&&(!c||i.categoria===c)&&(!b||i.nome.toLowerCase().includes(b)));
+  document.getElementById('c-tb').innerHTML=l.map(i=>'<tr'+(i.status==='inativo'?' style="opacity:.55;"':'')+'><td style="font-weight:600;font-size:13px;">'+esc(i.nome)+'</td><td style="font-size:12px;">'+esc(i.grupo)+'</td><td>'+chipCat(i.categoria)+'</td>'+
+    '<td style="font-size:12px;">'+esc(i.unidade||'un')+'</td><td class="num" style="font-size:12px;">'+(Number(i.estoque_minimo)>0?nf(i.estoque_minimo):'—')+'</td>'+
+    '<td style="font-size:11px;line-height:1.5;">'+(i.categoria==='produto'?textoFicha(i.id):'')+'</td>'+
+    '<td>'+(i.status==='ativo'?'<span class="chip chip-ok">ATIVO</span>':'<span class="chip chip-ins">INATIVO</span>')+'</td>'+
+    '<td><button class="btn btn-secondary btn-sm" title="Editar" onclick="abrirItem(\''+i.id+'\')">✏️</button></td></tr>').join('')
+    || '<tr><td colspan="8" style="text-align:center;color:#94a3b8;padding:18px;">Nenhum item.</td></tr>';
+}
+function abrirItem(id){
+  if(!guardActionTab(MOD,'cadastro',id?'edit':'create'))return;
+  _editItem=id||null;
+  const i=id?itemPorId(id):{nome:'',grupo:GRUPOS[0],categoria:'produto',unidade:'un',estoque_minimo:0,status:'ativo',obs:''};
+  document.getElementById('mi-tit').textContent=id?'Editar item':'Novo item';
+  document.getElementById('mi-nome').value=i.nome||'';
+  document.getElementById('mi-grupo').value=i.grupo;
+  document.getElementById('mi-cat').value=i.categoria;
+  document.getElementById('mi-un').value=i.unidade||'un';
+  document.getElementById('mi-min').value=Number(i.estoque_minimo)||'';
+  document.getElementById('mi-status').value=i.status||'ativo';
+  document.getElementById('mi-obs').value=i.obs||'';
+  document.getElementById('mi-ini-box').style.display=id?'none':'';
+  document.getElementById('mi-ini').value=''; document.getElementById('mi-ini-data').value=hoje();
+  document.getElementById('mi-erro').classList.add('hidden');
+  _fichaEdit=id?_ficha.filter(f=>f.produto_id===id).map(f=>({insumo_id:f.insumo_id,qtd:Number(f.qtd),por:Number(f.por||1)})):[];
+  renderFichaEdit();
+  document.getElementById('m-item').classList.remove('hidden');
+}
+function renderFichaEdit(){
+  const box=document.getElementById('mi-ficha-box');
+  box.style.display=document.getElementById('mi-cat').value==='produto'?'':'none';
+  const ins=_itens.filter(i=>i.categoria==='insumo'||(i.categoria==='produto'&&i.id!==_editItem));
+  const opt=sel=>'<option value="">Escolha o insumo...</option>'+ins.map(i=>'<option value="'+i.id+'"'+(i.id===sel?' selected':'')+'>'+esc(i.nome)+' ('+esc(i.grupo)+')</option>').join('');
+  document.getElementById('mi-ficha').innerHTML=_fichaEdit.map((f,k)=>'<div class="ficha-row">'+
+    '<select class="form-input" onchange="_fichaEdit['+k+'].insumo_id=this.value">'+opt(f.insumo_id)+'</select>'+
+    '<input class="form-input" inputmode="decimal" value="'+nf(f.qtd)+'" oninput="_fichaEdit['+k+'].qtd=num(this.value)" title="Quantidade do insumo">'+
+    '<span>a cada</span>'+
+    '<input class="form-input" inputmode="decimal" value="'+nf(f.por)+'" oninput="_fichaEdit['+k+'].por=num(this.value)" title="Unidades do produto">'+
+    '<button class="btn btn-ghost btn-sm" style="color:#dc2626;" onclick="_fichaEdit.splice('+k+',1);renderFichaEdit()">✕</button></div>').join('')
+    || '<p style="font-size:12px;color:#94a3b8;margin-bottom:6px;">Sem ficha: a produção deste item não baixa nenhum insumo.</p>';
+}
+function addFichaRow(){ _fichaEdit.push({insumo_id:'',qtd:1,por:1}); renderFichaEdit(); }
+async function salvarItem(){
+  const erro=m=>{const e=document.getElementById('mi-erro');e.textContent=m;e.classList.remove('hidden');};
+  const nome=document.getElementById('mi-nome').value.trim().replace(/\s+/g,' ');
+  if(!nome)return erro('Informe o nome.');
+  if(_itens.some(i=>i.id!==_editItem&&i.nome.toUpperCase()===nome.toUpperCase()))return erro('Já existe um item com este nome.');
+  const cat=document.getElementById('mi-cat').value;
+  const ficha=cat==='produto'?_fichaEdit.filter(f=>f.insumo_id):[];
+  if(ficha.some(f=>!(f.qtd>0)||!(f.por>0)))return erro('Na ficha, quantidade e "a cada" têm de ser maiores que zero.');
+  if(new Set(ficha.map(f=>f.insumo_id)).size!==ficha.length)return erro('O mesmo insumo aparece duas vezes na ficha.');
+  const payload={nome,grupo:document.getElementById('mi-grupo').value,categoria:cat,unidade:document.getElementById('mi-un').value.trim()||'un',
+    estoque_minimo:num(document.getElementById('mi-min').value),status:document.getElementById('mi-status').value,
+    obs:document.getElementById('mi-obs').value.trim()||null,atualizado_em:new Date().toISOString()};
+  const btn=document.getElementById('mi-btn'); btn.disabled=true;
+  try{
+    let id=_editItem;
+    if(id){ const {error}=await db(_supabase.from('felis_itens').update(payload).eq('id',id),'salvar item'); if(error)return; }
+    else{
+      payload.ordem=(_itens.reduce((m,i)=>Math.max(m,i.ordem||0),0))+1;
+      const {data,error}=await db(_supabase.from('felis_itens').insert(payload).select().single(),'criar item'); if(error)return; id=data.id;
+      const ini=num(document.getElementById('mi-ini').value);
+      if(ini>0) await db(_supabase.rpc('felis_lancar',{p_data:document.getElementById('mi-ini-data').value||hoje(),p_itens:[{item_id:id,tipo:'inicial',quantidade:ini}],p_usuario:usuario()}),'estoque inicial');
+    }
+    // ficha: regrava a do produto inteira
+    const {error:e1}=await db(_supabase.from('felis_ficha').delete().eq('produto_id',id),'limpar ficha'); if(e1)return;
+    if(ficha.length){ const {error:e2}=await db(_supabase.from('felis_ficha').insert(ficha.map(f=>({produto_id:id,insumo_id:f.insumo_id,qtd:f.qtd,por:f.por}))),'salvar ficha'); if(e2)return; }
+    addLog(_editItem?'UPDATE':'CREATE','FELISBINA',id,(_editItem?'Item alterado: ':'Item criado: ')+nome);
+    toast('Item salvo.','success'); closeModal('m-item');
+    await carregarTudo(); renderLanc();
+  }finally{ btn.disabled=false; }
+}
+
+init();
+</script>
+</body>
+</html>
