@@ -117,14 +117,17 @@
     return (Number(sacosReal) || 0) / meta * 100;
   };
 
-  // Disponibilidade (%) = (horas trabalhadas − horas paradas) ÷ horas trabalhadas × 100.
-  // 0 se não houver horas trabalhadas. É a disponibilidade "de linha" (base H.T);
-  // NÃO confundir com a disponibilidade do OEE, que usa horas brutas do planejamento.
+  // Disponibilidade (%) = horas trabalhadas ÷ (horas trabalhadas + horas paradas) × 100.
+  // H.T vem do horímetro (+ parada produtiva) e H.P são as paradas: a máquina parada
+  // NÃO roda o horímetro, então H.P fica FORA de H.T (H.T + H.P = tempo do turno).
+  // A conta antiga, (H.T − H.P) ÷ H.T, tratava H.P como parte de H.T e dava número
+  // negativo quando o turno parou mais do que rodou (ex.: 6,7h rodando, 18,3h paradas → −172%).
+  // 0 se não houver horas. NÃO confundir com a disponibilidade do OEE (base: planejamento).
   Regras.disponibilidade = function (htTrabalhada, htParada) {
     var ht = Number(htTrabalhada) || 0;
-    if (ht <= 0) return 0;
     var hp = Number(htParada) || 0;
-    return (ht - hp) / ht * 100;
+    if (ht + hp <= 0) return 0;
+    return ht / (ht + hp) * 100;
   };
 
   /* ── LENHA (recebimento e descarga) ─────────────────────────────────────────
