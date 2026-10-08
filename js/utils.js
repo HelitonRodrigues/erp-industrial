@@ -34,6 +34,7 @@ const MODULO_MAP = [
   { id:'producao',       page:'producao.html',        label:'Produção',             group:'producao',     icon:'⚙️' },
   { id:'desgaste',       page:'desgaste.html',        label:'Controle de Desgaste', group:'producao',     icon:'🔨' },
   { id:'aferidor',       page:'aferidor.html',        label:'Aferidor',             group:'producao',     icon:'🏷️' },
+  { id:'ensacadeiras',   page:'ensacadeiras.html',    label:'Ensacadeiras',         group:'producao',     icon:'⚖️' },
   { id:'custo_precificacao', page:'custo-precificacao.html', label:'Custo & Precificação', group:'producao', icon:'💵' },
   { id:'felisbina',      page:'felisbina.html',       label:'Felisbina',            group:'producao',     icon:'🏪' },
   // QUALIDADE
@@ -259,6 +260,11 @@ const MODULO_FUNCIONALIDADES = {
     { id:'docs', label:'📁 Documentação' },
     { id:'prev', label:'🔧 Preventiva' },
     { id:'kpis', label:'📊 KPIs' },
+  ],
+  ensacadeiras: [
+    { id:'aovivo', label:'🎯 Ao vivo' },
+    { id:'historico', label:'📋 Histórico' },
+    { id:'config', label:'⚙️ Configuração' },
   ],
   felisbina: [
     { id:'lancamento', label:'📝 Lançamento do dia' },
