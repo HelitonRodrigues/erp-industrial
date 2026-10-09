@@ -1,0 +1,796 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ERP Industrial — Ensacadeiras</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/supabase.js"></script>
+<script src="js/utils.js"></script>
+<style>
+.barra{display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin-bottom:14px;}
+.barra .form-group{margin:0;}
+.kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;margin-bottom:20px;}
+.bicos{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;margin-bottom:20px;}
+.bico{position:relative;overflow:hidden;}
+.bico::before{content:"";position:absolute;left:0;top:0;bottom:0;width:6px;background:var(--cor);}
+.bico-top{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px;}
+.bico-nome{font-size:13px;font-weight:800;color:var(--primary);text-transform:uppercase;letter-spacing:.5px;display:flex;align-items:center;gap:8px;}
+.bico-nome i{width:11px;height:11px;border-radius:3px;background:var(--cor);display:inline-block;}
+.bico-peso{display:flex;align-items:baseline;gap:6px;color:var(--primary);line-height:1;margin:6px 0 12px;font-variant-numeric:tabular-nums;}
+.bico-peso b{font-size:64px;font-weight:800;letter-spacing:-1.5px;}
+.bico-peso span{font-size:20px;font-weight:700;color:#94a3b8;}
+.bico.off .bico-peso b{color:#cbd5e1;}
+.trilho{height:10px;border-radius:99px;background:#e2e8f0;overflow:hidden;margin-bottom:12px;}
+.trilho div{height:100%;width:0;background:var(--primary);border-radius:99px;transition:width .15s linear;}
+.luzes{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;}
+.luz{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:700;padding:4px 10px;border-radius:20px;background:#f1f5f9;color:#94a3b8;text-transform:uppercase;}
+.luz::before{content:"";width:8px;height:8px;border-radius:50%;background:#cbd5e1;}
+.luz.on{background:var(--primary);color:var(--accent);}
+.luz.on::before{background:var(--accent);}
+.bico-rod{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;border-top:1px solid #e2e8f0;padding-top:12px;}
+.bico-rod small{display:block;font-size:11px;color:#64748b;margin-bottom:2px;}
+.bico-rod b{font-size:18px;font-weight:800;color:var(--primary);font-variant-numeric:tabular-nums;}
+.bico-rod em{font-style:normal;font-size:12px;font-weight:700;margin-left:4px;}
+.bico.flash{animation:flash 1s ease-out;}
+@keyframes flash{0%{box-shadow:0 0 0 0 rgba(201,255,100,.9);}100%{box-shadow:0 0 0 16px rgba(201,255,100,0);}}
+.graficos{display:grid;grid-template-columns:2fr 1fr;gap:16px;margin-bottom:20px;}
+.graf-h{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;margin-bottom:10px;}
+.graf-h h3{font-size:15px;color:var(--primary);font-weight:800;}
+.graf-h p{font-size:12px;color:#64748b;margin-top:2px;}
+.legenda{display:flex;gap:12px;flex-wrap:wrap;font-size:12px;color:#475569;font-weight:600;}
+.legenda span{display:inline-flex;align-items:center;gap:5px;}
+.legenda i{width:10px;height:10px;border-radius:50%;display:inline-block;}
+.cv{position:relative;width:100%;height:260px;}
+.cv canvas{position:absolute;inset:0;width:100%;height:100%;}
+.tip{position:absolute;pointer-events:none;z-index:5;background:var(--primary);color:#fff;border-radius:8px;padding:7px 11px;font-size:12px;font-weight:600;line-height:1.45;white-space:nowrap;transform:translate(-50%,calc(-100% - 12px));display:none;box-shadow:0 6px 18px rgba(4,45,77,.25);}
+.rolagem{max-height:560px;overflow-y:auto;}
+.rolagem thead th{position:sticky;top:0;z-index:1;}
+.num{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;}
+.st-ok{color:#15803d;font-weight:800;} .st-baixo{color:#b91c1c;font-weight:800;} .st-alto{color:#b45309;font-weight:800;}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;}
+tr.novo td{animation:linha 1.6s ease-out;}
+@keyframes linha{0%{background:#ecfccb;}100%{background:transparent;}}
+.acomp{margin-bottom:20px;}
+.acomp-topo{display:grid;grid-template-columns:1fr 1.3fr 1.9fr 1fr auto;gap:14px;align-items:stretch;margin-bottom:16px;}
+.acomp-item{background:#f8fafc;border:1.5px solid #e2e8f0;border-radius:12px;padding:10px 14px;min-width:0;}
+.acomp-item small{display:block;font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px;}
+.acomp-item b{display:block;font-size:16px;font-weight:800;color:var(--primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.acomp-item span{display:block;font-size:12px;color:#64748b;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.acomp-item.auto small::after{content:" · automático";color:#16a34a;text-transform:none;letter-spacing:0;font-weight:700;}
+.acomp-prod.fixo{background:var(--primary);border-color:var(--primary);}
+.acomp-prod.fixo small{color:#a9c3d8;} .acomp-prod.fixo b{color:var(--accent);font-size:17px;} .acomp-prod.fixo span{color:#cfe0ec;}
+.acomp-prod .sel-linha{display:flex;gap:6px;align-items:center;flex-wrap:wrap;}
+.acomp-prod .sel-linha #a-prod-sel{flex:1 1 100%;}
+.acomp-prod select{flex:1;min-width:0;padding:7px 10px;font-size:13px;}
+.acomp-acoes{display:flex;align-items:center;}
+.tb-acomp td,.tb-acomp th{padding:10px 14px;}
+.tb-acomp tr.total td{background:#f1f5f9;font-weight:800;color:var(--primary);}
+.tb-acomp td.grande{font-size:20px;font-weight:800;color:var(--primary);}
+.barra-h{height:12px;background:#e2e8f0;border-radius:99px;overflow:hidden;position:relative;}
+.barra-h div{height:100%;background:var(--primary);border-radius:99px;}
+.barra-h.ok div{background:#5E8C00;} .barra-h.baixo div{background:#d97706;}
+.sub-tit{font-size:13px;font-weight:800;color:var(--primary);text-transform:uppercase;letter-spacing:.4px;margin:18px 0 8px;}
+@media(max-width:1200px){.acomp-topo{grid-template-columns:1fr 1fr;}.acomp-acoes{grid-column:1/-1;}}
+@media(max-width:600px){.acomp-topo{grid-template-columns:1fr;}}
+.tol-row{display:grid;grid-template-columns:110px 1fr 1fr;gap:10px;align-items:center;margin-bottom:8px;}
+.ajuda{font-size:13px;color:#475569;line-height:1.6;}
+.ajuda code{background:#f1f5f9;padding:1px 6px;border-radius:5px;font-size:12px;}
+@media(max-width:980px){.graficos{grid-template-columns:1fr;}}
+@media(max-width:600px){.bico-peso b{font-size:52px;}.bicos{grid-template-columns:1fr;}}
+</style>
+</head>
+<body>
+<div id="sidebar-container"></div>
+<header class="topbar" id="topbar">
+  <button class="topbar-open-sidebar" onclick="toggleSidebar()">☰</button>
+  <div class="topbar-title">⚖️ Ensacadeiras</div>
+  <div class="topbar-right">
+    <div class="topbar-user">
+      <div class="user-avatar" style="width:32px;height:32px;font-size:12px;" id="top-avatar">—</div>
+      <div><div class="topbar-user-name" id="top-user-name">—</div><div class="topbar-user-profile" id="top-user-perfil">—</div></div>
+    </div>
+    <button class="btn btn-ghost btn-sm" onclick="doLogout()" style="color:#64748b;">Sair</button>
+  </div>
+</header>
+
+<main class="main-content" id="main-content">
+  <div class="page-header">
+    <div class="page-header-left">
+      <h1>Ensacadeiras</h1>
+      <p>Peso de cada saco, gravado automaticamente quando o SP1 do indicador liga</p>
+    </div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+      <select class="form-input" id="sel-linha" style="width:170px;" onchange="trocarLinha()"></select>
+      <span class="badge badge-gray" id="badge-coletor">Coletor —</span>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <button class="tab-btn active" id="tbtn-aovivo" onclick="showTab('aovivo')">🎯 Ao vivo</button>
+    <button class="tab-btn" id="tbtn-historico" onclick="showTab('historico')">📋 Histórico</button>
+    <button class="tab-btn" id="tbtn-config" onclick="showTab('config')">⚙️ Configuração</button>
+  </div>
+
+  <!-- ══════════ AO VIVO ══════════ -->
+  <div id="tab-aovivo">
+    <div class="card acomp" id="acomp">
+      <div class="acomp-topo">
+        <div class="acomp-item auto"><small>Turno</small><b id="a-turno">—</b><span id="a-turno-h">—</span></div>
+        <div class="acomp-item auto"><small>Encarregado</small><b id="a-enc">—</b><span id="a-equipe" title="">—</span></div>
+        <div class="acomp-item acomp-prod" id="a-prod-box"><small>Produto</small><div id="a-prod">—</div></div>
+        <div class="acomp-item"><small>Acompanhando desde</small><b id="a-desde">—</b><span id="a-desde-sub">—</span></div>
+        <div class="acomp-acoes"><button class="btn btn-secondary" data-perm="ensacadeiras.aovivo:edit" onclick="limparTudo()">🧹 Limpar tudo</button></div>
+      </div>
+      <div class="table-wrap"><table class="tb-acomp">
+        <thead><tr><th>Bico</th><th class="num">Sacos</th><th class="num">Toneladas</th><th class="num">Pallets</th><th class="num">Peso médio</th><th class="num">Leves</th><th class="num">Sobrepeso</th><th class="num">Ritmo</th><th class="num">Eficiência</th></tr></thead>
+        <tbody id="a-body"></tbody>
+      </table></div>
+      <div class="sub-tit">Produção por hora</div>
+      <div class="table-wrap rolagem" style="max-height:360px;"><table class="tb-acomp">
+        <thead id="a-horas-h"></thead>
+        <tbody id="a-horas"></tbody>
+      </table></div>
+    </div>
+    <div class="bicos" id="bicos"></div>
+    <div class="kpis" id="v-kpis"></div>
+    <div class="graficos">
+      <div class="card">
+        <div class="graf-h">
+          <div><h3>Peso por saco</h3><p id="g1-sub">Últimos 120 sacos de hoje</p></div>
+          <div class="legenda" id="g1-leg"></div>
+        </div>
+        <div class="cv" id="g1"><canvas></canvas><div class="tip"></div></div>
+      </div>
+      <div class="card">
+        <div class="graf-h"><div><h3>Distribuição</h3><p>Desvio do nominal, em gramas — hoje</p></div></div>
+        <div class="cv" id="g2"><canvas></canvas><div class="tip"></div></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="graf-h"><div><h3>Últimos sacos</h3><p id="v-tab-sub">—</p></div></div>
+      <div class="table-wrap rolagem"><table>
+        <thead><tr><th>Hora</th><th>Bico</th><th class="num">Peso</th><th class="num">Desvio</th><th>Situação</th><th>Captura</th><th class="num">SP1 → gravação</th></tr></thead>
+        <tbody id="v-body"></tbody>
+      </table></div>
+    </div>
+  </div>
+
+  <!-- ══════════ HISTÓRICO ══════════ -->
+  <div id="tab-historico" style="display:none;">
+    <div class="card" style="margin-bottom:16px;">
+      <div class="barra">
+        <div class="form-group"><label class="form-label">De</label><input type="date" class="form-input" id="h-ini" style="width:160px;"></div>
+        <div class="form-group"><label class="form-label">Até</label><input type="date" class="form-input" id="h-fim" style="width:160px;"></div>
+        <div class="form-group"><label class="form-label">Bico</label><select class="form-input" id="h-bico" style="width:130px;"></select></div>
+        <button class="btn btn-primary" onclick="carregarHistorico()">🔍 Filtrar</button>
+        <button class="btn btn-secondary" data-perm="ensacadeiras.historico:export" onclick="csvHistorico()">⬇️ CSV</button>
+      </div>
+      <div class="kpis" id="h-kpis" style="margin-bottom:0;"></div>
+    </div>
+    <div class="card" style="margin-bottom:16px;">
+      <div class="graf-h"><div><h3>Resumo por dia e bico</h3><p id="h-res-sub">—</p></div></div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Dia</th><th>Bico</th><th class="num">Sacos</th><th class="num">Toneladas</th><th class="num">Peso médio</th><th class="num">Desvio padrão</th><th class="num">Leves</th><th class="num">Sobrepeso doado</th></tr></thead>
+        <tbody id="h-resumo"></tbody>
+      </table></div>
+    </div>
+    <div class="card">
+      <div class="graf-h"><div><h3>Sacos</h3><p id="h-tab-sub">—</p></div></div>
+      <div class="table-wrap rolagem"><table>
+        <thead><tr><th>Data</th><th>Hora</th><th>Bico</th><th class="num">Peso</th><th class="num">Desvio</th><th>Situação</th><th>Captura</th></tr></thead>
+        <tbody id="h-body"></tbody>
+      </table></div>
+    </div>
+  </div>
+
+  <!-- ══════════ CONFIGURAÇÃO ══════════ -->
+  <div id="tab-config" style="display:none;">
+    <div class="graficos" style="grid-template-columns:1fr 1fr;">
+      <div class="card">
+        <h3 style="font-size:15px;color:var(--primary);margin-bottom:4px;">Tolerância por saco</h3>
+        <p style="font-size:12px;color:#64748b;margin-bottom:14px;">Abaixo de <b>nominal − tolerância</b> conta como saco leve; acima de <b>nominal + tolerância</b>, como sobrepeso.</p>
+        <div class="tol-row" style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;"><span>Nominal</span><span>Abaixo (kg)</span><span>Acima (kg)</span></div>
+        <div id="tol-lista"></div>
+        <div style="display:flex;justify-content:flex-end;margin-top:12px;">
+          <button class="btn btn-primary" data-perm="ensacadeiras.config:edit" onclick="salvarTolerancias()">💾 Salvar tolerâncias</button>
+        </div>
+      </div>
+      <div class="card">
+        <h3 style="font-size:15px;color:var(--primary);margin-bottom:10px;">Coletor da linha</h3>
+        <div class="table-wrap" style="margin-bottom:14px;"><table>
+          <thead><tr><th>Bico</th><th>Situação</th><th>Último sinal</th><th>Observação</th></tr></thead>
+          <tbody id="c-body"></tbody>
+        </table></div>
+        <div class="ajuda">
+          O coletor é um programa no PC da linha que liga junto com o Windows. Ele lê o indicador de cada bico
+          por Modbus TCP (registros 80–85), grava o peso quando o <b>SP1</b> liga — o 1º peso <b>estável</b> em até 1 s,
+          senão a mediana das últimas leituras — e envia para cá. Sem internet, guarda os sacos e envia quando a rede volta.
+          Pasta de instalação: <code>C:\Silicate\coletor-ensacadeira</code>.
+        </div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<div id="toast-container"></div>
+
+<script>
+/* ═══════════════════════════════════════════════════════════════════════════
+   MÓDULO ENSACADEIRAS — pesagem saco a saco (Linha 3)
+   Os dados chegam do coletor (coletor-ensacadeira, no PC da linha) pela RPC
+   ensacadeira_enviar → tabelas ensacadeira_sacos e ensacadeira_status.
+   Esta tela só lê. Atualiza a cada 2 s (o cliente do ERP não usa realtime).
+   ═══════════════════════════════════════════════════════════════════════════ */
+fetch('partials/sidebar.html').then(r=>r.text()).then(html=>{
+  document.getElementById('sidebar-container').innerHTML=html;
+  document.querySelector('[href="ensacadeiras.html"]')?.classList.add('active');
+  openGroup('producao');
+}).catch(e=>console.warn('[sidebar]',e));
+initSidebar('ensacadeiras.html');
+
+const MOD='ensacadeiras';
+const COR_BICO=['#5E8C00','#1F6FD1','#B45309','#7C3AED'];   // bico 1, 2, 3, 4 (1 e 2 validados p/ daltonismo)
+const SEM_SINAL_MS=30000;                                    // coletor manda status a cada ≤10 s
+const POLL_MS=2000;
+let _rt=null, _canal=null, _ultAoVivo=0, _aoVivoOk=false;
+let _turnos=[], _escala=null, _produtos=[], _acomp=null, _ticks=0;
+let _linhas=[], _linha=null, _status={}, _sacos=[], _ids=new Set(), _ultId=0, _tol={}, _hist=[], _aba='aovivo', _timer=null, _carregando=false, _bicos=[1,2];
+
+/* ── formatação ──────────────────────────────────────────────────────────── */
+const nf=(v,d=2)=>Number(v).toLocaleString('pt-BR',{minimumFractionDigits:d,maximumFractionDigits:d});
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const hoje=()=>{const d=new Date();return new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,10);};
+const hora=ts=>new Date(ts).toLocaleTimeString('pt-BR',{hour12:false});
+const dataBr=ts=>new Date(ts).toLocaleDateString('pt-BR');
+const inicioDia=d=>new Date(d+'T00:00:00');
+const corBico=b=>COR_BICO[(b-1)%COR_BICO.length];
+function normSaco(r){return {id:Number(r.id),evento:r.evento_id,bico:Number(r.bico),peso:Number(r.peso_kg),nominal:Number(r.nominal_kg||10),metodo:r.metodo||'',tempoMs:r.tempo_ms,ts:Date.parse(r.capturado_em)};}
+function situacao(s){const t=_tol[s.nominal]||{abaixo:0.15,acima:0.25};
+  if(s.peso<s.nominal-t.abaixo-1e-9)return 'baixo'; if(s.peso>s.nominal+t.acima+1e-9)return 'alto'; return 'ok';}
+const METODO={estavel:'Estável',tempo:'Por tempo (mediana)',sem_sp1:'Na retirada (sem SP1)'};
+const SIT={ok:['✓ OK','st-ok'],baixo:['▼ Leve','st-baixo'],alto:['▲ Sobrepeso','st-alto']};
+const desvioG=s=>Math.round((s.peso-s.nominal)*1000);
+const fmtDesvio=g=>(g>=0?'+':'−')+Math.abs(g)+' g';
+
+/* ── carga inicial ───────────────────────────────────────────────────────── */
+async function init(){
+  document.getElementById('h-ini').value=hoje(); document.getElementById('h-fim').value=hoje();
+  const [li,st,tl]=await Promise.all([
+    db(_supabase.from('linhas_producao').select('id,nome,status,produtos').order('nome'),'carregar linhas'),
+    db(_supabase.from('ensacadeira_status').select('linha_id,bico'),'carregar bicos'),
+    db(_supabase.from('ensacadeira_tolerancias').select('*').order('nominal_kg'),'carregar tolerâncias'),
+  ]);
+  _tol={}; ((tl&&tl.data)||[]).forEach(t=>_tol[Number(t.nominal_kg)]={abaixo:Number(t.tol_abaixo_kg),acima:Number(t.tol_acima_kg)});
+  const comColetor=new Set(((st&&st.data)||[]).map(s=>s.linha_id));
+  const todas=(li&&li.data)||[];
+  // Só linhas que já têm coletor; se nenhuma ainda mandou sinal, mostra a Linha 3.
+  _linhas=todas.filter(l=>comColetor.has(l.id));
+  if(!_linhas.length)_linhas=todas.filter(l=>l.nome==='Linha 3');
+  if(!_linhas.length){document.getElementById('bicos').innerHTML='<div class="card empty-state"><h3>Nenhuma linha com coletor</h3><p>Instale o coletor no PC da linha.</p></div>';return;}
+  document.getElementById('sel-linha').innerHTML=_linhas.map(l=>`<option value="${l.id}">${esc(l.nome)}</option>`).join('');
+  _linha=_linhas[0];
+  renderTolerancias();
+  await carregarCadastros();
+  await trocarLinha();
+}
+async function trocarLinha(){
+  _linha=_linhas.find(l=>l.id===document.getElementById('sel-linha').value)||_linhas[0];
+  _status={}; _sacos=[]; _ids=new Set(); _ultId=0;
+  const {data:st}=await db(_supabase.from('ensacadeira_status').select('bico').eq('linha_id',_linha.id).order('bico'),'carregar bicos');
+  _bicos=(st&&st.length)?st.map(s=>Number(s.bico)):[1,2];
+  document.getElementById('h-bico').innerHTML='<option value="">Todos</option>'+_bicos.map(b=>`<option value="${b}">Bico ${b}</option>`).join('');
+  montarBicos();
+  await carregarAcomp();
+  await carregarHoje();
+  await atualizarStatus();
+  renderTudo();
+  ligarAoVivo();
+  if(_aba==='historico')carregarHistorico();
+  clearInterval(_timer); _timer=setInterval(tick,POLL_MS);
+}
+
+/* ── leitura do banco ────────────────────────────────────────────────────── */
+async function carregarHoje(){
+  const ini=new Date(janelaInicio()), lista=[];
+  for(let de=0;de<50000;de+=1000){
+    const {data,error}=await db(_supabase.from('ensacadeira_sacos')
+      .select('id,evento_id,bico,peso_kg,nominal_kg,metodo,tempo_ms,capturado_em')
+      .eq('linha_id',_linha.id).gte('capturado_em',ini.toISOString())
+      .order('id',{ascending:true}).range(de,de+999),'carregar sacos de hoje');
+    if(error)return;
+    lista.push(...data.map(normSaco));
+    if(data.length<1000)break;
+  }
+  _sacos=lista; _ids=new Set(lista.map(s=>s.evento)); _ultId=lista.length?lista[lista.length-1].id:0;
+}
+async function buscarNovos(){
+  const {data,error}=await _supabase.from('ensacadeira_sacos')
+    .select('id,evento_id,bico,peso_kg,nominal_kg,metodo,tempo_ms,capturado_em')
+    .eq('linha_id',_linha.id).gt('id',_ultId).order('id',{ascending:true}).limit(1000);
+  if(error){console.error('[ensacadeiras] buscar novos:',error.message);marcarFalha(error.message);return [];}
+  const ini=janelaInicio(), novos=[];
+  for(const r of data){const s=normSaco(r); _ultId=Math.max(_ultId,s.id);
+    if(_ids.has(s.evento)||s.ts<ini)continue; _ids.add(s.evento); inserirSaco(s); novos.push(s);}
+  // virou o dia / limparam o acompanhamento: descarta o que ficou para trás
+  if(_sacos.length&&_sacos[0].ts<ini){_sacos=_sacos.filter(s=>s.ts>=ini);_ids=new Set(_sacos.map(s=>s.evento));}
+  return novos;
+}
+function inserirSaco(s){            // mantém _sacos em ordem de horário (canal ao vivo e banco podem chegar fora de ordem)
+  let i=_sacos.length; while(i>0&&_sacos[i-1].ts>s.ts)i--; _sacos.splice(i,0,s);
+}
+async function atualizarStatus(){
+  if(Date.now()-_ultAoVivo<3000){renderColetor();return;}   // canal ao vivo está trazendo o status: não sobrescreve com o do banco
+  const {data,error}=await _supabase.from('ensacadeira_status').select('*').eq('linha_id',_linha.id);
+  if(error){console.error('[ensacadeiras] status:',error.message);marcarFalha(error.message);return;}
+  _status={}; (data||[]).forEach(r=>_status[r.bico]=r);
+  renderBicos(); renderColetor();
+}
+let _falhaAvisada=false;
+function marcarFalha(msg){ if(!_falhaAvisada){toast('Ensacadeiras: falha ao atualizar — '+msg,'danger');_falhaAvisada=true;} }
+async function tick(){
+  if(document.hidden||_carregando||!_linha)return;
+  _carregando=true;
+  try{
+    await atualizarStatus();
+    const novos=await buscarNovos();
+    if(++_ticks%15===0){await carregarAcomp(true);}             // a cada ~30 s: outro usuário pode ter limpado/fixado
+    if(novos.length){_falhaAvisada=false; renderTudo(novos.map(s=>s.evento)); novos.forEach(s=>flash(s.bico));}
+    else {renderBicoRodape(); renderAcomp();}
+  }finally{_carregando=false;}
+}
+
+/* ── acompanhamento: turno e encarregado (escala), produto fixado, limpar tudo ─ */
+const sacosHoje=()=>{const i=inicioDia(hoje()).getTime();return _sacos.filter(s=>s.ts>=i);};
+const normNome=s=>String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,'');
+const DIAS=['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
+async function carregarCadastros(){
+  const [tu,pr,es]=await Promise.all([
+    db(_supabase.from('turnos').select('id,nome,status,calendario').order('nome'),'carregar turnos'),
+    db(_supabase.from('produtos').select('id,nome,linhas,unidade,peso_unidade_kg,capacidades,status').eq('status','ativo').order('nome'),'carregar produtos'),
+    db(_supabase.from('escalas').select('id,nome,periodo_inicio,periodo_fim,status,turno_id,turno_nome,encarregado,linhas,turno2,turno3')
+      .eq('status','ativa').lte('periodo_inicio',hoje()).gte('periodo_fim',hoje()).order('periodo_inicio',{ascending:false}).limit(1),'carregar escala'),
+  ]);
+  _turnos=((tu&&tu.data)||[]).filter(t=>t.status!=='inativo');
+  _produtos=((pr&&pr.data)||[]).filter(p=>p.unidade==='sacos');      // ensacadeira: só produto em saco
+  _escala=((es&&es.data)||[])[0]||null;
+}
+// blocos de turno da escala: principal, turno2, turno3
+function blocosEscala(){
+  if(!_escala)return [];
+  const b=[{turno_id:_escala.turno_id,turno_nome:_escala.turno_nome,encarregado:_escala.encarregado,linhas:_escala.linhas||[]}];
+  [_escala.turno2,_escala.turno3].forEach(t=>{if(t&&t.turno_id)b.push({turno_id:t.turno_id,turno_nome:t.turno_nome,encarregado:t.encarregado,linhas:t.linhas||[]});});
+  return b;
+}
+// janela [ini,fim) do turno t que contém a data d (considera turno que vira a meia-noite)
+function janelaTurno(t,d){
+  const cal=t.calendario||{};
+  for(const delta of [0,-1]){
+    const base=new Date(d.getFullYear(),d.getMonth(),d.getDate()+delta), c=cal[DIAS[base.getDay()]];
+    if(!c||!c.ativo||!c.inicio||!c.fim)continue;
+    const [hi,mi]=c.inicio.split(':').map(Number),[hf,mf]=c.fim.split(':').map(Number);
+    const ini=new Date(base.getFullYear(),base.getMonth(),base.getDate(),hi,mi), fim=new Date(base.getFullYear(),base.getMonth(),base.getDate(),hf,mf);
+    if(fim<=ini)fim.setDate(fim.getDate()+1);
+    if(d>=ini&&d<fim)return {ini,fim};
+  }
+  return null;
+}
+function turnoAtual(){
+  const agora=new Date(), daEscala=new Set(blocosEscala().map(b=>b.turno_id));
+  const cand=_turnos.filter(t=>daEscala.size?daEscala.has(t.id):!/administ/i.test(t.nome));
+  let melhor=null;
+  for(const t of cand){const j=janelaTurno(t,agora); if(j&&(!melhor||j.ini>melhor.ini))melhor={turno:t,...j};}   // sobreposição: vale o que começou por último
+  if(!melhor)return null;
+  const bloco=blocosEscala().find(b=>b.turno_id===melhor.turno.id)||null;
+  const equipe=bloco?((bloco.linhas.find(l=>l.linha_id===_linha.id)||{}).membros||[]):[];
+  return {...melhor,encarregado:bloco&&bloco.encarregado||null,equipe};
+}
+function janelaInicio(){
+  const ini=[inicioDia(hoje()).getTime()], t=turnoAtual();
+  if(t)ini.push(t.ini.getTime());
+  if(_acomp)ini.push(Date.parse(_acomp.inicio_em));
+  return Math.max(Date.now()-3*86400e3,Math.min(...ini));
+}
+async function carregarAcomp(silencioso){
+  const q=_supabase.from('ensacadeira_acompanhamento').select('*').eq('linha_id',_linha.id).is('fechado_em',null).limit(1);
+  const {data,error}=silencioso?await q:await db(q,'carregar acompanhamento');
+  if(error){if(silencioso)console.error('[ensacadeiras] acompanhamento:',error.message);return;}
+  const novo=(data||[])[0]||null, mudou=(novo&&novo.id)!==(_acomp&&_acomp.id)||(novo&&_acomp&&novo.produto_id!==_acomp.produto_id);
+  const iniAntes=janelaInicio(); _acomp=novo;
+  if(mudou&&janelaInicio()<iniAntes&&silencioso)await carregarHoje();   // janela cresceu para trás: recarrega
+  if(mudou||!silencioso)renderAcomp();
+}
+function capHoraProduto(p){
+  if(!p)return null;
+  const prods=(_linha&&_linha.produtos)||[], fam=(p.linhas||[]).map(normNome);
+  const x=prods.find(lp=>fam.includes(normNome(lp.nome)))||prods.find(lp=>Number(String(lp.nome).replace(/\D/g,''))===Number(p.peso_unidade_kg));
+  return x&&Number(x.capHora)>0?Number(x.capHora):null;
+}
+function renderAcomp(){
+  if(!_linha||!document.getElementById('a-body'))return;
+  const t=turnoAtual(), hm=d=>d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+  document.getElementById('a-turno').textContent=t?t.turno.nome:'Fora de turno';
+  document.getElementById('a-turno-h').textContent=t?`${hm(t.ini)} – ${hm(t.fim)}${_escala?' · '+_escala.nome:''}`:(_escala?'Nenhum turno da escala agora':'Sem escala ativa hoje');
+  const enc=t&&t.encarregado;
+  const ae=document.getElementById('a-enc'); ae.textContent=enc?enc.nome:(_escala?'Não definido na escala':'Sem escala ativa'); ae.title=ae.textContent;
+  const eq=document.getElementById('a-equipe'), nomes=(t?t.equipe:[]).map(m=>m.nome.split(' ')[0]);
+  eq.textContent=nomes.length?`Equipe ${_linha.nome}: ${nomes.join(', ')}`:`Equipe ${_linha.nome}: —`; eq.title=(t?t.equipe:[]).map(m=>m.nome).join('\n');
+  // produto
+  const box=document.getElementById('a-prod-box'), pd=document.getElementById('a-prod'), podeEditar=canTab(MOD,'aovivo')&&checkPermTab(MOD,'aovivo','edit');
+  if(_acomp&&_acomp.produto_nome){
+    box.classList.add('fixo');
+    pd.innerHTML=`<b title="${esc(_acomp.produto_nome)}">🔒 ${esc(_acomp.produto_nome)}</b><span>${nf(_acomp.nominal_kg||0,0)} kg · ${_acomp.sacos_por_pallet||'—'} sacos/pallet${_acomp.cap_hora?' · '+nf(_acomp.cap_hora,0)+' sc/h':''}</span>`;
+  }else{
+    box.classList.remove('fixo');
+    if(!pd.querySelector('select')){
+      pd.innerHTML=`<div class="sel-linha"><select class="form-input" id="a-prod-sel" onchange="opcoesPallet()" ${podeEditar?'':'disabled'}><option value="">Selecione o produto…</option>${_produtos.map(p=>`<option value="${p.id}">${esc(p.nome)}</option>`).join('')}</select>
+        <select class="form-input" id="a-pallet" style="flex:1;" title="Sacos por pallet" ${podeEditar?'':'disabled'}></select>
+        <button class="btn btn-primary btn-sm" onclick="fixarProduto()" ${podeEditar?'':'disabled'}>Fixar</button></div>`;
+      opcoesPallet();
+    }
+  }
+  // desde quando
+  const ini=_acomp?new Date(_acomp.inicio_em):(t?t.ini:inicioDia(hoje()));
+  document.getElementById('a-desde').textContent=ini.toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+  document.getElementById('a-desde-sub').textContent=_acomp?(_acomp.aberto_por?'por '+_acomp.aberto_por:'aberto'):(t?'início do turno':'início do dia');
+  renderTabelaAcomp(ini.getTime());
+}
+function opcoesPallet(){
+  const sel=document.getElementById('a-prod-sel'), pal=document.getElementById('a-pallet'); if(!sel||!pal)return;
+  const p=_produtos.find(x=>x.id===sel.value), caps=(p&&Array.isArray(p.capacidades)?p.capacidades:[]).filter(c=>Number(c)>0);
+  pal.innerHTML=caps.length?caps.map(c=>`<option value="${c}" ${Number(c)===180?'selected':''}>${c}/plt</option>`).join(''):'<option value="">—/plt</option>';
+}
+function renderTabelaAcomp(iniMs){
+  const lista=_sacos.filter(s=>s.ts>=iniMs), agora=Date.now(), horas=Math.max((agora-iniMs)/3600e3,1/60);
+  const pp=_acomp&&_acomp.sacos_por_pallet?Number(_acomp.sacos_por_pallet):null;
+  const cap=_acomp&&_acomp.cap_hora?Number(_acomp.cap_hora):null;
+  const linha=(rotulo,l,capB,cls)=>{const c=calcular(l), rit=c.n/horas, ef=capB?rit/capB*100:null;
+    const pal=pp?`${Math.floor(c.n/pp)} <span style="color:#94a3b8;font-weight:600;">+ ${c.n%pp} sc</span>`:'—';
+    return `<tr class="${cls||''}"><td>${rotulo}</td><td class="num grande">${c.n.toLocaleString('pt-BR')}</td><td class="num">${nf(c.soma/1000,2)} t</td>
+      <td class="num">${pal}</td><td class="num">${c.n?nf(c.media,3)+' kg':'—'}</td><td class="num ${c.leves?'st-baixo':''}">${c.leves}</td>
+      <td class="num">${nf(c.doado,1)} kg</td><td class="num">${Math.round(rit).toLocaleString('pt-BR')} sc/h</td>
+      <td class="num" style="${ef==null?'':'color:'+(ef>=95?'#15803d':ef>=80?'#b45309':'#b91c1c')}">${ef==null?'—':nf(ef,0)+'%'}</td></tr>`;};
+  document.getElementById('a-body').innerHTML=_bicos.map(b=>linha(`<span class="dot" style="background:${corBico(b)}"></span>Bico ${b}`,lista.filter(s=>s.bico===b),cap?cap/_bicos.length:null)).join('')
+    +linha('Total',lista,cap,'total');
+  // por hora
+  document.getElementById('a-horas-h').innerHTML=`<tr><th>Hora</th>${_bicos.map(b=>`<th class="num">Bico ${b}</th>`).join('')}<th class="num">Total</th><th style="width:34%;">${cap?'vs. capacidade ('+nf(cap,0)+' sc/h)':'Sacos'}</th><th class="num">Peso médio</th></tr>`;
+  const h0=new Date(iniMs); h0.setMinutes(0,0,0); const linhasH=[];
+  const maxH=Math.max(1,...(()=>{const m=[];for(let t=h0.getTime();t<=agora;t+=3600e3)m.push(lista.filter(s=>s.ts>=t&&s.ts<t+3600e3).length);return m;})());
+  for(let t=h0.getTime();t<=agora;t+=3600e3){
+    const l=lista.filter(s=>s.ts>=t&&s.ts<t+3600e3), c=calcular(l), d=new Date(t);
+    const durMin=(Math.min(agora,t+3600e3)-Math.max(iniMs,t))/60000, ref=cap?cap*durMin/60:maxH, pct=ref?Math.min(100,c.n/ref*100):0;
+    const cls=cap?(pct>=95?'ok':pct>=80?'':'baixo'):'';
+    linhasH.push(`<tr><td>${String(d.getHours()).padStart(2,'0')}:00${durMin<59.5?` <span style="color:#94a3b8;font-size:11px;">(${Math.round(durMin)} min)</span>`:''}</td>
+      ${_bicos.map(b=>`<td class="num">${l.filter(s=>s.bico===b).length}</td>`).join('')}<td class="num"><b>${c.n}</b></td>
+      <td><div class="barra-h ${cls}" title="${cap?nf(pct,0)+'% da capacidade no período':''}"><div style="width:${pct}%"></div></div></td>
+      <td class="num">${c.n?nf(c.media,3)+' kg':'—'}</td></tr>`);
+  }
+  document.getElementById('a-horas').innerHTML=linhasH.reverse().join('')||`<tr><td colspan="${_bicos.length+4}"><div class="empty-state" style="padding:20px;"><p>Sem sacos ainda.</p></div></td></tr>`;
+}
+function quemSou(){const u=getUser();return u?(u.nome||u.email||null):null;}
+function dadosTurno(){const t=turnoAtual();return {turno_id:t?t.turno.id:null,turno_nome:t?t.turno.nome:null,encarregado:t&&t.encarregado||null};}
+async function fixarProduto(){
+  if(!guardActionTab(MOD,'aovivo','edit'))return;
+  const sel=document.getElementById('a-prod-sel'), p=_produtos.find(x=>x.id===sel.value);
+  if(!p){toast('Selecione o produto.','warning');return;}
+  const pal=Number(document.getElementById('a-pallet').value)||null;
+  const dados={produto_id:p.id,produto_nome:p.nome,nominal_kg:Number(p.peso_unidade_kg)||null,sacos_por_pallet:pal,cap_hora:capHoraProduto(p)};
+  let r;
+  if(_acomp) r=await db(_supabase.from('ensacadeira_acompanhamento').update(dados).eq('id',_acomp.id).is('produto_id',null).select().single(),'fixar produto');
+  // sem acompanhamento aberto: começa do que já está na tela (início do turno), sem zerar a contagem
+  else{const t=turnoAtual(); r=await db(_supabase.from('ensacadeira_acompanhamento').insert({linha_id:_linha.id,inicio_em:(t?t.ini:inicioDia(hoje())).toISOString(),aberto_por:quemSou(),...dadosTurno(),...dados}).select().single(),'fixar produto');}
+  if(r.error){await carregarAcomp(true);return;}
+  _acomp=r.data;
+  addLog('UPDATE','ENSACADEIRAS',_acomp.id,`${_linha.nome}: produto fixado — ${p.nome}`);
+  toast('Produto fixado: '+p.nome,'success'); renderTudo();
+}
+async function limparTudo(){
+  if(!guardActionTab(MOD,'aovivo','edit'))return;
+  if(!confirm(`Limpar o acompanhamento da ${_linha.nome}?\n\nA contagem recomeça do zero agora e o produto fica livre para escolher de novo.\nOs sacos já gravados continuam no Histórico.`))return;
+  const agora=new Date().toISOString();
+  if(_acomp){const {error}=await db(_supabase.from('ensacadeira_acompanhamento').update({fechado_em:agora,fechado_por:quemSou()}).eq('id',_acomp.id),'limpar acompanhamento'); if(error)return;}
+  const {data,error}=await db(_supabase.from('ensacadeira_acompanhamento').insert({linha_id:_linha.id,inicio_em:agora,aberto_por:quemSou(),...dadosTurno()}).select().single(),'abrir acompanhamento');
+  if(error){await carregarAcomp(true);return;}
+  _acomp=data;
+  addLog('UPDATE','ENSACADEIRAS',data.id,`${_linha.nome}: acompanhamento limpo`);
+  toast('Acompanhamento limpo — contagem recomeçou.','success');
+  document.getElementById('a-prod').innerHTML=''; renderTudo();
+}
+
+/* ── canal ao vivo (Supabase Realtime broadcast, enviado pelo coletor ~5x/s) ─ */
+// O _supabase do ERP tem realtime desligado; aqui um cliente só para ouvir o canal.
+// Se o canal cair, a tela continua pelo banco (a cada 2 s).
+function ligarAoVivo(){
+  try{
+    if(!window.supabase||typeof SUPABASE_URL==='undefined')return;
+    if(!_rt)_rt=window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY,{auth:{persistSession:false,autoRefreshToken:false,detectSessionInUrl:false,storageKey:'erp-ens-aovivo'}});
+    if(_canal){_rt.removeChannel(_canal);_canal=null;}
+    _aoVivoOk=false;
+    _canal=_rt.channel('ens-'+_linha.id)
+      .on('broadcast',{event:'status'},({payload})=>aoVivoStatus(payload))
+      .on('broadcast',{event:'saco'},({payload})=>aoVivoSaco(payload))
+      .subscribe(st=>{_aoVivoOk=(st==='SUBSCRIBED'); if(st==='CHANNEL_ERROR'||st==='TIMED_OUT')console.warn('[ensacadeiras] canal ao vivo:',st); renderColetor();});
+  }catch(e){console.error('[ensacadeiras] canal ao vivo não ligou:',e);}
+}
+function aoVivoStatus(p){
+  if(!p||!Array.isArray(p.bicos))return;
+  _ultAoVivo=Date.now();
+  const agora=new Date().toISOString();       // hora de chegada (evita diferença de relógio entre PC e navegador)
+  p.bicos.forEach(r=>{_status[r.bico]=Object.assign({},_status[r.bico],r,{atualizado_em:agora});});
+  renderBicos(); renderColetor();
+}
+function aoVivoSaco(r){
+  if(!r||!r.evento_id||_ids.has(r.evento_id))return;
+  const s=normSaco(Object.assign({id:0},r)); if(s.ts<janelaInicio())return;
+  _ids.add(s.evento); inserirSaco(s); renderTudo([s.evento]); flash(s.bico);
+}
+
+/* ── bicos ao vivo ───────────────────────────────────────────────────────── */
+function montarBicos(){
+  document.getElementById('bicos').innerHTML=_bicos.map(b=>`
+    <div class="card bico" id="bico-${b}" style="--cor:${corBico(b)}">
+      <div class="bico-top">
+        <div class="bico-nome"><i></i>Bico ${b}</div>
+        <span class="badge badge-gray" data-r="etapa">—</span>
+      </div>
+      <div class="bico-peso"><b data-r="peso">--,--</b><span>kg</span></div>
+      <div class="trilho"><div data-r="bar"></div></div>
+      <div class="luzes">
+        <span class="luz" data-r="sp1">SP1 · corte</span><span class="luz" data-r="est">Estável</span>
+        <span class="luz" data-r="sp2">SP2</span><span class="luz" data-r="sp3">SP3</span>
+      </div>
+      <div class="bico-rod">
+        <div><small>Último saco</small><b data-r="ult">—</b><em data-r="ultd"></em></div>
+        <div><small>Sacos hoje</small><b data-r="cnt">0</b></div>
+        <div><small>Ritmo (15 min)</small><b data-r="rit">0</b><em style="color:#94a3b8;">sc/h</em></div>
+      </div>
+    </div>`).join('');
+  document.getElementById('g1-leg').innerHTML=_bicos.map(b=>`<span><i style="background:${corBico(b)}"></i>Bico ${b}</span>`).join('')+
+    '<span><i style="width:16px;height:0;border-radius:0;border-top:2px dashed #94a3b8;"></i>Nominal</span><span><i style="width:16px;border-radius:2px;background:rgba(4,45,77,.08);"></i>Tolerância</span>';
+}
+const semSinal=st=>!st||!st.online||(Date.now()-Date.parse(st.atualizado_em))>SEM_SINAL_MS;
+function renderBicos(){
+  for(const b of _bicos){
+    const el=document.getElementById('bico-'+b); if(!el)continue;
+    const q=r=>el.querySelector(`[data-r="${r}"]`), st=_status[b], off=semSinal(st);
+    el.classList.toggle('off',off);
+    q('peso').textContent=st&&st.peso_kg!=null?nf(st.peso_kg,2):'--,--';
+    const nom=ultimoNominal(b);
+    q('bar').style.width=(st&&!off?Math.max(0,Math.min(100,Number(st.peso_kg)/nom*100)):0)+'%';
+    let txt='Aguardando saco', cls='badge-gray';
+    if(off){txt=st&&st.erro?'Sem leitura':'Coletor sem sinal';cls='badge-danger';}
+    else if(st.etapa==='capturando'){txt='Capturando…';cls='badge-warning';}
+    else if(st.etapa==='capturado'||(st.sp1&&st.ultimo_em&&Date.now()-Date.parse(st.ultimo_em)<5000)){txt='✓ Gravado';cls='badge-success';}
+    else if(Number(st.peso_kg)>0.5&&!st.sp1){txt='Enchendo';cls='badge-info';}
+    const e=q('etapa'); e.className='badge '+cls; e.textContent=txt; e.title=off&&st&&st.erro?st.erro:'';
+    ['sp1','sp2','sp3'].forEach(k=>q(k).classList.toggle('on',!off&&!!st[k]));
+    q('est').classList.toggle('on',!off&&!!st.estavel);
+  }
+}
+function renderBicoRodape(){
+  const agora=Date.now();
+  for(const b of _bicos){
+    const el=document.getElementById('bico-'+b); if(!el)continue;
+    const q=r=>el.querySelector(`[data-r="${r}"]`), lst=sacosHoje().filter(s=>s.bico===b), u=lst[lst.length-1];
+    q('cnt').textContent=lst.length.toLocaleString('pt-BR');
+    q('rit').textContent=(lst.filter(s=>agora-s.ts<=15*60e3).length*4).toLocaleString('pt-BR');
+    if(u){q('ult').textContent=nf(u.peso,2); const ed=q('ultd'), sit=situacao(u); ed.textContent=fmtDesvio(desvioG(u)); ed.className=SIT[sit][1];}
+  }
+}
+function flash(b){const el=document.getElementById('bico-'+b); if(!el)return; el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash');}
+function ultimoNominal(b){for(let i=_sacos.length-1;i>=0;i--)if(_sacos[i].bico===b)return _sacos[i].nominal;return 10;}
+function renderColetor(){
+  const badge=document.getElementById('badge-coletor');
+  const sts=_bicos.map(b=>_status[b]), ok=sts.filter(s=>!semSinal(s)).length;
+  const vivo=Date.now()-_ultAoVivo<3000;
+  if(!sts.some(Boolean)){badge.className='badge badge-gray';badge.textContent='Coletor nunca conectou';}
+  else if(ok===_bicos.length){badge.className='badge badge-success';badge.textContent=vivo?'● Ao vivo':'● Coletor online';}
+  else if(ok>0){badge.className='badge badge-warning';badge.textContent=`Coletor: ${ok}/${_bicos.length} bicos`;}
+  else{badge.className='badge badge-danger';badge.textContent='Coletor sem sinal';}
+  badge.title=vivo?'Peso chegando em tempo real pelo canal ao vivo':'Atualizando pelo banco a cada 2 s';
+  document.getElementById('c-body').innerHTML=_bicos.map(b=>{const s=_status[b],off=semSinal(s);
+    return `<tr><td><span class="dot" style="background:${corBico(b)}"></span>Bico ${b}</td>
+      <td><span class="badge ${off?'badge-danger':'badge-success'}">${off?'Sem sinal':'Online'}</span></td>
+      <td>${s?dataBr(s.atualizado_em)+' '+hora(s.atualizado_em):'—'}</td><td style="white-space:normal;">${esc(s&&s.erro||'')}</td></tr>`;}).join('');
+}
+
+/* ── KPIs ────────────────────────────────────────────────────────────────── */
+function calcular(lista){
+  let soma=0,soma2=0,leves=0,altos=0,doado=0;
+  for(const s of lista){soma+=s.peso;soma2+=s.peso*s.peso;const sit=situacao(s);if(sit==='baixo')leves++;if(sit==='alto')altos++;doado+=Math.max(0,s.peso-s.nominal);}
+  const n=lista.length;
+  return {n,soma,leves,altos,doado,media:n?soma/n:0,dp:n>1?Math.sqrt(Math.max(0,(soma2-soma*soma/n)/(n-1))):0};
+}
+function kpiHtml(itens){
+  return itens.map(([t,v,u,cor])=>`<div class="card" style="text-align:center;padding:12px;">
+    <div style="font-size:11px;color:#64748b;margin-bottom:4px;">${t}</div>
+    <div style="font-size:20px;font-weight:800;color:${cor||'var(--primary)'};">${v}</div>
+    ${u?`<div style="font-size:10px;color:#94a3b8;">${u}</div>`:''}</div>`).join('');
+}
+function kpisDe(lista,comRitmo){
+  const k=calcular(lista);
+  const it=[
+    ['📦 Sacos',k.n.toLocaleString('pt-BR'),'registrados'],
+    ['⚖️ Toneladas',nf(k.soma/1000,2),'peso real'],
+  ];
+  if(comRitmo)it.push(['📈 Ritmo',(lista.filter(s=>Date.now()-s.ts<=15*60e3).length*4).toLocaleString('pt-BR'),'sc/h · últimos 15 min']);
+  it.push(
+    ['🎯 Peso médio',k.n?nf(k.media,3):'—','kg por saco'],
+    ['📏 Desvio padrão',k.n>1?Math.round(k.dp*1000)+' g':'—','entre sacos'],
+    ['▼ Sacos leves',k.leves.toLocaleString('pt-BR'),k.n?nf(k.leves/k.n*100,1)+'% do total':'',k.leves?'#b91c1c':'#94a3b8'],
+    ['▲ Sobrepeso doado',nf(k.doado,1)+' kg',k.n?Math.round(k.doado/k.n*1000)+' g por saco':'',k.doado?'#b45309':'#94a3b8']);
+  return kpiHtml(it);
+}
+
+/* ── tabela ao vivo ──────────────────────────────────────────────────────── */
+function linhaSaco(s,novo,comData){
+  const sit=situacao(s);
+  return `<tr class="${novo?'novo':''}">${comData?`<td>${dataBr(s.ts)}</td>`:''}<td>${hora(s.ts)}</td>
+    <td><span class="dot" style="background:${corBico(s.bico)}"></span>Bico ${s.bico}</td>
+    <td class="num"><b>${nf(s.peso,2)}</b> kg</td><td class="num">${fmtDesvio(desvioG(s))}</td>
+    <td><span class="${SIT[sit][1]}">${SIT[sit][0]}</span></td>
+    <td>${METODO[s.metodo]||esc(s.metodo)}</td>${comData?'':`<td class="num">${s.tempoMs!=null&&s.metodo!=='sem_sp1'?s.tempoMs+' ms':'—'}</td>`}</tr>`;
+}
+function renderTabelaVivo(novosIds){
+  const hj=sacosHoje(), ult=hj.slice(-50).reverse(), nov=new Set(novosIds||[]);
+  document.getElementById('v-tab-sub').textContent=hj.length?`${hj.length.toLocaleString('pt-BR')} sacos hoje · mostrando os 50 mais recentes`:'Nenhum saco hoje';
+  document.getElementById('v-body').innerHTML=ult.length?ult.map(s=>linhaSaco(s,nov.has(s.evento),false)).join('')
+    :'<tr><td colspan="7"><div class="empty-state" style="padding:28px;"><p>Assim que o SP1 de um bico ligar, o saco aparece aqui.</p></div></td></tr>';
+}
+function renderTudo(novosIds){
+  renderBicos(); renderBicoRodape();
+  document.getElementById('v-kpis').innerHTML=kpisDe(sacosHoje(),true);
+  renderAcomp();
+  renderTabelaVivo(novosIds); renderSerie(); renderHist();
+}
+
+/* ── gráficos (canvas) ───────────────────────────────────────────────────── */
+function prep(id){
+  const box=document.getElementById(id), cv=box.querySelector('canvas'), dpr=window.devicePixelRatio||1, w=box.clientWidth, h=box.clientHeight;
+  cv.width=Math.round(w*dpr); cv.height=Math.round(h*dpr);
+  const ctx=cv.getContext('2d'); ctx.setTransform(dpr,0,0,dpr,0,0); ctx.clearRect(0,0,w,h);
+  ctx.font="600 11px 'Plus Jakarta Sans',sans-serif"; return {ctx,w,h};
+}
+function ticks(lo,hi,n){const span=hi-lo||1,raw=span/n,mag=Math.pow(10,Math.floor(Math.log10(raw))),st=[1,2,2.5,5,10].map(m=>m*mag).find(s=>s>=raw)||raw,out=[];
+  for(let v=Math.ceil(lo/st)*st;v<=hi+1e-9;v+=st)out.push(Number(v.toFixed(6)));return out;}
+const _g1={pts:[]}, _g2={bars:[]};
+function renderSerie(){
+  const {ctx,w,h}=prep('g1'), a=sacosHoje().slice(-120); _g1.pts=[];
+  document.getElementById('g1-sub').textContent=`Últimos ${a.length} sacos de hoje`;
+  if(!a.length){ctx.fillStyle='#94a3b8';ctx.textAlign='center';ctx.fillText('Aguardando sacos…',w/2,h/2);return;}
+  const P={l:50,r:88,t:10,b:26}; let lo=Infinity,hi=-Infinity;
+  for(const s of a){const t=_tol[s.nominal]||{abaixo:.15,acima:.25};lo=Math.min(lo,s.peso,s.nominal-t.abaixo*1.6);hi=Math.max(hi,s.peso,s.nominal+t.acima*1.6);}
+  const pad=(hi-lo)*.06; lo-=pad; hi+=pad;
+  const X=i=>P.l+(a.length===1?(w-P.l-P.r)/2:i*(w-P.l-P.r)/(a.length-1)), Y=v=>P.t+(hi-v)/(hi-lo)*(h-P.t-P.b);
+  const step=a.length>1?(w-P.l-P.r)/(a.length-1):40;
+  ctx.strokeStyle='#eef2f6';ctx.lineWidth=1;ctx.fillStyle='#94a3b8';ctx.textAlign='right';ctx.textBaseline='middle';
+  for(const t of ticks(lo,hi,5)){const y=Math.round(Y(t))+.5;ctx.beginPath();ctx.moveTo(P.l,y);ctx.lineTo(w-P.r,y);ctx.stroke();ctx.fillText(nf(t,2),P.l-8,y);}
+  ctx.fillStyle='rgba(4,45,77,.06)';
+  a.forEach((s,i)=>{const t=_tol[s.nominal]||{abaixo:.15,acima:.25},x0=Math.max(P.l,X(i)-step/2),x1=Math.min(w-P.r,X(i)+step/2);ctx.fillRect(x0,Y(s.nominal+t.acima),x1-x0,Y(s.nominal-t.abaixo)-Y(s.nominal+t.acima));});
+  ctx.strokeStyle='#94a3b8';ctx.setLineDash([5,5]);ctx.lineWidth=1.5;ctx.beginPath();
+  a.forEach((s,i)=>{const x0=Math.max(P.l,X(i)-step/2),x1=Math.min(w-P.r,X(i)+step/2);if(i===0||a[i-1].nominal!==s.nominal)ctx.moveTo(x0,Y(s.nominal));ctx.lineTo(x1,Y(s.nominal));});
+  ctx.stroke();ctx.setLineDash([]);
+  ctx.fillStyle='#94a3b8';ctx.textBaseline='top';ctx.textAlign='center';
+  const nL=Math.min(6,a.length);for(let k=0;k<nL;k++){const i=Math.round(k*(a.length-1)/Math.max(1,nL-1));ctx.fillText(hora(a[i].ts).slice(0,5),X(i),h-P.b+8);}
+  const bs=[...new Set(a.map(s=>s.bico))].sort();
+  for(const b of bs){ctx.strokeStyle=corBico(b);ctx.globalAlpha=.4;ctx.lineWidth=2;ctx.beginPath();let f=true;
+    a.forEach((s,i)=>{if(s.bico!==b)return;f?ctx.moveTo(X(i),Y(s.peso)):ctx.lineTo(X(i),Y(s.peso));f=false;});ctx.stroke();ctx.globalAlpha=1;}
+  a.forEach((s,i)=>{const x=X(i),y=Y(s.peso),sit=situacao(s);
+    ctx.beginPath();ctx.arc(x,y,4.5,0,Math.PI*2);ctx.fillStyle=corBico(s.bico);ctx.fill();ctx.lineWidth=2;ctx.strokeStyle='#fff';ctx.stroke();
+    if(sit!=='ok'){ctx.beginPath();ctx.arc(x,y,8,0,Math.PI*2);ctx.lineWidth=2;ctx.strokeStyle=sit==='baixo'?'#dc2626':'#d97706';ctx.stroke();}
+    _g1.pts.push({x,y,s});});
+  const labs=[];for(const b of bs){for(let i=a.length-1;i>=0;i--)if(a[i].bico===b){labs.push({b,y:Y(a[i].peso),t:`B${b} ${nf(a[i].peso,2)}`});break;}}
+  labs.sort((p,q)=>p.y-q.y);for(let k=1;k<labs.length;k++)if(labs[k].y-labs[k-1].y<16)labs[k].y=labs[k-1].y+16;
+  ctx.textAlign='left';ctx.textBaseline='middle';ctx.font="700 12px 'Plus Jakarta Sans',sans-serif";
+  for(const L of labs){ctx.fillStyle=corBico(L.b);ctx.fillRect(w-P.r+8,L.y-4,8,8);ctx.fillStyle='#032036';ctx.fillText(L.t,w-P.r+20,L.y);}
+}
+function renderHist(){
+  const {ctx,w,h}=prep('g2'), a=sacosHoje(); _g2.bars=[];
+  if(!a.length){ctx.fillStyle='#94a3b8';ctx.textAlign='center';ctx.fillText('Sem dados',w/2,h/2);return;}
+  const BIN=20,MIN=-300,MAX=300,nb=(MAX-MIN)/BIN,cnt=new Array(nb).fill(0);
+  for(const s of a){let i=Math.floor((desvioG(s)-MIN)/BIN);i=Math.max(0,Math.min(nb-1,i));cnt[i]++;}
+  const P={l:34,r:10,t:12,b:26},mx=Math.max(...cnt,1),bw=(w-P.l-P.r)/nb,Y=c=>P.t+(1-c/mx)*(h-P.t-P.b),base=h-P.b,XD=d=>P.l+(d-MIN)/(MAX-MIN)*(w-P.l-P.r);
+  ctx.strokeStyle='#eef2f6';ctx.fillStyle='#94a3b8';ctx.textAlign='right';ctx.textBaseline='middle';
+  for(const t of ticks(0,mx,4)){const y=Math.round(Y(t))+.5;ctx.beginPath();ctx.moveTo(P.l,y);ctx.lineTo(w-P.r,y);ctx.stroke();ctx.fillText(t,P.l-6,y);}
+  const freq={};a.forEach(s=>freq[s.nominal]=(freq[s.nominal]||0)+1);const nomDom=Number(Object.keys(freq).sort((x,y)=>freq[y]-freq[x])[0]);
+  const t=_tol[nomDom]||{abaixo:.15,acima:.25};
+  ctx.fillStyle='rgba(4,45,77,.06)';ctx.fillRect(XD(-t.abaixo*1000),P.t,XD(t.acima*1000)-XD(-t.abaixo*1000),base-P.t);
+  for(let i=0;i<nb;i++){const x=P.l+i*bw+1,bwi=Math.max(1,bw-2),y=Y(cnt[i]);
+    if(cnt[i]){ctx.fillStyle='#042D4D';const r=Math.min(4,bwi/2);ctx.beginPath();ctx.moveTo(x,base);ctx.lineTo(x,y+r);ctx.quadraticCurveTo(x,y,x+r,y);ctx.lineTo(x+bwi-r,y);ctx.quadraticCurveTo(x+bwi,y,x+bwi,y+r);ctx.lineTo(x+bwi,base);ctx.closePath();ctx.fill();}
+    _g2.bars.push({x0:P.l+i*bw,x1:P.l+(i+1)*bw,d0:MIN+i*BIN,d1:MIN+(i+1)*BIN,c:cnt[i],first:i===0,last:i===nb-1});}
+  ctx.lineWidth=2;ctx.strokeStyle='#dc2626';ctx.beginPath();ctx.moveTo(XD(-t.abaixo*1000),P.t);ctx.lineTo(XD(-t.abaixo*1000),base);ctx.stroke();
+  ctx.strokeStyle='#d97706';ctx.beginPath();ctx.moveTo(XD(t.acima*1000),P.t);ctx.lineTo(XD(t.acima*1000),base);ctx.stroke();
+  ctx.fillStyle='#94a3b8';ctx.textBaseline='top';
+  for(const d of [-300,-150,0,150,300]){ctx.textAlign=d===-300?'left':d===300?'right':'center';ctx.fillText((d>0?'+':d<0?'−':'')+Math.abs(d),XD(d),base+8);}
+}
+function dica(id,achar,html){
+  const box=document.getElementById(id),tip=box.querySelector('.tip');
+  box.addEventListener('mousemove',e=>{const r=box.getBoundingClientRect(),mx=e.clientX-r.left,my=e.clientY-r.top,it=achar(mx,my);
+    if(!it){tip.style.display='none';return;}tip.innerHTML=html(it);tip.style.display='block';
+    tip.style.left=Math.max(80,Math.min(r.width-80,it.x!=null?it.x:mx))+'px';tip.style.top=(it.y!=null?it.y:my)+'px';});
+  box.addEventListener('mouseleave',()=>tip.style.display='none');
+}
+dica('g1',(mx,my)=>{let b=null,bd=900;for(const p of _g1.pts){const d=(p.x-mx)**2+(p.y-my)**2;if(d<bd){bd=d;b=p;}}return b;},
+  p=>{const s=p.s,sit=situacao(s);return `<b>${nf(s.peso,2)} kg</b> · Bico ${s.bico}<br>${hora(s.ts)} · ${fmtDesvio(desvioG(s))} · ${SIT[sit][0]}`;});
+dica('g2',mx=>{const b=_g2.bars.find(b=>mx>=b.x0&&mx<b.x1);return b?{...b,x:null,y:null}:null;},
+  b=>`<b>${b.c} sacos</b><br>${b.first?'até '+b.d1:b.last?b.d0+' ou mais':(b.d0>0?'+':'')+b.d0+' a '+(b.d1>0?'+':'')+b.d1} g`);
+window.addEventListener('resize',()=>{if(_aba==='aovivo'){renderSerie();renderHist();}});
+
+/* ── histórico ───────────────────────────────────────────────────────────── */
+async function carregarHistorico(){
+  const ini=document.getElementById('h-ini').value, fim=document.getElementById('h-fim').value, bico=document.getElementById('h-bico').value;
+  if(!ini||!fim||fim<ini){toast('Confira o período.','warning');return;}
+  document.getElementById('h-tab-sub').textContent='Carregando…';
+  const fimTs=new Date(inicioDia(fim).getTime()+86400e3), lista=[];
+  for(let de=0;de<100000;de+=1000){
+    let q=_supabase.from('ensacadeira_sacos').select('id,evento_id,bico,peso_kg,nominal_kg,metodo,tempo_ms,capturado_em')
+      .eq('linha_id',_linha.id).gte('capturado_em',inicioDia(ini).toISOString()).lt('capturado_em',fimTs.toISOString());
+    if(bico)q=q.eq('bico',Number(bico));
+    const {data,error}=await db(q.order('capturado_em',{ascending:true}).range(de,de+999),'carregar histórico');
+    if(error){document.getElementById('h-tab-sub').textContent='Erro ao carregar.';return;}
+    lista.push(...data.map(normSaco)); if(data.length<1000)break;
+  }
+  _hist=lista; renderHistorico();
+}
+function renderHistorico(){
+  const a=_hist;
+  document.getElementById('h-kpis').innerHTML=kpisDe(a,false);
+  const grupos={};
+  for(const s of a){const d=new Date(s.ts),k=new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,10)+'|'+s.bico;(grupos[k]=grupos[k]||[]).push(s);}
+  const chaves=Object.keys(grupos).sort().reverse();
+  document.getElementById('h-res-sub').textContent=chaves.length?`${chaves.length} combinação(ões) dia × bico`:'—';
+  document.getElementById('h-resumo').innerHTML=chaves.length?chaves.map(k=>{const [dia,b]=k.split('|'),c=calcular(grupos[k]);
+    return `<tr><td>${dataBr(dia+'T12:00:00')}</td><td><span class="dot" style="background:${corBico(Number(b))}"></span>Bico ${b}</td>
+      <td class="num">${c.n.toLocaleString('pt-BR')}</td><td class="num">${nf(c.soma/1000,2)}</td><td class="num">${nf(c.media,3)} kg</td>
+      <td class="num">${c.n>1?Math.round(c.dp*1000)+' g':'—'}</td><td class="num ${c.leves?'st-baixo':''}">${c.leves}</td><td class="num">${nf(c.doado,1)} kg</td></tr>`;}).join('')
+    :'<tr><td colspan="8"><div class="empty-state" style="padding:24px;"><p>Nenhum saco no período.</p></div></td></tr>';
+  const mostra=a.slice(-500).reverse();
+  document.getElementById('h-tab-sub').textContent=a.length?`${a.length.toLocaleString('pt-BR')} sacos no período${a.length>500?' · mostrando os 500 mais recentes (o CSV leva todos)':''}`:'Nenhum saco no período';
+  document.getElementById('h-body').innerHTML=mostra.map(s=>linhaSaco(s,false,true)).join('');
+}
+function csvHistorico(){
+  if(!guardActionTab(MOD,'historico','export'))return;
+  if(!_hist.length){toast('Filtre um período com sacos primeiro.','warning');return;}
+  exportarCSV(['Data','Hora','Linha','Bico','Peso (kg)','Nominal (kg)','Desvio (g)','Situação','Captura','SP1→gravação (ms)'],
+    _hist.map(s=>[dataBr(s.ts),hora(s.ts),_linha.nome,s.bico,nf(s.peso,2),s.nominal,desvioG(s),SIT[situacao(s)][0].replace(/^\S+ /,''),METODO[s.metodo]||s.metodo,s.tempoMs??'']),
+    `ensacadeiras_${_linha.nome.replace(/\s+/g,'').toLowerCase()}_${document.getElementById('h-ini').value}_${document.getElementById('h-fim').value}`);
+}
+
+/* ── configuração ────────────────────────────────────────────────────────── */
+function renderTolerancias(){
+  const noms=Object.keys(_tol).map(Number).sort((a,b)=>a-b);
+  document.getElementById('tol-lista').innerHTML=noms.map(n=>`<div class="tol-row"><b style="color:var(--primary);">${nf(n,0)} kg</b>
+    <input class="form-input" type="number" step="0.01" min="0" id="tol-a-${n}" value="${_tol[n].abaixo}">
+    <input class="form-input" type="number" step="0.01" min="0" id="tol-c-${n}" value="${_tol[n].acima}"></div>`).join('')
+    ||'<p style="font-size:13px;color:#94a3b8;">Nenhuma tolerância cadastrada.</p>';
+}
+async function salvarTolerancias(){
+  if(!guardActionTab(MOD,'config','edit'))return;
+  const linhas=Object.keys(_tol).map(Number).map(n=>({nominal_kg:n,tol_abaixo_kg:Number(document.getElementById('tol-a-'+n).value),tol_acima_kg:Number(document.getElementById('tol-c-'+n).value),atualizado_em:new Date().toISOString()}));
+  if(linhas.some(l=>!(l.tol_abaixo_kg>=0)||!(l.tol_acima_kg>=0))){toast('Tolerância precisa ser um número maior ou igual a zero.','warning');return;}
+  const {error}=await db(_supabase.from('ensacadeira_tolerancias').upsert(linhas),'salvar tolerâncias'); if(error)return;
+  linhas.forEach(l=>_tol[l.nominal_kg]={abaixo:l.tol_abaixo_kg,acima:l.tol_acima_kg});
+  addLog('UPDATE','ENSACADEIRAS',null,'Tolerâncias: '+linhas.map(l=>`${l.nominal_kg}kg −${l.tol_abaixo_kg}/+${l.tol_acima_kg}`).join(', '));
+  toast('Tolerâncias salvas.','success'); renderTudo(); if(_hist.length)renderHistorico();
+}
+
+/* ── abas ────────────────────────────────────────────────────────────────── */
+function showTab(t){
+  if(!guardTab(MOD,t))return;
+  _aba=t;
+  ['aovivo','historico','config'].forEach(x=>{
+    const p=document.getElementById('tab-'+x), b=document.getElementById('tbtn-'+x);
+    if(p)p.style.display=(x===t)?'':'none';
+    if(b)b.classList.toggle('active',x===t);
+  });
+  if(t==='aovivo')renderTudo();
+  if(t==='historico'&&!_hist.length)carregarHistorico();
+  if(t==='config')renderColetor();
+}
+
+init();
+</script>
+</body>
+</html>
