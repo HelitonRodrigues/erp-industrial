@@ -264,6 +264,9 @@ const MODULO_FUNCIONALIDADES = {
   ensacadeiras: [
     { id:'aovivo', label:'🎯 Ao vivo' },
     { id:'historico', label:'📋 Histórico' },
+    { id:'turnos', label:'🕐 Turnos' },
+    { id:'amostras', label:'🧪 Amostras' },
+    { id:'niveis', label:'🎚️ Níveis' },
     { id:'config', label:'⚙️ Configuração' },
   ],
   felisbina: [
