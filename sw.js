@@ -49,7 +49,7 @@ self.addEventListener('push', (event) => {
     requireInteraction: urgente,
     vibrate: urgente ? [700, 200, 700, 200, 700, 200, 700] : [300, 150, 300],
     icon: 'icons/icon-192.png',
-    badge: 'icons/icon-192.png',
+    badge: 'icons/badge-96.png',   // silhueta branca: é o que aparece na barra de status
     data: { url: d.url || 'dashboard.html' },
   }));
 });
