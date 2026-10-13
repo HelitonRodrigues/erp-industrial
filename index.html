@@ -1,0 +1,698 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ERP Industrial</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/supabase.js"></script>
+<script src="js/utils.js"></script>
+<script>
+/* Celular / tablet: a tela de login troca de formato sozinha (sem botão).
+   Toque + tela pequena, ou navegador de celular/tablet. PC com tela de toque continua PC. */
+(function(){
+  try{
+    var ua=navigator.userAgent||'', coarse=window.matchMedia&&matchMedia('(pointer: coarse)').matches;
+    var movelUA=/Android|iPhone|iPad|iPod|Mobile|Tablet|Silk|Kindle/i.test(ua)||(navigator.maxTouchPoints>1&&/Macintosh/.test(ua));
+    var lado=Math.min(screen.width||9999,screen.height||9999);
+    if((movelUA&&lado<1100)||(coarse&&lado<900)||window.innerWidth<760)document.documentElement.classList.add('movel');
+  }catch(e){}
+})();
+</script>
+</head>
+<body>
+
+<!-- LOGIN — foto da fábrica na tela toda, logo gigante atrás do cartão.
+     O mesmo desenho no PC e no celular (html.movel só aumenta campos e botões). -->
+<style>
+@keyframes lgEntra{from{opacity:0;transform:translate(-50%,-46%) scale(.97)}to{opacity:1;transform:translate(-50%,-50%) scale(1)}}
+@keyframes lgLogo{from{opacity:0;transform:translate(-50%,-50%) scale(.92) rotate(-4deg)}to{opacity:.92;transform:translate(-50%,-50%) scale(1) rotate(0)}}
+@keyframes kenBurns{0%{transform:scale(1.04) translate3d(1%,1%,0)}50%{transform:scale(1.16) translate3d(-2%,-2%,0)}100%{transform:scale(1.04) translate3d(1%,1%,0)}}
+#page-login{position:relative;min-height:100vh;min-height:100dvh;overflow:hidden;background:#042D4D;font-family:'Plus Jakarta Sans',sans-serif;}
+.lg-fundo{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;animation:kenBurns 30s ease-in-out infinite;will-change:transform;}
+.lg-veu{position:absolute;inset:0;background:linear-gradient(120deg,rgba(4,45,77,.93) 0%,rgba(4,45,77,.70) 45%,rgba(4,45,77,.88) 100%);}
+.lg-logo{position:absolute;left:50%;top:50%;width:min(920px,120vmin);height:auto;transform:translate(-50%,-50%);opacity:.92;z-index:1;
+  filter:drop-shadow(0 0 40px rgba(201,255,100,.25));animation:lgLogo 1s .1s ease both;pointer-events:none;}
+.lg-palavra{position:absolute;left:50%;bottom:3vh;transform:translateX(-50%);z-index:1;white-space:nowrap;pointer-events:none;
+  font-size:clamp(56px,12vw,190px);font-weight:800;letter-spacing:.12em;color:transparent;-webkit-text-stroke:2px rgba(255,255,255,.22);text-transform:uppercase;}
+.lg-hora{position:absolute;top:26px;right:34px;z-index:3;text-align:right;color:#fff;}
+.lg-hora b{display:block;font-size:34px;font-weight:800;letter-spacing:-.5px;font-variant-numeric:tabular-nums;line-height:1;}
+.lg-hora b small{font-size:15px;color:#C9FF64;margin-left:3px;}
+.lg-hora .data{font-size:12.5px;color:rgba(255,255,255,.72);font-weight:700;margin-top:4px;}
+.lg-hora .turnos{display:flex;flex-direction:column;align-items:flex-end;gap:4px;margin-top:6px;}
+.lp-live-turno{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;font-weight:800;color:#C9FF64;}
+.lp-live-dot{width:8px;height:8px;border-radius:50%;background:#C9FF64;box-shadow:0 0 0 4px rgba(201,255,100,.25);}
+.lp-live-turno.parado{color:rgba(255,255,255,.7);} .lp-live-turno.parado .lp-live-dot{background:rgba(255,255,255,.5);box-shadow:none;}
+/* cartão */
+.lg-card{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:4;width:min(440px,calc(100vw - 32px));
+  background:rgba(255,255,255,.97);border-radius:28px;padding:34px 34px 26px;box-shadow:0 40px 90px -30px rgba(0,0,0,.6);animation:lgEntra .7s .2s ease both;}
+.lg-card::before{content:'';position:absolute;left:34px;right:34px;top:0;height:5px;border-radius:0 0 6px 6px;background:linear-gradient(90deg,#042D4D 0 60%,#C9FF64 60%);}
+.lg-card h2{font-size:30px;font-weight:800;color:#042D4D;letter-spacing:-.6px;}
+.lg-card h2::after{content:' 👋';}
+.lg-card .sub{font-size:14.5px;color:#64748b;margin:4px 0 20px;}
+.lg-lab{display:block;font-size:13px;font-weight:800;color:#032036;margin:0 0 6px;}
+.lg-campo{position:relative;}
+.lg-campo .ic{position:absolute;left:15px;top:50%;transform:translateY(-50%);font-size:16px;pointer-events:none;}
+.lg-campo input{width:100%;height:54px;border:2px solid #dbe3ec;border-radius:15px;padding:0 16px 0 44px;font:inherit;font-size:16px;color:#042D4D;background:#fbfcfe;outline:none;transition:border-color .15s,box-shadow .15s;}
+.lg-campo input:focus{border-color:#042D4D;background:#fff;box-shadow:0 0 0 4px rgba(201,255,100,.6);}
+#login-senha{letter-spacing:3px;padding-right:96px;}
+#btn-eye{position:absolute;right:10px;top:50%;transform:translateY(-50%);border:none;background:none;font:inherit;font-size:12.5px;font-weight:800;color:#64748b;cursor:pointer;padding:8px;}
+.lp-lembrar{display:flex;align-items:center;gap:8px;margin:10px 0 14px;font-size:13px;color:#64748b;cursor:pointer;user-select:none;}
+.lp-lembrar input{width:16px;height:16px;accent-color:#042D4D;}
+.lp-caps{display:none;margin-top:8px;background:#fef3c7;border:1px solid #fde68a;color:#92400e;font-size:12px;font-weight:600;padding:6px 10px;border-radius:8px;} .lp-caps.on{display:block;}
+.lp-quem{display:none;align-items:center;gap:12px;background:#f1f6fb;border:1.5px solid #dbe6f1;border-radius:15px;padding:10px 12px;margin-bottom:14px;}
+.lg-form.tem-quem .lp-quem{display:flex;} .lg-form.tem-quem .lg-g-ident{display:none;}
+.lp-quem-av{width:42px;height:42px;border-radius:50%;background:#042D4D;color:#C9FF64;font-weight:800;font-size:18px;display:flex;align-items:center;justify-content:center;flex-shrink:0;text-transform:uppercase;}
+.lp-quem-tx{flex:1;min-width:0;} .lp-quem-tx small{display:block;font-size:12px;color:#64748b;} .lp-quem-tx b{display:block;font-size:15px;color:#042D4D;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.lp-quem-troca{border:1.5px solid #cbd5e1;background:#fff;border-radius:10px;padding:7px 11px;font:inherit;font-weight:800;font-size:12.5px;color:#042D4D;cursor:pointer;}
+.lg-abc{display:none;justify-content:center;margin-top:10px;}
+.lg-abc button{border:1.5px solid #cbd5e1;background:#fff;border-radius:10px;padding:7px 12px;font:inherit;font-size:13px;font-weight:800;color:#042D4D;cursor:pointer;}
+html.movel .lg-abc{display:flex;}
+#login-error{margin-top:12px;}
+#btn-login{width:100%;height:58px;margin-top:16px;border:none;border-radius:16px;background:#C9FF64;color:#042D4D;font:inherit;font-size:17px;font-weight:800;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;gap:10px;box-shadow:0 14px 26px -14px rgba(94,140,0,.9);transition:transform .15s,box-shadow .15s;}
+#btn-login:hover{transform:translateY(-2px);box-shadow:0 18px 30px -14px rgba(94,140,0,.95);}
+#btn-login:disabled{opacity:.7;transform:none;}
+.lg-rod{font-size:12px;color:#94a3b8;text-align:center;margin-top:14px;}
+/* ── CELULAR / TABLET (html.movel, marcado no <head>) ── */
+html.movel .lg-hora{top:calc(18px + env(safe-area-inset-top));right:20px;} html.movel .lg-hora b{font-size:26px;}
+html.movel .lg-hora .data{display:none;}
+html.movel .lg-logo{top:30%;width:min(440px,118vw);}
+html.movel .lg-palavra{bottom:calc(10px + env(safe-area-inset-bottom));font-size:clamp(44px,15vw,90px);letter-spacing:.08em;}
+html.movel .lg-card{top:auto;bottom:calc(70px + env(safe-area-inset-bottom));transform:translateX(-50%);animation:none;padding:28px 22px 22px;border-radius:26px;width:min(480px,calc(100vw - 28px));}
+html.movel .lg-card::before{left:22px;right:22px;}
+html.movel .lg-card h2{font-size:28px;} html.movel .lg-card .sub{font-size:15px;margin-bottom:14px;}
+html.movel .lg-lab{font-size:15px;}
+html.movel .lg-campo input{height:64px;font-size:20px;border-radius:18px;padding-left:50px;}
+html.movel #login-senha{font-size:24px;letter-spacing:6px;}
+html.movel .lg-campo .ic{font-size:21px;}
+html.movel #btn-eye{font-size:22px;}
+html.movel .lp-lembrar{font-size:15px;} html.movel .lp-lembrar input{width:22px;height:22px;}
+html.movel .lp-quem{padding:12px;} html.movel .lp-quem-av{width:50px;height:50px;font-size:21px;} html.movel .lp-quem-tx b{font-size:17px;}
+html.movel .lp-quem-troca{font-size:14px;padding:10px 12px;}
+html.movel #btn-login{height:70px;font-size:21px;border-radius:18px;}
+html.movel #login-error{font-size:15px;font-weight:700;}
+/* teclado aberto no celular: o cartão sobe junto (a tela fica menor) */
+@media (max-height:560px){ html.movel .lg-card{bottom:auto;top:12px;} html.movel .lg-logo,html.movel .lg-palavra{display:none;} }
+@media (prefers-reduced-motion: reduce){ .lg-fundo,.lg-logo,.lg-card{animation:none!important;} }
+</style>
+
+<div id="page-login">
+  <img class="lg-fundo" src="img/hero.avif" alt="">
+  <div class="lg-veu"></div>
+  <!-- símbolo da Silicate gigante atrás do cartão -->
+  <svg class="lg-logo" viewBox="-130 -130 260 260" aria-hidden="true">
+    <defs><mask id="lg-mask"><rect x="-130" y="-130" width="260" height="260" fill="black"/><path d="M 78 -62 L 0 -107 L -78 -62 L -78 -18 L 0 27 L 39 4 L 39 -18 L 0 -40 L -39 -18" fill="none" stroke="white" stroke-width="24"/><path d="M 78 -62 L 0 -107 L -78 -62 L -78 -18 L 0 27 L 39 4 L 39 -18 L 0 -40 L -39 -18" fill="none" stroke="black" stroke-width="17"/><path d="M -78 62 L 0 107 L 78 62 L 78 18 L 0 -27" fill="none" stroke="white" stroke-width="24"/><path d="M -78 62 L 0 107 L 78 62 L 78 18 L 0 -27" fill="none" stroke="black" stroke-width="17"/><path d="M -78 18 L -78 40 L 0 85 L 39 62" fill="none" stroke="white" stroke-width="24"/><path d="M -78 18 L -78 40 L 0 85 L 39 62" fill="none" stroke="black" stroke-width="17"/></mask></defs>
+    <rect x="-130" y="-130" width="260" height="260" fill="#C9FF64" mask="url(#lg-mask)"/>
+  </svg>
+  <div class="lg-palavra" id="login-empresa">SILICATE</div>
+
+  <div class="lg-hora">
+    <b><span id="lp-hora">--:--</span><small id="lp-seg">--</small></b>
+    <div class="data" id="lp-data">&nbsp;</div>
+    <div class="turnos" id="lp-turno" style="display:none;"></div>
+  </div>
+
+  <div class="lg-card">
+    <h2 id="lp-saudacao">Boa tarde!</h2>
+    <div class="sub" id="lp-saudacao-sub">Entre para continuar no sistema</div>
+    <div class="lg-form" id="lg-form">
+      <!-- quem já entrou neste aparelho: só digita a senha -->
+      <div class="lp-quem">
+        <div class="lp-quem-av" id="lp-quem-av">?</div>
+        <div class="lp-quem-tx"><small>Entrando como</small><b id="lp-quem-nome"></b></div>
+        <button type="button" class="lp-quem-troca" onclick="lpTrocarPessoa()">Trocar</button>
+      </div>
+      <div class="lg-g-ident">
+        <label class="lg-lab" for="login-email">E-mail ou usuário</label>
+        <div class="lg-campo"><span class="ic">👤</span>
+          <input id="login-email" type="text" placeholder="seu usuário ou e-mail"
+                 autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false"
+                 onkeydown="if(event.key==='Enter'){event.preventDefault();document.getElementById('login-senha').focus();}"></div>
+        <label class="lp-lembrar" for="lp-lembrar-chk"><input type="checkbox" id="lp-lembrar-chk" checked> Lembrar de mim neste aparelho</label>
+      </div>
+      <label class="lg-lab" for="login-senha">Senha</label>
+      <div class="lg-campo"><span class="ic">🔒</span>
+        <input id="login-senha" type="password" placeholder="••••••" autocomplete="current-password"
+               onkeydown="if(event.key==='Enter')doLogin()" onkeyup="checarCapsLock(event)">
+        <button type="button" id="btn-eye" onclick="toggleSenha()" aria-label="Mostrar ou esconder a senha">MOSTRAR</button>
+      </div>
+      <div class="lp-caps" id="lp-caps">⚠️ Caps Lock ligado.</div>
+      <div class="lg-abc"><button type="button" id="lg-abc-btn" onclick="lpTrocarTeclado()">🔤 Minha senha tem letras</button></div>
+      <div id="login-error" class="hidden alert alert-danger"></div>
+      <button id="btn-login" onclick="doLogin()">Entrar no sistema <span>→</span></button>
+      <div class="lg-rod">🔒 Conexão segura · <span id="lp-rodape-empresa">Silicate</span> © <span id="lp-rodape-ano">—</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- ONBOARDING -->
+<div id="page-onboarding" class="hidden">
+  <div class="onboarding-wrap">
+    <div class="onboarding-header">
+      <h1>⚙️ Configuração Inicial</h1>
+      <p>Configure os dados da sua empresa antes de começar</p>
+    </div>
+    <div class="steps-bar">
+      <div class="step-item"><div class="step-circle active" id="sc1">1</div><div class="step-label active" id="sl1">Dados da Empresa</div></div>
+      <div class="step-line" id="sline1"></div>
+      <div class="step-item"><div class="step-circle" id="sc2">2</div><div class="step-label" id="sl2">Administrador</div></div>
+    </div>
+    <div class="onboarding-card">
+      <!-- STEP 1 -->
+      <div id="ob-step1">
+        <h2>📋 Dados da Empresa</h2>
+        <div style="display:flex;flex-direction:column;gap:16px;">
+          <div class="form-grid-2">
+            <div class="form-group"><label class="form-label">Razão Social <span class="req">*</span></label><input id="ob-razao" type="text" class="form-input" placeholder="Nome Jurídico da Empresa"></div>
+            <div class="form-group"><label class="form-label">Nome Fantasia <span class="req">*</span></label><input id="ob-fantasia" type="text" class="form-input" placeholder="Nome Comercial"></div>
+          </div>
+          <div class="form-grid-2">
+            <div class="form-group"><label class="form-label">CNPJ <span class="req">*</span></label><input id="ob-cnpj" type="text" class="form-input" placeholder="00.000.000/0001-00" maxlength="18" oninput="mascaraCNPJ(this)"></div>
+            <div class="form-group"><label class="form-label">Inscrição Estadual</label><input id="ob-ie" type="text" class="form-input" placeholder="000.000.000.000"></div>
+          </div>
+          <div class="form-grid-3">
+            <div class="form-group"><label class="form-label">CEP</label><input id="ob-cep" type="text" class="form-input" placeholder="00000-000" maxlength="9" oninput="mascaraCEP(this)"></div>
+            <div class="form-group" style="grid-column:span 2;"><label class="form-label">Rua / Avenida <span class="req">*</span></label><input id="ob-rua" type="text" class="form-input" placeholder="Nome da rua"></div>
+          </div>
+          <div class="form-grid-3">
+            <div class="form-group"><label class="form-label">Número</label><input id="ob-num" type="text" class="form-input" placeholder="123"></div>
+            <div class="form-group"><label class="form-label">Bairro</label><input id="ob-bairro" type="text" class="form-input" placeholder="Bairro"></div>
+            <div class="form-group"><label class="form-label">Cidade <span class="req">*</span></label><input id="ob-cidade" type="text" class="form-input" placeholder="Cidade"></div>
+          </div>
+          <div class="form-grid-2">
+            <div class="form-group"><label class="form-label">Telefone</label><input id="ob-tel" type="text" class="form-input" placeholder="(00) 00000-0000" oninput="mascaraTel(this)"></div>
+            <div class="form-group"><label class="form-label">E-mail da Empresa</label><input id="ob-email" type="email" class="form-input" placeholder="contato@empresa.com"></div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Logo da Empresa</label>
+            <div class="upload-area" onclick="document.getElementById('ob-logo-input').click()">
+              <input type="file" id="ob-logo-input" accept="image/*" style="display:none;" onchange="previewLogo(this)">
+              <div id="ob-logo-preview" style="display:flex;flex-direction:column;align-items:center;gap:8px;">
+                <div style="font-size:36px;">🖼️</div>
+                <p style="font-size:13px;color:#64748b;">Clique para fazer upload da logo</p>
+                <p style="font-size:11px;color:#94a3b8;">PNG, JPG ou SVG — Recomendado: 200×200px</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- STEP 2 -->
+      <div id="ob-step2" class="hidden">
+        <h2>👤 Criação do Super Administrador</h2>
+        <div class="alert alert-warning">🔒 Este será o usuário SADM — acesso total e irrestrito. Guarde bem a senha.</div>
+        <div style="display:flex;flex-direction:column;gap:16px;">
+          <div class="form-group"><label class="form-label">Nome Completo <span class="req">*</span></label><input id="ob-sadm-nome" type="text" class="form-input" placeholder="Seu nome completo"></div>
+          <div class="form-group"><label class="form-label">E-mail <span class="req">*</span></label><input id="ob-sadm-email" type="email" class="form-input" placeholder="seu@email.com"></div>
+          <div class="form-grid-2">
+            <div class="form-group"><label class="form-label">Senha <span class="req">*</span></label><input id="ob-sadm-senha" type="password" class="form-input" placeholder="Mínimo 8 caracteres"></div>
+            <div class="form-group"><label class="form-label">Confirmar Senha <span class="req">*</span></label><input id="ob-sadm-senha2" type="password" class="form-input" placeholder="Repita a senha"></div>
+          </div>
+        </div>
+      </div>
+      <div class="onboarding-nav">
+        <button id="ob-btn-back" class="btn btn-secondary hidden" onclick="obBack()">← Voltar</button>
+        <button id="ob-btn-next" class="btn btn-primary" onclick="obNext()">Próximo →</button>
+        <button id="ob-btn-finish" class="btn btn-primary hidden" onclick="obFinish()">✅ Concluir Configuração</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+
+<script>
+let _logoData = null, _obStep = 1;
+
+window.addEventListener('load', async () => {
+  if (sessionStorage.getItem('erp_user')) {
+    const u = JSON.parse(sessionStorage.getItem('erp_user'));
+    redirecionarPosLogin(u);
+    return;
+  }
+  try {
+    const {data} = await _supabase.rpc('branding_publico');
+    if (data) {
+      const nome = data.nome_fantasia||data.razao_social||'ERP Industrial';
+      document.getElementById('login-empresa').textContent = nome;
+      const rod = document.getElementById('lp-rodape-empresa');
+      if (rod) rod.textContent = nome;
+
+    }
+  } catch(e) {}
+});
+
+// Relógio, turno e conforto do formulário
+document.addEventListener('DOMContentLoaded', () => {
+  const ano = document.getElementById('lp-rodape-ano');
+  if (ano) ano.textContent = new Date().getFullYear();
+  lpTick();
+  setInterval(lpTick, 1000);
+  lpRestaurarEmail();
+  lpCarregarTurnos();
+  lpModoTeclado();
+});
+
+
+/* ────────────────────────────────────────────────────────────────
+   TELA DE LOGIN — relógio, turno em andamento e conforto de uso.
+   O relógio e o turno substituem as três estatísticas antigas: é
+   movimento que informa, e é dado real do próprio sistema.
+   ──────────────────────────────────────────────────────────────── */
+const LP_DIAS = ['Segunda','Terça','Quarta','Quinta','Sexta','Sábado','Domingo'];   // mesma ordem de turnos.html
+const LP_DIAS_LONGO = ['Domingo','Segunda-feira','Terça-feira','Quarta-feira','Quinta-feira','Sexta-feira','Sábado'];
+const LP_MESES = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
+let _lpTurnos = [];
+
+function lpSaudacao(hora) {
+  if (hora < 12) return 'Bom dia';
+  if (hora < 18) return 'Boa tarde';
+  return 'Boa noite';
+}
+
+// Minutos desde a meia-noite de uma string "HH:MM".
+function lpMin(hhmm) {
+  const p = String(hhmm || '').split(':');
+  const hh = parseInt(p[0], 10), mm = parseInt(p[1], 10);
+  return (isNaN(hh) || isNaN(mm)) ? null : hh * 60 + mm;
+}
+
+// Todos os turnos em andamento agora. Na fábrica é comum dois rodando ao mesmo
+// tempo (ex.: Administrativo e 1º Turno de manhã), então a função devolve a
+// lista inteira — quem mostra decide como exibir. Lê o calendário do próprio
+// cadastro de turnos, respeitando o dia da semana e o turno que vira a meia-noite.
+function lpTurnosAgora(agora) {
+  const diaIdx = (agora.getDay() + 6) % 7;          // getDay(): 0=domingo → nossa lista começa na segunda
+  const diaAnt = (diaIdx + 6) % 7;
+  const min = agora.getHours() * 60 + agora.getMinutes();
+  const emAndamento = [];
+  for (const t of _lpTurnos) {
+    const cal = t.calendario || {};
+    const hoje = cal[LP_DIAS[diaIdx]] || {};
+    const ini = lpMin(hoje.inicio), fim = lpMin(hoje.fim);
+    let achou = null;
+    if (hoje.ativo && ini != null && fim != null) {
+      if (fim > ini && min >= ini && min < fim) achou = { nome: t.nome, ini: hoje.inicio, fim: hoje.fim };
+      else if (fim <= ini && min >= ini) achou = { nome: t.nome, ini: hoje.inicio, fim: hoje.fim };   // entra hoje, sai amanhã
+    }
+    if (!achou) {
+      // turno de ontem que atravessou a meia-noite e ainda está rodando
+      const ontem = cal[LP_DIAS[diaAnt]] || {};
+      const iniO = lpMin(ontem.inicio), fimO = lpMin(ontem.fim);
+      if (ontem.ativo && iniO != null && fimO != null && fimO <= iniO && min < fimO) {
+        achou = { nome: t.nome, ini: ontem.inicio, fim: ontem.fim };
+      }
+    }
+    if (achou) emAndamento.push(achou);
+  }
+  // ordena pelo horário de início, para a leitura ficar previsível
+  emAndamento.sort((a, b) => (lpMin(a.ini) || 0) - (lpMin(b.ini) || 0));
+  return emAndamento;
+}
+
+function lpTick() {
+  const d = new Date();
+  const dois = (n) => String(n).padStart(2, '0');
+  const elH = document.getElementById('lp-hora');
+  if (!elH) return;
+  elH.textContent = dois(d.getHours()) + ':' + dois(d.getMinutes());
+  document.getElementById('lp-seg').textContent = dois(d.getSeconds());
+  document.getElementById('lp-data').textContent =
+    LP_DIAS_LONGO[d.getDay()] + ', ' + d.getDate() + ' de ' + LP_MESES[d.getMonth()] + ' de ' + d.getFullYear();
+
+  const lmH=document.getElementById('lm-hora'); if(lmH) lmH.textContent=dois(d.getHours())+':'+dois(d.getMinutes());
+  const lmD=document.getElementById('lm-data'); if(lmD) lmD.textContent=LP_DIAS_LONGO[d.getDay()]+', '+d.getDate()+' de '+LP_MESES[d.getMonth()];
+  // saudação acompanha a hora (quem entra às 5h da manhã não lê "boa noite")
+  const s = document.getElementById('lp-saudacao');
+  if (s) s.textContent = lpSaudacao(d.getHours()) + '!';
+
+  const box = document.getElementById('lp-turno');
+  if (!box) return;
+  if (!_lpTurnos.length) { box.style.display = 'none'; return; }   // sem turnos cadastrados, não inventa nada
+  const lista = lpTurnosAgora(d);
+  const assinatura = lista.map(t => t.nome + '|' + t.ini + '|' + t.fim).join('#');
+  box.style.display = 'flex';
+  const lmT=document.getElementById('lm-turno');
+  if (lmT && lmT.dataset.assinatura !== assinatura) {
+    lmT.dataset.assinatura = assinatura;
+    lmT.innerHTML = lista.length ? lista.map(t=>`<span>● ${t.nome} · ${t.ini}–${t.fim}</span>`).join('') : '<span class="parado">Nenhum turno agora</span>';
+  }
+  if (box.dataset.assinatura === assinatura) return;               // nada mudou: não redesenha a cada segundo
+  box.dataset.assinatura = assinatura;
+  box.innerHTML = '';
+  if (!lista.length) {
+    box.appendChild(lpChipTurno('Nenhum turno agora', true));
+    return;
+  }
+  lista.forEach(t => {
+    box.appendChild(lpChipTurno(t.nome + ' · ' + t.ini + '–' + t.fim, false));
+  });
+}
+
+// Um chip da faixa ao vivo. `parado` deixa o visual apagado, sem pulso.
+function lpChipTurno(texto, parado) {
+  const chip = document.createElement('div');
+  chip.className = 'lp-live-turno' + (parado ? ' parado' : '');
+  const dot = document.createElement('span');
+  dot.className = 'lp-live-dot';
+  const span = document.createElement('span');
+  span.textContent = texto;
+  chip.appendChild(dot);
+  chip.appendChild(span);
+  return chip;
+}
+
+async function lpCarregarTurnos() {
+  try {
+    const { data, error } = await _supabase.rpc('turnos_publico');
+    if (error) throw error;
+    _lpTurnos = data || [];
+  } catch (e) { _lpTurnos = []; }
+  lpTick();
+}
+
+/* ────────────────────────────────────────────────────────────────
+   OPERADOR: entra caminhando, para e fica parado.
+   Não é vídeo — são 4 poses trocando de quadro, como cinema. Os quadros
+   da caminhada só são baixados no desktop; no celular fica a pose final,
+   que já vem no HTML (1 imagem em vez de 4).
+   ──────────────────────────────────────────────────────────────── */
+const _opEl = (id) => document.getElementById(id);
+const OP_QUADROS = { anda1:'img/op-anda-1.webp', anda2:'img/op-anda-2.webp', parado:'img/op-parado.webp' };
+const OP_X_INICIO = -300;   // % da própria largura: fora da faixa, à esquerda
+const OP_X_FINAL  = 14;     // onde ele para
+const OP_PASSO_MS = 250;
+const OP_ANDAR_MS = 1900;   // ajustado para telas estreitas em _opCaminhar()
+let _opImgs = {}, _opPasso = null, _opTimers = [];
+
+function _opMostrar(nome) {
+  Object.keys(_opImgs).forEach(k => _opImgs[k].classList.toggle('ativo', k === nome));
+}
+
+function _opFinalParado() {
+  const palco = _opEl('op-palco');
+  if (!palco) return;
+  palco.style.transition = 'none';
+  palco.style.setProperty('--x', OP_X_FINAL + '%');
+  _opMostrar('final');
+  _opEl('op-corpo').classList.remove('andando');
+  _opEl('op-corpo').classList.add('parou');
+}
+
+function _opCaminhar() {
+  const palco = _opEl('op-palco'), corpo = _opEl('op-corpo');
+  corpo.classList.add('andando');
+  corpo.classList.remove('parou');
+  palco.style.transition = 'none';
+  palco.style.setProperty('--x', OP_X_INICIO + '%');
+  let alterna = true;
+  _opMostrar('anda1');
+  _opPasso = setInterval(() => { alterna = !alterna; _opMostrar(alterna ? 'anda1' : 'anda2'); }, OP_PASSO_MS);
+
+  // um quadro de respiro para o navegador aplicar a posição inicial
+  // a passada é mais curta em tela estreita: o tempo acompanha, senão ele
+  // pareceria andando em câmera lenta no celular
+  const dur = window.innerWidth < 700 ? 1500 : OP_ANDAR_MS;
+
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    palco.style.transition = 'transform ' + dur + 'ms cubic-bezier(.34,.03,.28,1)';
+    palco.style.setProperty('--x', OP_X_FINAL + '%');
+  }));
+
+  _opTimers.push(setTimeout(() => {
+    if (_opPasso) { clearInterval(_opPasso); _opPasso = null; }
+    corpo.classList.remove('andando');
+    _opMostrar('parado');                     // chega e cruza os braços
+  }, dur));
+
+  _opTimers.push(setTimeout(() => {
+    corpo.classList.add('parou');
+    _opMostrar('final');                      // sorri e fica parado de vez
+  }, dur + 600));
+}
+
+function iniciarOperador() {
+  const corpo = _opEl('op-corpo'), final = _opEl('op-final');
+  if (!corpo || !final) return;
+  _opImgs = { final: final };
+
+  // A caminhada roda no celular também. A única coisa que a desliga é o
+  // aparelho pedindo economia: modo "economizar dados" ligado ou conexão 2G.
+  // Perguntar "é celular?" era a pergunta errada — o que importa é se a
+  // conexão aguenta, e são 83 KB baixados uma vez e depois em cache.
+  const semAnimacao = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const rede = navigator.connection || navigator.mozConnection || navigator.webkitConnection || null;
+  const redeFraca = !!rede && (rede.saveData === true || /^(slow-)?2g$/.test(rede.effectiveType || ''));
+  if (semAnimacao || redeFraca) { _opFinalParado(); return; }
+
+  // cria e pré-carrega os quadros da caminhada; se algum falhar, ele só aparece parado
+  const cargas = Object.keys(OP_QUADROS).map(nome => new Promise((ok, erro) => {
+    const img = new Image();
+    img.width = 334; img.height = 710; img.alt = '';
+    img.onload = () => { corpo.appendChild(img); _opImgs[nome] = img; ok(); };
+    img.onerror = erro;
+    img.src = OP_QUADROS[nome];
+  }));
+  Promise.all(cargas).then(_opCaminhar).catch(_opFinalParado);
+
+  // inclinação leve seguindo o cursor, só depois que ele para
+  const zona = document.querySelector('.lp-form-side');
+  const temMouse = window.matchMedia && window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+  if (zona && temMouse) {
+    zona.addEventListener('mousemove', (ev) => {
+      if (!corpo.classList.contains('parou')) return;
+      const r = zona.getBoundingClientRect();
+      const px = (ev.clientX - r.left) / r.width - .5;
+      const py = (ev.clientY - r.top) / r.height - .5;
+      _opEl('op').style.transform = 'rotateY(' + (px * 12).toFixed(2) + 'deg) rotateX(' + (-py * 6).toFixed(2) + 'deg) translateZ(10px)';
+    });
+    zona.addEventListener('mouseleave', () => { _opEl('op').style.transform = ''; });
+  }
+}
+
+function checarCapsLock(ev) {
+  const box = document.getElementById('lp-caps');
+  if (!box || !ev.getModifierState) return;
+  box.classList.toggle('on', ev.getModifierState('CapsLock'));
+}
+
+// Lembrar o e-mail poupa digitação no celular. Só o e-mail — senha nunca.
+/* ── QUEM ENTROU NESTE APARELHO ──────────────────────────────────────
+   Guarda o que a pessoa digitou (e-mail OU nome de usuário) e o nome dela,
+   para a próxima vez mostrar "Entrando como Luciano" e pedir só a senha.
+   Senha nunca é guardada. Aceita o formato antigo (só o e-mail, texto puro). */
+const LP_CHAVE_EMAIL = 'erp_login_email';
+let _lpQuem = null;
+function lpLerQuem() {
+  try {
+    const v = localStorage.getItem(LP_CHAVE_EMAIL); if (!v) return null;
+    if (v.trim().startsWith('{')) { const o = JSON.parse(v); return o && o.ident ? o : null; }
+    return { ident: v, nome: v };
+  } catch (e) { return null; }
+}
+function lpRestaurarEmail() {
+  _lpQuem = lpLerQuem();
+  const inpE = document.getElementById('login-email'), inpS = document.getElementById('login-senha');
+  if (_lpQuem) {
+    inpE.value = _lpQuem.ident;
+    document.getElementById('lg-form').classList.add('tem-quem');
+    const nome = String(_lpQuem.nome || _lpQuem.ident);
+    const pal = nome.split(/\s+/).filter(Boolean);
+    document.getElementById('lp-quem-nome').textContent = nome.includes('@') || pal.length < 2 ? nome : pal[0] + ' ' + pal[pal.length - 1];
+    document.getElementById('lp-quem-av').textContent = (nome.trim()[0] || '?');
+    if (!document.documentElement.classList.contains('movel')) inpS.focus();
+  } else if (!document.documentElement.classList.contains('movel')) inpE.focus();
+}
+function lpTrocarPessoa() {
+  _lpQuem = null;
+  try { localStorage.removeItem(LP_CHAVE_EMAIL); } catch (e) {}
+  document.getElementById('lg-form').classList.remove('tem-quem');
+  const inpE = document.getElementById('login-email'); inpE.value = ''; inpE.focus();
+}
+function lpGuardarQuem(ident, nome) {
+  const chk = document.getElementById('lp-lembrar-chk');
+  try {
+    if ((chk && chk.checked) || _lpQuem) localStorage.setItem(LP_CHAVE_EMAIL, JSON.stringify({ ident, nome: nome || ident }));
+    else localStorage.removeItem(LP_CHAVE_EMAIL);
+  } catch (e) {}
+}
+
+/* ── SENHA SÓ DE NÚMEROS ─────────────────────────────────────────────
+   No celular a senha abre o teclado de números. Quem ainda tem senha com
+   letras toca em "Minha senha tem letras" (o aparelho lembra). */
+const LP_CHAVE_TECLADO = 'erp_login_senha_letras';
+function lpModoTeclado() {
+  const inp = document.getElementById('login-senha'), btn = document.getElementById('lg-abc-btn');
+  let letras = false; try { letras = localStorage.getItem(LP_CHAVE_TECLADO) === '1'; } catch (e) {}
+  if (letras) { inp.removeAttribute('inputmode'); inp.removeAttribute('pattern'); }
+  else { inp.setAttribute('inputmode', 'numeric'); inp.setAttribute('pattern', '[0-9]*'); }
+  if (btn) btn.textContent = letras ? '🔢 Minha senha é só de números' : '🔤 Minha senha tem letras';
+}
+function lpTrocarTeclado() {
+  let letras = false; try { letras = localStorage.getItem(LP_CHAVE_TECLADO) === '1'; } catch (e) {}
+  try { localStorage.setItem(LP_CHAVE_TECLADO, letras ? '0' : '1'); } catch (e) {}
+  lpModoTeclado();
+  const inp = document.getElementById('login-senha'); inp.blur(); setTimeout(() => inp.focus(), 60);
+}
+
+async function doLogin() {
+  const ident = document.getElementById('login-email').value.trim();
+  const senha = document.getElementById('login-senha').value;
+  const errEl = document.getElementById('login-error');
+  const btn   = document.getElementById('btn-login');
+  const erro = (m) => { errEl.textContent = m; errEl.classList.remove('hidden'); };
+  if (!ident) { erro('Digite seu e-mail ou nome de usuário.'); return; }
+  if (!senha) { erro('Digite sua senha.'); document.getElementById('login-senha').focus(); return; }
+  btn.innerHTML='<span class="spin"></span>Entrando...'; btn.disabled=true; errEl.classList.add('hidden');
+  try {
+    // Nome de usuário → e-mail da conta (função pública que só devolve o e-mail; migração 056)
+    let email = ident.toLowerCase();
+    if (!ident.includes('@')) {
+      const { data: em, error: eRpc } = await _supabase.rpc('email_do_login', { p_login: ident });
+      if (eRpc || !em) throw new Error('Usuário "' + ident + '" não encontrado. Confira o nome ou use o e-mail.');
+      email = em;
+    }
+    // Autenticação real via Supabase Auth (JWT). Sem backdoor, sem senha no cliente.
+    const { data: auth, error: authErr } = await _supabase.auth.signInWithPassword({ email, password: senha });
+    if (authErr || !auth?.user) throw new Error('Senha incorreta. Tente de novo.');
+    const { data: u, error } = await _supabase.from('usuarios')
+      .select('*').eq('auth_id', auth.user.id).eq('status', 'ativo').maybeSingle();
+    if (error || !u) { await _supabase.auth.signOut(); throw new Error('Usuário sem cadastro ativo no sistema.'); }
+    const user = u;
+    try { await _supabase.from('usuarios').update({ultimo_acesso:new Date().toISOString()}).eq('id',u.id); } catch(e){}
+    try{await _supabase.from('auditoria').insert({acao:'LOGIN',modulo:'AUTH',registro_id:user.id,descricao:'Login realizado',usuario_email:email});}catch(e){}
+    sessionStorage.setItem('erp_user', JSON.stringify(user));
+    await carregarPermissoesPerfil(user);
+    let cfg=null;try{const {data:cfgD}=await _supabase.from('empresa_config').select('id').limit(1).maybeSingle();cfg=cfgD;}catch(e){}
+    if (!cfg) { showPage('onboarding'); btn.innerHTML='Entrar no sistema <span>→</span>'; btn.disabled=false; return; }
+    lpGuardarQuem(ident, user.nome);
+    addLog('LOGIN', 'AUTH', user.id || user.email, 'Login realizado por ' + (user.nome || user.email));
+    redirecionarPosLogin(user);
+  } catch(e) {
+    erro(e.message || 'Não foi possível entrar.');
+    btn.innerHTML='Entrar no sistema <span>→</span>'; btn.disabled=false;
+    const inS = document.getElementById('login-senha'); inS.value=''; inS.focus();
+  }
+}
+function toggleSenha() {
+  const inp = document.getElementById('login-senha');
+  const btn = document.getElementById('btn-eye');
+  const movel = document.documentElement.classList.contains('movel');
+  if (inp.type === 'password') { inp.type = 'text'; btn.textContent = movel ? '🙈' : 'ESCONDER'; }
+  else { inp.type = 'password'; btn.textContent = movel ? '👁️' : 'MOSTRAR'; }
+}
+document.addEventListener('DOMContentLoaded', () => {
+  if (document.documentElement.classList.contains('movel')) { const b = document.getElementById('btn-eye'); if (b) b.textContent = '👁️'; }
+});
+function showPage(p) {
+  document.getElementById('page-login').classList.toggle('hidden', p!=='login');
+  document.getElementById('page-onboarding').classList.toggle('hidden', p!=='onboarding');
+}
+
+function obNext() {
+  if (_obStep===1) {
+    if (!document.getElementById('ob-razao').value.trim()||!document.getElementById('ob-fantasia').value.trim()||!document.getElementById('ob-cnpj').value.trim()) { toast('Preencha os campos obrigatórios!','warning'); return; }
+  }
+  if (_obStep===2) return;
+  _obStep++; updateObSteps();
+}
+function obBack() { if(_obStep===1)return; _obStep--; updateObSteps(); }
+function updateObSteps() {
+  [1,2].forEach(i => {
+    document.getElementById('ob-step'+i).classList.toggle('hidden', i!==_obStep);
+    const sc=document.getElementById('sc'+i); sc.classList.remove('active','done');
+    if(i<_obStep){sc.classList.add('done');sc.textContent='✓';}
+    else if(i===_obStep){sc.classList.add('active');sc.textContent=i;}
+    else{sc.textContent=i;}
+    document.getElementById('sl'+i).classList.toggle('active',i===_obStep);
+  });
+  const l=document.getElementById('sline1'); if(l) l.classList.toggle('done',_obStep>1);
+  document.getElementById('ob-btn-back').classList.toggle('hidden',_obStep===1);
+  document.getElementById('ob-btn-next').classList.toggle('hidden',_obStep===2);
+  document.getElementById('ob-btn-finish').classList.toggle('hidden',_obStep!==2);
+}
+function previewLogo(input) {
+  if(input.files&&input.files[0]){
+    const r=new FileReader(); r.onload=e=>{_logoData=e.target.result; document.getElementById('ob-logo-preview').innerHTML=`<img src="${e.target.result}" style="width:80px;height:80px;object-fit:cover;border-radius:8px;">`;}; r.readAsDataURL(input.files[0]);
+  }
+}
+async function obFinish() {
+  const nome=document.getElementById('ob-sadm-nome').value.trim();
+  const email=document.getElementById('ob-sadm-email').value.trim();
+  const senha=document.getElementById('ob-sadm-senha').value;
+  const senha2=document.getElementById('ob-sadm-senha2').value;
+  if(!nome||!email||!senha){toast('Preencha todos os campos!','warning');return;}
+  if(senha!==senha2){toast('As senhas não coincidem!','danger');return;}
+  if(senha.length<8){toast('Senha mínimo 8 caracteres!','warning');return;}
+  const btn=document.getElementById('ob-btn-finish'); btn.innerHTML='<span class="spin"></span>Salvando...'; btn.disabled=true;
+  try {
+    await _supabase.from('empresa_config').insert({
+      razao_social:document.getElementById('ob-razao').value.trim(),
+      nome_fantasia:document.getElementById('ob-fantasia').value.trim(),
+      cnpj:document.getElementById('ob-cnpj').value.trim(),
+      ie:document.getElementById('ob-ie').value.trim(),
+      cep:document.getElementById('ob-cep').value.trim(),
+      rua:document.getElementById('ob-rua').value.trim(),
+      numero:document.getElementById('ob-num').value.trim(),
+      bairro:document.getElementById('ob-bairro').value.trim(),
+      cidade:document.getElementById('ob-cidade').value.trim(),
+      telefone:document.getElementById('ob-tel').value.trim(),
+      email:document.getElementById('ob-email').value.trim(),
+      logo:_logoData||null
+    });
+    const {data:u} = await _supabase.from('usuarios').insert({nome,email,senha_hash:await sha256(senha),perfil:'SADM',status:'ativo',admissao:new Date().toISOString().split('T')[0]}).select().single();
+    sessionStorage.setItem('erp_user', JSON.stringify(u||{nome,email,perfil:'SADM',status:'ativo'}));
+    toast('Sistema configurado!','success');
+    setTimeout(()=>{ window.location.href='dashboard.html'; }, 800);
+  } catch(e) { toast('Erro: '+e.message,'danger'); btn.innerHTML='✅ Concluir'; btn.disabled=false; }
+}
+
+// Redireciona para o dashboard se o perfil tiver acesso,
+// ou para o primeiro módulo permitido caso contrário
+function redirecionarPosLogin(user) {
+  const PERFIS_ADMIN = ['SADM', 'ADM'];
+  if (PERFIS_ADMIN.includes(user.perfil)) {
+    window.location.href = 'dashboard.html';
+    return;
+  }
+  const perms = user.permissoes || {};
+  // Tentar dashboard primeiro
+  if (perms['dashboard'] && perms['dashboard'].view) {
+    window.location.href = 'dashboard.html';
+    return;
+  }
+  // Ordem de preferência dos módulos de entrada
+  const MODULO_MAP_ORDEM = [
+    'dashboard','producao','almoxarifado','laboratorio','manutencao',
+    'portaria','expedicao','frota','epi','rh','custos','bpf',
+    'relatorios','notificacoes','funcionarios','planejamento',
+    'linhas','turnos','produtos','motivos','equip_linhas','equip_gerais',
+    'abastecimento','carregamento','auditoria','configuracoes','perfis','usuarios'
+  ];
+  const MODULO_PAGES = {
+    dashboard:'dashboard.html', producao:'producao.html', almoxarifado:'almoxarifado.html',
+    laboratorio:'laboratorio.html', manutencao:'manutencao.html', portaria:'portaria.html',
+    expedicao:'expedicao.html', frota:'frota.html', epi:'epi.html', rh:'rh.html',
+    custos:'custos.html', bpf:'bpf.html', relatorios:'relatorios.html',
+    notificacoes:'notificacoes.html', funcionarios:'funcionarios.html',
+    planejamento:'planejamento.html', linhas:'linhas.html', turnos:'turnos.html',
+    produtos:'produtos.html', motivos:'motivos.html', equip_linhas:'equip-linhas.html',
+    equip_gerais:'equip-gerais.html', abastecimento:'abastecimento.html',
+    carregamento:'carregamento.html', auditoria:'auditoria.html',
+    configuracoes:'configuracoes.html', perfis:'perfis.html', usuarios:'usuarios.html',
+  };
+  for (const modId of MODULO_MAP_ORDEM) {
+    if (perms[modId] && perms[modId].view) {
+      window.location.href = MODULO_PAGES[modId];
+      return;
+    }
+  }
+  // Nenhum módulo permitido — logout
+  sessionStorage.removeItem('erp_user');
+  window.location.href = 'index.html';
+}
+</script>
+</body>
+</html>
