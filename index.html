@@ -1,0 +1,705 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ERP Industrial</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/supabase.js"></script>
+<script src="js/utils.js"></script>
+<script>
+/* Celular / tablet: a tela de login troca de formato sozinha (sem botão).
+   Toque + tela pequena, ou navegador de celular/tablet. PC com tela de toque continua PC. */
+(function(){
+  try{
+    var ua=navigator.userAgent||'', coarse=window.matchMedia&&matchMedia('(pointer: coarse)').matches;
+    var movelUA=/Android|iPhone|iPad|iPod|Mobile|Tablet|Silk|Kindle/i.test(ua)||(navigator.maxTouchPoints>1&&/Macintosh/.test(ua));
+    var lado=Math.min(screen.width||9999,screen.height||9999);
+    if((movelUA&&lado<1100)||(coarse&&lado<900)||window.innerWidth<760){
+      document.documentElement.classList.add('movel');
+      /* "Versão para computador" no celular: a página é desenhada com ~980 px e o celular encolhe tudo.
+         Compensa aumentando cartão e relógio na mesma proporção. */
+      var z=window.innerWidth/(screen.width||window.innerWidth);
+      if(z>1.3)document.documentElement.style.setProperty('--z',Math.min(3,z).toFixed(2));
+    }
+  }catch(e){}
+})();
+</script>
+</head>
+<body>
+
+<!-- LOGIN — foto da fábrica na tela toda, logo gigante atrás do cartão.
+     O mesmo desenho no PC e no celular (html.movel só aumenta campos e botões). -->
+<style>
+@keyframes lgEntra{from{opacity:0;transform:translate(-50%,-46%) scale(.97)}to{opacity:1;transform:translate(-50%,-50%) scale(1)}}
+@keyframes lgLogo{from{opacity:0;transform:translate(-50%,-50%) scale(.92) rotate(-4deg)}to{opacity:.8;transform:translate(-50%,-50%) scale(1) rotate(0)}}
+@keyframes kenBurns{0%{transform:scale(1.04) translate3d(1%,1%,0)}50%{transform:scale(1.16) translate3d(-2%,-2%,0)}100%{transform:scale(1.04) translate3d(1%,1%,0)}}
+#page-login{position:relative;min-height:100vh;min-height:100dvh;overflow:hidden;background:#042D4D;font-family:'Plus Jakarta Sans',sans-serif;}
+.lg-fundo{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;animation:kenBurns 30s ease-in-out infinite;will-change:transform;}
+.lg-veu{position:absolute;inset:0;background:linear-gradient(120deg,rgba(4,45,77,.93) 0%,rgba(4,45,77,.70) 45%,rgba(4,45,77,.88) 100%);}
+.lg-logo{position:absolute;left:50%;top:50%;height:min(800px,88vh);width:auto;transform:translate(-50%,-50%);opacity:.8;z-index:1;
+  filter:drop-shadow(0 0 40px rgba(201,255,100,.25));animation:lgLogo 1s .1s ease both;pointer-events:none;}
+.lg-palavra{position:absolute;left:50%;bottom:3vh;transform:translateX(-50%);z-index:1;white-space:nowrap;pointer-events:none;
+  font-size:clamp(56px,12vw,190px);font-weight:800;letter-spacing:.12em;color:transparent;-webkit-text-stroke:2px rgba(255,255,255,.22);text-transform:uppercase;}
+.lg-hora{position:absolute;top:26px;right:34px;z-index:3;text-align:right;color:#fff;}
+.lg-hora b{display:block;font-size:34px;font-weight:800;letter-spacing:-.5px;font-variant-numeric:tabular-nums;line-height:1;}
+.lg-hora b small{font-size:15px;color:#C9FF64;margin-left:3px;}
+.lg-hora .data{font-size:12.5px;color:rgba(255,255,255,.72);font-weight:700;margin-top:4px;}
+.lg-hora .turnos{display:flex;flex-direction:column;align-items:flex-end;gap:4px;margin-top:6px;}
+.lp-live-turno{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;font-weight:800;color:#C9FF64;}
+.lp-live-dot{width:8px;height:8px;border-radius:50%;background:#C9FF64;box-shadow:0 0 0 4px rgba(201,255,100,.25);}
+.lp-live-turno.parado{color:rgba(255,255,255,.7);} .lp-live-turno.parado .lp-live-dot{background:rgba(255,255,255,.5);box-shadow:none;}
+/* cartão */
+.lg-card{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:4;width:min(440px,calc(100vw - 32px));
+  background:rgba(255,255,255,.97);border-radius:28px;padding:34px 34px 26px;box-shadow:0 40px 90px -30px rgba(0,0,0,.6);animation:lgEntra .7s .2s ease both;}
+.lg-card::before{content:'';position:absolute;left:34px;right:34px;top:0;height:5px;border-radius:0 0 6px 6px;background:linear-gradient(90deg,#042D4D 0 60%,#C9FF64 60%);}
+.lg-card h2{font-size:30px;font-weight:800;color:#042D4D;letter-spacing:-.6px;}
+.lg-card h2::after{content:' 👋';}
+.lg-card .sub{font-size:14.5px;color:#64748b;margin:4px 0 20px;}
+.lg-lab{display:block;font-size:13px;font-weight:800;color:#032036;margin:0 0 6px;}
+.lg-campo{position:relative;}
+.lg-campo .ic{position:absolute;left:15px;top:50%;transform:translateY(-50%);font-size:16px;pointer-events:none;}
+.lg-campo input{width:100%;height:54px;border:2px solid #dbe3ec;border-radius:15px;padding:0 16px 0 44px;font:inherit;font-size:16px;color:#042D4D;background:#fbfcfe;outline:none;transition:border-color .15s,box-shadow .15s;}
+.lg-campo input:focus{border-color:#042D4D;background:#fff;box-shadow:0 0 0 4px rgba(201,255,100,.6);}
+#login-senha{letter-spacing:3px;padding-right:96px;}
+#btn-eye{position:absolute;right:10px;top:50%;transform:translateY(-50%);border:none;background:none;font:inherit;font-size:12.5px;font-weight:800;color:#64748b;cursor:pointer;padding:8px;}
+.lp-lembrar{display:flex;align-items:center;gap:8px;margin:10px 0 14px;font-size:13px;color:#64748b;cursor:pointer;user-select:none;}
+.lp-lembrar input{width:16px;height:16px;accent-color:#042D4D;}
+.lp-caps{display:none;margin-top:8px;background:#fef3c7;border:1px solid #fde68a;color:#92400e;font-size:12px;font-weight:600;padding:6px 10px;border-radius:8px;} .lp-caps.on{display:block;}
+.lp-quem{display:none;align-items:center;gap:12px;background:#f1f6fb;border:1.5px solid #dbe6f1;border-radius:15px;padding:10px 12px;margin-bottom:14px;}
+.lg-form.tem-quem .lp-quem{display:flex;} .lg-form.tem-quem .lg-g-ident{display:none;}
+.lp-quem-av{width:42px;height:42px;border-radius:50%;background:#042D4D;color:#C9FF64;font-weight:800;font-size:18px;display:flex;align-items:center;justify-content:center;flex-shrink:0;text-transform:uppercase;}
+.lp-quem-tx{flex:1;min-width:0;} .lp-quem-tx small{display:block;font-size:12px;color:#64748b;} .lp-quem-tx b{display:block;font-size:15px;color:#042D4D;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.lp-quem-troca{border:1.5px solid #cbd5e1;background:#fff;border-radius:10px;padding:7px 11px;font:inherit;font-weight:800;font-size:12.5px;color:#042D4D;cursor:pointer;}
+.lg-abc{display:none;justify-content:center;margin-top:10px;}
+.lg-abc button{border:1.5px solid #cbd5e1;background:#fff;border-radius:10px;padding:7px 12px;font:inherit;font-size:13px;font-weight:800;color:#042D4D;cursor:pointer;}
+html.movel .lg-abc{display:flex;}
+#login-error{margin-top:12px;}
+#btn-login{width:100%;height:58px;margin-top:16px;border:none;border-radius:16px;background:#C9FF64;color:#042D4D;font:inherit;font-size:17px;font-weight:800;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;gap:10px;box-shadow:0 14px 26px -14px rgba(94,140,0,.9);transition:transform .15s,box-shadow .15s;}
+#btn-login:hover{transform:translateY(-2px);box-shadow:0 18px 30px -14px rgba(94,140,0,.95);}
+#btn-login:disabled{opacity:.7;transform:none;}
+.lg-rod{font-size:12px;color:#94a3b8;text-align:center;margin-top:14px;}
+/* ── CELULAR / TABLET (html.movel, marcado no <head>) ── */
+html.movel .lg-hora{top:calc(18px + env(safe-area-inset-top));right:20px;} html.movel .lg-hora b{font-size:26px;}
+html.movel .lg-hora .data{display:none;}
+html.movel .lg-logo{top:calc(env(safe-area-inset-top) + 92px * var(--z,1));transform:translateX(-50%);height:min(calc(290px * var(--z,1)),36vh);animation:none;opacity:.9;}
+html.movel .lg-palavra{bottom:calc(10px + env(safe-area-inset-bottom));font-size:clamp(44px,15vw,90px);letter-spacing:.08em;}
+html.movel .lg-card{top:auto;bottom:calc(70px + env(safe-area-inset-bottom));transform:translateX(-50%);animation:none;padding:28px 22px 22px;border-radius:26px;width:min(480px,calc(100vw - 28px));}
+html.movel .lg-card::before{left:22px;right:22px;}
+html.movel .lg-card h2{font-size:28px;} html.movel .lg-card .sub{font-size:15px;margin-bottom:14px;}
+html.movel .lg-lab{font-size:15px;}
+html.movel .lg-campo input{height:64px;font-size:20px;border-radius:18px;padding-left:50px;}
+html.movel #login-senha{font-size:24px;letter-spacing:6px;}
+html.movel .lg-campo .ic{font-size:21px;}
+html.movel #btn-eye{font-size:22px;}
+html.movel .lp-lembrar{font-size:15px;} html.movel .lp-lembrar input{width:22px;height:22px;}
+html.movel .lp-quem{padding:12px;} html.movel .lp-quem-av{width:50px;height:50px;font-size:21px;} html.movel .lp-quem-tx b{font-size:17px;}
+html.movel .lp-quem-troca{font-size:14px;padding:10px 12px;}
+html.movel #btn-login{height:70px;font-size:21px;border-radius:18px;}
+html.movel #login-error{font-size:15px;font-weight:700;}
+/* teclado aberto no celular: o cartão sobe junto (a tela fica menor) */
+html.movel .lg-card{zoom:var(--z,1);width:min(480px,calc((100vw - 28px) / var(--z,1)));}
+html.movel .lg-hora{zoom:var(--z,1);}
+@media (max-height:560px){ html.movel .lg-card{bottom:auto;top:12px;} html.movel .lg-logo,html.movel .lg-palavra{display:none;} }
+@media (prefers-reduced-motion: reduce){ .lg-fundo,.lg-logo,.lg-card{animation:none!important;} }
+</style>
+
+<div id="page-login">
+  <img class="lg-fundo" src="img/hero.avif" alt="">
+  <div class="lg-veu"></div>
+  <!-- símbolo da Silicate gigante atrás do cartão -->
+  <!-- símbolo OFICIAL da Silicate (vetorizado do logo cadastrado na empresa), gigante atrás do cartão -->
+  <svg class="lg-logo" viewBox="0 0 418 462" aria-hidden="true"><path fill="#C9FF64" fill-rule="evenodd" d="M202.5 452.1L198.2 449.6L191.5 445.7L184.8 441.8L181.2 439.9L177.8 437.9L170.8 434.0L163.8 430.2L152.2 423.9L140.8 417.6L137.2 415.6L133.8 413.7L130.6 411.8L127.5 410.0L124.4 408.2L121.2 406.4L120.6 405.9L120.0 405.4L114.1 402.4L108.2 399.4L101.5 395.6L94.8 391.8L93.2 390.7L91.8 389.6L88.5 387.9L85.2 386.1L72.0 379.0L58.8 371.9L57.7 371.0L56.7 370.0L52.5 367.7L48.2 365.4L42.0 362.1L35.8 358.9L29.8 355.3L23.8 351.7L20.0 349.5L16.2 347.3L13.3 345.6L10.4 343.8L9.2 342.4L8.1 341.0L7.7 338.8L7.4 336.5L7.7 334.6L8.1 332.8L10.2 330.7L12.3 328.6L14.4 328.0L16.5 327.4L18.8 328.0L21.1 328.7L24.7 331.3L28.4 333.9L31.8 335.7L35.2 337.6L42.5 341.4L49.8 345.1L52.8 347.2L55.8 349.3L61.6 352.7L67.4 356.0L67.7 356.0L68.0 356.0L72.1 358.3L76.2 360.6L80.0 362.9L83.8 365.2L87.2 367.2L90.8 369.2L95.2 371.5L99.8 373.8L106.2 377.2L112.7 380.6L116.2 383.0L119.8 385.4L122.5 386.7L125.2 388.1L126.5 389.0L127.8 389.9L135.5 393.9L143.2 397.8L150.0 401.8L156.8 405.7L160.2 407.7L163.8 409.6L167.5 411.7L171.2 413.8L177.5 417.5L183.8 421.1L189.5 424.4L195.2 427.6L197.8 429.1L200.2 430.6L204.7 432.3L209.1 434.0L210.1 434.0L211.1 434.0L223.4 427.7L235.8 421.4L245.0 416.4L254.2 411.3L257.5 409.3L260.8 407.2L268.8 402.9L276.8 398.6L281.0 396.5L285.2 394.4L288.8 391.9L292.4 389.5L297.8 386.6L303.2 383.7L309.5 380.4L315.8 377.1L319.2 375.2L322.8 373.4L330.2 369.1L337.8 364.9L344.2 361.4L350.8 357.9L358.2 353.9L365.8 349.8L369.4 347.4L373.1 344.9L382.7 339.9L392.2 334.9L392.8 334.2L393.3 333.5L393.2 237.5L393.1 141.4L392.5 141.0L391.9 140.6L390.6 141.0L389.2 141.4L383.8 144.4L378.2 147.4L371.5 151.5L364.8 155.6L358.2 159.1L351.8 162.7L345.2 166.5L338.8 170.3L334.8 172.5L330.8 174.7L324.8 177.9L318.8 181.1L310.0 186.2L301.2 191.4L291.8 196.5L282.2 201.6L277.5 204.3L272.8 206.9L252.5 218.3L232.2 229.6L223.2 234.3L214.2 238.9L211.3 239.8L208.5 240.7L206.6 240.0L204.8 239.4L198.0 235.6L191.2 231.8L188.8 230.2L186.2 228.7L180.8 225.7L175.3 222.8L170.8 219.9L166.2 217.0L156.8 211.9L147.2 206.9L144.5 205.2L141.8 203.6L135.8 200.2L129.8 196.7L124.5 193.7L119.2 190.8L114.9 188.3L110.5 185.8L101.4 180.3L92.2 174.8L89.2 173.1L86.2 171.3L85.5 170.7L84.7 170.0L77.5 166.1L70.2 162.2L64.1 158.6L58.0 155.1L57.3 154.6L56.7 154.0L53.0 151.9L49.2 149.8L40.4 145.2L31.6 140.5L30.6 140.5L29.6 140.5L28.9 141.3L28.2 142.2L28.4 165.1L28.5 188.1L29.0 189.0L29.4 189.8L33.6 192.4L37.8 195.0L42.2 197.9L46.8 200.7L60.8 208.1L74.8 215.6L79.7 218.8L84.6 222.0L87.9 223.9L91.2 225.9L99.1 230.6L106.9 235.2L111.0 237.5L115.1 239.8L122.7 244.2L130.2 248.7L134.8 251.2L139.2 253.6L143.6 256.0L147.9 258.3L153.8 262.1L159.8 265.8L166.2 269.5L172.8 273.2L178.2 276.4L183.8 279.7L187.2 281.7L190.8 283.7L195.8 286.8L200.9 290.0L204.7 292.0L208.5 294.0L209.7 294.0L210.9 294.0L216.3 291.1L221.8 288.1L225.2 286.1L228.8 284.2L232.5 281.9L236.2 279.6L246.0 274.2L255.8 268.8L262.8 264.7L269.8 260.6L273.9 258.3L278.1 256.0L278.4 256.0L278.6 256.0L286.2 251.6L293.8 247.1L301.2 243.0L308.8 238.8L313.0 236.5L317.2 234.1L322.0 231.3L326.8 228.4L331.5 225.6L336.2 222.8L339.8 221.1L343.2 219.4L345.7 219.7L348.1 220.0L350.2 221.2L352.3 222.4L353.2 223.5L354.2 224.5L354.6 230.5L355.0 236.5L354.9 268.8L354.8 301.1L353.2 302.4L351.7 303.8L343.2 309.1L334.8 314.4L328.2 318.0L321.8 321.6L312.5 327.0L303.2 332.4L298.2 335.0L293.2 337.7L286.7 341.5L280.2 345.4L270.5 351.0L260.8 356.6L253.8 360.6L246.8 364.6L240.2 368.4L233.8 372.2L226.2 376.5L218.8 380.8L216.0 382.0L213.2 383.2L210.0 383.2L206.8 383.2L202.0 380.9L197.2 378.5L193.2 376.3L189.2 374.2L182.8 370.8L176.2 367.4L173.2 365.6L170.2 363.8L168.0 362.2L165.8 360.6L163.2 359.4L160.8 358.1L156.5 355.9L152.2 353.7L148.0 351.3L143.8 348.9L141.0 346.9L138.3 344.8L134.8 343.0L131.2 341.1L124.8 337.8L118.2 334.4L114.0 331.5L109.7 328.6L107.2 327.4L104.8 326.1L94.5 320.7L84.2 315.2L81.8 313.8L79.2 312.3L77.0 310.7L74.8 309.2L70.2 306.8L65.8 304.4L60.0 301.3L54.2 298.3L49.9 295.4L45.5 292.5L43.1 291.3L40.8 290.1L34.0 286.5L27.2 282.8L23.0 280.0L18.8 277.1L15.9 275.3L13.1 273.5L12.2 272.3L11.4 271.0L11.3 266.5L11.2 262.1L12.4 260.9L13.6 259.6L15.7 258.7L17.8 257.8L31.8 251.0L45.8 244.1L51.5 241.4L57.2 238.7L60.6 237.2L64.0 235.8L65.3 234.7L66.6 233.7L66.3 232.7L66.0 231.8L59.1 227.7L52.2 223.6L45.8 220.1L39.2 216.6L34.2 213.8L29.2 210.9L28.5 210.2L27.8 209.6L20.7 205.8L13.6 201.9L12.7 200.9L11.8 200.0L11.4 192.9L10.9 185.8L11.2 152.4L11.6 119.1L11.9 117.7L12.3 116.2L14.3 114.9L16.2 113.6L23.0 109.9L29.8 106.1L34.8 103.6L39.8 101.1L47.0 97.0L54.2 92.9L62.5 88.3L70.8 83.7L77.0 80.5L83.2 77.3L90.5 73.0L97.8 68.6L107.5 63.2L117.2 57.8L119.2 56.5L121.2 55.2L128.0 51.4L134.8 47.6L138.8 45.6L142.9 43.5L150.0 39.4L157.0 35.2L161.4 32.8L165.8 30.3L172.5 26.9L179.2 23.4L186.5 19.0L193.8 14.7L197.8 12.4L201.8 10.1L204.6 9.1L207.5 8.0L210.2 8.0L212.9 8.0L215.1 9.8L217.2 11.6L218.1 13.2L219.0 14.7L219.0 17.8L219.0 20.8L217.9 21.9L216.8 22.9L213.0 25.1L209.2 27.3L195.2 34.8L181.2 42.2L179.5 43.3L177.8 44.4L166.8 50.5L155.8 56.6L149.8 60.2L143.8 63.9L133.2 69.5L122.8 75.2L118.2 77.9L113.8 80.7L103.8 86.0L93.8 91.4L89.2 93.9L84.8 96.3L79.5 99.5L74.2 102.7L62.0 109.0L49.8 115.4L46.0 117.4L42.2 119.5L41.6 120.4L41.0 121.2L41.0 122.3L41.0 123.4L42.9 125.1L44.9 126.9L47.4 128.2L49.9 129.4L53.6 131.9L57.2 134.3L67.0 139.5L76.8 144.7L82.8 148.2L88.8 151.7L91.8 153.5L94.8 155.3L99.1 157.9L103.5 160.6L107.1 162.6L110.8 164.6L114.5 166.7L118.2 168.8L122.2 171.1L126.2 173.4L128.6 174.9L130.9 176.5L137.1 179.9L143.2 183.4L147.0 185.5L150.8 187.7L159.5 192.9L168.2 198.1L171.0 199.5L173.8 200.8L179.5 204.0L185.2 207.1L191.8 211.0L198.2 214.8L201.8 216.9L205.2 219.0L207.2 219.8L209.2 220.6L212.2 219.5L215.2 218.4L221.2 215.0L227.2 211.6L236.8 206.8L246.2 202.0L249.8 199.5L253.2 196.9L257.5 194.7L261.8 192.6L269.0 188.6L276.2 184.6L281.4 181.6L286.6 178.5L286.8 178.5L287.0 178.5L290.2 176.5L293.5 174.5L298.6 171.9L303.8 169.4L309.8 166.1L315.8 162.8L320.8 159.6L325.8 156.4L335.2 151.4L344.8 146.4L349.5 143.9L354.2 141.4L356.0 140.1L357.7 138.8L359.5 137.5L361.2 136.3L370.8 131.9L380.2 127.4L381.4 126.7L382.6 125.9L382.4 124.6L382.2 123.3L379.9 121.5L377.5 119.7L367.9 114.8L358.2 109.9L354.8 107.5L351.2 105.2L345.1 101.8L338.9 98.4L337.1 98.1L335.2 97.9L327.0 102.5L318.8 107.1L312.2 110.9L305.8 114.7L293.8 121.1L281.9 127.5L277.6 130.3L273.2 133.2L260.8 139.6L248.2 146.1L242.2 149.7L236.2 153.3L228.5 157.7L220.7 162.0L215.7 164.2L210.8 166.5L208.6 166.5L206.4 166.5L205.3 165.9L204.2 165.4L198.3 161.8L192.4 158.2L188.3 155.9L184.2 153.6L174.0 148.1L163.8 142.6L161.0 140.9L158.2 139.2L156.0 137.7L153.7 136.2L147.3 133.0L140.9 129.8L140.2 128.4L139.5 127.0L139.5 122.1L139.5 117.2L140.1 116.4L140.8 115.6L143.0 114.5L145.2 113.4L149.5 110.7L153.8 108.1L157.0 106.5L160.2 104.9L163.8 102.9L167.2 100.8L169.8 99.0L172.2 97.1L179.2 93.4L186.2 89.7L194.6 84.7L202.9 79.7L208.0 77.0L213.1 74.2L216.9 71.6L220.8 69.0L223.7 67.5L226.6 65.9L232.2 62.7L237.8 59.4L246.2 54.4L254.8 49.4L258.9 46.7L263.1 44.0L264.9 43.7L266.6 43.4L269.4 43.7L272.1 43.9L273.1 44.8L274.1 45.8L275.8 49.2L277.6 52.7L278.0 56.5L278.5 60.2L278.6 83.0L278.6 105.8L279.1 106.4L279.6 107.0L280.6 107.0L281.6 107.0L289.4 102.8L297.2 98.6L305.8 94.2L314.2 89.8L321.1 85.7L328.0 81.6L330.9 80.4L333.8 79.3L338.0 79.3L342.2 79.3L344.5 80.4L346.8 81.5L349.8 83.1L352.8 84.8L356.5 87.3L360.2 89.8L363.5 91.6L366.8 93.4L369.1 94.7L371.5 96.0L377.5 99.9L383.4 103.8L386.3 105.4L389.2 107.0L394.8 110.2L400.2 113.3L404.0 115.6L407.8 118.0L408.9 119.2L410.1 120.4L410.5 123.8L411.0 127.2L411.0 235.1L411.0 342.9L410.5 344.1L410.1 345.3L405.9 347.5L401.8 349.7L398.8 351.5L395.8 353.3L385.8 358.7L375.8 364.1L373.8 365.2L371.8 366.3L363.0 371.4L354.2 376.4L341.5 383.1L328.7 389.9L316.5 396.9L304.2 403.8L297.8 407.3L291.2 410.7L286.8 413.5L282.2 416.3L274.8 420.4L267.2 424.4L257.0 429.9L246.8 435.4L243.2 437.4L239.8 439.3L232.8 443.3L225.8 447.2L218.8 450.7L211.8 454.2L209.3 454.4L206.8 454.5L202.5 452.1ZM212.9 362.8L215.8 361.6L225.8 356.2L235.8 350.9L240.2 348.0L244.8 345.1L251.5 341.2L258.2 337.3L259.5 336.5L260.8 335.6L272.2 329.2L283.8 322.9L289.8 319.3L295.8 315.7L303.0 311.8L310.2 307.9L318.5 303.0L326.8 298.1L330.8 296.2L334.8 294.2L335.4 292.3L336.0 290.3L335.9 269.2L335.8 248.1L334.8 247.0L333.8 245.9L332.3 246.2L330.9 246.5L327.3 248.7L323.8 250.8L320.3 253.0L316.9 255.1L305.1 261.5L293.2 267.9L288.8 270.6L284.2 273.3L275.8 278.0L267.2 282.6L262.2 285.6L257.2 288.6L249.2 293.1L241.2 297.7L231.8 303.3L222.2 308.9L218.2 311.2L214.2 313.5L211.7 314.3L209.1 315.0L207.2 314.3L205.4 313.5L202.1 311.3L198.8 309.2L195.8 307.5L192.8 305.9L189.0 303.8L185.2 301.7L182.2 299.9L179.2 298.2L177.0 296.8L174.8 295.4L173.0 294.3L171.2 293.2L162.5 288.0L153.8 282.8L153.0 282.2L152.2 281.6L145.5 277.9L138.8 274.1L135.5 272.3L132.2 270.4L128.2 268.1L124.2 265.9L117.2 262.0L110.2 258.1L107.2 256.4L104.2 254.7L101.5 253.0L98.8 251.3L97.0 250.2L95.2 249.0L91.8 247.5L88.3 245.9L86.0 246.1L83.8 246.3L78.2 249.0L72.8 251.6L67.5 254.1L62.2 256.6L58.8 257.9L55.2 259.1L51.2 261.0L47.2 262.8L45.1 264.8L43.0 266.8L43.0 268.2L43.0 269.7L44.9 271.5L46.8 273.3L54.5 277.2L62.2 281.1L66.1 283.2L70.0 285.4L73.0 287.7L76.1 290.0L79.4 291.7L82.8 293.4L90.0 297.1L97.2 300.9L101.0 303.7L104.8 306.5L107.0 307.3L109.2 308.2L110.9 309.4L112.6 310.6L115.6 311.8L118.7 313.0L119.5 313.7L120.2 314.4L123.5 315.9L126.8 317.5L130.7 319.7L134.6 322.0L137.9 324.4L141.2 326.8L143.5 327.7L145.8 328.7L146.5 329.3L147.2 329.9L151.2 331.9L155.2 333.9L159.0 335.8L162.8 337.8L165.3 339.8L167.8 341.9L171.8 343.9L175.8 345.8L179.2 347.7L182.8 349.5L189.0 353.5L195.2 357.4L200.4 360.2L205.5 363.0L207.1 363.4L208.8 363.9L209.4 364.0L210.0 364.0L212.9 362.8ZM217.6 142.8L223.2 139.6L230.0 136.2L236.8 132.8L244.5 128.6L252.2 124.3L255.1 121.9L258.1 119.4L258.8 117.7L259.5 115.9L259.6 93.8L259.8 71.8L259.3 70.6L258.9 69.5L257.8 69.2L256.6 68.9L251.0 72.3L245.4 75.8L241.8 77.9L238.2 80.1L228.8 85.5L219.2 90.9L208.9 96.9L198.5 102.9L194.9 105.3L191.2 107.7L183.4 112.1L175.6 116.5L172.6 118.0L169.6 119.5L168.8 120.3L168.0 121.1L168.0 122.2L168.0 123.4L169.6 124.7L171.2 126.1L174.5 127.7L177.8 129.4L180.6 131.6L183.5 133.8L185.1 134.6L186.8 135.5L193.7 139.1L200.7 142.8L205.2 144.6L209.8 146.5L210.8 146.2L211.9 146.0L217.6 142.8Z"/></svg>
+  <div class="lg-palavra" id="login-empresa">SILICATE</div>
+
+  <div class="lg-hora">
+    <b><span id="lp-hora">--:--</span><small id="lp-seg">--</small></b>
+    <div class="data" id="lp-data">&nbsp;</div>
+    <div class="turnos" id="lp-turno" style="display:none;"></div>
+  </div>
+
+  <div class="lg-card">
+    <h2 id="lp-saudacao">Boa tarde!</h2>
+    <div class="sub" id="lp-saudacao-sub">Entre para continuar no sistema</div>
+    <div class="lg-form" id="lg-form">
+      <!-- quem já entrou neste aparelho: só digita a senha -->
+      <div class="lp-quem">
+        <div class="lp-quem-av" id="lp-quem-av">?</div>
+        <div class="lp-quem-tx"><small>Entrando como</small><b id="lp-quem-nome"></b></div>
+        <button type="button" class="lp-quem-troca" onclick="lpTrocarPessoa()">Trocar</button>
+      </div>
+      <div class="lg-g-ident">
+        <label class="lg-lab" for="login-email">E-mail ou usuário</label>
+        <div class="lg-campo"><span class="ic">👤</span>
+          <input id="login-email" type="text" placeholder="seu usuário ou e-mail"
+                 autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false"
+                 onkeydown="if(event.key==='Enter'){event.preventDefault();document.getElementById('login-senha').focus();}"></div>
+        <label class="lp-lembrar" for="lp-lembrar-chk"><input type="checkbox" id="lp-lembrar-chk" checked> Lembrar de mim neste aparelho</label>
+      </div>
+      <label class="lg-lab" for="login-senha">Senha</label>
+      <div class="lg-campo"><span class="ic">🔒</span>
+        <input id="login-senha" type="password" placeholder="••••••" autocomplete="current-password"
+               onkeydown="if(event.key==='Enter')doLogin()" onkeyup="checarCapsLock(event)">
+        <button type="button" id="btn-eye" onclick="toggleSenha()" aria-label="Mostrar ou esconder a senha">MOSTRAR</button>
+      </div>
+      <div class="lp-caps" id="lp-caps">⚠️ Caps Lock ligado.</div>
+      <div class="lg-abc"><button type="button" id="lg-abc-btn" onclick="lpTrocarTeclado()">🔤 Minha senha tem letras</button></div>
+      <div id="login-error" class="hidden alert alert-danger"></div>
+      <button id="btn-login" onclick="doLogin()">Entrar no sistema <span>→</span></button>
+      <div class="lg-rod">🔒 Conexão segura · <span id="lp-rodape-empresa">Silicate</span> © <span id="lp-rodape-ano">—</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- ONBOARDING -->
+<div id="page-onboarding" class="hidden">
+  <div class="onboarding-wrap">
+    <div class="onboarding-header">
+      <h1>⚙️ Configuração Inicial</h1>
+      <p>Configure os dados da sua empresa antes de começar</p>
+    </div>
+    <div class="steps-bar">
+      <div class="step-item"><div class="step-circle active" id="sc1">1</div><div class="step-label active" id="sl1">Dados da Empresa</div></div>
+      <div class="step-line" id="sline1"></div>
+      <div class="step-item"><div class="step-circle" id="sc2">2</div><div class="step-label" id="sl2">Administrador</div></div>
+    </div>
+    <div class="onboarding-card">
+      <!-- STEP 1 -->
+      <div id="ob-step1">
+        <h2>📋 Dados da Empresa</h2>
+        <div style="display:flex;flex-direction:column;gap:16px;">
+          <div class="form-grid-2">
+            <div class="form-group"><label class="form-label">Razão Social <span class="req">*</span></label><input id="ob-razao" type="text" class="form-input" placeholder="Nome Jurídico da Empresa"></div>
+            <div class="form-group"><label class="form-label">Nome Fantasia <span class="req">*</span></label><input id="ob-fantasia" type="text" class="form-input" placeholder="Nome Comercial"></div>
+          </div>
+          <div class="form-grid-2">
+            <div class="form-group"><label class="form-label">CNPJ <span class="req">*</span></label><input id="ob-cnpj" type="text" class="form-input" placeholder="00.000.000/0001-00" maxlength="18" oninput="mascaraCNPJ(this)"></div>
+            <div class="form-group"><label class="form-label">Inscrição Estadual</label><input id="ob-ie" type="text" class="form-input" placeholder="000.000.000.000"></div>
+          </div>
+          <div class="form-grid-3">
+            <div class="form-group"><label class="form-label">CEP</label><input id="ob-cep" type="text" class="form-input" placeholder="00000-000" maxlength="9" oninput="mascaraCEP(this)"></div>
+            <div class="form-group" style="grid-column:span 2;"><label class="form-label">Rua / Avenida <span class="req">*</span></label><input id="ob-rua" type="text" class="form-input" placeholder="Nome da rua"></div>
+          </div>
+          <div class="form-grid-3">
+            <div class="form-group"><label class="form-label">Número</label><input id="ob-num" type="text" class="form-input" placeholder="123"></div>
+            <div class="form-group"><label class="form-label">Bairro</label><input id="ob-bairro" type="text" class="form-input" placeholder="Bairro"></div>
+            <div class="form-group"><label class="form-label">Cidade <span class="req">*</span></label><input id="ob-cidade" type="text" class="form-input" placeholder="Cidade"></div>
+          </div>
+          <div class="form-grid-2">
+            <div class="form-group"><label class="form-label">Telefone</label><input id="ob-tel" type="text" class="form-input" placeholder="(00) 00000-0000" oninput="mascaraTel(this)"></div>
+            <div class="form-group"><label class="form-label">E-mail da Empresa</label><input id="ob-email" type="email" class="form-input" placeholder="contato@empresa.com"></div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Logo da Empresa</label>
+            <div class="upload-area" onclick="document.getElementById('ob-logo-input').click()">
+              <input type="file" id="ob-logo-input" accept="image/*" style="display:none;" onchange="previewLogo(this)">
+              <div id="ob-logo-preview" style="display:flex;flex-direction:column;align-items:center;gap:8px;">
+                <div style="font-size:36px;">🖼️</div>
+                <p style="font-size:13px;color:#64748b;">Clique para fazer upload da logo</p>
+                <p style="font-size:11px;color:#94a3b8;">PNG, JPG ou SVG — Recomendado: 200×200px</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- STEP 2 -->
+      <div id="ob-step2" class="hidden">
+        <h2>👤 Criação do Super Administrador</h2>
+        <div class="alert alert-warning">🔒 Este será o usuário SADM — acesso total e irrestrito. Guarde bem a senha.</div>
+        <div style="display:flex;flex-direction:column;gap:16px;">
+          <div class="form-group"><label class="form-label">Nome Completo <span class="req">*</span></label><input id="ob-sadm-nome" type="text" class="form-input" placeholder="Seu nome completo"></div>
+          <div class="form-group"><label class="form-label">E-mail <span class="req">*</span></label><input id="ob-sadm-email" type="email" class="form-input" placeholder="seu@email.com"></div>
+          <div class="form-grid-2">
+            <div class="form-group"><label class="form-label">Senha <span class="req">*</span></label><input id="ob-sadm-senha" type="password" class="form-input" placeholder="Mínimo 8 caracteres"></div>
+            <div class="form-group"><label class="form-label">Confirmar Senha <span class="req">*</span></label><input id="ob-sadm-senha2" type="password" class="form-input" placeholder="Repita a senha"></div>
+          </div>
+        </div>
+      </div>
+      <div class="onboarding-nav">
+        <button id="ob-btn-back" class="btn btn-secondary hidden" onclick="obBack()">← Voltar</button>
+        <button id="ob-btn-next" class="btn btn-primary" onclick="obNext()">Próximo →</button>
+        <button id="ob-btn-finish" class="btn btn-primary hidden" onclick="obFinish()">✅ Concluir Configuração</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+
+<script>
+let _logoData = null, _obStep = 1;
+
+window.addEventListener('load', async () => {
+  if (sessionStorage.getItem('erp_user')) {
+    const u = JSON.parse(sessionStorage.getItem('erp_user'));
+    redirecionarPosLogin(u);
+    return;
+  }
+  try {
+    const {data} = await _supabase.rpc('branding_publico');
+    if (data) {
+      // A marca é a 1ª palavra da razão social (SILICATE); o nome fantasia pode ser genérico ("FÁBRICA").
+      const marca = String(data.razao_social||data.nome_fantasia||'ERP Industrial').trim().split(/\s+/)[0];
+      document.getElementById('login-empresa').textContent = marca;
+      const rod = document.getElementById('lp-rodape-empresa');
+      if (rod) rod.textContent = marca.charAt(0).toUpperCase() + marca.slice(1).toLowerCase();
+
+    }
+  } catch(e) {}
+});
+
+// Relógio, turno e conforto do formulário
+document.addEventListener('DOMContentLoaded', () => {
+  const ano = document.getElementById('lp-rodape-ano');
+  if (ano) ano.textContent = new Date().getFullYear();
+  lpTick();
+  setInterval(lpTick, 1000);
+  lpRestaurarEmail();
+  lpCarregarTurnos();
+  lpModoTeclado();
+});
+
+
+/* ────────────────────────────────────────────────────────────────
+   TELA DE LOGIN — relógio, turno em andamento e conforto de uso.
+   O relógio e o turno substituem as três estatísticas antigas: é
+   movimento que informa, e é dado real do próprio sistema.
+   ──────────────────────────────────────────────────────────────── */
+const LP_DIAS = ['Segunda','Terça','Quarta','Quinta','Sexta','Sábado','Domingo'];   // mesma ordem de turnos.html
+const LP_DIAS_LONGO = ['Domingo','Segunda-feira','Terça-feira','Quarta-feira','Quinta-feira','Sexta-feira','Sábado'];
+const LP_MESES = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
+let _lpTurnos = [];
+
+function lpSaudacao(hora) {
+  if (hora < 12) return 'Bom dia';
+  if (hora < 18) return 'Boa tarde';
+  return 'Boa noite';
+}
+
+// Minutos desde a meia-noite de uma string "HH:MM".
+function lpMin(hhmm) {
+  const p = String(hhmm || '').split(':');
+  const hh = parseInt(p[0], 10), mm = parseInt(p[1], 10);
+  return (isNaN(hh) || isNaN(mm)) ? null : hh * 60 + mm;
+}
+
+// Todos os turnos em andamento agora. Na fábrica é comum dois rodando ao mesmo
+// tempo (ex.: Administrativo e 1º Turno de manhã), então a função devolve a
+// lista inteira — quem mostra decide como exibir. Lê o calendário do próprio
+// cadastro de turnos, respeitando o dia da semana e o turno que vira a meia-noite.
+function lpTurnosAgora(agora) {
+  const diaIdx = (agora.getDay() + 6) % 7;          // getDay(): 0=domingo → nossa lista começa na segunda
+  const diaAnt = (diaIdx + 6) % 7;
+  const min = agora.getHours() * 60 + agora.getMinutes();
+  const emAndamento = [];
+  for (const t of _lpTurnos) {
+    const cal = t.calendario || {};
+    const hoje = cal[LP_DIAS[diaIdx]] || {};
+    const ini = lpMin(hoje.inicio), fim = lpMin(hoje.fim);
+    let achou = null;
+    if (hoje.ativo && ini != null && fim != null) {
+      if (fim > ini && min >= ini && min < fim) achou = { nome: t.nome, ini: hoje.inicio, fim: hoje.fim };
+      else if (fim <= ini && min >= ini) achou = { nome: t.nome, ini: hoje.inicio, fim: hoje.fim };   // entra hoje, sai amanhã
+    }
+    if (!achou) {
+      // turno de ontem que atravessou a meia-noite e ainda está rodando
+      const ontem = cal[LP_DIAS[diaAnt]] || {};
+      const iniO = lpMin(ontem.inicio), fimO = lpMin(ontem.fim);
+      if (ontem.ativo && iniO != null && fimO != null && fimO <= iniO && min < fimO) {
+        achou = { nome: t.nome, ini: ontem.inicio, fim: ontem.fim };
+      }
+    }
+    if (achou) emAndamento.push(achou);
+  }
+  // ordena pelo horário de início, para a leitura ficar previsível
+  emAndamento.sort((a, b) => (lpMin(a.ini) || 0) - (lpMin(b.ini) || 0));
+  return emAndamento;
+}
+
+function lpTick() {
+  const d = new Date();
+  const dois = (n) => String(n).padStart(2, '0');
+  const elH = document.getElementById('lp-hora');
+  if (!elH) return;
+  elH.textContent = dois(d.getHours()) + ':' + dois(d.getMinutes());
+  document.getElementById('lp-seg').textContent = dois(d.getSeconds());
+  document.getElementById('lp-data').textContent =
+    LP_DIAS_LONGO[d.getDay()] + ', ' + d.getDate() + ' de ' + LP_MESES[d.getMonth()] + ' de ' + d.getFullYear();
+
+  const lmH=document.getElementById('lm-hora'); if(lmH) lmH.textContent=dois(d.getHours())+':'+dois(d.getMinutes());
+  const lmD=document.getElementById('lm-data'); if(lmD) lmD.textContent=LP_DIAS_LONGO[d.getDay()]+', '+d.getDate()+' de '+LP_MESES[d.getMonth()];
+  // saudação acompanha a hora (quem entra às 5h da manhã não lê "boa noite")
+  const s = document.getElementById('lp-saudacao');
+  if (s) s.textContent = lpSaudacao(d.getHours()) + '!';
+
+  const box = document.getElementById('lp-turno');
+  if (!box) return;
+  if (!_lpTurnos.length) { box.style.display = 'none'; return; }   // sem turnos cadastrados, não inventa nada
+  const lista = lpTurnosAgora(d);
+  const assinatura = lista.map(t => t.nome + '|' + t.ini + '|' + t.fim).join('#');
+  box.style.display = 'flex';
+  const lmT=document.getElementById('lm-turno');
+  if (lmT && lmT.dataset.assinatura !== assinatura) {
+    lmT.dataset.assinatura = assinatura;
+    lmT.innerHTML = lista.length ? lista.map(t=>`<span>● ${t.nome} · ${t.ini}–${t.fim}</span>`).join('') : '<span class="parado">Nenhum turno agora</span>';
+  }
+  if (box.dataset.assinatura === assinatura) return;               // nada mudou: não redesenha a cada segundo
+  box.dataset.assinatura = assinatura;
+  box.innerHTML = '';
+  if (!lista.length) {
+    box.appendChild(lpChipTurno('Nenhum turno agora', true));
+    return;
+  }
+  lista.forEach(t => {
+    box.appendChild(lpChipTurno(t.nome + ' · ' + t.ini + '–' + t.fim, false));
+  });
+}
+
+// Um chip da faixa ao vivo. `parado` deixa o visual apagado, sem pulso.
+function lpChipTurno(texto, parado) {
+  const chip = document.createElement('div');
+  chip.className = 'lp-live-turno' + (parado ? ' parado' : '');
+  const dot = document.createElement('span');
+  dot.className = 'lp-live-dot';
+  const span = document.createElement('span');
+  span.textContent = texto;
+  chip.appendChild(dot);
+  chip.appendChild(span);
+  return chip;
+}
+
+async function lpCarregarTurnos() {
+  try {
+    const { data, error } = await _supabase.rpc('turnos_publico');
+    if (error) throw error;
+    _lpTurnos = data || [];
+  } catch (e) { _lpTurnos = []; }
+  lpTick();
+}
+
+/* ────────────────────────────────────────────────────────────────
+   OPERADOR: entra caminhando, para e fica parado.
+   Não é vídeo — são 4 poses trocando de quadro, como cinema. Os quadros
+   da caminhada só são baixados no desktop; no celular fica a pose final,
+   que já vem no HTML (1 imagem em vez de 4).
+   ──────────────────────────────────────────────────────────────── */
+const _opEl = (id) => document.getElementById(id);
+const OP_QUADROS = { anda1:'img/op-anda-1.webp', anda2:'img/op-anda-2.webp', parado:'img/op-parado.webp' };
+const OP_X_INICIO = -300;   // % da própria largura: fora da faixa, à esquerda
+const OP_X_FINAL  = 14;     // onde ele para
+const OP_PASSO_MS = 250;
+const OP_ANDAR_MS = 1900;   // ajustado para telas estreitas em _opCaminhar()
+let _opImgs = {}, _opPasso = null, _opTimers = [];
+
+function _opMostrar(nome) {
+  Object.keys(_opImgs).forEach(k => _opImgs[k].classList.toggle('ativo', k === nome));
+}
+
+function _opFinalParado() {
+  const palco = _opEl('op-palco');
+  if (!palco) return;
+  palco.style.transition = 'none';
+  palco.style.setProperty('--x', OP_X_FINAL + '%');
+  _opMostrar('final');
+  _opEl('op-corpo').classList.remove('andando');
+  _opEl('op-corpo').classList.add('parou');
+}
+
+function _opCaminhar() {
+  const palco = _opEl('op-palco'), corpo = _opEl('op-corpo');
+  corpo.classList.add('andando');
+  corpo.classList.remove('parou');
+  palco.style.transition = 'none';
+  palco.style.setProperty('--x', OP_X_INICIO + '%');
+  let alterna = true;
+  _opMostrar('anda1');
+  _opPasso = setInterval(() => { alterna = !alterna; _opMostrar(alterna ? 'anda1' : 'anda2'); }, OP_PASSO_MS);
+
+  // um quadro de respiro para o navegador aplicar a posição inicial
+  // a passada é mais curta em tela estreita: o tempo acompanha, senão ele
+  // pareceria andando em câmera lenta no celular
+  const dur = window.innerWidth < 700 ? 1500 : OP_ANDAR_MS;
+
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    palco.style.transition = 'transform ' + dur + 'ms cubic-bezier(.34,.03,.28,1)';
+    palco.style.setProperty('--x', OP_X_FINAL + '%');
+  }));
+
+  _opTimers.push(setTimeout(() => {
+    if (_opPasso) { clearInterval(_opPasso); _opPasso = null; }
+    corpo.classList.remove('andando');
+    _opMostrar('parado');                     // chega e cruza os braços
+  }, dur));
+
+  _opTimers.push(setTimeout(() => {
+    corpo.classList.add('parou');
+    _opMostrar('final');                      // sorri e fica parado de vez
+  }, dur + 600));
+}
+
+function iniciarOperador() {
+  const corpo = _opEl('op-corpo'), final = _opEl('op-final');
+  if (!corpo || !final) return;
+  _opImgs = { final: final };
+
+  // A caminhada roda no celular também. A única coisa que a desliga é o
+  // aparelho pedindo economia: modo "economizar dados" ligado ou conexão 2G.
+  // Perguntar "é celular?" era a pergunta errada — o que importa é se a
+  // conexão aguenta, e são 83 KB baixados uma vez e depois em cache.
+  const semAnimacao = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const rede = navigator.connection || navigator.mozConnection || navigator.webkitConnection || null;
+  const redeFraca = !!rede && (rede.saveData === true || /^(slow-)?2g$/.test(rede.effectiveType || ''));
+  if (semAnimacao || redeFraca) { _opFinalParado(); return; }
+
+  // cria e pré-carrega os quadros da caminhada; se algum falhar, ele só aparece parado
+  const cargas = Object.keys(OP_QUADROS).map(nome => new Promise((ok, erro) => {
+    const img = new Image();
+    img.width = 334; img.height = 710; img.alt = '';
+    img.onload = () => { corpo.appendChild(img); _opImgs[nome] = img; ok(); };
+    img.onerror = erro;
+    img.src = OP_QUADROS[nome];
+  }));
+  Promise.all(cargas).then(_opCaminhar).catch(_opFinalParado);
+
+  // inclinação leve seguindo o cursor, só depois que ele para
+  const zona = document.querySelector('.lp-form-side');
+  const temMouse = window.matchMedia && window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+  if (zona && temMouse) {
+    zona.addEventListener('mousemove', (ev) => {
+      if (!corpo.classList.contains('parou')) return;
+      const r = zona.getBoundingClientRect();
+      const px = (ev.clientX - r.left) / r.width - .5;
+      const py = (ev.clientY - r.top) / r.height - .5;
+      _opEl('op').style.transform = 'rotateY(' + (px * 12).toFixed(2) + 'deg) rotateX(' + (-py * 6).toFixed(2) + 'deg) translateZ(10px)';
+    });
+    zona.addEventListener('mouseleave', () => { _opEl('op').style.transform = ''; });
+  }
+}
+
+function checarCapsLock(ev) {
+  const box = document.getElementById('lp-caps');
+  if (!box || !ev.getModifierState) return;
+  box.classList.toggle('on', ev.getModifierState('CapsLock'));
+}
+
+// Lembrar o e-mail poupa digitação no celular. Só o e-mail — senha nunca.
+/* ── QUEM ENTROU NESTE APARELHO ──────────────────────────────────────
+   Guarda o que a pessoa digitou (e-mail OU nome de usuário) e o nome dela,
+   para a próxima vez mostrar "Entrando como Luciano" e pedir só a senha.
+   Senha nunca é guardada. Aceita o formato antigo (só o e-mail, texto puro). */
+const LP_CHAVE_EMAIL = 'erp_login_email';
+let _lpQuem = null;
+function lpLerQuem() {
+  try {
+    const v = localStorage.getItem(LP_CHAVE_EMAIL); if (!v) return null;
+    if (v.trim().startsWith('{')) { const o = JSON.parse(v); return o && o.ident ? o : null; }
+    return { ident: v, nome: v };
+  } catch (e) { return null; }
+}
+function lpRestaurarEmail() {
+  _lpQuem = lpLerQuem();
+  const inpE = document.getElementById('login-email'), inpS = document.getElementById('login-senha');
+  if (_lpQuem) {
+    inpE.value = _lpQuem.ident;
+    document.getElementById('lg-form').classList.add('tem-quem');
+    const nome = String(_lpQuem.nome || _lpQuem.ident);
+    const pal = nome.split(/\s+/).filter(Boolean);
+    document.getElementById('lp-quem-nome').textContent = nome.includes('@') || pal.length < 2 ? nome : pal[0] + ' ' + pal[pal.length - 1];
+    document.getElementById('lp-quem-av').textContent = (nome.trim()[0] || '?');
+    if (!document.documentElement.classList.contains('movel')) inpS.focus();
+  } else if (!document.documentElement.classList.contains('movel')) inpE.focus();
+}
+function lpTrocarPessoa() {
+  _lpQuem = null;
+  try { localStorage.removeItem(LP_CHAVE_EMAIL); } catch (e) {}
+  document.getElementById('lg-form').classList.remove('tem-quem');
+  const inpE = document.getElementById('login-email'); inpE.value = ''; inpE.focus();
+}
+function lpGuardarQuem(ident, nome) {
+  const chk = document.getElementById('lp-lembrar-chk');
+  try {
+    if ((chk && chk.checked) || _lpQuem) localStorage.setItem(LP_CHAVE_EMAIL, JSON.stringify({ ident, nome: nome || ident }));
+    else localStorage.removeItem(LP_CHAVE_EMAIL);
+  } catch (e) {}
+}
+
+/* ── SENHA SÓ DE NÚMEROS ─────────────────────────────────────────────
+   No celular a senha abre o teclado de números. Quem ainda tem senha com
+   letras toca em "Minha senha tem letras" (o aparelho lembra). */
+const LP_CHAVE_TECLADO = 'erp_login_senha_letras';
+function lpModoTeclado() {
+  const inp = document.getElementById('login-senha'), btn = document.getElementById('lg-abc-btn');
+  let letras = false; try { letras = localStorage.getItem(LP_CHAVE_TECLADO) === '1'; } catch (e) {}
+  if (letras) { inp.removeAttribute('inputmode'); inp.removeAttribute('pattern'); }
+  else { inp.setAttribute('inputmode', 'numeric'); inp.setAttribute('pattern', '[0-9]*'); }
+  if (btn) btn.textContent = letras ? '🔢 Minha senha é só de números' : '🔤 Minha senha tem letras';
+}
+function lpTrocarTeclado() {
+  let letras = false; try { letras = localStorage.getItem(LP_CHAVE_TECLADO) === '1'; } catch (e) {}
+  try { localStorage.setItem(LP_CHAVE_TECLADO, letras ? '0' : '1'); } catch (e) {}
+  lpModoTeclado();
+  const inp = document.getElementById('login-senha'); inp.blur(); setTimeout(() => inp.focus(), 60);
+}
+
+async function doLogin() {
+  const ident = document.getElementById('login-email').value.trim();
+  const senha = document.getElementById('login-senha').value;
+  const errEl = document.getElementById('login-error');
+  const btn   = document.getElementById('btn-login');
+  const erro = (m) => { errEl.textContent = m; errEl.classList.remove('hidden'); };
+  if (!ident) { erro('Digite seu e-mail ou nome de usuário.'); return; }
+  if (!senha) { erro('Digite sua senha.'); document.getElementById('login-senha').focus(); return; }
+  btn.innerHTML='<span class="spin"></span>Entrando...'; btn.disabled=true; errEl.classList.add('hidden');
+  try {
+    // Nome de usuário → e-mail da conta (função pública que só devolve o e-mail; migração 056)
+    let email = ident.toLowerCase();
+    if (!ident.includes('@')) {
+      const { data: em, error: eRpc } = await _supabase.rpc('email_do_login', { p_login: ident });
+      if (eRpc || !em) throw new Error('Usuário "' + ident + '" não encontrado. Confira o nome ou use o e-mail.');
+      email = em;
+    }
+    // Autenticação real via Supabase Auth (JWT). Sem backdoor, sem senha no cliente.
+    const { data: auth, error: authErr } = await _supabase.auth.signInWithPassword({ email, password: senha });
+    if (authErr || !auth?.user) throw new Error('Senha incorreta. Tente de novo.');
+    const { data: u, error } = await _supabase.from('usuarios')
+      .select('*').eq('auth_id', auth.user.id).eq('status', 'ativo').maybeSingle();
+    if (error || !u) { await _supabase.auth.signOut(); throw new Error('Usuário sem cadastro ativo no sistema.'); }
+    const user = u;
+    try { await _supabase.from('usuarios').update({ultimo_acesso:new Date().toISOString()}).eq('id',u.id); } catch(e){}
+    try{await _supabase.from('auditoria').insert({acao:'LOGIN',modulo:'AUTH',registro_id:user.id,descricao:'Login realizado',usuario_email:email});}catch(e){}
+    sessionStorage.setItem('erp_user', JSON.stringify(user));
+    await carregarPermissoesPerfil(user);
+    let cfg=null;try{const {data:cfgD}=await _supabase.from('empresa_config').select('id').limit(1).maybeSingle();cfg=cfgD;}catch(e){}
+    if (!cfg) { showPage('onboarding'); btn.innerHTML='Entrar no sistema <span>→</span>'; btn.disabled=false; return; }
+    lpGuardarQuem(ident, user.nome);
+    addLog('LOGIN', 'AUTH', user.id || user.email, 'Login realizado por ' + (user.nome || user.email));
+    redirecionarPosLogin(user);
+  } catch(e) {
+    erro(e.message || 'Não foi possível entrar.');
+    btn.innerHTML='Entrar no sistema <span>→</span>'; btn.disabled=false;
+    const inS = document.getElementById('login-senha'); inS.value=''; inS.focus();
+  }
+}
+function toggleSenha() {
+  const inp = document.getElementById('login-senha');
+  const btn = document.getElementById('btn-eye');
+  const movel = document.documentElement.classList.contains('movel');
+  if (inp.type === 'password') { inp.type = 'text'; btn.textContent = movel ? '🙈' : 'ESCONDER'; }
+  else { inp.type = 'password'; btn.textContent = movel ? '👁️' : 'MOSTRAR'; }
+}
+document.addEventListener('DOMContentLoaded', () => {
+  if (document.documentElement.classList.contains('movel')) { const b = document.getElementById('btn-eye'); if (b) b.textContent = '👁️'; }
+});
+function showPage(p) {
+  document.getElementById('page-login').classList.toggle('hidden', p!=='login');
+  document.getElementById('page-onboarding').classList.toggle('hidden', p!=='onboarding');
+}
+
+function obNext() {
+  if (_obStep===1) {
+    if (!document.getElementById('ob-razao').value.trim()||!document.getElementById('ob-fantasia').value.trim()||!document.getElementById('ob-cnpj').value.trim()) { toast('Preencha os campos obrigatórios!','warning'); return; }
+  }
+  if (_obStep===2) return;
+  _obStep++; updateObSteps();
+}
+function obBack() { if(_obStep===1)return; _obStep--; updateObSteps(); }
+function updateObSteps() {
+  [1,2].forEach(i => {
+    document.getElementById('ob-step'+i).classList.toggle('hidden', i!==_obStep);
+    const sc=document.getElementById('sc'+i); sc.classList.remove('active','done');
+    if(i<_obStep){sc.classList.add('done');sc.textContent='✓';}
+    else if(i===_obStep){sc.classList.add('active');sc.textContent=i;}
+    else{sc.textContent=i;}
+    document.getElementById('sl'+i).classList.toggle('active',i===_obStep);
+  });
+  const l=document.getElementById('sline1'); if(l) l.classList.toggle('done',_obStep>1);
+  document.getElementById('ob-btn-back').classList.toggle('hidden',_obStep===1);
+  document.getElementById('ob-btn-next').classList.toggle('hidden',_obStep===2);
+  document.getElementById('ob-btn-finish').classList.toggle('hidden',_obStep!==2);
+}
+function previewLogo(input) {
+  if(input.files&&input.files[0]){
+    const r=new FileReader(); r.onload=e=>{_logoData=e.target.result; document.getElementById('ob-logo-preview').innerHTML=`<img src="${e.target.result}" style="width:80px;height:80px;object-fit:cover;border-radius:8px;">`;}; r.readAsDataURL(input.files[0]);
+  }
+}
+async function obFinish() {
+  const nome=document.getElementById('ob-sadm-nome').value.trim();
+  const email=document.getElementById('ob-sadm-email').value.trim();
+  const senha=document.getElementById('ob-sadm-senha').value;
+  const senha2=document.getElementById('ob-sadm-senha2').value;
+  if(!nome||!email||!senha){toast('Preencha todos os campos!','warning');return;}
+  if(senha!==senha2){toast('As senhas não coincidem!','danger');return;}
+  if(senha.length<8){toast('Senha mínimo 8 caracteres!','warning');return;}
+  const btn=document.getElementById('ob-btn-finish'); btn.innerHTML='<span class="spin"></span>Salvando...'; btn.disabled=true;
+  try {
+    await _supabase.from('empresa_config').insert({
+      razao_social:document.getElementById('ob-razao').value.trim(),
+      nome_fantasia:document.getElementById('ob-fantasia').value.trim(),
+      cnpj:document.getElementById('ob-cnpj').value.trim(),
+      ie:document.getElementById('ob-ie').value.trim(),
+      cep:document.getElementById('ob-cep').value.trim(),
+      rua:document.getElementById('ob-rua').value.trim(),
+      numero:document.getElementById('ob-num').value.trim(),
+      bairro:document.getElementById('ob-bairro').value.trim(),
+      cidade:document.getElementById('ob-cidade').value.trim(),
+      telefone:document.getElementById('ob-tel').value.trim(),
+      email:document.getElementById('ob-email').value.trim(),
+      logo:_logoData||null
+    });
+    const {data:u} = await _supabase.from('usuarios').insert({nome,email,senha_hash:await sha256(senha),perfil:'SADM',status:'ativo',admissao:new Date().toISOString().split('T')[0]}).select().single();
+    sessionStorage.setItem('erp_user', JSON.stringify(u||{nome,email,perfil:'SADM',status:'ativo'}));
+    toast('Sistema configurado!','success');
+    setTimeout(()=>{ window.location.href='dashboard.html'; }, 800);
+  } catch(e) { toast('Erro: '+e.message,'danger'); btn.innerHTML='✅ Concluir'; btn.disabled=false; }
+}
+
+// Redireciona para o dashboard se o perfil tiver acesso,
+// ou para o primeiro módulo permitido caso contrário
+function redirecionarPosLogin(user) {
+  const PERFIS_ADMIN = ['SADM', 'ADM'];
+  if (PERFIS_ADMIN.includes(user.perfil)) {
+    window.location.href = 'dashboard.html';
+    return;
+  }
+  const perms = user.permissoes || {};
+  // Tentar dashboard primeiro
+  if (perms['dashboard'] && perms['dashboard'].view) {
+    window.location.href = 'dashboard.html';
+    return;
+  }
+  // Ordem de preferência dos módulos de entrada
+  const MODULO_MAP_ORDEM = [
+    'dashboard','producao','almoxarifado','laboratorio','manutencao',
+    'portaria','expedicao','frota','epi','rh','custos','bpf',
+    'relatorios','notificacoes','funcionarios','planejamento',
+    'linhas','turnos','produtos','motivos','equip_linhas','equip_gerais',
+    'abastecimento','carregamento','auditoria','configuracoes','perfis','usuarios'
+  ];
+  const MODULO_PAGES = {
+    dashboard:'dashboard.html', producao:'producao.html', almoxarifado:'almoxarifado.html',
+    laboratorio:'laboratorio.html', manutencao:'manutencao.html', portaria:'portaria.html',
+    expedicao:'expedicao.html', frota:'frota.html', epi:'epi.html', rh:'rh.html',
+    custos:'custos.html', bpf:'bpf.html', relatorios:'relatorios.html',
+    notificacoes:'notificacoes.html', funcionarios:'funcionarios.html',
+    planejamento:'planejamento.html', linhas:'linhas.html', turnos:'turnos.html',
+    produtos:'produtos.html', motivos:'motivos.html', equip_linhas:'equip-linhas.html',
+    equip_gerais:'equip-gerais.html', abastecimento:'abastecimento.html',
+    carregamento:'carregamento.html', auditoria:'auditoria.html',
+    configuracoes:'configuracoes.html', perfis:'perfis.html', usuarios:'usuarios.html',
+  };
+  for (const modId of MODULO_MAP_ORDEM) {
+    if (perms[modId] && perms[modId].view) {
+      window.location.href = MODULO_PAGES[modId];
+      return;
+    }
+  }
+  // Nenhum módulo permitido — logout
+  sessionStorage.removeItem('erp_user');
+  window.location.href = 'index.html';
+}
+</script>
+</body>
+</html>
