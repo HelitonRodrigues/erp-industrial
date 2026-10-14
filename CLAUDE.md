@@ -536,6 +536,14 @@ fábrica específica. Não generalizar.
   Ao ligar não toca o passado; evento > 15 min não toca. Tela: estado, linhas agora (`linhas_status_atual_publico()`), abrir ERP
   (Chrome — WebView não imprime), escolher status (SharedPreferences), testar sons. Sons em `res/raw` (mesmos do js/alerta-linhas.js).
 - Sem SDK Android no ambiente do Claude: compilado só contra stubs da API (javac) — 1º build real é no Actions.
+- **📺 Painel de Metas por DLNA (TvDlna.java, sessão 2026-10-14):** para TVs sem Chromecast (Samsung/LG…). Código da TV digitado
+  no app (prefs `tv_codigo`) → WebView invisível 1920×1080 abre `painel-metas.html?tv=COD&largura=1600&captura=1` (página fixa a
+  viewport em 1600 CSS px, esconde botões e marca `window.__painelPronto` / `__painelErro`) → foto JPEG → servidorzinho HTTP no
+  celular (porta 8077, headers DLNA JPEG_LRG) → SSDP M-SEARCH (MediaRenderer/AVTransport, MulticastLock) acha as TVs, lê a descrição
+  (friendlyName + controlURL do AVTransport) → SOAP Stop + SetAVTransportURI (DIDL imageItem.photo) + Play. Repete a cada 5 min,
+  "Mandar de novo agora", "Parar"; roda no AvisoService (WifiLock), volta sozinho após reiniciar (`tv_ativa`).
+  `usesCleartextTraffic=true` (TV é http) + ACCESS_WIFI_STATE/CHANGE_WIFI_MULTICAST_STATE. Fluxo SOAP+foto testado contra TV falsa
+  (Python): Stop → SetAVTransportURI → TV buscou a foto (image/jpeg) → Play. Captura da WebView fora da tela: não testável aqui.
 
 ### Painel de Metas para TV (`painel-metas.html`, sessões 2026-10-13/14, migração 059)
 - Módulo `painel_metas` (grupo Produção, "Painel de Metas (TV)"). **v2 (pedido do dono): tela CLARA e linguagem simples**

@@ -145,6 +145,9 @@ const ls = { get(k){ try{ return localStorage.getItem(k); }catch(e){ return null
              set(k,v){ try{ localStorage.setItem(k,v); }catch(e){} },
              del(k){ try{ localStorage.removeItem(k); }catch(e){} } };
 const params = new URLSearchParams(location.search);
+// App "Avisos Silicate" tira foto do painel para mandar por DLNA: largura fixa e sem botões
+if(/^\d{3,4}$/.test(params.get('largura')||'')) document.querySelector('meta[name=viewport]').setAttribute('content', 'width=' + params.get('largura'));
+const CAPTURA = params.get('captura') === '1';
 let _ultimaCarga = 0, _diaCarregado = null, _conexaoTV = null;
 
 /* ── modo: logado no ERP ou TV com código ────────────────────────────────── */
@@ -182,7 +185,7 @@ async function lerDados(ini, fim){
   if(MODO === 'tv'){
     const r = await _supabase.rpc('painel_tv_dados', {p_codigo: ls.get(LS_COD), p_ini: ini, p_fim: fim});
     if(r.error){
-      if(/c[oó]digo/i.test(r.error.message)){ ls.del(LS_COD); telaCodigo('O código da TV mudou ou está errado. Digite o código novo.'); return null; }
+      if(/c[oó]digo/i.test(r.error.message)){ window.__painelErro = 'Código da TV errado ou trocado. Confira o código no ERP.'; ls.del(LS_COD); telaCodigo('O código da TV mudou ou está errado. Digite o código novo.'); return null; }
       throw new Error(r.error.message);
     }
     return { ops:r.data.producao||[], planos:r.data.planejamentos||[], linhas:r.data.linhas||[], produtos:r.data.produtos||[] };
@@ -237,6 +240,7 @@ async function carregar(){
   if(ef) document.getElementById('regra85').textContent = nf(ef) + '%';
 
   desenhar(dia, ontem, nomes, res, diasComOP.filter(d => d <= dia));
+  window.__painelPronto = Date.now();   // o app de TV espera isto para tirar a foto
   _ultimaCarga = Date.now(); _diaCarregado = hojeISO();
   document.getElementById('atualizado').textContent = 'atualizado às ' + new Date().toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit', timeZone:'America/Sao_Paulo'});
 }
@@ -455,6 +459,7 @@ function telaCheia(){
 }
 function montarBotoes(){
   const c = document.getElementById('ctl');
+  if(CAPTURA){ c.style.display = 'none'; return; }
   c.innerHTML = (MODO === 'erp'
       ? `<a class="bt-cinza" href="dashboard.html">⬅ ERP</a><button class="bt-tv" onclick="abrirTV()">${_conexaoTV ? '📺 Na TV ✓' : '📺 Passar para a TV'}</button>` : '')
     + `<button class="bt-cinza" onclick="telaCheia()">⛶ Tela cheia</button>`;
