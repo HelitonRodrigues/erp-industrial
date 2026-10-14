@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ERP Industrial — Painel de Metas</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;700;800&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/supabase.js"></script>
+<script src="js/utils.js"></script>
+<script src="js/regras.js"></script>
+<!--
+  PAINEL DE METAS — feito para ficar num monitor/TV da fábrica.
+  Mostra, por LINHA (nunca por pessoa), se bateu a meta de PRODUÇÃO e a de
+  DISPONIBILIDADE no último dia de produção, com o indicador logo abaixo.
+  Regras: as mesmas da OP no producao.html, centralizadas em Regras.metaDaOP
+  (js/regras.js). Disponibilidade = horas trabalhadas × horas disponíveis do
+  planejamento (85% do turno). Produção = realizado × média/h × horas disponíveis.
+  Atualiza sozinho a cada 5 min. ?data=AAAA-MM-DD mostra outro dia.
+-->
+<style>
+:root{
+  --navy:#042D4D; --fundo:#021a2e; --card:#06324f; --linha:#0b4a72;
+  --lime:#C9FF64; --txt:#e8f0f7; --txt2:#9fb6c9;
+  --ok:#22c55e; --ok-esc:#15803d; --nao:#ef4444; --nao-esc:#b91c1c; --meio:#f59e0b; --meio-esc:#b45309; --cinza:#64748b;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:var(--fundo);color:var(--txt);font-family:'Plus Jakarta Sans',system-ui,sans-serif;min-height:100%}
+body{padding:clamp(10px,min(1.3vw,2.2vh),24px);display:flex;flex-direction:column;gap:clamp(8px,min(1vw,1.6vh),16px);min-height:100vh}
+
+/* topo */
+.topo{display:flex;align-items:center;gap:clamp(10px,1.2vw,22px);flex-wrap:wrap}
+.topo svg{width:clamp(30px,min(2.8vw,5vh),52px);height:auto;flex:none}
+.topo .tit{flex:1;min-width:220px}
+.topo h1{font-size:clamp(20px,min(2.2vw,4vh),42px);font-weight:800;letter-spacing:.5px;line-height:1.05}
+.topo .dia{font-size:clamp(13px,min(1.2vw,2.2vh),22px);color:var(--lime);font-weight:700;margin-top:4px}
+.relogio{text-align:right}
+.relogio b{display:block;font-size:clamp(24px,min(2.8vw,5vh),50px);font-weight:800;font-variant-numeric:tabular-nums;line-height:1}
+.relogio small{font-size:clamp(11px,.85vw,15px);color:var(--txt2)}
+
+/* resumo da fábrica */
+.resumo{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:clamp(8px,1vw,16px)}
+.res{background:var(--card);border-radius:14px;padding:clamp(8px,min(.8vw,1.4vh),14px) clamp(12px,1.2vw,22px);display:flex;align-items:center;gap:14px}
+.res .num{font-size:clamp(26px,min(2.8vw,5vh),52px);font-weight:800;line-height:1;font-variant-numeric:tabular-nums}
+.res .num small{font-size:.5em;color:var(--txt2)}
+.res .lbl{font-size:clamp(12px,min(1vw,1.9vh),19px);font-weight:700;line-height:1.25}
+
+/* cartões das linhas */
+.linhas{display:grid;gap:clamp(10px,1.2vw,20px);grid-template-columns:repeat(auto-fit,minmax(min(100%,330px),1fr));flex:1}
+.ln{background:var(--card);border-radius:20px;overflow:hidden;display:flex;flex-direction:column;border:3px solid transparent}
+.ln.st-ok{border-color:var(--ok)} .ln.st-meio{border-color:var(--meio)} .ln.st-nao{border-color:var(--nao)}
+.faixa{padding:clamp(8px,min(.8vw,1.4vh),14px) clamp(12px,1.2vw,20px);font-size:clamp(14px,min(1.4vw,2.6vh),26px);font-weight:800;letter-spacing:.5px;text-transform:uppercase;display:flex;align-items:center;gap:10px}
+.st-ok .faixa{background:var(--ok-esc)} .st-meio .faixa{background:var(--meio-esc)} .st-nao .faixa{background:var(--nao-esc)} .st-sem .faixa{background:#334155}
+.corpo{padding:clamp(10px,min(1vw,1.7vh),18px);display:flex;flex-direction:column;gap:clamp(8px,min(.8vw,1.4vh),14px);flex:1}
+.nome{font-size:clamp(24px,min(2.4vw,4.4vh),48px);font-weight:800;line-height:1;color:#fff}
+.ind{background:rgba(0,0,0,.18);border-radius:12px;padding:clamp(8px,min(.8vw,1.4vh),14px)}
+.ind-top{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.ind-nome{font-size:clamp(13px,1.05vw,19px);font-weight:800;letter-spacing:1px;text-transform:uppercase;color:var(--txt2)}
+.selo{font-size:clamp(12px,.95vw,17px);font-weight:800;padding:4px 12px;border-radius:99px;white-space:nowrap}
+.selo.ok{background:var(--ok);color:#052e16} .selo.nao{background:var(--nao);color:#fff} .selo.sem{background:#334155;color:var(--txt2)}
+.pct{font-size:clamp(34px,min(3.4vw,6vh),68px);font-weight:800;line-height:1;margin:4px 0 2px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.pct small{font-size:.3em;font-weight:700;color:var(--txt2);margin-left:6px}
+.pct.ok{color:var(--ok)} .pct.nao{color:#fca5a5} .pct.sem{color:var(--cinza)}
+.barra{position:relative;height:clamp(10px,min(.9vw,1.6vh),18px);background:rgba(255,255,255,.1);border-radius:99px;margin:16px 0 6px}
+.barra i{position:absolute;left:0;top:0;bottom:0;border-radius:99px}
+.barra i.ok{background:var(--ok)} .barra i.nao{background:var(--nao)}
+.barra b{position:absolute;top:-6px;bottom:-6px;width:3px;background:var(--lime);border-radius:2px}
+.barra b::after{content:"META";position:absolute;top:-18px;left:50%;transform:translateX(-50%);font-size:10px;font-weight:800;color:var(--lime);letter-spacing:1px}
+.det{font-size:clamp(12px,min(.95vw,1.7vh),17px);color:var(--txt);line-height:1.35}
+.det span{color:var(--txt2)}
+.turnos{display:flex;gap:8px;flex-wrap:wrap}
+.tu{background:rgba(0,0,0,.18);border-radius:10px;padding:6px 10px;font-size:clamp(12px,.9vw,16px);font-weight:700;display:flex;align-items:center;gap:8px}
+.tu i{display:inline-flex;align-items:center;justify-content:center;min-width:22px;height:22px;border-radius:6px;font-style:normal;font-size:11px;font-weight:800;padding:0 5px}
+.tu i.ok{background:var(--ok);color:#052e16} .tu i.nao{background:var(--nao);color:#fff} .tu i.sem{background:#334155;color:var(--txt2)}
+.hist{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:auto;padding-top:4px}
+.hist .dias{display:flex;gap:5px}
+.hist-lbl{font-size:clamp(10px,.75vw,13px);font-weight:800;letter-spacing:1px;text-transform:uppercase;color:var(--txt2);width:100%}
+.hist .d{width:clamp(24px,1.9vw,36px);text-align:center;font-size:clamp(9px,.7vw,12px);color:var(--txt2);font-weight:700}
+.hist .d i{display:block;height:clamp(18px,1.5vw,28px);border-radius:6px;margin-bottom:3px;background:#334155}
+.hist .d i.ok{background:var(--ok)} .hist .d i.nao{background:var(--nao)} .hist .d i.meio{background:var(--meio)}
+.hist .d.hoje{color:var(--lime)}
+.fogo{font-size:clamp(13px,1vw,18px);font-weight:800;color:var(--lime)}
+.avisos{font-size:12px;color:#fcd34d}
+.rodape{font-size:clamp(11px,.8vw,14px);color:var(--txt2);display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.legenda{display:flex;gap:14px;flex-wrap:wrap}
+.legenda span::before{content:"";display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px;background:var(--c)}
+
+/* botões que somem sozinhos (TV) */
+.ctl{position:fixed;bottom:12px;left:12px;display:flex;gap:8px;transition:opacity .4s;z-index:5}
+.ctl.some{opacity:0;pointer-events:none}
+.ctl button,.ctl a{font:inherit;font-size:13px;font-weight:800;border:0;border-radius:10px;padding:9px 12px;background:var(--lime);color:var(--navy);cursor:pointer;text-decoration:none}
+.ctl a{background:#334155;color:#fff}
+.msg{margin:auto;text-align:center;font-size:clamp(16px,1.5vw,26px);color:var(--txt2);max-width:780px;line-height:1.5}
+@media (max-width:600px){ .relogio{text-align:left} }
+</style>
+</head>
+<body>
+<div class="ctl" id="ctl">
+  <a href="dashboard.html">⬅ ERP</a>
+  <button type="button" onclick="telaCheia()">⛶ Tela cheia</button>
+</div>
+
+<header class="topo">
+  <svg viewBox="0 0 418 462" aria-hidden="true"><path fill="#C9FF64" fill-rule="evenodd" d="M202.5 452.1L198.2 449.6L191.5 445.7L184.8 441.8L181.2 439.9L177.8 437.9L170.8 434.0L163.8 430.2L152.2 423.9L140.8 417.6L137.2 415.6L133.8 413.7L130.6 411.8L127.5 410.0L124.4 408.2L121.2 406.4L120.6 405.9L120.0 405.4L114.1 402.4L108.2 399.4L101.5 395.6L94.8 391.8L93.2 390.7L91.8 389.6L88.5 387.9L85.2 386.1L72.0 379.0L58.8 371.9L57.7 371.0L56.7 370.0L52.5 367.7L48.2 365.4L42.0 362.1L35.8 358.9L29.8 355.3L23.8 351.7L20.0 349.5L16.2 347.3L13.3 345.6L10.4 343.8L9.2 342.4L8.1 341.0L7.7 338.8L7.4 336.5L7.7 334.6L8.1 332.8L10.2 330.7L12.3 328.6L14.4 328.0L16.5 327.4L18.8 328.0L21.1 328.7L24.7 331.3L28.4 333.9L31.8 335.7L35.2 337.6L42.5 341.4L49.8 345.1L52.8 347.2L55.8 349.3L61.6 352.7L67.4 356.0L67.7 356.0L68.0 356.0L72.1 358.3L76.2 360.6L80.0 362.9L83.8 365.2L87.2 367.2L90.8 369.2L95.2 371.5L99.8 373.8L106.2 377.2L112.7 380.6L116.2 383.0L119.8 385.4L122.5 386.7L125.2 388.1L126.5 389.0L127.8 389.9L135.5 393.9L143.2 397.8L150.0 401.8L156.8 405.7L160.2 407.7L163.8 409.6L167.5 411.7L171.2 413.8L177.5 417.5L183.8 421.1L189.5 424.4L195.2 427.6L197.8 429.1L200.2 430.6L204.7 432.3L209.1 434.0L210.1 434.0L211.1 434.0L223.4 427.7L235.8 421.4L245.0 416.4L254.2 411.3L257.5 409.3L260.8 407.2L268.8 402.9L276.8 398.6L281.0 396.5L285.2 394.4L288.8 391.9L292.4 389.5L297.8 386.6L303.2 383.7L309.5 380.4L315.8 377.1L319.2 375.2L322.8 373.4L330.2 369.1L337.8 364.9L344.2 361.4L350.8 357.9L358.2 353.9L365.8 349.8L369.4 347.4L373.1 344.9L382.7 339.9L392.2 334.9L392.8 334.2L393.3 333.5L393.2 237.5L393.1 141.4L392.5 141.0L391.9 140.6L390.6 141.0L389.2 141.4L383.8 144.4L378.2 147.4L371.5 151.5L364.8 155.6L358.2 159.1L351.8 162.7L345.2 166.5L338.8 170.3L334.8 172.5L330.8 174.7L324.8 177.9L318.8 181.1L310.0 186.2L301.2 191.4L291.8 196.5L282.2 201.6L277.5 204.3L272.8 206.9L252.5 218.3L232.2 229.6L223.2 234.3L214.2 238.9L211.3 239.8L208.5 240.7L206.6 240.0L204.8 239.4L198.0 235.6L191.2 231.8L188.8 230.2L186.2 228.7L180.8 225.7L175.3 222.8L170.8 219.9L166.2 217.0L156.8 211.9L147.2 206.9L144.5 205.2L141.8 203.6L135.8 200.2L129.8 196.7L124.5 193.7L119.2 190.8L114.9 188.3L110.5 185.8L101.4 180.3L92.2 174.8L89.2 173.1L86.2 171.3L85.5 170.7L84.7 170.0L77.5 166.1L70.2 162.2L64.1 158.6L58.0 155.1L57.3 154.6L56.7 154.0L53.0 151.9L49.2 149.8L40.4 145.2L31.6 140.5L30.6 140.5L29.6 140.5L28.9 141.3L28.2 142.2L28.4 165.1L28.5 188.1L29.0 189.0L29.4 189.8L33.6 192.4L37.8 195.0L42.2 197.9L46.8 200.7L60.8 208.1L74.8 215.6L79.7 218.8L84.6 222.0L87.9 223.9L91.2 225.9L99.1 230.6L106.9 235.2L111.0 237.5L115.1 239.8L122.7 244.2L130.2 248.7L134.8 251.2L139.2 253.6L143.6 256.0L147.9 258.3L153.8 262.1L159.8 265.8L166.2 269.5L172.8 273.2L178.2 276.4L183.8 279.7L187.2 281.7L190.8 283.7L195.8 286.8L200.9 290.0L204.7 292.0L208.5 294.0L209.7 294.0L210.9 294.0L216.3 291.1L221.8 288.1L225.2 286.1L228.8 284.2L232.5 281.9L236.2 279.6L246.0 274.2L255.8 268.8L262.8 264.7L269.8 260.6L273.9 258.3L278.1 256.0L278.4 256.0L278.6 256.0L286.2 251.6L293.8 247.1L301.2 243.0L308.8 238.8L313.0 236.5L317.2 234.1L322.0 231.3L326.8 228.4L331.5 225.6L336.2 222.8L339.8 221.1L343.2 219.4L345.7 219.7L348.1 220.0L350.2 221.2L352.3 222.4L353.2 223.5L354.2 224.5L354.6 230.5L355.0 236.5L354.9 268.8L354.8 301.1L353.2 302.4L351.7 303.8L343.2 309.1L334.8 314.4L328.2 318.0L321.8 321.6L312.5 327.0L303.2 332.4L298.2 335.0L293.2 337.7L286.7 341.5L280.2 345.4L270.5 351.0L260.8 356.6L253.8 360.6L246.8 364.6L240.2 368.4L233.8 372.2L226.2 376.5L218.8 380.8L216.0 382.0L213.2 383.2L210.0 383.2L206.8 383.2L202.0 380.9L197.2 378.5L193.2 376.3L189.2 374.2L182.8 370.8L176.2 367.4L173.2 365.6L170.2 363.8L168.0 362.2L165.8 360.6L163.2 359.4L160.8 358.1L156.5 355.9L152.2 353.7L148.0 351.3L143.8 348.9L141.0 346.9L138.3 344.8L134.8 343.0L131.2 341.1L124.8 337.8L118.2 334.4L114.0 331.5L109.7 328.6L107.2 327.4L104.8 326.1L94.5 320.7L84.2 315.2L81.8 313.8L79.2 312.3L77.0 310.7L74.8 309.2L70.2 306.8L65.8 304.4L60.0 301.3L54.2 298.3L49.9 295.4L45.5 292.5L43.1 291.3L40.8 290.1L34.0 286.5L27.2 282.8L23.0 280.0L18.8 277.1L15.9 275.3L13.1 273.5L12.2 272.3L11.4 271.0L11.3 266.5L11.2 262.1L12.4 260.9L13.6 259.6L15.7 258.7L17.8 257.8L31.8 251.0L45.8 244.1L51.5 241.4L57.2 238.7L60.6 237.2L64.0 235.8L65.3 234.7L66.6 233.7L66.3 232.7L66.0 231.8L59.1 227.7L52.2 223.6L45.8 220.1L39.2 216.6L34.2 213.8L29.2 210.9L28.5 210.2L27.8 209.6L20.7 205.8L13.6 201.9L12.7 200.9L11.8 200.0L11.4 192.9L10.9 185.8L11.2 152.4L11.6 119.1L11.9 117.7L12.3 116.2L14.3 114.9L16.2 113.6L23.0 109.9L29.8 106.1L34.8 103.6L39.8 101.1L47.0 97.0L54.2 92.9L62.5 88.3L70.8 83.7L77.0 80.5L83.2 77.3L90.5 73.0L97.8 68.6L107.5 63.2L117.2 57.8L119.2 56.5L121.2 55.2L128.0 51.4L134.8 47.6L138.8 45.6L142.9 43.5L150.0 39.4L157.0 35.2L161.4 32.8L165.8 30.3L172.5 26.9L179.2 23.4L186.5 19.0L193.8 14.7L197.8 12.4L201.8 10.1L204.6 9.1L207.5 8.0L210.2 8.0L212.9 8.0L215.1 9.8L217.2 11.6L218.1 13.2L219.0 14.7L219.0 17.8L219.0 20.8L217.9 21.9L216.8 22.9L213.0 25.1L209.2 27.3L195.2 34.8L181.2 42.2L179.5 43.3L177.8 44.4L166.8 50.5L155.8 56.6L149.8 60.2L143.8 63.9L133.2 69.5L122.8 75.2L118.2 77.9L113.8 80.7L103.8 86.0L93.8 91.4L89.2 93.9L84.8 96.3L79.5 99.5L74.2 102.7L62.0 109.0L49.8 115.4L46.0 117.4L42.2 119.5L41.6 120.4L41.0 121.2L41.0 122.3L41.0 123.4L42.9 125.1L44.9 126.9L47.4 128.2L49.9 129.4L53.6 131.9L57.2 134.3L67.0 139.5L76.8 144.7L82.8 148.2L88.8 151.7L91.8 153.5L94.8 155.3L99.1 157.9L103.5 160.6L107.1 162.6L110.8 164.6L114.5 166.7L118.2 168.8L122.2 171.1L126.2 173.4L128.6 174.9L130.9 176.5L137.1 179.9L143.2 183.4L147.0 185.5L150.8 187.7L159.5 192.9L168.2 198.1L171.0 199.5L173.8 200.8L179.5 204.0L185.2 207.1L191.8 211.0L198.2 214.8L201.8 216.9L205.2 219.0L207.2 219.8L209.2 220.6L212.2 219.5L215.2 218.4L221.2 215.0L227.2 211.6L236.8 206.8L246.2 202.0L249.8 199.5L253.2 196.9L257.5 194.7L261.8 192.6L269.0 188.6L276.2 184.6L281.4 181.6L286.6 178.5L286.8 178.5L287.0 178.5L290.2 176.5L293.5 174.5L298.6 171.9L303.8 169.4L309.8 166.1L315.8 162.8L320.8 159.6L325.8 156.4L335.2 151.4L344.8 146.4L349.5 143.9L354.2 141.4L356.0 140.1L357.7 138.8L359.5 137.5L361.2 136.3L370.8 131.9L380.2 127.4L381.4 126.7L382.6 125.9L382.4 124.6L382.2 123.3L379.9 121.5L377.5 119.7L367.9 114.8L358.2 109.9L354.8 107.5L351.2 105.2L345.1 101.8L338.9 98.4L337.1 98.1L335.2 97.9L327.0 102.5L318.8 107.1L312.2 110.9L305.8 114.7L293.8 121.1L281.9 127.5L277.6 130.3L273.2 133.2L260.8 139.6L248.2 146.1L242.2 149.7L236.2 153.3L228.5 157.7L220.7 162.0L215.7 164.2L210.8 166.5L208.6 166.5L206.4 166.5L205.3 165.9L204.2 165.4L198.3 161.8L192.4 158.2L188.3 155.9L184.2 153.6L174.0 148.1L163.8 142.6L161.0 140.9L158.2 139.2L156.0 137.7L153.7 136.2L147.3 133.0L140.9 129.8L140.2 128.4L139.5 127.0L139.5 122.1L139.5 117.2L140.1 116.4L140.8 115.6L143.0 114.5L145.2 113.4L149.5 110.7L153.8 108.1L157.0 106.5L160.2 104.9L163.8 102.9L167.2 100.8L169.8 99.0L172.2 97.1L179.2 93.4L186.2 89.7L194.6 84.7L202.9 79.7L208.0 77.0L213.1 74.2L216.9 71.6L220.8 69.0L223.7 67.5L226.6 65.9L232.2 62.7L237.8 59.4L246.2 54.4L254.8 49.4L258.9 46.7L263.1 44.0L264.9 43.7L266.6 43.4L269.4 43.7L272.1 43.9L273.1 44.8L274.1 45.8L275.8 49.2L277.6 52.7L278.0 56.5L278.5 60.2L278.6 83.0L278.6 105.8L279.1 106.4L279.6 107.0L280.6 107.0L281.6 107.0L289.4 102.8L297.2 98.6L305.8 94.2L314.2 89.8L321.1 85.7L328.0 81.6L330.9 80.4L333.8 79.3L338.0 79.3L342.2 79.3L344.5 80.4L346.8 81.5L349.8 83.1L352.8 84.8L356.5 87.3L360.2 89.8L363.5 91.6L366.8 93.4L369.1 94.7L371.5 96.0L377.5 99.9L383.4 103.8L386.3 105.4L389.2 107.0L394.8 110.2L400.2 113.3L404.0 115.6L407.8 118.0L408.9 119.2L410.1 120.4L410.5 123.8L411.0 127.2L411.0 235.1L411.0 342.9L410.5 344.1L410.1 345.3L405.9 347.5L401.8 349.7L398.8 351.5L395.8 353.3L385.8 358.7L375.8 364.1L373.8 365.2L371.8 366.3L363.0 371.4L354.2 376.4L341.5 383.1L328.7 389.9L316.5 396.9L304.2 403.8L297.8 407.3L291.2 410.7L286.8 413.5L282.2 416.3L274.8 420.4L267.2 424.4L257.0 429.9L246.8 435.4L243.2 437.4L239.8 439.3L232.8 443.3L225.8 447.2L218.8 450.7L211.8 454.2L209.3 454.4L206.8 454.5L202.5 452.1ZM212.9 362.8L215.8 361.6L225.8 356.2L235.8 350.9L240.2 348.0L244.8 345.1L251.5 341.2L258.2 337.3L259.5 336.5L260.8 335.6L272.2 329.2L283.8 322.9L289.8 319.3L295.8 315.7L303.0 311.8L310.2 307.9L318.5 303.0L326.8 298.1L330.8 296.2L334.8 294.2L335.4 292.3L336.0 290.3L335.9 269.2L335.8 248.1L334.8 247.0L333.8 245.9L332.3 246.2L330.9 246.5L327.3 248.7L323.8 250.8L320.3 253.0L316.9 255.1L305.1 261.5L293.2 267.9L288.8 270.6L284.2 273.3L275.8 278.0L267.2 282.6L262.2 285.6L257.2 288.6L249.2 293.1L241.2 297.7L231.8 303.3L222.2 308.9L218.2 311.2L214.2 313.5L211.7 314.3L209.1 315.0L207.2 314.3L205.4 313.5L202.1 311.3L198.8 309.2L195.8 307.5L192.8 305.9L189.0 303.8L185.2 301.7L182.2 299.9L179.2 298.2L177.0 296.8L174.8 295.4L173.0 294.3L171.2 293.2L162.5 288.0L153.8 282.8L153.0 282.2L152.2 281.6L145.5 277.9L138.8 274.1L135.5 272.3L132.2 270.4L128.2 268.1L124.2 265.9L117.2 262.0L110.2 258.1L107.2 256.4L104.2 254.7L101.5 253.0L98.8 251.3L97.0 250.2L95.2 249.0L91.8 247.5L88.3 245.9L86.0 246.1L83.8 246.3L78.2 249.0L72.8 251.6L67.5 254.1L62.2 256.6L58.8 257.9L55.2 259.1L51.2 261.0L47.2 262.8L45.1 264.8L43.0 266.8L43.0 268.2L43.0 269.7L44.9 271.5L46.8 273.3L54.5 277.2L62.2 281.1L66.1 283.2L70.0 285.4L73.0 287.7L76.1 290.0L79.4 291.7L82.8 293.4L90.0 297.1L97.2 300.9L101.0 303.7L104.8 306.5L107.0 307.3L109.2 308.2L110.9 309.4L112.6 310.6L115.6 311.8L118.7 313.0L119.5 313.7L120.2 314.4L123.5 315.9L126.8 317.5L130.7 319.7L134.6 322.0L137.9 324.4L141.2 326.8L143.5 327.7L145.8 328.7L146.5 329.3L147.2 329.9L151.2 331.9L155.2 333.9L159.0 335.8L162.8 337.8L165.3 339.8L167.8 341.9L171.8 343.9L175.8 345.8L179.2 347.7L182.8 349.5L189.0 353.5L195.2 357.4L200.4 360.2L205.5 363.0L207.1 363.4L208.8 363.9L209.4 364.0L210.0 364.0L212.9 362.8ZM217.6 142.8L223.2 139.6L230.0 136.2L236.8 132.8L244.5 128.6L252.2 124.3L255.1 121.9L258.1 119.4L258.8 117.7L259.5 115.9L259.6 93.8L259.8 71.8L259.3 70.6L258.9 69.5L257.8 69.2L256.6 68.9L251.0 72.3L245.4 75.8L241.8 77.9L238.2 80.1L228.8 85.5L219.2 90.9L208.9 96.9L198.5 102.9L194.9 105.3L191.2 107.7L183.4 112.1L175.6 116.5L172.6 118.0L169.6 119.5L168.8 120.3L168.0 121.1L168.0 122.2L168.0 123.4L169.6 124.7L171.2 126.1L174.5 127.7L177.8 129.4L180.6 131.6L183.5 133.8L185.1 134.6L186.8 135.5L193.7 139.1L200.7 142.8L205.2 144.6L209.8 146.5L210.8 146.2L211.9 146.0L217.6 142.8Z"/></svg>
+  <div class="tit">
+    <h1>METAS DAS LINHAS</h1>
+    <div class="dia" id="dia">Carregando…</div>
+  </div>
+  <div class="relogio"><b id="hora">--:--</b><small id="atualizado"></small></div>
+</header>
+
+<section class="resumo" id="resumo"></section>
+<main class="linhas" id="linhas"><div class="msg">Carregando…</div></main>
+
+<footer class="rodape">
+  <div><b style="color:var(--txt)">Meta de produção</b> = média/h da linha × horas disponíveis · <b style="color:var(--txt)">Meta de disponibilidade</b> = horas trabalhadas ≥ horas disponíveis do turno (<span id="regra85">85%</span> do turno, do planejamento)</div>
+  <div class="legenda"><span style="--c:var(--ok)">bateu</span><span style="--c:var(--meio)">bateu 1 de 2</span><span style="--c:var(--nao)">não bateu</span><span style="--c:#334155">sem produção</span><span style="--c:transparent">P = produção · D = disponibilidade (por turno)</span></div>
+</footer>
+
+<div id="toast-container"></div>
+<script>
+const REFRESH_MS = 5 * 60 * 1000, DIAS_HIST = 7, JANELA_DIAS = 30;
+const SEMANA = ['dom','seg','ter','qua','qui','sex','sáb'];
+const SEMANA_LONGA = ['domingo','segunda','terça','quarta','quinta','sexta','sábado'];
+const nf = (v, d=0) => Number(v||0).toLocaleString('pt-BR', {minimumFractionDigits:d, maximumFractionDigits:d});
+const esc = s => String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let _ultimaCarga = 0, _diaCarregado = null;
+
+/* ── datas (horário de Brasília) ─────────────────────────────────────────── */
+function hojeISO(){ return new Date().toLocaleDateString('sv-SE', {timeZone:'America/Sao_Paulo'}); }
+function somaDias(iso, n){ const d = new Date(iso+'T12:00:00'); d.setDate(d.getDate()+n); return d.toISOString().slice(0,10); }
+function diaSemana(iso){ return new Date(iso+'T12:00:00').getDay(); }
+function dataBRc(iso){ const [a,m,d] = iso.split('-'); return d+'/'+m; }
+
+/* ── unidade para mostrar ────────────────────────────────────────────────── */
+function rotUnidade(un, produto){
+  const u = String(un||'').toLowerCase();
+  if((Regras.UNIDADE_KG[u]||0) > 1) return 't';
+  if(u.startsWith('unid') || /bag/i.test(produto||'')) return 'bags';
+  return 'sc';
+}
+
+/* ── carga ───────────────────────────────────────────────────────────────── */
+async function carregar(){
+  const hoje = hojeISO(), ontem = somaDias(hoje, -1);
+  const pedido = new URLSearchParams(location.search).get('data');
+  const fim = pedido && /^\d{4}-\d{2}-\d{2}$/.test(pedido) ? pedido : ontem;
+  const ini = somaDias(fim, -JANELA_DIAS);
+  const meses = [...new Set([ini.slice(0,7), fim.slice(0,7)])];
+
+  const [op, pl, ln, pr] = await Promise.all([
+    db(_supabase.from('producao').select('id,data,linha,turno,ht,produto,total_sacos,produtos_op')
+      .gte('data', ini).lte('data', fim).order('data'), 'Produção para o painel'),
+    db(_supabase.from('planejamentos').select('mes,secoes').in('mes', meses), 'Planejamento para o painel'),
+    db(_supabase.from('linhas_producao').select('nome,status,produtos').order('nome'), 'Linhas para o painel'),
+    db(_supabase.from('produtos').select('nome,unidade'), 'Produtos para o painel'),
+  ]);
+  if(op.error || pl.error || ln.error || pr.error){
+    document.getElementById('linhas').innerHTML = '<div class="msg">⚠️ Não foi possível ler os dados agora. Tento de novo em 5 minutos.</div>';
+    return;
+  }
+  const ops = op.data || [], produtos = pr.data || [];
+  const secoesMes = {};
+  (pl.data || []).forEach(p => { (secoesMes[p.mes] = secoesMes[p.mes] || []).push(...(p.secoes || [])); });
+  const cad = {}; (ln.data || []).forEach(l => cad[l.nome] = l);
+
+  // dia do painel: ontem; se ontem não teve produção lançada, o último dia que teve
+  const diasComOP = [...new Set(ops.map(o => o.data))].sort();
+  let dia = fim;
+  if(!pedido && !diasComOP.includes(fim)) dia = diasComOP.length ? diasComOP[diasComOP.length-1] : fim;
+
+  // linhas: ativas do cadastro + qualquer outra que tenha OP no período
+  const nomes = (ln.data || []).filter(l => l.status === 'ativo').map(l => l.nome);
+  ops.forEach(o => { if(o.linha && !nomes.includes(o.linha)) nomes.push(o.linha); });
+
+  // resultado de cada linha em cada dia
+  const res = {};   // res[linha][data] = consolidado
+  ops.forEach(o => {
+    if(!o.linha) return;
+    const m = Regras.metaDaOP(o, secoesMes[o.data.slice(0,7)] || [], cad[o.linha] || null, produtos);
+    const r = ((res[o.linha] = res[o.linha] || {})[o.data] = res[o.linha][o.data] || novo());
+    juntar(r, m);
+  });
+  Object.values(res).forEach(porDia => Object.values(porDia).forEach(fechar));
+
+  const diasHist = diasComOP.filter(d => d <= dia).slice(-DIAS_HIST);
+  const eficPlan = (secoesMes[dia.slice(0,7)] || []).map(s => parseFloat(s.eficiencia)).find(v => v > 0);
+  if(eficPlan) document.getElementById('regra85').textContent = nf(eficPlan) + '%';
+
+  desenhar(dia, ontem, nomes, res, diasHist, diasComOP);
+  _ultimaCarga = Date.now(); _diaCarregado = hojeISO();
+  document.getElementById('atualizado').textContent = 'atualizado às ' + new Date().toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit', timeZone:'America/Sao_Paulo'});
+}
+
+function novo(){ return { turnos:[], dispReal:0, dispMeta:0, hReal:0, hMeta:0, itens:{}, semCap:new Set(), semPlano:false }; }
+function juntar(r, m){
+  r.turnos.push({ turno:m.turno, prod:m.producao.bateu, disp:m.disponibilidade.bateu, pct:m.producao.pct });
+  if(!m.temPlano) r.semPlano = true;
+  r.dispReal += m.disponibilidade.real; r.dispMeta += m.disponibilidade.meta;
+  r.hReal += m.producao.horasReal; r.hMeta += m.producao.horasMeta;
+  m.producao.itens.forEach(i => {
+    const k = (i.linha_produto || i.produto) + '|' + rotUnidade(i.unidade, i.produto);
+    const it = r.itens[k] = r.itens[k] || { nome:i.linha_produto || i.produto, un:rotUnidade(i.unidade, i.produto), real:0, meta:0 };
+    it.real += i.real; it.meta += i.meta;
+  });
+  m.semCap.forEach(s => r.semCap.add(s));
+}
+function fechar(r){
+  r.prodPct = r.hMeta > 0 ? r.hReal / r.hMeta * 100 : null;
+  r.prodOk  = r.hMeta > 0 ? r.hReal >= r.hMeta - 1e-9 : null;
+  r.dispPct = r.dispMeta > 0 ? r.dispReal / r.dispMeta * 100 : null;
+  r.dispOk  = r.dispMeta > 0 ? r.dispReal >= r.dispMeta - 1e-9 : null;
+  r.turnos.sort((a,b) => String(a.turno).localeCompare(String(b.turno), 'pt-BR', {numeric:true}));
+}
+
+/* ── tela ────────────────────────────────────────────────────────────────── */
+function desenhar(dia, ontem, nomes, res, diasHist, diasComOP){
+  const pedido = new URLSearchParams(location.search).get('data');
+  const rot = dia === ontem ? 'Produção de ontem' : pedido ? 'Produção do dia' : 'Último dia com produção lançada';
+  document.getElementById('dia').textContent = `${rot} · ${SEMANA_LONGA[diaSemana(dia)]}, ${dataBRc(dia)}`;
+
+  const doDia = nomes.map(n => ({ nome:n, r:(res[n]||{})[dia] || null }));
+  const comProd = doDia.filter(x => x.r);
+  const okProd = comProd.filter(x => x.r.prodOk).length, okDisp = comProd.filter(x => x.r.dispOk).length;
+  const as2 = comProd.filter(x => x.r.prodOk && x.r.dispOk).length;
+  document.getElementById('resumo').innerHTML = `
+    <div class="res"><div class="num" style="color:var(--ok)">${okProd}<small>/${comProd.length}</small></div><div class="lbl">linhas bateram a<br>meta de <b>PRODUÇÃO</b></div></div>
+    <div class="res"><div class="num" style="color:var(--ok)">${okDisp}<small>/${comProd.length}</small></div><div class="lbl">linhas bateram a<br>meta de <b>DISPONIBILIDADE</b></div></div>
+    <div class="res"><div class="num" style="color:var(--lime)">${as2}<small>/${comProd.length}</small></div><div class="lbl">🏆 bateram<br><b>AS DUAS METAS</b></div></div>`;
+
+  document.getElementById('linhas').innerHTML = doDia.map(x => cartao(x.nome, x.r, res[x.nome] || {}, diasHist, dia, diasComOP)).join('')
+    || '<div class="msg">Nenhuma linha ativa cadastrada.</div>';
+}
+
+function cartao(nome, r, porDia, diasHist, dia, diasComOP){
+  let cls = 'st-sem', faixa = '⏸️ Sem produção lançada';
+  if(r){
+    const n = (r.prodOk ? 1 : 0) + (r.dispOk ? 1 : 0);
+    if(r.prodOk == null && r.dispOk == null){ cls = 'st-sem'; faixa = '⚠️ Sem meta no planejamento'; }
+    else if(n === 2){ cls = 'st-ok'; faixa = '🏆 Bateu as 2 metas'; }
+    else if(n === 1){ cls = 'st-meio'; faixa = '⚠️ Bateu 1 de 2 metas'; }
+    else { cls = 'st-nao'; faixa = '✖ Não bateu a meta'; }
+  }
+  const itens = r ? Object.values(r.itens) : [];
+  const detProd = itens.length
+    ? itens.map(i => `${esc(i.nome)}: <b>${nf(i.real, i.un==='t'?1:0)} ${i.un}</b> <span>de ${nf(i.meta, i.un==='t'?1:0)} ${i.un}</span>`).join('<br>')
+    : '<span>sem média/h cadastrada para o produto</span>';
+  const detDisp = r && r.dispMeta > 0
+    ? `<b>${nf(r.dispReal,1)} h</b> trabalhadas <span>de ${nf(r.dispMeta,1)} h disponíveis</span>` : '<span>sem planejamento para este turno</span>';
+
+  return `<article class="ln ${cls}">
+    <div class="faixa">${faixa}</div>
+    <div class="corpo">
+      <div class="nome">${esc(nome)}</div>
+      ${r ? indicador('Produção', r.prodPct, r.prodOk, detProd) + indicador('Disponibilidade', r.dispPct, r.dispOk, detDisp)
+          : '<div class="ind"><div class="det"><span>A linha não teve OP lançada neste dia.</span></div></div>'}
+      ${r && r.turnos.length ? `<div class="turnos">${r.turnos.map(t => `<div class="tu">${esc(t.turno)}
+          <i class="${t.prod==null?'sem':t.prod?'ok':'nao'}" title="Produção">P</i><i class="${t.disp==null?'sem':t.disp?'ok':'nao'}" title="Disponibilidade">D</i></div>`).join('')}</div>` : ''}
+      ${r && r.semCap.size ? `<div class="avisos">⚠️ Sem média/h no planejamento: ${esc([...r.semCap].join(', '))} — fora da meta</div>` : ''}
+      ${historico(porDia, diasHist, dia, diasComOP)}
+    </div>
+  </article>`;
+}
+
+function indicador(nome, pct, ok, det){
+  const sem = pct == null;
+  const c = sem ? 'sem' : ok ? 'ok' : 'nao';
+  const larg = sem ? 0 : Math.min(pct, 120) / 120 * 100;
+  return `<div class="ind">
+    <div class="ind-top"><div class="ind-nome">${nome}</div><div class="selo ${c}">${sem ? 'SEM META' : ok ? '✔ BATEU' : '✖ NÃO BATEU'}</div></div>
+    <div class="pct ${c}">${sem ? '—' : nf(pct) + '%'}<small>${sem ? '' : 'da meta'}</small></div>
+    ${sem ? '' : `<div class="barra"><i class="${c}" style="width:${larg}%"></i><b style="left:${100/120*100}%"></b></div>`}
+    <div class="det">${det}</div>
+  </div>`;
+}
+
+function historico(porDia, diasHist, dia, diasComOP){
+  if(!diasHist.length) return '';
+  const quadros = diasHist.map(d => {
+    const r = porDia[d];
+    const c = !r || r.prodOk == null ? '' : (r.prodOk && r.dispOk) ? 'ok' : (r.prodOk || r.dispOk) ? 'meio' : 'nao';
+    return `<div class="d${d===dia?' hoje':''}" title="${dataBRc(d)}"><i class="${c}"></i>${SEMANA[diaSemana(d)]}</div>`;
+  }).join('');
+  // sequência: dias de produção seguidos (até o dia do painel) em que a linha bateu a meta de produção
+  let seq = 0;
+  const dias = diasComOP.filter(d => d <= dia).reverse();
+  for(const d of dias){
+    const r = porDia[d];
+    if(!r) continue;            // linha não rodou nesse dia: não quebra nem soma
+    if(r.prodOk) seq++; else break;
+  }
+  return `<div class="hist"><div class="hist-lbl">Últimos dias</div><div class="dias">${quadros}</div>${seq >= 2 ? `<div class="fogo">🔥 ${seq} dias seguidos batendo a meta de produção</div>` : ''}</div>`;
+}
+
+/* ── TV: relógio, atualização, tela cheia, tela sempre acesa ─────────────── */
+function relogio(){
+  document.getElementById('hora').textContent = new Date().toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit', timeZone:'America/Sao_Paulo'});
+  if(_diaCarregado && _diaCarregado !== hojeISO()) carregar();          // virou o dia
+  else if(_ultimaCarga && Date.now() - _ultimaCarga > REFRESH_MS) carregar();
+}
+function telaCheia(){
+  const el = document.documentElement;
+  if(document.fullscreenElement) document.exitFullscreen();
+  else if(el.requestFullscreen) el.requestFullscreen().catch(() => {});
+}
+let _tCtl = null;
+function mostrarCtl(){
+  const c = document.getElementById('ctl'); c.classList.remove('some');
+  clearTimeout(_tCtl); _tCtl = setTimeout(() => c.classList.add('some'), 4000);
+}
+['mousemove','pointerdown','keydown'].forEach(ev => document.addEventListener(ev, mostrarCtl, {passive:true}));
+async function manterTelaAcesa(){
+  try{ if('wakeLock' in navigator) await navigator.wakeLock.request('screen'); }catch(e){ /* navegador não deixa: segue sem */ }
+}
+document.addEventListener('visibilitychange', () => { if(!document.hidden) manterTelaAcesa(); });
+
+if(requireAuth('painel_metas')){
+  carregar();
+  relogio(); setInterval(relogio, 15000);
+  mostrarCtl(); manterTelaAcesa();
+}
+</script>
+</body>
+</html>
