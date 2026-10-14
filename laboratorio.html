@@ -873,7 +873,7 @@ async function init(){
 
   renderAlertasLab();
   renderDashLinhas();renderAnalises();renderAfericoes();renderPallets();
-  carregarOpsDash();
+  { const idAn=new URLSearchParams(location.search).get('analise'); if(idAn) verAnalise(idAn); }   // vindo do dashboard
 
   // ── NOVO: carga das tabelas adicionadas (Fase 1+2+3). Envolvidas em
   // safe() para não quebrar a página caso a migração SQL ainda não tenha
@@ -1052,47 +1052,48 @@ async function promoverAnalisesExternas(){
 }
 
 
-// ── Status das Linhas: só a OP ATUAL de cada linha ──
-// O cartão mostra apenas as análises da OP mais nova da linha (mesma data e
-// mesmo turno da OP). Abriu OP nova → o cartão zera e
-// espera a primeira análise dela. O histórico continua inteiro na tabela.
-let _opsDash=null;   // OP mais nova por linha: { 'Linha 2': {op_numero,data,turno,produto} }
-function _turnoOrd(t){ const m=/(\d)/.exec(String(t||'')); return m?Number(m[1]):0; }
-function _chaveTempo(data,turno){ return String(data||'')+'#'+_turnoOrd(turno); }
-async function carregarOpsDash(forcar){
-  const desde=new Date(Date.now()-45*86400000).toISOString().slice(0,10);
-  const r=await db(_supabase.from('producao').select('id,op_numero,linha,data,turno,produto,produtos_op,status,created_at')
-    .gte('data',desde).order('data',{ascending:false}).limit(1000),'OPs do Status das Linhas');
-  if(r.error){ if(forcar) toast('Não foi possível ler as OPs; o painel mostra a última análise de cada linha.','warning'); renderDashLinhas(); return; }
-  const m={};
-  (r.data||[]).forEach(o=>{
-    if(!o.linha) return;
-    const k=_chaveTempo(o.data,o.turno), atual=m[o.linha];
-    if(!atual||k>atual._k||(k===atual._k&&String(o.created_at||'')>String(atual.created_at||''))) m[o.linha]=Object.assign({_k:k},o);
-  });
-  _opsDash=m; renderDashLinhas();
+// ── Status das Linhas: a ANÁLISE MAIS NOVA de cada linha ──
+// Antes o cartão só aceitava análise da mesma data+turno da OP mais nova da linha.
+// Mas a OP é lançada DEPOIS do turno (no dia seguinte): durante o turno a OP
+// mais nova ainda é a de ontem, a análise de hoje não batia e o cartão ficava
+// "Sem análise" mesmo com teste lançado. Agora vale a análise mais nova da
+// linha (mesma regra do dashboard e do aviso das TVs), com a idade dela.
+async function carregarOpsDash(forcar){          // nome mantido: é o 🔄 do quadro
+  const r=await _supabase.from('laboratorio').select('*').order('data',{ascending:false}).order('hora',{ascending:false}).limit(400);
+  if(r.error){ toast('Não foi possível atualizar: '+r.error.message,'danger'); return; }
+  _analises=r.data||[];
+  renderDashLinhas(); if(forcar){ renderAnalises(); toast('Status das linhas atualizado.','success'); }
+}
+function _tsAnalise(a){ return String(a.data||'')+' '+String(a.hora||'00:00').slice(0,8); }
+function _idadeLab(a){
+  if(!a||!a.data) return '';
+  const dt=new Date(a.data+'T'+String(a.hora||'00:00').slice(0,5)+':00');
+  if(isNaN(dt)) return '';
+  const h=Math.max(0,(Date.now()-dt.getTime())/36e5);
+  if(h<1)  return '<span style="background:#dcfce7;color:#15803d;border-radius:6px;padding:1px 6px;">há menos de 1 h</span>';
+  if(h<8)  return `<span style="background:#dcfce7;color:#15803d;border-radius:6px;padding:1px 6px;">há ${Math.round(h)} h</span>`;
+  if(h<24) return `<span style="background:#fef3c7;color:#92400e;border-radius:6px;padding:1px 6px;">há ${Math.round(h)} h</span>`;
+  const d=Math.floor(h/24);
+  return `<span style="background:#fee2e2;color:#991b1b;border-radius:6px;padding:1px 6px;">⚠️ há ${d} dia${d>1?'s':''}</span>`;
 }
 function renderDashLinhas(){
   document.getElementById('linhas-dash').innerHTML=_linhas.map(linha=>{
-    const op=_opsDash&&_opsDash[linha.nome];
-    // análises da linha, da mais nova para a mais velha; com OP conhecida,
-    // só as que são da OP atual (data/turno igual ou depois do início dela)
-    let doLinha=(_analises||[]).filter(a=>a.linha===linha.nome);
-    // OP é de um dia + turno: só conta análise da MESMA data e do MESMO turno.
-    // (antes contava "dali para frente" e uma análise de outro dia aparecia na OP)
-    if(op) doLinha=doLinha.filter(a=>String(a.data||'')===String(op.data||'')
-      &&(!_turnoOrd(a.turno)||!_turnoOrd(op.turno)||_turnoOrd(a.turno)===_turnoOrd(op.turno)));   // turno sem número (Administrativo) conta como o da OP
+    const doLinha=(_analises||[]).filter(a=>a.linha===linha.nome).sort((x,y)=>_tsAnalise(y).localeCompare(_tsAnalise(x)));
     const ult=doLinha[0];
     const st=(ult&&ult.status)||'Sem análise';
     const stCls={OK:'ok',Ajuste:'ajuste','Manutenção':'manutencao','Parada':'parada','Sem análise':''}[st]||'';
     const stIcon={'OK':'✅','Ajuste':'⚠️','Manutenção':'🔧','Parada':'🛑','Sem análise':'❓'}[st]||'❓';
-    return`<div class="linha-card ${stCls}" onclick="filtrarPorLinha('${escJs(linha.nome)}')">
+    // clicar no cartão ABRE a última análise para ver; sem análise, abre a lista da linha
+    const abrir=ult?`verAnalise('${escJs(ult.id)}')`:`filtrarPorLinha('${escJs(linha.nome)}')`;
+    return`<div class="linha-card ${stCls}" onclick="${abrir}" title="${ult?'Ver a última análise':'Ver as análises da linha'}">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;">
         <div><div style="font-weight:800;color:var(--primary);font-size:14px;">${esc(linha.nome)}</div>
         <div style="font-size:12px;margin-top:4px;">${stIcon} ${esc(st)}</div></div>
         <button class="btn btn-primary btn-sm" onclick="event.stopPropagation();novaAnalise('${escJs(linha.nome)}')">+ Teste</button>
       </div>
-      ${ult?`<div style="font-size:11px;color:#94a3b8;margin-top:6px;">Último: ${esc(dataBR(ult.data))} ${esc(ult.hora||'')} — ${esc(ult.produto||'—')}${doLinha.length>1?' · '+doLinha.length+' análises nesta OP':''}</div>`
+      ${ult?`<div style="font-size:11px;color:#94a3b8;margin-top:6px;">Último: ${esc(dataBR(ult.data))} ${esc(String(ult.hora||'').slice(0,5))} — ${esc(ult.produto||'—')}</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;margin-top:6px;font-size:11px;">${_idadeLab(ult)}
+          <a href="#" style="color:var(--primary);font-weight:700;text-decoration:none;" onclick="event.stopPropagation();event.preventDefault();filtrarPorLinha('${escJs(linha.nome)}')">📋 todas</a></div>`
            :''}
     </div>`;
   }).join('')||'<p style="color:#94a3b8;padding:16px;">Nenhuma linha cadastrada.</p>';

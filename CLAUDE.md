@@ -565,3 +565,11 @@ fábrica específica. Não generalizar.
   `painel_tv_config_ler(p_codigo)` (logado sem código; TV com código) e `painel_tv_config_salvar(p_config)` (logado). Dia fixo
   vale até o fim de `dia_ate` (checkbox "Amanhã volta sozinho para o automático", padrão marcado) e depois volta para ontem.
   `linhas` null = todas (linha nova entra sozinha). `?data=` da URL ainda tem prioridade.
+
+### Laboratório — Status das Linhas (correção 2026-10-14)
+- Bug: o cartão só aceitava análise da MESMA data+turno da OP mais nova da linha; como a OP é lançada depois do turno, durante o
+  turno a OP mais nova é a de ontem e o cartão ficava "Sem análise" com teste lançado (dashboard funcionava porque usa a última
+  análise). Agora `renderDashLinhas` usa a **análise mais nova da linha** (data+hora) + selo de idade ("há 2 h" / "⚠️ há 3 dias");
+  `carregarOpsDash` (🔄) só recarrega as análises. Clicar no cartão **abre a última análise** (`verAnalise`); "📋 todas" filtra a lista.
+- `laboratorio.html?analise=<id>` abre a análise direto. Dashboard: cartão "Como a linha está agora" abre a última análise num
+  modal (`verAnaliseLinha`, reaproveita `#modal-dia`) com botão "Ver análise completa no Laboratório →" (antes ia direto para o lab).
