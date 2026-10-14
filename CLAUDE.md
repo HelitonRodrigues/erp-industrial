@@ -537,17 +537,19 @@ fábrica específica. Não generalizar.
   (Chrome — WebView não imprime), escolher status (SharedPreferences), testar sons. Sons em `res/raw` (mesmos do js/alerta-linhas.js).
 - Sem SDK Android no ambiente do Claude: compilado só contra stubs da API (javac) — 1º build real é no Actions.
 
-### Painel de Metas para TV (`painel-metas.html`, sessão 2026-10-13)
-- Módulo `painel_metas` (grupo Produção, "Painel de Metas (TV)"). Tela cheia sem sidebar, fundo navy, feita para monitor;
-  `requireAuth('painel_metas')` direto (sem initSidebar). Só LINHAS — nunca encarregado/equipe.
-- Dia: ONTEM (horário de Brasília); se ontem não tem OP, o último dia com OP ("Último dia com produção lançada"). `?data=AAAA-MM-DD`
-  força um dia. Atualiza a cada 5 min e quando vira o dia; pede tela sempre acesa (Wake Lock); botões ERP/Tela cheia somem em 4 s.
-- Cálculo em **`Regras.metaDaOP(op, secoes, linhaCad, produtos)`** (js/regras.js) — mesmas metas da OP no producao.html:
-  disponibilidade = H.T ≥ dispH÷dias da seção linha+turno (85% do turno); produção = realizado ≥ média/h × horas disponíveis
-  rateadas por produto. Conferido em node contra `efic_disp`/`efic_prod` gravados (10 OPs, iguais). Diferenças de propósito:
-  turno PARADO conta meta cheia com 0 (na OP aparece "—"); produto sem média/h fica fora do realizado e da meta (aviso no cartão);
-  vários produtos de unidades diferentes somam em "horas de média/h" (a OP somava sacos+bags). Fontes de média/h deduplicadas por
-  nome (sem isso "Impermeabilizante" via 2 candidatos iguais e desistia).
-- Cartão por linha: faixa (🏆 2 metas / ⚠ 1 de 2 / ✖ nenhuma / sem produção), Produção e Disponibilidade em % da meta com barra e
-  marca META, realizado × meta, chips por turno (P/D), últimos 7 dias de produção (verde/âmbar/vermelho) e 🔥 sequência de dias
-  batendo a meta de produção. Topo: quantas linhas bateram cada meta e as duas.
+### Painel de Metas para TV (`painel-metas.html`, sessões 2026-10-13/14, migração 059)
+- Módulo `painel_metas` (grupo Produção, "Painel de Metas (TV)"). **v2 (pedido do dono): tela CLARA e linguagem simples**
+  (público com fundamental incompleto): "Fizemos X sacos · A meta era Y · Faltaram Z" / "Passou Z da meta 👏"; "Máquina rodando:
+  Rodou 13 horas e 16 min · A meta era … · Faltou …". Cabeçalho do cartão = 👍 BATEU / 👎 NÃO BATEU (meta de PRODUÇÃO).
+  Frase do dia ("1 de 4 linhas bateu a meta…"), turnos 👍/👎, últimos 6 dias ✓/✗ e 🔥 sequência. Sem %, sem jargão, sem nomes.
+  Meta mostrada em número inteiro arredondado para CIMA (não existe 0,2 saco); toneladas com 1 casa.
+- Dia: ONTEM (Brasília); sem OP ontem → último dia com OP. `?data=` força. Atualiza a cada 5 min e na virada do dia; Wake Lock.
+- Cálculo em `Regras.metaDaOP` (js/regras.js) — mesmas metas da OP (conferido em node contra efic_disp/efic_prod gravados).
+  Turno PARADO conta meta cheia com 0; produto sem média/h fica fora (aviso); fontes de média/h deduplicadas por nome.
+- **TV sem espelhar (059):** `painel_tv` (1 linha, código de 8 letras/números sem 0/O/1/I/L, sem policy) +
+  `painel_tv_codigo(p_novo)` (logado; gera/troca) + `painel_tv_dados(p_codigo,p_ini,p_fim)` (anon; ≤62 dias; só OP sem
+  encarregado/equipe, seções do planejamento, média/h das linhas, unidade dos produtos). Página: logado → tabelas; senão com
+  `?tv=CODIGO` (guardado em localStorage `painel_tv_codigo`) → RPC; senão tela "digite o código". `vercel.json` rewrite `/tv`.
+  Botão **📺 Passar para a TV** (logado): `PresentationRequest([painel-metas.html?tv=COD]).start()` → lista de Chromecast/Google TV
+  do Chrome (a TV recebe a página; não é espelhamento) + plano B: navegador da TV em `<host>/tv` + código. "Trocar código"
+  desliga TVs antigas. Bluetooth/DLNA/Miracast não são possíveis a partir de página web (sem API) — por isso Cast + código.
