@@ -103,6 +103,11 @@ body{min-height:100vh;padding:clamp(10px,min(1.2vw,2vh),24px);display:flex;flex-
 .codigo{font-size:34px;font-weight:800;letter-spacing:6px;color:var(--navy);background:#f1f5f9;border-radius:12px;padding:10px;text-align:center;font-variant-numeric:tabular-nums}
 .endereco{font-size:18px;font-weight:800;color:var(--navy);word-break:break-all}
 .caixa-ok{background:var(--ok-claro);color:var(--ok-esc);border-radius:12px;padding:10px 12px;font-weight:700}
+.opc{display:flex;align-items:center;gap:10px;font-size:16px;padding:10px 12px;border-radius:12px;background:#f8fafc;border:2px solid #e2e8f0;cursor:pointer}
+.opc input[type=radio],.opc input[type=checkbox]{width:22px;height:22px;flex:none}
+.opc input[type=date]{font:inherit;font-size:16px;padding:6px 8px;border:2px solid #cbd5e1;border-radius:8px;margin-left:6px}
+.opc.sub{background:transparent;border:0;padding:2px 12px 2px 44px;font-size:14px;color:#475569}
+.grade-linhas{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}
 .caixa-nao{background:var(--nao-claro);color:var(--nao-esc);border-radius:12px;padding:10px 12px;font-weight:700}
 
 /* tela do código (TV sem login) */
@@ -202,11 +207,27 @@ async function lerDados(ini, fim){
   return { ops:op.data||[], planos:pl.data||[], linhas:ln.data||[], produtos:pr.data||[] };
 }
 
+let _config = {}, _todasLinhas = [];
+async function lerConfig(){
+  const r = await _supabase.rpc('painel_tv_config_ler', MODO === 'tv' ? {p_codigo: ls.get(LS_COD)} : {});
+  if(r.error) throw new Error(r.error.message);
+  return r.data || {};
+}
+// Dia escolhido no ⚙️ vale até o fim do dia "dia_ate"; depois volta sozinho para ontem.
+function diaEscolhido(cfg){
+  if(!cfg || !/^\d{4}-\d{2}-\d{2}$/.test(cfg.dia || '')) return null;
+  if(cfg.dia_ate && hojeISO() > cfg.dia_ate) return null;
+  return cfg.dia;
+}
+
 async function carregar(){
   const ontem = somaDias(hojeISO(), -1);
   const pedido = params.get('data');
-  const fim = pedido && /^\d{4}-\d{2}-\d{2}$/.test(pedido) ? pedido : ontem;
   let D;
+  try{ _config = await lerConfig(); }
+  catch(e){ console.error('[painel-metas] config', e); _config = {}; }
+  const fixo = (pedido && /^\d{4}-\d{2}-\d{2}$/.test(pedido)) ? pedido : diaEscolhido(_config);
+  const fim = fixo || ontem;
   try{ D = await lerDados(somaDias(fim, -JANELA_DIAS), fim); }
   catch(e){
     console.error('[painel-metas]', e);
@@ -222,10 +243,12 @@ async function carregar(){
   // dia mostrado: ontem; se ontem não teve OP lançada, o último dia que teve
   const diasComOP = [...new Set(D.ops.map(o => o.data))].sort();
   let dia = fim;
-  if(!pedido && !diasComOP.includes(fim) && diasComOP.length) dia = diasComOP[diasComOP.length-1];
+  if(!fixo && !diasComOP.includes(fim) && diasComOP.length) dia = diasComOP[diasComOP.length-1];
 
-  const nomes = D.linhas.filter(l => l.status === 'ativo').map(l => l.nome);
-  D.ops.forEach(o => { if(o.linha && !nomes.includes(o.linha)) nomes.push(o.linha); });
+  _todasLinhas = D.linhas.filter(l => l.status === 'ativo').map(l => l.nome);
+  D.ops.forEach(o => { if(o.linha && !_todasLinhas.includes(o.linha)) _todasLinhas.push(o.linha); });
+  const escolhidas = Array.isArray(_config.linhas) && _config.linhas.length ? _config.linhas : null;
+  const nomes = escolhidas ? _todasLinhas.filter(n => escolhidas.includes(n)) : _todasLinhas.slice();
 
   const res = {};
   D.ops.forEach(o => {
@@ -239,7 +262,7 @@ async function carregar(){
   const ef = (secoesMes[dia.slice(0,7)] || []).map(s => parseFloat(s.eficiencia)).find(v => v > 0);
   if(ef) document.getElementById('regra85').textContent = nf(ef) + '%';
 
-  desenhar(dia, ontem, nomes, res, diasComOP.filter(d => d <= dia));
+  desenhar(dia, ontem, nomes, res, diasComOP.filter(d => d <= dia), !!fixo);
   window.__painelPronto = Date.now();   // o app de TV espera isto para tirar a foto
   _ultimaCarga = Date.now(); _diaCarregado = hojeISO();
   document.getElementById('atualizado').textContent = 'atualizado às ' + new Date().toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit', timeZone:'America/Sao_Paulo'});
@@ -265,9 +288,8 @@ function fechar(r){
 }
 
 /* ── tela ────────────────────────────────────────────────────────────────── */
-function desenhar(dia, ontem, nomes, res, diasAteODia){
-  const pedido = params.get('data');
-  const quando = dia === ontem ? 'Ontem' : pedido ? 'No dia' : 'No último dia com produção';
+function desenhar(dia, ontem, nomes, res, diasAteODia, fixo){
+  const quando = fixo ? (dia === ontem ? 'Ontem' : 'No dia') : dia === ontem ? 'Ontem' : 'No último dia com produção';
   document.getElementById('dia').textContent = `${quando} · ${dataLonga(dia)}`;
 
   const doDia = nomes.map(n => ({ nome:n, r:(res[n]||{})[dia] || null }));
@@ -447,6 +469,55 @@ async function trocarCodigo(){
   document.getElementById('m-tv').remove(); abrirTV();
 }
 
+/* ── ⚙️ escolher dia e linhas (vale para todas as TVs) ─────────────────── */
+async function abrirConfig(){
+  let cfg = {};
+  try{ cfg = await lerConfig(); }catch(e){ toast('Não foi possível ler a configuração: ' + e.message, 'danger'); return; }
+  const fixo = diaEscolhido(cfg);
+  const ontem = somaDias(hojeISO(), -1);
+  const marcadas = Array.isArray(cfg.linhas) && cfg.linhas.length ? cfg.linhas : _todasLinhas;
+  const m = document.createElement('div'); m.className = 'fundo-modal'; m.id = 'm-cfg';
+  m.innerHTML = `<div class="modal">
+    <h2>⚙️ O que aparece no painel</h2>
+    <div class="caixa-ok" style="background:#e0f2fe;color:#075985">Vale para <b>todas as TVs</b>. Elas mudam em até 5 minutos.</div>
+    <h2 style="font-size:18px">📅 Qual dia mostrar?</h2>
+    <label class="opc"><input type="radio" name="cfg-dia" value="auto" ${fixo ? '' : 'checked'}>
+      <span><b>Automático</b> — sempre o resultado de ontem</span></label>
+    <label class="opc"><input type="radio" name="cfg-dia" value="fixo" ${fixo ? 'checked' : ''}>
+      <span><b>Escolher o dia:</b> <input type="date" id="cfg-data" value="${fixo || ontem}" max="${hojeISO()}"></span></label>
+    <label class="opc sub"><input type="checkbox" id="cfg-volta" ${!fixo || cfg.dia_ate ? 'checked' : ''}>
+      <span>Amanhã volta sozinho para o automático</span></label>
+    <h2 style="font-size:18px">🏭 Quais linhas aparecem?</h2>
+    <div class="grade-linhas">${_todasLinhas.map(n => `<label class="opc"><input type="checkbox" class="cfg-ln" value="${esc(n)}" ${marcadas.includes(n) ? 'checked' : ''}><span>${esc(n)}</span></label>`).join('')}</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:space-between;margin-top:4px">
+      <button class="sec" onclick="document.getElementById('m-cfg').remove()">Cancelar</button>
+      <button class="grande" style="padding:14px 22px;font-size:18px" onclick="salvarConfig()">✅ SALVAR</button>
+    </div>
+  </div>`;
+  m.addEventListener('click', e => { if(e.target === m) m.remove(); });
+  document.body.appendChild(m);
+  const dt = document.getElementById('cfg-data');
+  dt.addEventListener('input', () => { m.querySelector('input[value=fixo]').checked = true; });
+}
+async function salvarConfig(){
+  const m = document.getElementById('m-cfg');
+  const fixo = m.querySelector('input[name=cfg-dia]:checked').value === 'fixo';
+  const data = document.getElementById('cfg-data').value;
+  if(fixo && !/^\d{4}-\d{2}-\d{2}$/.test(data)){ toast('Escolha o dia.', 'warning'); return; }
+  const linhas = [...m.querySelectorAll('.cfg-ln:checked')].map(i => i.value);
+  if(!linhas.length){ toast('Marque pelo menos uma linha.', 'warning'); return; }
+  const cfg = {
+    dia: fixo ? data : null,
+    dia_ate: fixo && document.getElementById('cfg-volta').checked ? hojeISO() : null,
+    linhas: linhas.length === _todasLinhas.length ? null : linhas,     // todas = null (linha nova entra sozinha)
+  };
+  const r = await _supabase.rpc('painel_tv_config_salvar', {p_config: cfg});
+  if(r.error){ toast('Não foi possível salvar: ' + r.error.message, 'danger'); return; }
+  m.remove();
+  toast('Salvo! As TVs mudam em até 5 minutos.', 'success');
+  carregar();
+}
+
 /* ── TV: relógio, atualização, tela cheia, tela acesa ────────────────────── */
 function relogio(){
   document.getElementById('hora').textContent = new Date().toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit', timeZone:'America/Sao_Paulo'});
@@ -461,7 +532,7 @@ function montarBotoes(){
   const c = document.getElementById('ctl');
   if(CAPTURA){ c.style.display = 'none'; return; }
   c.innerHTML = (MODO === 'erp'
-      ? `<a class="bt-cinza" href="dashboard.html">⬅ ERP</a><button class="bt-tv" onclick="abrirTV()">${_conexaoTV ? '📺 Na TV ✓' : '📺 Passar para a TV'}</button>` : '')
+      ? `<a class="bt-cinza" href="dashboard.html">⬅ ERP</a><button class="bt-cinza" onclick="abrirConfig()">⚙️ Dia e linhas</button><button class="bt-tv" onclick="abrirTV()">${_conexaoTV ? '📺 Na TV ✓' : '📺 Passar para a TV'}</button>` : '')
     + `<button class="bt-cinza" onclick="telaCheia()">⛶ Tela cheia</button>`;
 }
 let _tCtl = null;

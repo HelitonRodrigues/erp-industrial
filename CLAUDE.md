@@ -561,3 +561,7 @@ fábrica específica. Não generalizar.
   Botão **📺 Passar para a TV** (logado): `PresentationRequest([painel-metas.html?tv=COD]).start()` → lista de Chromecast/Google TV
   do Chrome (a TV recebe a página; não é espelhamento) + plano B: navegador da TV em `<host>/tv` + código. "Trocar código"
   desliga TVs antigas. Bluetooth/DLNA/Miracast não são possíveis a partir de página web (sem API) — por isso Cast + código.
+- **⚙️ Dia e linhas (060):** `painel_tv.config` jsonb `{dia, dia_ate, linhas}` — vale para TODAS as TVs (e a foto DLNA).
+  `painel_tv_config_ler(p_codigo)` (logado sem código; TV com código) e `painel_tv_config_salvar(p_config)` (logado). Dia fixo
+  vale até o fim de `dia_ate` (checkbox "Amanhã volta sozinho para o automático", padrão marcado) e depois volta para ontem.
+  `linhas` null = todas (linha nova entra sozinha). `?data=` da URL ainda tem prioridade.
