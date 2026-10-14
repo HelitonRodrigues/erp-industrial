@@ -427,5 +427,87 @@
     return { vencidas: vencidas, proximas: proximas };
   };
 
+  /* ── METAS DA OP (painel-metas.html) ───────────────────────────────────────
+   * As MESMAS duas metas que o producao.html mostra na OP ("✅ META / 🔴 ABAIXO"):
+   *
+   * DISPONIBILIDADE: horas trabalhadas (H.T, já com a parada trabalhada) contra
+   *   as HORAS DISPONÍVEIS do planejamento para a linha+turno = dispH ÷ dias.
+   *   O dispH já vem com a regra dos 85% (planejamento: brutas × eficiência da
+   *   seção − paradas planejadas). Bate se H.T ≥ horas disponíveis.
+   * PRODUÇÃO: realizado contra média/h × horas disponíveis (rateadas por
+   *   produto pelo tempo gasto em cada um). Bate se realizado ≥ meta.
+   *
+   * Diferença de propósito em relação à tela da OP: turno PARADO (H.T = 0)
+   * entra com meta cheia e 0 produzido — no painel, linha parada não bateu.
+   *
+   * Entradas: op = linha do `producao`; secoes = seções de planejamento do mês
+   * (todas as linhas); linhaCad = linhas_producao da linha (ou null);
+   * produtos = cadastro (nome, unidade). Pura: sem DOM nem banco.
+   */
+  Regras.metaDaOP = function (op, secoes, linhaCad, produtos) {
+    op = op || {};
+    var ln = op.linha, tu = op.turno || '';
+    var daLinha = null, doTurno = null, fontes = [];
+    (Array.isArray(secoes) ? secoes : []).forEach(function (s) {
+      if (!s || s.linha !== ln) return;
+      daLinha = s;
+      if (tu && s.turno === tu) doTurno = s;
+      (s.produtos || []).forEach(function (p) {
+        if ((parseFloat(p.capHora) || 0) > 0) fontes.push({ nome: p.nome, capHora: parseFloat(p.capHora), origem: 'planejamento' });
+      });
+    });
+    ((linhaCad && linhaCad.produtos) || []).forEach(function (p) {
+      if ((parseFloat(p.capHora) || 0) > 0) fontes.push({ nome: p.nome, capHora: parseFloat(p.capHora), origem: 'cadastro da linha' });
+    });
+    // mesma média repetida em várias seções/cadastro: fica uma só (senão o
+    // casamento aproximado vê "2 candidatos" e desiste por ambiguidade)
+    var vistos = {};
+    fontes = fontes.filter(function (f) {
+      var k = Regras.normalizarNome(f.nome);
+      if (vistos[k]) return false;
+      vistos[k] = 1; return true;
+    });
+    var sec = doTurno || daLinha;
+    var dias = sec ? (parseInt(sec.diasTrabalho, 10) || 1) : 1;
+    var horasMeta = sec ? (parseFloat(sec.dispH) || 0) / dias : 0;
+    var horasTurno = sec ? (parseFloat(sec.horasBrutas) || 0) / dias : 0;
+    var eficPlan = sec ? (parseFloat(sec.eficiencia) || null) : null;
+
+    var itens = Array.isArray(op.produtos_op) && op.produtos_op.length ? op.produtos_op
+      : [{ produto: op.produto, linha_produto: '', ht: op.ht, total_sacos: op.total_sacos }];
+    var ht = 0;
+    itens.forEach(function (p) { ht += parseFloat(p.ht) || 0; });
+    if (!ht) ht = parseFloat(op.ht) || 0;
+
+    var prod = [], semCap = [], hReal = 0, hMeta = 0;
+    itens.forEach(function (p) {
+      var htP = parseFloat(p.ht) || 0;
+      var un = Regras.unidadeDoProduto(p.produto, produtos);
+      var real = Regras.qtdNaUnidadeDoProduto(p.total_sacos, un);
+      var cap = Regras.capacidadeHora([p.linha_produto, p.produto], fontes);
+      if (!cap) { semCap.push(p.linha_produto || p.produto || '?'); return; }
+      // horas da meta deste produto: rateio pelo tempo gasto; turno parado divide por igual
+      var hM = horasMeta > 0 ? (ht > 0 ? horasMeta * (htP / ht) : horasMeta / itens.length) : htP;
+      if (hM <= 0) return;
+      var meta = Regras.metaSacos(cap.capHora, hM);
+      prod.push({ produto: p.produto, linha_produto: p.linha_produto || '', unidade: un, real: real,
+                  meta: meta, capHora: cap.capHora, horasMeta: hM });
+      hReal += real / cap.capHora;     // produção convertida em "horas de média/h" — soma produtos de unidades diferentes
+      hMeta += hM;
+    });
+
+    return {
+      linha: ln, turno: tu, temPlano: !!sec, eficienciaPlanejada: eficPlan,
+      horasTurno: horasTurno,
+      disponibilidade: { real: ht, meta: horasMeta,
+                         pct: horasMeta > 0 ? ht / horasMeta * 100 : null,
+                         bateu: horasMeta > 0 ? ht >= horasMeta - 1e-9 : null },
+      producao: { itens: prod, horasReal: hReal, horasMeta: hMeta,
+                  pct: hMeta > 0 ? hReal / hMeta * 100 : null,
+                  bateu: hMeta > 0 ? hReal >= hMeta - 1e-9 : null },
+      semCap: semCap,
+    };
+  };
+
   global.Regras = Regras;
 })(typeof window !== 'undefined' ? window : this);

@@ -32,6 +32,7 @@ const MODULO_MAP = [
   { id:'planejamento',   page:'planejamento.html',    label:'Planejamento',         group:'producao',     icon:'📋' },
   { id:'escala',         page:'escala.html',          label:'Escala de Equipe',     group:'producao',     icon:'🧤' },
   { id:'producao',       page:'producao.html',        label:'Produção',             group:'producao',     icon:'⚙️' },
+  { id:'painel_metas',   page:'painel-metas.html',    label:'Painel de Metas (TV)', group:'producao',     icon:'🎯' },
   { id:'desgaste',       page:'desgaste.html',        label:'Controle de Desgaste', group:'producao',     icon:'🔨' },
   { id:'aferidor',       page:'aferidor.html',        label:'Aferidor',             group:'producao',     icon:'🏷️' },
   { id:'ensacadeiras',   page:'ensacadeiras.html',    label:'Ensacadeiras',         group:'producao',     icon:'⚖️' },
