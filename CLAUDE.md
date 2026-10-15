@@ -573,3 +573,22 @@ fábrica específica. Não generalizar.
   `carregarOpsDash` (🔄) só recarrega as análises. Clicar no cartão **abre a última análise** (`verAnalise`); "📋 todas" filtra a lista.
 - `laboratorio.html?analise=<id>` abre a análise direto. Dashboard: cartão "Como a linha está agora" abre a última análise num
   modal (`verAnaliseLinha`, reaproveita `#modal-dia`) com botão "Ver análise completa no Laboratório →" (antes ia direto para o lab).
+
+### Produção — MODO PÁTIO (sessão 2026-10-15)
+- `producao.html` ganhou o **modo pátio** (`#pz`, funções `pz*`): abre sozinho em celular/tablet (`pzMovel`), `?patio=1` força,
+  botão "📱 MODO PÁTIO" no topo; "🖥️ SAIR" volta para a tela normal e fica guardado (localStorage `erp_prod_modo_patio`).
+- Público com pouca leitura: **uma pergunta por tela**, botão grande, sem sigla (horímetro = "relógio da máquina").
+  Início: botão LANÇAR PRODUÇÃO + "O que já foi lançado" hoje/ontem (✅ por linha × turno; cinza "falta" já abre o lançamento
+  com linha/dia/turno; linha que a escala não põe no turno não aparece; turno de hoje que não começou = "depois").
+  Passos: linha → dia (hoje/ontem/anteontem/outro) → turno (aviso grande se já lançado = duplicaria) → quem trabalhou (vem da
+  **escala** da semana: encarregado + membros da linha naquele turno) → produto (os da família da linha, ⭐ mais feitos primeiro;
+  "ver todos") → relógio: começou em (maior H.F da linha, igual `lBuscarHorimetro`; corrigível) e quanto marcava no fim (valida
+  menor/ >24 h; "76.743" = milhar) → quantidade: − N + por capacidade de pallet (bag = "bags", granel = "cargas de 14.000 kg"),
+  sobra (num pallet / solta) e saco vazio estragado → outro produto? (o H.I encadeia no H.F) → paradas (turno tem / rodou /
+  ficou parada, "falta explicar X"; motivo em botões + hora parou/voltou) → conferir (com "mudar" em cada item, 👍/👎 meta pelo
+  `Regras.metaDaOP`, "mais informações": lenha, lote MP, lote aditivo, recado) → SALVAR.
+- **Sem conta própria:** `pzSalvar()` abre o `#modal-lanc` escondido, preenche (data, linha, turno, encarregado, equipe,
+  `addProdutoOP(dados)`, `addParadaOP(dados)`, extras) e chama o MESMO `salvarLanc()` — que agora **retorna true/false**
+  (`_salvou` logo após o insert). Lote, pallets do estoque, horímetro da linha, baixa de insumos e efic_disp/efic_prod iguais
+  ao computador. Recado vai em `obs` com prefixo "[pátio]". Testado com Playwright (mock): concentrado 19×180+60 = 3.480,
+  bag, granel 4×14.000+2.800, parada, troca de dia/turno pela conferência (escala recarrega), desktop não abre sozinho.
