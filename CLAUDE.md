@@ -592,3 +592,8 @@ fábrica específica. Não generalizar.
   (`_salvou` logo após o insert). Lote, pallets do estoque, horímetro da linha, baixa de insumos e efic_disp/efic_prod iguais
   ao computador. Recado vai em `obs` com prefixo "[pátio]". Testado com Playwright (mock): concentrado 19×180+60 = 3.480,
   bag, granel 4×14.000+2.800, parada, troca de dia/turno pela conferência (escala recarrega), desktop não abre sozinho.
+- Vários produtos no turno (sem limite; o mesmo produto pode repetir): H.I de cada um = H.F do anterior (0→10, 10→20…);
+  "Teve outro produto?" lista numerada + TOTAL DO TURNO (`pzSomaTxt`, soma por unidade). Conferência: com 1 produto mostra
+  "Fizemos/meta/faltaram"; com vários, UM veredito do turno (`metaDaOP.producao.bateu`) + uma linha por produto.
+  Nº da OP é gerado sozinho no salvar (`gerarNumOP`, OP-LLL-AAAAMMDD-NNNN) e aparece na tela "PRODUÇÃO SALVA".
+  Testado: 4 produtos na Emitec (2 h cada, Liga repetido) → produtos_op com HI/HF encadeados, 5.580 sacos, ht 8.

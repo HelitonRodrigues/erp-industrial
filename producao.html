@@ -3258,8 +3258,8 @@ function pzEscolherProduto(i){
 function pzTelaRelogio(){
   const p=_pz.prods[_pz.idx];
   let h=pzTopo('LANÇAR PRODUÇÃO',pzResumoTopo(),true)+pzBarra();
-  h+=`<div class="pz-perg">Relógio da máquina</div><div class="pz-dica">${pEsc(p.produto)} — olhe o <b>horímetro</b> da linha.</div>`;
-  h+=`<div class="pz-card"><h4>Começou em</h4>`;
+  h+=`<div class="pz-perg">Relógio da máquina</div><div class="pz-dica">${_pz.prods.length>1||_pz.idx>0?'<b>Produto '+(_pz.idx+1)+':</b> ':''}${pEsc(p.produto)} — olhe o <b>horímetro</b> da linha.</div>`;
+  h+=`<div class="pz-card"><h4>Começou em${_pz.idx>0?' — onde o produto '+_pz.idx+' parou':''}</h4>`;
   if(p.hiEditar)h+=`<input class="pz-num" id="pz-hi" inputmode="decimal" value="${pzHin(p.hi)}" oninput="pzRelogioMudou()">`;
   else h+=`<div style="display:flex;align-items:center;gap:10px;"><div class="pz-ver" style="flex:1;text-align:left;">${pzH(p.hi)}</div>
       <button class="pz-chip" style="border-color:#2563eb;color:#1d4ed8;" onclick="_pz.prods[_pz.idx].hiEditar=true;pzRender();">CORRIGIR</button></div>`;
@@ -3358,17 +3358,28 @@ async function pzQuantoOk(){
   pzSeguir('mais');
 }
 function pzTelaMais(){
+  const n=_pz.prods.length;
   let h=pzTopo('LANÇAR PRODUÇÃO',pzResumoTopo(),true)+pzBarra()+`<div class="pz-perg">Teve outro produto nesse turno?</div>`;
+  if(n>1)h+=`<div class="pz-dica">${n} produtos. O relógio de cada um começa onde o anterior parou.</div>`;
   _pz.prods.forEach((p,i)=>{
-    h+=`<div class="pz-card"><h4>Produto ${i+1}</h4><div style="font-size:19px;font-weight:800;color:var(--primary);">${pEsc(p.produto)}</div>
-      <div class="pz-linha"><span>Fez</span><b>${pzTotalTxt(p)}</b></div>
-      <div class="pz-linha"><span>Máquina rodou</span><b>${pzHoras(Math.max(0,p.hf-p.hi))}</b></div>
+    h+=`<div class="pz-card" style="padding:12px;"><div style="display:flex;gap:10px;align-items:flex-start;">
+      <div style="flex:0 0 auto;width:40px;height:40px;border-radius:12px;background:var(--primary);color:var(--accent);font-size:20px;font-weight:800;display:flex;align-items:center;justify-content:center;">${i+1}</div>
+      <div style="flex:1;min-width:0;"><div style="font-size:17px;font-weight:800;color:var(--primary);line-height:1.2;">${pEsc(p.produto)}</div>
+      <div style="font-size:19px;font-weight:800;color:#15803d;margin-top:2px;">${pzTotalTxt(p)}</div>
+      <div style="font-size:14px;font-weight:700;color:#475569;">Relógio ${pzH(p.hi)} → ${pzH(p.hf)} · rodou ${pzHoras(Math.max(0,p.hf-p.hi))}</div></div></div>
       <div class="pz-dois"><button class="pz-chip" style="border-color:#2563eb;color:#1d4ed8;" onclick="_pz.idx=${i};pzIr('relogio')">✏️ MUDAR</button>
-      ${_pz.prods.length>1?`<button class="pz-chip" style="border-color:#fca5a5;color:#dc2626;" onclick="pzTirarProduto(${i})">🗑️ TIRAR</button>`:''}</div></div>`;
+      ${n>1?`<button class="pz-chip" style="border-color:#fca5a5;color:#dc2626;" onclick="pzTirarProduto(${i})">🗑️ TIRAR</button>`:''}</div></div>`;
   });
+  if(n>1)h+=`<div class="pz-tot"><span>TOTAL DO TURNO</span><b>${pzSomaTxt()}</b><span>Máquina rodou ${pzHoras(pzRodou())}</span></div>`;
   h+=`<button class="pz-btn navy grande" onclick="_pz.idx=_pz.prods.length;pzIr('produto')">➕ SIM, TEVE OUTRO</button>
-      <button class="pz-btn verde grande" onclick="pzIr('paradas')">✅ NÃO, SÓ ${_pz.prods.length>1?'ESSES':'ESSE'}</button>`;
+      <button class="pz-btn verde grande" onclick="pzIr('paradas')">✅ NÃO, SÓ ${n>1?'ESSES':'ESSE'}</button>`;
   return h;
+}
+// soma dos produtos por unidade: "5.580 sacos" / "25 bags + 58,8 t"
+function pzSomaTxt(){
+  const un={};
+  _pz.prods.forEach(p=>{const t=pzTotal(p),k=t.u.massa?'t':t.u.bag?'bags':'sacos';un[k]=(un[k]||0)+(t.u.massa?t.total/1000:t.total);});
+  return Object.keys(un).map(k=>(k==='t'?un[k].toLocaleString('pt-BR',{maximumFractionDigits:3})+' t':pzN(un[k])+' '+k)).join(' + ')||'0';
 }
 async function pzTirarProduto(i){
   if(!await pzPergunta('Tirar '+pEsc(_pz.prods[i].produto)+'?','SIM, TIRAR','NÃO'))return;
@@ -3472,7 +3483,8 @@ function pzTelaConferir(){
     <div class="pz-linha"><span>Dia</span><b>${pzDiaTxt(_pz.data)}<a onclick="pzIrDireto('dia')">mudar</a></b></div>
     <div class="pz-linha"><span>Turno</span><b>${pEsc(_pz.turno)}<a onclick="pzIrDireto('turno')">mudar</a></b></div>
     <div class="pz-linha"><span>Encarregado</span><b>${_pz.enc?pEsc(nomeCurto(_pz.enc)):'—'}<a onclick="pzIrDireto('equipe')">mudar</a></b></div>
-    <div class="pz-linha"><span>Equipe</span><b>${_pz.equipe.length?pEsc(_pz.equipe.map(pzPrimeiroNome).join(', ')):'—'}</b></div></div>`;
+    <div class="pz-linha"><span>Equipe</span><b>${_pz.equipe.length?pEsc(_pz.equipe.map(pzPrimeiroNome).join(', ')):'—'}</b></div>
+    <div class="pz-linha"><span>Nº da OP</span><b style="color:#64748b;">sai sozinho ao salvar</b></div></div>`;
   _pz.prods.forEach((p,i)=>{
     h+=`<div class="pz-card"><h4>${_pz.prods.length>1?'Produto '+(i+1):'Produto'}</h4>
       <div style="font-size:19px;font-weight:800;color:var(--primary);margin-bottom:4px;">${pEsc(p.produto)}</div>
@@ -3484,15 +3496,24 @@ function pzTelaConferir(){
   h+=`<div class="pz-card"><h4>Paradas</h4>${_pz.paradas.length?_pz.paradas.map(x=>`<div class="pz-linha"><span>${pEsc(x.motivo)}</span><b>${pzHoras(pzMin(x.h_ini,x.h_fim)/60)}</b></div>`).join('')
       +`<div class="pz-linha"><span><b>Total parado</b></span><b>${pzHoras(pm/60)}</b></div>`:'<div class="pz-dica" style="margin:0;">Nenhuma parada anotada.</div>'}
       <a style="color:#1d4ed8;font-weight:800;font-size:15px;text-decoration:underline;cursor:pointer;" onclick="pzIrDireto('paradas')">mudar paradas</a></div>`;
-  // meta (a mesma conta do Painel de Metas e da OP)
+  // meta (a mesma conta do Painel de Metas e da OP). Vários produtos: UM veredito do turno
+  // (Regras.metaDaOP soma em "horas de média/h"), com a linha de cada produto embaixo.
   if(m&&m.producao&&m.producao.itens.length){
-    m.producao.itens.forEach(it=>{
+    const f=v=>v.toLocaleString('pt-BR',{maximumFractionDigits:1});
+    const lin=m.producao.itens.map(it=>{
       const massa=(Regras.UNIDADE_KG[String(it.unidade||'').toLowerCase()]||0)>1, un=massa?' t':pzUnid(_prods.find(x=>x.nome===it.produto)).bag?' bags':' sacos';
-      const meta=massa?Math.round(it.meta*10)/10:Math.ceil(it.meta), real=massa?Math.round(it.real*10)/10:Math.round(it.real), bateu=real>=meta;
-      const f=v=>v.toLocaleString('pt-BR',{maximumFractionDigits:1});
-      h+=`<div class="pz-fb ${bateu?'verde':'amarelo'}" style="text-align:left;">${bateu?'👍 BATEU A META':'👎 NÃO BATEU A META'}${m.producao.itens.length>1?' — '+pEsc(it.produto):''}
-        <small>Fizemos ${f(real)}${un} · A meta era ${f(meta)}${un} · ${bateu?'Passou '+f(real-meta):'Faltaram '+f(meta-real)}${un}</small></div>`;
+      const meta=massa?Math.round(it.meta*10)/10:Math.ceil(it.meta), real=massa?Math.round(it.real*10)/10:Math.round(it.real);
+      return {it,un,meta,real,bateu:real>=meta};
     });
+    if(lin.length===1){
+      const x=lin[0];
+      h+=`<div class="pz-fb ${x.bateu?'verde':'amarelo'}" style="text-align:left;">${x.bateu?'👍 BATEU A META':'👎 NÃO BATEU A META'}
+        <small>Fizemos ${f(x.real)}${x.un} · A meta era ${f(x.meta)}${x.un} · ${x.bateu?'Passou '+f(x.real-x.meta):'Faltaram '+f(x.meta-x.real)}${x.un}</small></div>`;
+    }else{
+      const bateu=m.producao.bateu===true;
+      h+=`<div class="pz-fb ${bateu?'verde':'amarelo'}" style="text-align:left;">${bateu?'👍 O TURNO BATEU A META':'👎 O TURNO NÃO BATEU A META'}
+        ${lin.map(x=>`<small>${x.bateu?'✓':'✗'} ${pEsc(x.it.produto)}: ${f(x.real)} de ${f(x.meta)}${x.un}</small>`).join('')}</div>`;
+    }
   }
   h+=`<button class="pz-btn azul" onclick="_pz.maisInfo=!_pz.maisInfo;pzRender();">${_pz.maisInfo?'▲ ESCONDER':'📝 MAIS INFORMAÇÕES (se souber)'}</button>`;
   if(_pz.maisInfo)h+=`<div class="pz-card" style="margin-top:10px;">
@@ -3566,7 +3587,7 @@ async function pzSalvar(){
   pzRender(); const el=document.getElementById('pz'); if(el)el.scrollTop=0;
 }
 function pzTelaPronto(){
-  const tot=_pz.prods.map(pzTotalTxt).join(' + ');
+  const tot=pzSomaTxt()+(_pz.prods.length>1?' <span style="font-size:16px;color:#64748b;">('+_pz.prods.length+' produtos)</span>':'');
   return pzTopo('PRODUÇÃO','',false)+`<div class="pz-ok"><div class="ic">✓</div><h2>PRODUÇÃO SALVA!</h2>
     <p>${pEsc(_pz.linha)} · ${pzDiaTxt(_pz.data)} · ${pEsc(_pz.turno)}</p><p style="font-size:24px;color:#15803d;font-weight:800;">${tot}</p>
     <p style="color:#64748b;">${pEsc(_pz.op||'')}</p></div>
