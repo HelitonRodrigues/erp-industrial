@@ -682,6 +682,7 @@ const Q_STATUS = {
   'Manuten\u00e7\u00e3o':  { cls:'manutencao',icone:'\ud83d\udd27' },
   'Parada':      { cls:'parada',    icone:'\ud83d\uded1' },
   'Sem an\u00e1lise': { cls:'sem',       icone:'\u2753' },
+  'Aguardando an\u00e1lise': { cls:'sem', icone:'\u23f3' },
 };
 function _idadeAnalise(data, hora){
   if(!data) return null;
@@ -734,16 +735,19 @@ function renderQualidadeLinhas(linhas, analises, afericoes){
   if(!el) return;
   const lns = linhas || [];
   if(!lns.length){ el.innerHTML='<p style="color:var(--ink-4);padding:12px;">Nenhuma linha ativa cadastrada.</p>'; return; }
+  // O card é do DIA: só vale análise feita hoje. Sem análise hoje →
+  // "Aguardando análise" (a de ontem não diz como a linha está agora).
+  const hojeQ = localISODate();
   el.innerHTML = lns.map(l=>{
-    const ult = (analises||[]).find(a=>a.linha===l.nome);
-    const st  = (ult && ult.status) || 'Sem an\u00e1lise';
+    const ult = (analises||[]).find(a=>a.linha===l.nome && String(a.data||'')===hojeQ);
+    const st  = (ult && ult.status) || 'Aguardando an\u00e1lise';
     const cfg = Q_STATUS[st] || Q_STATUS['Sem an\u00e1lise'];
     const horas = ult ? _idadeAnalise(ult.data, ult.hora) : null;
     // Linha superior: nome + status na mesma altura em todos os cards.
     // Linha inferior: produto/turno e o selo de idade — quando não há análise,
     // ocupa o mesmo espaço com o aviso, evitando cards de alturas diferentes.
     const dtTxt = ult ? _dataHoraBR(ult.data, ult.hora) : '';
-    const tip = ult ? `${st} \u2014 ${dtTxt}${ult.produto?' \u00b7 '+ult.produto:''}${ult.responsavel?' \u00b7 resp.: '+ult.responsavel:''} (clique para abrir o Laborat\u00f3rio)` : 'Sem an\u00e1lise registrada (clique para abrir o Laborat\u00f3rio)';
+    const tip = ult ? `${st} \u2014 ${dtTxt}${ult.produto?' \u00b7 '+ult.produto:''}${ult.responsavel?' \u00b7 resp.: '+ult.responsavel:''} (clique para abrir o Laborat\u00f3rio)` : 'Nenhuma an\u00e1lise hoje \u2014 aguardando o laborat\u00f3rio';
     return `<div class="q-card ${cfg.cls}" role="button" tabindex="0" onclick="verAnaliseLinha('${String(l.nome).replace(/\\/g,'\\\\').replace(/'/g,"\\'")}')" title="${tip.replace(/"/g,'&quot;').replace('clique para abrir o Laborat\u00f3rio','clique para ver a an\u00e1lise')}">
       <div>
         <div style="display:flex;justify-content:space-between;align-items:baseline;gap:6px;">
@@ -751,11 +755,11 @@ function renderQualidadeLinhas(linhas, analises, afericoes){
           <span style="font-size:11.5px;font-weight:700;white-space:nowrap;">${cfg.icone} ${st}</span>
         </div>
         ${ult?`<div style="font-size:11px;color:var(--ink-3);margin-top:5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${ult.produto||'\u2014'}${ult.turno?' \u00b7 '+ult.turno:''}</div>`
-             :`<div style="font-size:11px;color:var(--ink-5);margin-top:5px;">nenhuma an\u00e1lise registrada</div>`}
+             :`<div style="font-size:11px;color:var(--ink-4);margin-top:5px;">nenhuma an\u00e1lise hoje</div>`}
         ${ult&&window.Regras&&Regras.labIndicadoresCard?_labIndicadoresHTML(Regras.labIndicadoresCard(ult, afericoes||[])):''}
       </div>
       <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
-        ${ult?_seloIdade(horas):'<span class="q-idade" style="background:var(--line-soft);color:var(--ink-4);">sem hist\u00f3rico</span>'}
+        ${ult?_seloIdade(horas):'<span class="q-idade" style="background:var(--warn-bg);color:#92400e;">\u23f3 aguardando an\u00e1lise</span>'}
         ${dtTxt?`<span style="font-size:10px;color:var(--ink-5);font-variant-numeric:tabular-nums;">${dtTxt}</span>`:''}
       </div>
     </div>`;
@@ -1290,13 +1294,14 @@ function _labModalBlocos(a, afericoes){
   return {ind:htmlInd, pen:htmlPen};
 }
 function verAnaliseLinha(linha){
-  const a = (_qAnalises||[]).find(x => x.linha === linha);
+  const hojeQ = localISODate();
+  const a = (_qAnalises||[]).find(x => x.linha === linha && String(x.data||'')===hojeQ);   // só a de hoje, igual ao card
   const esc2 = v => String(v==null?'':v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const cor = {OK:'#16a34a',Ajuste:'#b45309','Manuten\u00e7\u00e3o':'#d97706',Parada:'#dc2626'};
   document.getElementById('modal-dia-title').textContent = '\ud83e\uddea ' + linha + ' \u2014 \u00faltima an\u00e1lise';
   if(!a){
     document.getElementById('modal-dia-resumo').innerHTML = '';
-    document.getElementById('modal-dia-body').innerHTML = '<p style="color:var(--ink-4);padding:12px 0;">Nenhuma an\u00e1lise registrada para esta linha.</p>';
+    document.getElementById('modal-dia-body').innerHTML = '<p style="color:var(--ink-3);padding:12px 0;font-size:14px;">\u23f3 Aguardando an\u00e1lise \u2014 nenhuma an\u00e1lise desta linha hoje.</p><div style="display:flex;justify-content:flex-end;gap:8px;"><button class="btn btn-secondary btn-sm" onclick="fecharModalDia()">Fechar</button><a class="btn btn-primary btn-sm" href="laboratorio.html">Abrir o Laborat\u00f3rio \u2192</a></div>';
   } else {
     const blocos = _labModalBlocos(a, _qAfericoes);
     const campos = [['Produto',a.produto],['Turno',a.turno],['Respons\u00e1vel',a.responsavel],['Massa',a.massa]]

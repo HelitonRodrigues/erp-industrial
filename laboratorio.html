@@ -1104,14 +1104,17 @@ function _lcIndicadoresHTML(a){
 }
 function renderDashLinhas(){
   document.getElementById('linhas-dash').innerHTML=_linhas.map(linha=>{
-    const doLinha=(_analises||[]).filter(a=>a.linha===linha.nome).sort((x,y)=>_tsAnalise(y).localeCompare(_tsAnalise(x)));
+    // O card é do DIA: só vale análise de hoje. Sem análise hoje → "Aguardando análise"
+    // (a de ontem continua na lista "📋 todas", mas não diz como a linha está agora).
+    const hj=hoje();
+    const doLinha=(_analises||[]).filter(a=>a.linha===linha.nome&&String(a.data||'')===hj).sort((x,y)=>_tsAnalise(y).localeCompare(_tsAnalise(x)));
     const ult=doLinha[0];
-    const st=(ult&&ult.status)||'Sem análise';
-    const stCls={OK:'ok',Ajuste:'ajuste','Manutenção':'manutencao','Parada':'parada','Sem análise':''}[st]||'';
-    const stIcon={'OK':'✅','Ajuste':'⚠️','Manutenção':'🔧','Parada':'🛑','Sem análise':'❓'}[st]||'❓';
+    const st=(ult&&ult.status)||'Aguardando análise';
+    const stCls={OK:'ok',Ajuste:'ajuste','Manutenção':'manutencao','Parada':'parada','Aguardando análise':''}[st]||'';
+    const stIcon={'OK':'✅','Ajuste':'⚠️','Manutenção':'🔧','Parada':'🛑','Aguardando análise':'⏳'}[st]||'⏳';
     // clicar no cartão ABRE a última análise para ver; sem análise, abre a lista da linha
     const abrir=ult?`verAnalise('${escJs(ult.id)}')`:`filtrarPorLinha('${escJs(linha.nome)}')`;
-    return`<div class="linha-card ${stCls}" onclick="${abrir}" title="${ult?'Ver a última análise':'Ver as análises da linha'}">
+    return`<div class="linha-card ${stCls}" onclick="${abrir}" title="${ult?'Ver a análise de hoje':'Nenhuma análise hoje — clique para ver as anteriores'}">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;">
         <div><div style="font-weight:800;color:var(--primary);font-size:14px;">${esc(linha.nome)}</div>
         <div style="font-size:12px;margin-top:4px;">${stIcon} ${esc(st)}</div></div>
@@ -1121,7 +1124,7 @@ function renderDashLinhas(){
       ${ult?`<div style="font-size:11px;color:#94a3b8;margin-top:6px;">Último: ${esc(dataBR(ult.data))} ${esc(String(ult.hora||'').slice(0,5))} — ${esc(ult.produto||'—')}</div>
         <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;margin-top:6px;font-size:11px;">${_idadeLab(ult)}
           <a href="#" style="color:var(--primary);font-weight:700;text-decoration:none;" onclick="event.stopPropagation();event.preventDefault();filtrarPorLinha('${escJs(linha.nome)}')">📋 todas</a></div>`
-           :''}
+           :`<div style="font-size:11px;color:#64748b;margin-top:8px;">nenhuma análise hoje</div>`}
     </div>`;
   }).join('')||'<p style="color:#94a3b8;padding:16px;">Nenhuma linha cadastrada.</p>';
 }
@@ -1706,16 +1709,22 @@ function carregarProdutosLinha(prodSel){
   const sel=document.getElementById('an-produto'); if(!sel) return;
   sel.innerHTML='<option value="">Selecione...</option>';
   const linha=_linhas.find(l=>l.nome===nomeLinha);
-  const chaves=(linha?.produtos||[]).map(p=>normTxt(p&&p.nome));
-  let lista=_prods||[];
-  if(chaves.length){
-    const filtrada=lista.filter(p=>(p.linhas||[]).some(l=>chaves.includes(normTxt(l))));
-    if(filtrada.length) lista=filtrada;
-  }
-  lista.forEach(p=>{const o=document.createElement('option');o.value=p.nome;o.textContent=p.nome;sel.appendChild(o);});
+  // TODOS os produtos ativos do cadastro (produtos.html). Antes filtrava pelos
+  // tipos da linha e escondia produto que a linha também faz. Agora os da linha
+  // aparecem primeiro e o resto logo abaixo. Comparação ignora espaços
+  // ("Linha 25kg" = "Linha 25 kg").
+  const k=t=>normTxt(t).replace(/\s+/g,'');
+  const chaves=(linha?.produtos||[]).map(p=>k(p&&p.nome));
+  const todos=[...(_prods||[])].sort((a,b)=>String(a.nome).localeCompare(String(b.nome),'pt-BR'));
+  const daLinha=chaves.length?todos.filter(p=>(p.linhas||[]).some(l=>chaves.includes(k(l)))):[];
+  const outros=todos.filter(p=>!daLinha.includes(p));
+  const grupo=(rot,arr)=>{ if(!arr.length) return; const g=document.createElement('optgroup'); g.label=rot;
+    arr.forEach(p=>{const o=document.createElement('option');o.value=p.nome;o.textContent=p.nome;g.appendChild(o);}); sel.appendChild(g); };
+  if(daLinha.length){ grupo('Produtos de '+nomeLinha,daLinha); grupo('Outros produtos',outros); }
+  else grupo('Produtos',todos);
   if(prodSel){
     if(![...sel.options].some(o=>o.value===prodSel)){
-      const o=document.createElement('option');o.value=prodSel;o.textContent=prodSel+' (fora desta linha)';sel.appendChild(o);
+      const o=document.createElement('option');o.value=prodSel;o.textContent=prodSel+' (não está mais no cadastro)';sel.appendChild(o);
     }
     sel.value=prodSel;
   }
