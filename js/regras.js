@@ -427,85 +427,76 @@
     return { vencidas: vencidas, proximas: proximas };
   };
 
-  /* ── METAS DA OP (painel-metas.html) ───────────────────────────────────────
-   * As MESMAS duas metas que o producao.html mostra na OP ("✅ META / 🔴 ABAIXO"):
-   *
-   * DISPONIBILIDADE: horas trabalhadas (H.T, já com a parada trabalhada) contra
-   *   as HORAS DISPONÍVEIS do planejamento para a linha+turno = dispH ÷ dias.
-   *   O dispH já vem com a regra dos 85% (planejamento: brutas × eficiência da
-   *   seção − paradas planejadas). Bate se H.T ≥ horas disponíveis.
-   * PRODUÇÃO: realizado contra média/h × horas disponíveis (rateadas por
-   *   produto pelo tempo gasto em cada um). Bate se realizado ≥ meta.
-   *
-   * Diferença de propósito em relação à tela da OP: turno PARADO (H.T = 0)
-   * entra com meta cheia e 0 produzido — no painel, linha parada não bateu.
-   *
-   * Entradas: op = linha do `producao`; secoes = seções de planejamento do mês
-   * (todas as linhas); linhaCad = linhas_producao da linha (ou null);
-   * produtos = cadastro (nome, unidade). Pura: sem DOM nem banco.
-   */
-  Regras.metaDaOP = function (op, secoes, linhaCad, produtos) {
-    op = op || {};
-    var ln = op.linha, tu = op.turno || '';
-    var daLinha = null, doTurno = null, fontes = [];
-    (Array.isArray(secoes) ? secoes : []).forEach(function (s) {
-      if (!s || s.linha !== ln) return;
-      daLinha = s;
-      if (tu && s.turno === tu) doTurno = s;
-      (s.produtos || []).forEach(function (p) {
-        if ((parseFloat(p.capHora) || 0) > 0) fontes.push({ nome: p.nome, capHora: parseFloat(p.capHora), origem: 'planejamento' });
-      });
+  /* ── LABORATÓRIO: faixas que aparecem no card da linha ─────────────────────
+   * Usado em dashboard.html e laboratorio.html — a cor no card serve para
+   * regular a linha antes de abrir a análise.
+   *   Granulometria: soma das peneiras #20 + #50 + #100 + #200 (%), faixa 20–25%.
+   *   Umidade: acima de 0,60% sinaliza.
+   * Mudou a faixa? Muda aqui e os dois cards acompanham. */
+  Regras.LAB_GRAN_MIN = 20;
+  Regras.LAB_GRAN_MAX = 25;
+  Regras.LAB_UMIDADE_MAX = 0.60;
+  Regras.labGranTotal = function (pen) {
+    if (!pen || typeof pen !== 'object') return null;
+    var ks = ['p20', 'p50', 'p100', 'p200'], soma = 0, tem = false;
+    ks.forEach(function (k) {
+      var v = pen[k];
+      if (v !== null && v !== undefined && v !== '' && !isNaN(Number(v))) { soma += Number(v); tem = true; }
     });
-    ((linhaCad && linhaCad.produtos) || []).forEach(function (p) {
-      if ((parseFloat(p.capHora) || 0) > 0) fontes.push({ nome: p.nome, capHora: parseFloat(p.capHora), origem: 'cadastro da linha' });
+    return tem ? Math.round(soma * 100) / 100 : null;
+  };
+  // 'ok' | 'baixo' | 'alto' | null (sem ensaio)
+  Regras.labGranFaixa = function (total) {
+    if (total === null || total === undefined || isNaN(Number(total))) return null;
+    total = Number(total);
+    if (total < Regras.LAB_GRAN_MIN) return 'baixo';
+    if (total > Regras.LAB_GRAN_MAX) return 'alto';
+    return 'ok';
+  };
+  // 'ok' | 'alta' | null (sem medição)
+  Regras.labUmidadeFaixa = function (u) {
+    if (u === null || u === undefined || u === '' || isNaN(Number(u))) return null;
+    return Number(u) > Regras.LAB_UMIDADE_MAX ? 'alta' : 'ok';
+  };
+  // Separador da última aferição (aferidor.html) da linha até a data.
+  // Prefere o REGULADO (o que ficou na máquina); sem regulagem, o ATUAL.
+  // "0" é valor válido. afericoes = linhas de aferidor_aditivacao (com itens).
+  Regras.separadorDaAfericao = function (afericoes, linha, dataISO) {
+    if (!linha || !Array.isArray(afericoes)) return null;
+    var norm = function (t) { return String(t || '').trim().toLowerCase(); };
+    var lista = afericoes.filter(function (a) {
+      return norm(a.linha) === norm(linha) && (!dataISO || String(a.data) <= dataISO);
+    }).sort(function (a, b) {
+      return String(b.data).localeCompare(String(a.data)) || String(b.hora || '').localeCompare(String(a.hora || ''));
     });
-    // mesma média repetida em várias seções/cadastro: fica uma só (senão o
-    // casamento aproximado vê "2 candidatos" e desiste por ambiguidade)
-    var vistos = {};
-    fontes = fontes.filter(function (f) {
-      var k = Regras.normalizarNome(f.nome);
-      if (vistos[k]) return false;
-      vistos[k] = 1; return true;
-    });
-    var sec = doTurno || daLinha;
-    var dias = sec ? (parseInt(sec.diasTrabalho, 10) || 1) : 1;
-    var horasMeta = sec ? (parseFloat(sec.dispH) || 0) / dias : 0;
-    var horasTurno = sec ? (parseFloat(sec.horasBrutas) || 0) / dias : 0;
-    var eficPlan = sec ? (parseFloat(sec.eficiencia) || null) : null;
-
-    var itens = Array.isArray(op.produtos_op) && op.produtos_op.length ? op.produtos_op
-      : [{ produto: op.produto, linha_produto: '', ht: op.ht, total_sacos: op.total_sacos }];
-    var ht = 0;
-    itens.forEach(function (p) { ht += parseFloat(p.ht) || 0; });
-    if (!ht) ht = parseFloat(op.ht) || 0;
-
-    var prod = [], semCap = [], hReal = 0, hMeta = 0;
-    itens.forEach(function (p) {
-      var htP = parseFloat(p.ht) || 0;
-      var un = Regras.unidadeDoProduto(p.produto, produtos);
-      var real = Regras.qtdNaUnidadeDoProduto(p.total_sacos, un);
-      var cap = Regras.capacidadeHora([p.linha_produto, p.produto], fontes);
-      if (!cap) { semCap.push(p.linha_produto || p.produto || '?'); return; }
-      // horas da meta deste produto: rateio pelo tempo gasto; turno parado divide por igual
-      var hM = horasMeta > 0 ? (ht > 0 ? horasMeta * (htP / ht) : horasMeta / itens.length) : htP;
-      if (hM <= 0) return;
-      var meta = Regras.metaSacos(cap.capHora, hM);
-      prod.push({ produto: p.produto, linha_produto: p.linha_produto || '', unidade: un, real: real,
-                  meta: meta, capHora: cap.capHora, horasMeta: hM });
-      hReal += real / cap.capHora;     // produção convertida em "horas de média/h" — soma produtos de unidades diferentes
-      hMeta += hM;
-    });
-
+    for (var i = 0; i < lista.length; i++) {
+      var itens = Array.isArray(lista[i].itens) ? lista[i].itens : [];
+      var it = null;
+      for (var j = 0; j < itens.length; j++) { if (itens[j] && /separador/i.test(itens[j].item || '')) { it = itens[j]; break; } }
+      if (!it) continue;
+      var reg = String(it.regulado == null ? '' : it.regulado).trim();
+      var atu = String(it.atual == null ? '' : it.atual).trim();
+      var v = reg !== '' ? reg : atu;
+      if (v !== '') return { valor: v, numero: lista[i].numero, data: lista[i].data, campo: reg !== '' ? 'regulado' : 'atual' };
+    }
+    return null;
+  };
+  // Os três indicadores do card, já com a faixa. Separador: o gravado na
+  // análise; vazio → a aferição da linha (aferidor) até a data da análise.
+  Regras.labIndicadoresCard = function (analise, afericoes) {
+    if (!analise) return null;
+    var gran = Regras.labGranTotal(analise.peneiramento);
+    var sep = (analise.separador !== null && analise.separador !== undefined && String(analise.separador).trim() !== '') ? String(analise.separador).trim() : null;
+    var sepOrigem = sep !== null ? 'analise' : null;
+    if (sep === null) {
+      var af = Regras.separadorDaAfericao(afericoes, analise.linha, analise.data);
+      if (af) { sep = af.valor; sepOrigem = 'aferidor'; }
+    }
+    var umid = (analise.umidade === null || analise.umidade === undefined || analise.umidade === '') ? null : Number(analise.umidade);
     return {
-      linha: ln, turno: tu, temPlano: !!sec, eficienciaPlanejada: eficPlan,
-      horasTurno: horasTurno,
-      disponibilidade: { real: ht, meta: horasMeta,
-                         pct: horasMeta > 0 ? ht / horasMeta * 100 : null,
-                         bateu: horasMeta > 0 ? ht >= horasMeta - 1e-9 : null },
-      producao: { itens: prod, horasReal: hReal, horasMeta: hMeta,
-                  pct: hMeta > 0 ? hReal / hMeta * 100 : null,
-                  bateu: hMeta > 0 ? hReal >= hMeta - 1e-9 : null },
-      semCap: semCap,
+      gran: gran, granFaixa: Regras.labGranFaixa(gran),
+      separador: sep, separadorOrigem: sepOrigem,
+      umidade: (umid === null || isNaN(umid)) ? null : umid, umidadeFaixa: Regras.labUmidadeFaixa(umid)
     };
   };
 
