@@ -110,6 +110,21 @@
 .al-chip span{font-size:13px;font-weight:800}
 .al-chip small{font-size:11px;opacity:.9}
 .al-chip.flash{animation:alPisca 1s 6}
+.al-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;margin-bottom:16px}
+.al-card{background:#fff;border:1.5px solid #e2e8f0;border-left:6px solid #94a3b8;border-radius:14px;padding:12px 14px;display:flex;flex-direction:column;gap:4px}
+.al-card.flash{animation:alPisca 1s 6}
+.al-card .al-c1{display:flex;justify-content:space-between;align-items:baseline;gap:6px}
+.al-card .al-c1 b{font-size:14px;font-weight:800;color:#042D4D}
+.al-card .al-c1 span{font-size:12px;font-weight:800;white-space:nowrap}
+.al-card .al-c2{font-size:11.5px;color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.al-card .al-inds{display:flex;flex-direction:column;gap:4px;margin:6px 0 2px}
+.al-card .al-ind{display:flex;justify-content:space-between;align-items:baseline;gap:8px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:7px;padding:4px 9px}
+.al-card .al-ind i{font-style:normal;font-size:11px;font-weight:700;color:#64748b;white-space:nowrap}
+.al-card .al-ind em{font-style:normal;font-size:15px;font-weight:800;color:#042D4D;font-variant-numeric:tabular-nums;white-space:nowrap}
+.al-card .al-ind.fora{background:#fee2e2;border-color:#ef4444}
+.al-card .al-ind.fora i,.al-card .al-ind.fora em{color:#991b1b}
+.al-card .al-c3{font-size:11px;font-weight:700;margin-top:2px}
+.al-card.aguarda{border-left-color:#cbd5e1;background:#fafbfc}
 #al-modal{position:fixed;inset:0;z-index:10000;background:rgba(3,32,54,.6);display:flex;align-items:center;justify-content:center;padding:16px}
 #al-modal .box{background:#fff;border-radius:16px;padding:18px;width:min(420px,100%);display:flex;flex-direction:column;gap:10px}
 #al-modal h3{margin:0;color:#042D4D;font-size:17px}
@@ -260,27 +275,67 @@
     } catch (e) { console.error('[alerta-linhas] canal ao vivo não ligou:', e); }
   }
 
-  /* ── FAIXA "STATUS DAS LINHAS" (aferidor) ───────────────────────────── */
+  /* ── FAIXA "STATUS DAS LINHAS" (aferidor) ───────────────────────────
+     Mesmo card do dashboard e do laboratório: SÓ a análise de HOJE de cada
+     linha (sem análise hoje → "Aguardando análise"), com Granulometria,
+     Separador e Umidade e as faixas de js/regras.js (cor só fora da faixa).
+     Separador: o gravado na análise; vazio → última aferição da linha.     */
+  let _faixa = { linhas: [], porLinha: {}, afs: [], hoje: '' };
+  const hojeLocal = () => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
+  const f2 = v => Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  function idadeTxt(a) {
+    const dt = new Date(a.data + 'T' + String(a.hora || '00:00').slice(0, 5) + ':00');
+    if (isNaN(dt)) return '';
+    const h = Math.max(0, (Date.now() - dt.getTime()) / 36e5);
+    return h < 1 ? 'há menos de 1 h' : 'há ' + Math.round(h) + ' h';
+  }
+  function cardHTML(nome, piscar) {
+    const a = _faixa.porLinha[nome];
+    if (!a) return `<div class="al-card aguarda${piscar === nome ? ' flash' : ''}"><div class="al-c1"><b>${escH(nome)}</b><span style="color:#64748b">⏳ Aguardando análise</span></div>
+      <div class="al-c2">nenhuma análise hoje</div></div>`;
+    const c = ST[a.status] || ST_SEM;
+    let inds = '';
+    if (window.Regras && Regras.labIndicadoresCard) {
+      const ind = Regras.labIndicadoresCard(a, _faixa.afs);
+      const gf = ind.granFaixa, uf = ind.umidadeFaixa;
+      const faixaG = ind.granMax === null ? ind.granMin + '% ou mais' : ind.granMin + ' a ' + ind.granMax + '%';
+      const cel = (rot, val, fora, dica) => `<div class="al-ind${fora ? ' fora' : ''}" title="${escH(dica)}"><i>${rot}</i><em>${val}</em></div>`;
+      inds = `<div class="al-inds">
+        ${cel('Granulometria', ind.gran === null ? '—' : (gf === 'baixo' ? '▼ ' : gf === 'alto' ? '▲ ' : '') + f2(ind.gran) + '%', gf === 'baixo' || gf === 'alto', 'Faixa: ' + faixaG)}
+        ${cel('Separador', ind.separador === null ? '—' : escH(ind.separador), false, ind.separadorOrigem === 'aferidor' ? 'Da última aferição da linha' : 'Gravado na análise')}
+        ${cel('Umidade', ind.umidade === null ? '—' : (uf === 'alta' ? '▲ ' : '') + f2(ind.umidade) + '%', uf === 'alta', 'Até ' + f2(Regras.LAB_UMIDADE_MAX) + '%')}</div>`;
+    }
+    return `<div class="al-card${piscar === nome ? ' flash' : ''}" style="border-left-color:${c.cor}">
+      <div class="al-c1"><b>${escH(nome)}</b><span style="color:${c.cor}">${c.ic} ${escH(a.status || '—')}</span></div>
+      <div class="al-c2">${escH(a.produto || '—')}${a.turno ? ' · ' + escH(a.turno) : ''}</div>
+      ${inds}
+      <div class="al-c3" style="color:#64748b">análise das ${escH(String(a.hora || '').slice(0, 5))} · ${idadeTxt(a)}</div></div>`;
+  }
+  async function carregarFaixa() {
+    const hj = hojeLocal();
+    const [ln, an, af] = await Promise.all([
+      _supabase.from('linhas_producao').select('nome').eq('status', 'ativo').order('nome'),
+      _supabase.from('laboratorio').select('id,linha,data,hora,status,produto,turno,responsavel,separador,umidade,peneiramento')
+        .eq('data', hj).order('hora', { ascending: false }).limit(200),
+      _supabase.from('aferidor_aditivacao').select('numero,data,hora,linha,itens').order('data', { ascending: false }).limit(60),
+    ]);
+    const err = ln.error || an.error;
+    if (err) throw err;
+    const por = {};
+    (an.data || []).forEach(r => { if (r.linha && !por[r.linha]) por[r.linha] = r; });   // já vem da mais nova p/ mais velha
+    _faixa = { linhas: (ln.data || []).map(l => l.nome), porLinha: por, afs: af.error ? [] : (af.data || []), hoje: hj };
+  }
   async function desenharFaixa(piscar) {
     const el = document.getElementById(opts.faixa); if (!el) return;
-    const [ln, st] = await Promise.all([
-      _supabase.from('linhas_producao').select('nome').eq('status', 'ativo').order('nome'),
-      _supabase.from('linhas_status_atual').select('linha,status,produto,turno,hora,data,mudou_em'),
-    ]);
-    if (ln.error || st.error) {
-      console.error('[alerta-linhas] faixa:', (ln.error || st.error).message);
-      el.innerHTML = `<div style="font-size:12px;color:#b91c1c;margin-bottom:12px;">⚠️ Não foi possível ler o Status das Linhas: ${escH((ln.error || st.error).message)}</div>`;
+    try { await carregarFaixa(); }
+    catch (e) {
+      console.error('[alerta-linhas] faixa:', e.message || e);
+      el.innerHTML = `<div style="font-size:12px;color:#b91c1c;margin-bottom:12px;">⚠️ Não foi possível ler o Status das Linhas: ${escH(e.message || e)}</div>`;
       return;
     }
-    const por = {}; (st.data || []).forEach(r => { por[r.linha] = r; });
-    const nomes = (ln.data || []).map(l => l.nome);
-    Object.keys(por).forEach(n => { if (!nomes.includes(n)) nomes.push(n); });
-    el.innerHTML = `<div style="font-size:12px;font-weight:800;color:#042D4D;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">🏭 Status das Linhas</div>
-      <div class="al-faixa">${nomes.map(n => {
-        const r = por[n], c = r ? (ST[r.status] || ST_SEM) : ST_SEM;
-        const det = r ? [r.produto, r.hora ? String(r.hora).slice(0, 5) : null].filter(Boolean).join(' · ') : 'nenhuma análise';
-        return `<div class="al-chip${piscar === n ? ' flash' : ''}" style="background:${c.cor}"><b>${escH(n)}</b><span>${c.ic} ${c.txt}</span><small>${escH(det)}</small></div>`;
-      }).join('') || '<div style="color:#64748b;font-size:13px;">Nenhuma linha ativa.</div>'}</div>`;
+    el.innerHTML = `<div style="font-size:12px;font-weight:800;color:#042D4D;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">🏭 Como a linha está agora <span style="font-weight:600;text-transform:none;letter-spacing:0;color:#64748b;">— análise de hoje</span></div>
+      <div class="al-cards">${_faixa.linhas.map(n => cardHTML(n, piscar)).join('') || '<div style="color:#64748b;font-size:13px;">Nenhuma linha ativa.</div>'}</div>`;
+    if (typeof opts.aoDesenharFaixa === 'function') { try { opts.aoDesenharFaixa(); } catch (e) { /* tela que usa o card */ } }
   }
 
   /* ── CELULAR (Web Push) ─────────────────────────────────────────────── */
@@ -394,7 +449,7 @@
     opts = o || {};
     const go = () => {
       css(); prepara(); montarBotao();   // TV/PC com Chrome em modo quiosque já libera o som sem toque
-      if (opts.faixa) desenharFaixa();
+      if (opts.faixa) { desenharFaixa(); setInterval(() => { if (!document.hidden) desenharFaixa(); }, 60000); }   // análise nova com o mesmo status não gera evento
       buscarNovos();
       ligarCanal();
       setInterval(buscarNovos, POLL_MS);
@@ -402,5 +457,6 @@
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', go); else go();
   }
 
-  window.AlertaLinhas = { iniciar, tocar, testarSom, _chegou: chegou, _estado: () => ({ ultimoId, abertos: abertos.length, audio: audioLiberado(), repetindo: !!repeteTimer }) };
+  // cardLinha(nome): o card da linha (mesmo da faixa) para outra parte da tela usar — ex.: modo pátio do aferidor
+  window.AlertaLinhas = { iniciar, tocar, testarSom, _chegou: chegou, cardLinha: n => cardHTML(n), atualizarFaixa: () => desenharFaixa(), _estado: () => ({ ultimoId, abertos: abertos.length, audio: audioLiberado(), repetindo: !!repeteTimer }) };
 })();
