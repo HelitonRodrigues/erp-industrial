@@ -1570,7 +1570,7 @@ function renderSolicitacoes(){
   const prCfg={urgente:{cor:'#dc2626',txt:'🔴 Urgente'},alta:{cor:'#ea580c',txt:'🟠 Alta'},normal:{cor:'#b45309',txt:'🟡 Normal'},baixa:{cor:'#16a34a',txt:'🟢 Baixa'}};
   grid.innerHTML=lista.map(sol=>{
     const prods=prodsDe(sol);const st=statusDisplay(sol);const pr=prCfg[sol.prioridade]||{cor:'#64748b',txt:sol.prioridade||'—'};
-    const podeEditar=(sol.status||'pendente')==='pendente';
+    const podeEditar=['pendente','reprovada'].includes(sol.status||'pendente'); /* reprovada: corrige e reenvia p/ aprovação */
     return `<div class="sol-card">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;">
         <div>
@@ -1932,24 +1932,29 @@ async function salvarSolicitacao(){
   if(prog==='dias'&&(!progDias||progDias<=0)){errEl.textContent='Preencha o "Programado para": informe o nº de dias (maior que 0) ou selecione uma data.';errEl.classList.remove('hidden');return;}
   const btn=document.getElementById('btn-salvar-sol');btn.disabled=true;btn.textContent='⏳ Enviando...';errEl.classList.add('hidden');
   const produtos=_solProdutos.map(p=>({item_id:p.item_id,quantidade:p.quantidade,nome_item:p.nome_item||nomeItem(p.item_id),obs:p.obs||null,centro_custo_id:p.centro_custo_id||null,natureza_id:p.natureza_id||null,natureza_nome:p.natureza_nome||null}));
+  const solAnt=_editSolId?_solicitacoes.find(s=>s.id===_editSolId):null;
+  // Reprovada que foi corrigida volta para a aba Aprovação (status pendente, decisão anterior zerada)
+  const reenvio=!!solAnt&&solAnt.status==='reprovada';
   const dados={
     data,solicitante:solic,responsavel_solic:resp,prioridade:document.getElementById('sol-prior').value,
     programado:prog,programado_dias:progDias,programado_data:progData,
     obs:document.getElementById('sol-obs').value.trim()||null,
     produtos:JSON.stringify(produtos),
-    status:_editSolId?(_solicitacoes.find(s=>s.id===_editSolId)?.status||'pendente'):'pendente',
+    status:reenvio?'pendente':(solAnt?.status||'pendente'),
     numero:_editSolId?(_solicitacoes.find(s=>s.id===_editSolId)?.numero||null):await gerarNumeroSol(),
     assinatura:document.getElementById('sol-assin-data').value||null,
     assin_nome:document.getElementById('sol-assin-nome').value.trim()||resp,
     assin_cargo:document.getElementById('sol-assin-cargo').value.trim()||null,
     atualizado_em:new Date().toISOString()
   };
+  if(reenvio)Object.assign(dados,{aprovado_por:null,aprovado_em:null,aprovador_cargo:null,aprovador_assinatura:null,obs_aprovacao:null});
   try{
     const{data:saved}=await resilientSave('almoxarifado_solicitacoes',dados,_editSolId);
     const sid=saved?.id||_editSolId;
     saveExtras(sid,{responsavel_solic:resp,programado:prog,programado_dias:progDias,programado_data:progData,assin_cargo:dados.assin_cargo,assin_nome:dados.assin_nome});
-    try{await addLog(_editSolId?'UPDATE':'CREATE','SOLICITACOES',dados.numero||sid,_editSolId?'Solicitação atualizada':`Solicitação ${dados.numero} criada`);}catch(e){}
-    toast(_editSolId?'✅ Solicitação atualizada!':'📤 Solicitação enviada para aprovação!','success');
+    const logTxt=reenvio?`Solicitação ${dados.numero||''} corrigida e reenviada para aprovação (reprovada por ${solAnt.aprovado_por||'—'}${solAnt.obs_aprovacao?' — motivo: '+solAnt.obs_aprovacao:''})`:(_editSolId?'Solicitação atualizada':`Solicitação ${dados.numero} criada`);
+    try{await addLog(_editSolId?'UPDATE':'CREATE','SOLICITACOES',dados.numero||sid,logTxt);}catch(e){}
+    toast(reenvio?'📤 Solicitação corrigida e reenviada para aprovação!':(_editSolId?'✅ Solicitação atualizada!':'📤 Solicitação enviada para aprovação!'),'success');
     closeModal('m-solicitacao');
     await init();
     showTab('aprovacao');
