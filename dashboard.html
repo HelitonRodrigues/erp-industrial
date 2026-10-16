@@ -573,6 +573,15 @@ const VIEW_SECTIONS=[
   {key:'comp',    label:'Comparativo', el:'sec-comp'},
   {key:'resumo',  label:'Resumo por área', el:'sec-resumo'},
 ];
+/* Permissão por perfil (perfis.html → Dashboard): cada seção acima é uma "tela"
+   do módulo dashboard em MODULO_FUNCIONALIDADES (js/utils.js). Seção não
+   liberada no perfil some daqui e do "Exibir" — o usuário não consegue ligá-la.
+   Perfil antigo (sem seções marcadas) herda o acesso ao dashboard: vê tudo. */
+function _secPode(key){ return typeof canTab!=='function' || canTab('dashboard', key); }
+function _secoesPermitidas(){ return VIEW_SECTIONS.filter(s=>_secPode(s.key)); }
+// "Exibir" é preferência DE CADA USUÁRIO (antes era uma só para todos: quem
+// ocultava uma seção ocultava para a fábrica inteira).
+function _viewChave(){ const u=(typeof getUser==='function')?getUser():null; return u&&u.id?'dash-visibility:'+u.id:'dash-visibility'; }
 let _VIEW={};
 (function loadView(){
   VIEW_SECTIONS.forEach(s=>{ _VIEW[s.key]=true; });
@@ -582,18 +591,22 @@ async function loadViewRemote(){
   if(_viewCarregado) return;
   _viewCarregado=true;
   try{
-    const{data}=await _supabase.from('app_preferencias').select('dados').eq('chave','dash-visibility').maybeSingle();
+    let{data}=await _supabase.from('app_preferencias').select('dados').eq('chave',_viewChave()).maybeSingle();
+    // primeira vez deste usuário: parte do que estava configurado para todos
+    if(!data&&_viewChave()!=='dash-visibility'){ const r=await _supabase.from('app_preferencias').select('dados').eq('chave','dash-visibility').maybeSingle(); data=r.data; }
     if(data&&data.dados&&typeof data.dados==='object')Object.assign(_VIEW,data.dados);
   }catch(e){}
   VIEW_SECTIONS.forEach(s=>{ if(typeof _VIEW[s.key]!=='boolean')_VIEW[s.key]=true; });
 }
-function saveView(){ try{ _supabase.from('app_preferencias').upsert({chave:'dash-visibility',dados:_VIEW},{onConflict:'chave'}).then(()=>{}).catch(()=>{}); }catch(e){} }
+function saveView(){ try{ _supabase.from('app_preferencias').upsert({chave:_viewChave(),dados:_VIEW},{onConflict:'chave'}).then(()=>{}).catch(()=>{}); }catch(e){} }
 
-function toggleSection(key){ _VIEW[key]=!_VIEW[key]; saveView(); applyView(); }
-function setAllSections(val){ VIEW_SECTIONS.forEach(s=>_VIEW[s.key]=val); saveView(); applyView(); }
+function toggleSection(key){ if(!_secPode(key)) return; _VIEW[key]=!_VIEW[key]; saveView(); applyView(); }
+function setAllSections(val){ _secoesPermitidas().forEach(s=>_VIEW[s.key]=val); saveView(); applyView(); }
+// visível = liberada no perfil E ligada no "Exibir"
+function _vis(key){ return _secPode(key) && !!_VIEW[key]; }
 
 function renderViewChips(){
-  document.getElementById('view-chips').innerHTML=VIEW_SECTIONS.map(s=>
+  document.getElementById('view-chips').innerHTML=_secoesPermitidas().map(s=>
     `<span class="view-chip${_VIEW[s.key]?' on':''}" onclick="toggleSection('${s.key}')" title="${_VIEW[s.key]?'Ocultar':'Mostrar'} ${s.label}">
        <span class="chip-dot"></span>${s.label}
      </span>`).join('');
@@ -603,15 +616,15 @@ function applyView(){
   renderViewChips();
   VIEW_SECTIONS.forEach(s=>{
     const el=document.getElementById(s.el);
-    if(el) el.style.display=_VIEW[s.key]?'':'none';
+    if(el) el.style.display=_vis(s.key)?'':'none';
   });
 
   // Layout do bloco Linhas + Painel lateral.
   // IMPORTANTE: aqui só se troca CLASSE. Escrever grid-template-columns inline
   // vencia a media query de 1100px e no celular o painel de 340px ficava fora
   // da tela (a página passava de 390px para 500px de largura).
-  const sideVisible=_VIEW.alertas||_VIEW.fila;
-  const linhasVisible=_VIEW.linhas;
+  const sideVisible=_vis('alertas')||_vis('fila');
+  const linhasVisible=_vis('linhas');
   const sidePanel=document.getElementById('side-panel');
   const dashBody=document.getElementById('dash-body');
   if(sidePanel) sidePanel.style.display=sideVisible?'':'none';
@@ -621,9 +634,15 @@ function applyView(){
   }
 
   // Aviso "tudo oculto"
-  const algoVisivel=VIEW_SECTIONS.some(s=>_VIEW[s.key]);
+  const permitidas=_secoesPermitidas();
+  const algoVisivel=permitidas.some(s=>_vis(s.key));
   const empty=document.getElementById('view-empty');
-  if(empty) empty.style.display=algoVisivel?'none':'block';
+  if(empty){
+    empty.style.display=algoVisivel?'none':'block';
+    // perfil sem nenhuma seção liberada: a mensagem não manda usar botões que não existem
+    if(!permitidas.length) empty.innerHTML='<div style="font-size:30px;margin-bottom:8px;">\ud83d\udd12</div><div style="font-size:14px;font-weight:600;">Nenhuma se\u00e7\u00e3o do dashboard liberada para o seu perfil</div><div style="font-size:12px;margin-top:4px;">Pe\u00e7a ao administrador para liberar em Perfis \u2192 Dashboard.</div>';
+  }
+  const bar=document.querySelector('.view-bar'); if(bar) bar.style.display=permitidas.length?'':'none';
 }
 
 /* ── NAVEGAÇÃO ──────────────────────────────────────────────────────────────
