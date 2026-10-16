@@ -431,10 +431,17 @@
    * Usado em dashboard.html e laboratorio.html — a cor no card serve para
    * regular a linha antes de abrir a análise.
    *   Granulometria: soma das peneiras #20 + #50 + #100 + #200 (%), faixa 20–25%.
+   *     Longa Vida (granel) é diferente: de 30% para cima; abaixo de 30% sinaliza.
    *   Umidade: acima de 0,60% sinaliza.
    * Mudou a faixa? Muda aqui e os dois cards acompanham. */
   Regras.LAB_GRAN_MIN = 20;
   Regras.LAB_GRAN_MAX = 25;
+  // Faixa por linha (nome como em linhas_producao). max null = sem teto.
+  Regras.LAB_GRAN_POR_LINHA = { 'Longa Vida': { min: 30, max: null } };
+  Regras.labGranFaixaDaLinha = function (linha) {
+    var f = Regras.LAB_GRAN_POR_LINHA[String(linha || '').trim()];
+    return f ? { min: f.min, max: f.max } : { min: Regras.LAB_GRAN_MIN, max: Regras.LAB_GRAN_MAX };
+  };
   Regras.LAB_UMIDADE_MAX = 0.60;
   Regras.labGranTotal = function (pen) {
     if (!pen || typeof pen !== 'object') return null;
@@ -446,11 +453,12 @@
     return tem ? Math.round(soma * 100) / 100 : null;
   };
   // 'ok' | 'baixo' | 'alto' | null (sem ensaio)
-  Regras.labGranFaixa = function (total) {
+  Regras.labGranFaixa = function (total, linha) {
     if (total === null || total === undefined || isNaN(Number(total))) return null;
     total = Number(total);
-    if (total < Regras.LAB_GRAN_MIN) return 'baixo';
-    if (total > Regras.LAB_GRAN_MAX) return 'alto';
+    var f = Regras.labGranFaixaDaLinha(linha);
+    if (f.min !== null && total < f.min) return 'baixo';
+    if (f.max !== null && total > f.max) return 'alto';
     return 'ok';
   };
   // 'ok' | 'alta' | null (sem medição)
@@ -486,6 +494,7 @@
   Regras.labIndicadoresCard = function (analise, afericoes) {
     if (!analise) return null;
     var gran = Regras.labGranTotal(analise.peneiramento);
+    var gf = Regras.labGranFaixaDaLinha(analise.linha);
     var sep = (analise.separador !== null && analise.separador !== undefined && String(analise.separador).trim() !== '') ? String(analise.separador).trim() : null;
     var sepOrigem = sep !== null ? 'analise' : null;
     if (sep === null) {
@@ -494,7 +503,7 @@
     }
     var umid = (analise.umidade === null || analise.umidade === undefined || analise.umidade === '') ? null : Number(analise.umidade);
     return {
-      gran: gran, granFaixa: Regras.labGranFaixa(gran),
+      gran: gran, granFaixa: Regras.labGranFaixa(gran, analise.linha), granMin: gf.min, granMax: gf.max,
       separador: sep, separadorOrigem: sepOrigem,
       umidade: (umid === null || isNaN(umid)) ? null : umid, umidadeFaixa: Regras.labUmidadeFaixa(umid)
     };
