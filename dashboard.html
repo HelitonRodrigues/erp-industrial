@@ -706,6 +706,7 @@ function _seloIdade(horas){
   return `<span class="q-idade" style="background:var(--bad-bg);color:#991b1b;">\u26a0\ufe0f an\u00e1lise de ${dias} dia${dias>1?'s':''} atr\u00e1s</span>`;
 }
 let _qAnalises = [];
+let _qAfericoes = [];
 /* Granulometria · Separador · Umidade no próprio card, sem abrir o modal.
    Cor só quando sai da faixa (regra em js/regras.js): granulometria fora de
    20–25% e umidade acima de 0,60%. Seta ▲/▼ junto, para não depender da cor. */
@@ -727,6 +728,7 @@ function _labIndicadoresHTML(ind){
   return `<div class="q-inds">${cel('Granulometria',gTxt,gf==='baixo'||gf==='alto',gDica)}${cel('Separador',sTxt,false,sDica)}${cel('Umidade',uTxt,uf==='alta',uDica)}</div>`;
 }
 function renderQualidadeLinhas(linhas, analises, afericoes){
+  _qAfericoes = afericoes || [];
   _qAnalises = analises || [];
   const el = document.getElementById('qualidade-st');
   if(!el) return;
@@ -1252,6 +1254,41 @@ function abrirModalDia(dataStr){
 
 /* Clicar no cartão "Como a linha está agora" ABRE a última análise aqui mesmo
    (antes mandava para o Laboratório). Botão no rodapé leva à análise completa. */
+
+/* Modal da análise: Granulometria (total) · Separador · Umidade no topo, com a
+   faixa escrita embaixo; peneiramento com a coluna TOTAL. Cor só fora da faixa
+   (regras em js/regras.js — Longa Vida: 30% ou mais). */
+function _labModalBlocos(a, afericoes){
+  if(!a||!window.Regras||!Regras.labIndicadoresCard) return {ind:'',pen:''};
+  const ind=Regras.labIndicadoresCard(a, afericoes||[]);
+  const f2=v=>Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const e=v=>String(v==null?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const faixaGran = ind.granMax===null ? ind.granMin+'% ou mais' : ind.granMin+' a '+ind.granMax+'%';
+  const box=(rot,val,sub,fora)=>`<div style="background:${fora?'#fee2e2':'#f8fafc'};border:1.5px solid ${fora?'#ef4444':'#e2e8f0'};border-radius:10px;padding:10px 12px;">
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;color:${fora?'#991b1b':'#94a3b8'};">${rot}</div>
+      <div style="font-size:22px;font-weight:800;font-variant-numeric:tabular-nums;color:${fora?'#991b1b':'var(--primary)'};margin-top:2px;">${val}</div>
+      <div style="font-size:11px;color:${fora?'#991b1b':'#64748b'};margin-top:1px;">${sub}</div></div>`;
+  const gf=ind.granFaixa, uf=ind.umidadeFaixa;
+  const gVal = ind.gran===null?'—':(gf==='baixo'?'▼ ':gf==='alto'?'▲ ':'')+f2(ind.gran)+'%';
+  const gSub = ind.gran===null?'sem peneiramento':(gf==='ok'?'dentro da faixa ('+faixaGran+')':(gf==='baixo'?'abaixo de '+ind.granMin+'%':'acima de '+ind.granMax+'%'));
+  const sVal = ind.separador===null?'—':e(ind.separador);
+  const sSub = ind.separador===null?'sem aferição':(ind.separadorOrigem==='aferidor'?'última aferição da linha':'da aferição (aferidor)');
+  const uVal = ind.umidade===null?'—':(uf==='alta'?'▲ ':'')+f2(ind.umidade)+'%';
+  const uSub = ind.umidade===null?'sem medição':(uf==='alta'?'acima de '+f2(Regras.LAB_UMIDADE_MAX)+'%':'até '+f2(Regras.LAB_UMIDADE_MAX)+'%');
+  const htmlInd=`<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px;">
+      ${box('Granulometria (total)',gVal,gSub,gf==='baixo'||gf==='alto')}${box('Separador',sVal,sSub,false)}${box('Umidade',uVal,uSub,uf==='alta')}</div>`;
+  const pen=a.peneiramento||{};
+  const peneiras=[['#20','p20'],['#50','p50'],['#100','p100'],['#200','p200']].filter(([,k])=>pen[k]!=null&&pen[k]!=='');
+  let htmlPen='';
+  if(peneiras.length){
+    const foraG=gf==='baixo'||gf==='alto';
+    htmlPen=`<div style="margin-bottom:14px;"><div style="font-size:11px;font-weight:700;color:var(--primary);text-transform:uppercase;margin-bottom:6px;">📊 Peneiramento</div>
+      <div style="display:flex;gap:8px;">${peneiras.map(([r,k])=>`<div style="flex:1;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;padding:10px;text-align:center;"><div style="font-size:10px;color:#94a3b8;font-weight:700;">${r}</div><div style="font-size:16px;font-weight:800;color:var(--primary);font-variant-numeric:tabular-nums;">${f2(pen[k])}%</div></div>`).join('')}
+        <div style="flex:1.2;background:${foraG?'#fee2e2':'#e0f2fe'};border-radius:8px;border:1.5px solid ${foraG?'#ef4444':'#7dd3fc'};padding:10px;text-align:center;"><div style="font-size:10px;color:${foraG?'#991b1b':'#0369a1'};font-weight:800;">TOTAL</div><div style="font-size:16px;font-weight:800;color:${foraG?'#991b1b':'#0369a1'};font-variant-numeric:tabular-nums;">${ind.gran===null?'—':f2(ind.gran)+'%'}</div></div>
+      </div></div>`;
+  }
+  return {ind:htmlInd, pen:htmlPen};
+}
 function verAnaliseLinha(linha){
   const a = (_qAnalises||[]).find(x => x.linha === linha);
   const esc2 = v => String(v==null?'':v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -1261,19 +1298,18 @@ function verAnaliseLinha(linha){
     document.getElementById('modal-dia-resumo').innerHTML = '';
     document.getElementById('modal-dia-body').innerHTML = '<p style="color:var(--ink-4);padding:12px 0;">Nenhuma an\u00e1lise registrada para esta linha.</p>';
   } else {
-    const pen = a.peneiramento || {};
-    const campos = [['Produto',a.produto],['Turno',a.turno],['Respons\u00e1vel',a.responsavel],['Umidade',a.umidade!=null?a.umidade+'%':null],['Massa',a.massa],['Separador',a.separador]]
+    const blocos = _labModalBlocos(a, _qAfericoes);
+    const campos = [['Produto',a.produto],['Turno',a.turno],['Respons\u00e1vel',a.responsavel],['Massa',a.massa]]
       .filter(c => c[1]!=null && c[1]!=='');
-    const peneiras = [['#20','p20'],['#50','p50'],['#100','p100'],['#200','p200']].filter(([,k]) => pen[k]!=null);
     document.getElementById('modal-dia-resumo').innerHTML = `<div style="display:flex;align-items:center;gap:12px;background:#f8fafc;border-radius:12px;padding:14px;margin-bottom:14px;">
         <div><div style="font-size:13px;color:var(--ink-3);">${esc2(_dataHoraBR(a.data,a.hora))}</div>${_seloIdade(_idadeAnalise(a.data,a.hora))}</div>
         <span style="margin-left:auto;font-size:22px;font-weight:800;color:${cor[a.status]||'#64748b'};">${(Q_STATUS[a.status]||Q_STATUS['Sem an\u00e1lise']).icone} ${esc2(a.status||'\u2014')}</span></div>`;
     document.getElementById('modal-dia-body').innerHTML = `
+      ${blocos.ind}
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin-bottom:12px;">
         ${campos.map(([k,v]) => `<div style="background:#f8fafc;border-radius:10px;padding:10px;"><div style="font-size:10px;font-weight:700;color:var(--ink-4);text-transform:uppercase;">${k}</div><div style="font-size:14px;font-weight:700;color:var(--primary);margin-top:2px;">${esc2(v)}</div></div>`).join('')}
       </div>
-      ${peneiras.length ? `<div style="font-size:11px;font-weight:700;color:var(--primary);text-transform:uppercase;margin-bottom:6px;">\ud83d\udcca Peneiramento</div>
-        <div style="display:flex;gap:8px;margin-bottom:12px;">${peneiras.map(([r,k]) => `<div style="flex:1;background:#f8fafc;border-radius:10px;padding:8px;text-align:center;"><div style="font-size:10px;color:var(--ink-4);">${r}</div><div style="font-weight:800;color:var(--primary);">${esc2(pen[k])}%</div></div>`).join('')}</div>` : ''}
+      ${blocos.pen}
       ${a.obs ? `<div style="background:#fffbeb;border-radius:10px;padding:10px;font-size:13px;color:#92400e;margin-bottom:12px;">\ud83d\udcdd ${esc2(a.obs)}</div>` : ''}
       <div style="display:flex;justify-content:flex-end;gap:8px;">
         <button class="btn btn-secondary btn-sm" onclick="fecharModalDia()">Fechar</button>

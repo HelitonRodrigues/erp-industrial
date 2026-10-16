@@ -1785,17 +1785,57 @@ async function salvarAnalise(){
   btn.innerHTML='💾 Salvar Análise'; btn.disabled=false;
 }
 
+
+/* Modal da análise: Granulometria (total) · Separador · Umidade no topo, com a
+   faixa escrita embaixo; peneiramento com a coluna TOTAL. Cor só fora da faixa
+   (regras em js/regras.js — Longa Vida: 30% ou mais). */
+function _labModalBlocos(a, afericoes){
+  if(!a||!window.Regras||!Regras.labIndicadoresCard) return {ind:'',pen:''};
+  const ind=Regras.labIndicadoresCard(a, afericoes||[]);
+  const f2=v=>Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const e=v=>String(v==null?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const faixaGran = ind.granMax===null ? ind.granMin+'% ou mais' : ind.granMin+' a '+ind.granMax+'%';
+  const box=(rot,val,sub,fora)=>`<div style="background:${fora?'#fee2e2':'#f8fafc'};border:1.5px solid ${fora?'#ef4444':'#e2e8f0'};border-radius:10px;padding:10px 12px;">
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;color:${fora?'#991b1b':'#94a3b8'};">${rot}</div>
+      <div style="font-size:22px;font-weight:800;font-variant-numeric:tabular-nums;color:${fora?'#991b1b':'var(--primary)'};margin-top:2px;">${val}</div>
+      <div style="font-size:11px;color:${fora?'#991b1b':'#64748b'};margin-top:1px;">${sub}</div></div>`;
+  const gf=ind.granFaixa, uf=ind.umidadeFaixa;
+  const gVal = ind.gran===null?'—':(gf==='baixo'?'▼ ':gf==='alto'?'▲ ':'')+f2(ind.gran)+'%';
+  const gSub = ind.gran===null?'sem peneiramento':(gf==='ok'?'dentro da faixa ('+faixaGran+')':(gf==='baixo'?'abaixo de '+ind.granMin+'%':'acima de '+ind.granMax+'%'));
+  const sVal = ind.separador===null?'—':e(ind.separador);
+  const sSub = ind.separador===null?'sem aferição':(ind.separadorOrigem==='aferidor'?'última aferição da linha':'da aferição (aferidor)');
+  const uVal = ind.umidade===null?'—':(uf==='alta'?'▲ ':'')+f2(ind.umidade)+'%';
+  const uSub = ind.umidade===null?'sem medição':(uf==='alta'?'acima de '+f2(Regras.LAB_UMIDADE_MAX)+'%':'até '+f2(Regras.LAB_UMIDADE_MAX)+'%');
+  const htmlInd=`<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px;">
+      ${box('Granulometria (total)',gVal,gSub,gf==='baixo'||gf==='alto')}${box('Separador',sVal,sSub,false)}${box('Umidade',uVal,uSub,uf==='alta')}</div>`;
+  const pen=a.peneiramento||{};
+  const peneiras=[['#20','p20'],['#50','p50'],['#100','p100'],['#200','p200']].filter(([,k])=>pen[k]!=null&&pen[k]!=='');
+  let htmlPen='';
+  if(peneiras.length){
+    const foraG=gf==='baixo'||gf==='alto';
+    htmlPen=`<div style="margin-bottom:14px;"><div style="font-size:11px;font-weight:700;color:var(--primary);text-transform:uppercase;margin-bottom:6px;">📊 Peneiramento</div>
+      <div style="display:flex;gap:8px;">${peneiras.map(([r,k])=>`<div style="flex:1;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;padding:10px;text-align:center;"><div style="font-size:10px;color:#94a3b8;font-weight:700;">${r}</div><div style="font-size:16px;font-weight:800;color:var(--primary);font-variant-numeric:tabular-nums;">${f2(pen[k])}%</div></div>`).join('')}
+        <div style="flex:1.2;background:${foraG?'#fee2e2':'#e0f2fe'};border-radius:8px;border:1.5px solid ${foraG?'#ef4444':'#7dd3fc'};padding:10px;text-align:center;"><div style="font-size:10px;color:${foraG?'#991b1b':'#0369a1'};font-weight:800;">TOTAL</div><div style="font-size:16px;font-weight:800;color:${foraG?'#991b1b':'#0369a1'};font-variant-numeric:tabular-nums;">${ind.gran===null?'—':f2(ind.gran)+'%'}</div></div>
+      </div></div>`;
+  }
+  return {ind:htmlInd, pen:htmlPen};
+}
 function verAnalise(id){ _vAnaliseId=id; const a=_analises.find(x=>x.id===id); if(!a)return;
   const stC={'OK':'#16a34a','Ajuste':'#b45309','Manutenção':'#f59e0b','Parada':'#dc2626'};
   const pen=a.peneiramento||{}, co=a.composicao||{}, afs=a.afericoes||[];
+  const blocos=_labModalBlocos(a,_afericoesAferidor);
+  // Equipe: um nome por linha (antes saía "nome, nome, nome")
+  const equipeHTML=(Array.isArray(a.equipe)&&a.equipe.length)?a.equipe.map(n=>`<div>${esc(n)}</div>`).join(''):null;
   let html=`${avisoBloqueio(a)}<div style="display:flex;align-items:center;gap:12px;background:#f8fafc;border-radius:10px;padding:14px;margin-bottom:16px;">
     <div><strong style="font-size:16px;color:var(--primary);">${esc(a.linha)}</strong><div style="font-size:12px;color:#64748b;">${esc(a.data||'—')} ${esc(a.hora||'')} — Turno: ${esc(a.turno||'—')}</div></div>
     <span style="margin-left:auto;font-size:18px;font-weight:800;color:${stC[a.status]||'#64748b'};">${esc(a.status||'—')}</span>
   </div>
-  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px;">
-    ${[['Produto',a.produto],['Encarregado',a.encarregado],['Responsável',a.responsavel],['Equipe',(Array.isArray(a.equipe)&&a.equipe.length)?a.equipe.join(', '):null],['Separador',a.separador],['Umidade',a.umidade!=null?a.umidade+'%':null],['Massa',a.massa]].filter(([,v])=>v!=null&&v!=='').map(([l,v])=>`<div style="padding:9px;background:#f8fafc;border-radius:7px;border:1px solid #e2e8f0;"><p style="font-size:9px;color:#94a3b8;font-weight:700;text-transform:uppercase;">${esc(l)}</p><p style="font-size:12px;font-weight:700;color:var(--primary);">${esc(v)}</p></div>`).join('')}
+  ${blocos.ind}
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px;align-items:start;">
+    ${[['Produto',a.produto],['Encarregado',a.encarregado],['Responsável',a.responsavel],['Massa',a.massa]].filter(([,v])=>v!=null&&v!=='').map(([l,v])=>`<div style="padding:9px;background:#f8fafc;border-radius:7px;border:1px solid #e2e8f0;"><p style="font-size:9px;color:#94a3b8;font-weight:700;text-transform:uppercase;">${esc(l)}</p><p style="font-size:12px;font-weight:700;color:var(--primary);">${esc(v)}</p></div>`).join('')}
+    ${equipeHTML?`<div style="padding:9px;background:#f8fafc;border-radius:7px;border:1px solid #e2e8f0;"><p style="font-size:9px;color:#94a3b8;font-weight:700;text-transform:uppercase;">Equipe (${a.equipe.length})</p><div style="font-size:12px;font-weight:700;color:var(--primary);line-height:1.55;">${equipeHTML}</div></div>`:''}
   </div>`;
-  if(Object.values(pen).some(v=>v!=null)){html+=`<div style="margin-bottom:14px;"><p style="font-size:11px;font-weight:700;color:var(--primary);text-transform:uppercase;margin-bottom:6px;">📊 Peneiramento</p><div style="display:flex;gap:8px;">${['#20','#50','#100','#200'].map((lb,i)=>{const k=['p20','p50','p100','p200'][i];return pen[k]!=null?`<div style="flex:1;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;padding:10px;text-align:center;"><p style="font-size:10px;color:#94a3b8;font-weight:700;">${lb}</p><p style="font-size:16px;font-weight:800;color:var(--primary);">${pen[k]}%</p></div>`:'';}).join('')}</div></div>`;}
+  html+=blocos.pen;
   if(afs.length){html+=`<div style="margin-bottom:14px;"><p style="font-size:11px;font-weight:700;color:var(--primary);text-transform:uppercase;margin-bottom:8px;">⚙️ Aferições (${afs.length})</p>${afs.map((af,i)=>{const mm=af.media_h?(af.media_h/60).toFixed(3):null;const adit=af.aditivacao;const tUn=af.tempo_unidade==='s'||!af.tempo_unidade?'s':'min';return`<div style="background:#f8fafc;border-radius:8px;padding:12px;margin-bottom:6px;border:1px solid #e2e8f0;"><div style="font-weight:700;color:var(--primary);margin-bottom:6px;font-size:12px;">Aferição ${i+1}</div><div style="display:flex;flex-wrap:wrap;gap:10px;font-size:12px;">${af.rot_alim?`<span>Alim: <b>${esc(af.rot_alim)} RPM</b></span>`:''} ${af.rot_adit?`<span>Ativ: <b>${esc(af.rot_adit)} RPM</b></span>`:''} ${af.media_h?`<span>sc/h: <b>${esc(af.media_h)}</b></span>`:''} ${mm?`<span>sc/min: <b>${mm}</b></span>`:''} ${af.tempo?`<span>Tempo: <b>${esc(af.tempo)} ${tUn}</b></span>`:''} ${af.peso?`<span>Peso: <b>${esc(af.peso)} g</b></span>`:''} ${af.valor_lapis&&Number(af.valor_lapis)!==1?`<span>Lápis: <b>${esc(af.valor_lapis)} g</b></span>`:''} ${adit?`<span style="font-weight:800;color:var(--primary);">Adit: <b>${adit.toFixed(3)} g/sc</b> ${getBadgeAf(adit)}</span>`:''}</div></div>`}).join('')}</div>`;}
   if(Object.values(co).some(v=>v)){html+=`<div><p style="font-size:11px;font-weight:700;color:#1e40af;text-transform:uppercase;margin-bottom:8px;">🧱 Composição</p><div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;">${[['Cimento',co.cim_marca&&co.cim_qtd?co.cim_marca+' ('+co.cim_qtd+'kg)':co.cim_marca||null],['Areia',co.areia_nome&&co.areia_qtd?co.areia_nome+' ('+co.areia_qtd+')':co.areia_nome||null],['Traço',co.traco],['Água',co.agua?co.agua+' mL':null],['Densidade',co.densidade?co.densidade+' g/mL':null],['Liga',co.liga],['Exsudação',co.exsudacao]].filter(([,v])=>v!=null&&v!=='').map(([l,v])=>`<div style="padding:8px;background:#eff6ff;border-radius:7px;border:1px solid #bfdbfe;"><p style="font-size:9px;color:#1e40af;font-weight:700;text-transform:uppercase;">${esc(l)}</p><p style="font-size:12px;font-weight:700;color:var(--primary);">${esc(v)}</p></div>`).join('')}</div></div>`;}
   document.getElementById('view-analise-body').innerHTML=html;
