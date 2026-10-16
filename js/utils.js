@@ -107,7 +107,11 @@ const MODULO_ACOES_EXTRAS = {
   laboratorio:  ['assinar'],
 };
 // Ações disponíveis para as abas de um módulo (base de aba + extras).
+// Módulos cujas "telas" são só para VER (não têm criar/editar/excluir):
+// no perfis.html aparece só a caixa "Ver" em cada uma.
+const MODULO_SO_VER = ['dashboard'];
 function acoesDaAba(moduloId) {
+  if (MODULO_SO_VER.includes(moduloId)) return ['view'];
   return ACOES_TAB.concat(MODULO_ACOES_EXTRAS[moduloId] || []);
 }
 // (compat) ações no nível de módulo p/ módulos de tela única.
@@ -130,6 +134,20 @@ function acoesDoModulo(moduloId) {
 const MODULO_FUNCIONALIDADES = {
   // Abas reais de cada módulo — extraídas dos próprios arquivos.
   // Módulo que não aparece aqui tem permissão só no nível do módulo (tela única).
+  // Dashboard: cada seção do "Exibir" (VIEW_SECTIONS em dashboard.html — os ids
+  // são as chaves de lá). Seção desmarcada no perfil some do dashboard e do Exibir.
+  dashboard: [
+    { id:'linhaagora', label:'🔬 Como a linha está' },
+    { id:'custoalvo',  label:'💰 Custo & Alvo' },
+    { id:'kpis',       label:'📈 Indicadores' },
+    { id:'linhas',     label:'🏭 Linhas' },
+    { id:'alertas',    label:'🔔 Alertas' },
+    { id:'fila',       label:'🚛 Portaria' },
+    { id:'grafico',    label:'📊 Gráfico' },
+    { id:'oee',        label:'⚙️ OEE' },
+    { id:'comp',       label:'📅 Comparativo' },
+    { id:'resumo',     label:'🗂️ Resumo por área' },
+  ],
   abastecimento: [
     { id:'dashboard', label:'📊 Dashboard' },
     { id:'historico', label:'📋 Histórico' },
