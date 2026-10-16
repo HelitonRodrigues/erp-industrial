@@ -597,3 +597,7 @@ fábrica específica. Não generalizar.
   "Fizemos/meta/faltaram"; com vários, UM veredito do turno (`metaDaOP.producao.bateu`) + uma linha por produto.
   Nº da OP é gerado sozinho no salvar (`gerarNumOP`, OP-LLL-AAAAMMDD-NNNN) e aparece na tela "PRODUÇÃO SALVA".
   Testado: 4 produtos na Emitec (2 h cada, Liga repetido) → produtos_op com HI/HF encadeados, 5.580 sacos, ht 8.
+
+## Felisbina — Grade do mês e Resumos (10/2026)
+- Aba **Grade do mês** (`tab-grade`, permissão `felisbina.grade`): dias × itens do setor, igual às abas da planilha (SILICATE/TOPDRY/PREPARADOR/TINTAS). A célula é o TOTAL do dia daquele tipo; grava via RPC `felis_ajustar_dia` (migração 061), que substitui os lançamentos não-ficha do dia/tipo e, na produção, refaz a baixa pela ficha. Consumo de insumo: a célula manda no total, a parte da ficha fica.
+- Aba **Resumos**: visões por setor (Overview produção/carregamento) e **Compilado de insumos**. Liberado = final + carregado. Estoque de segurança = `felis_itens.estoque_minimo`.
