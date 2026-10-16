@@ -9,6 +9,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="js/supabase.js"></script>
 <script src="js/utils.js"></script>
+<script src="js/regras.js"></script>
 <!-- QR real, biblioteca LOCAL. Estava vindo de CDN — mas se o galpão está sem
      internet, o CDN falha igual à API de imagem que ele substituiu. Arquivo no
      próprio projeto resolve os dois casos. -->
@@ -116,6 +117,13 @@
 .linha-card.ajuste{border-left:5px solid #f59e0b;}
 .linha-card.manutencao{border-left:5px solid #ef4444;}
 .linha-card.parada{border-left:5px solid #374151;}
+/* Granulometria · Separador · Umidade no card da linha (faixas em js/regras.js) */
+.lc-inds{display:flex;flex-direction:column;gap:4px;margin:10px 0 2px;}
+.lc-ind{display:flex;justify-content:space-between;align-items:baseline;gap:8px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:7px;padding:4px 9px;}
+.lc-ind-l{font-size:11px;font-weight:700;color:#64748b;white-space:nowrap;}
+.lc-ind-v{font-size:15px;font-weight:800;color:var(--primary);font-variant-numeric:tabular-nums;white-space:nowrap;}
+.lc-ind.fora{background:#fee2e2;border-color:#ef4444;}
+.lc-ind.fora .lc-ind-l,.lc-ind.fora .lc-ind-v{color:#991b1b;}
 .badge-verde{background:#dcfce7;color:#16a34a;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700;}
 .badge-laranja{background:#fef3c7;color:#d97706;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700;}
 .badge-vermelho{background:#fee2e2;color:#dc2626;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700;}
@@ -873,7 +881,7 @@ async function init(){
 
   renderAlertasLab();
   renderDashLinhas();renderAnalises();renderAfericoes();renderPallets();
-  { const idAn=new URLSearchParams(location.search).get('analise'); if(idAn) verAnalise(idAn); }   // vindo do dashboard
+  carregarOpsDash();
 
   // ── NOVO: carga das tabelas adicionadas (Fase 1+2+3). Envolvidas em
   // safe() para não quebrar a página caso a migração SQL ainda não tenha
@@ -1052,48 +1060,66 @@ async function promoverAnalisesExternas(){
 }
 
 
-// ── Status das Linhas: a ANÁLISE MAIS NOVA de cada linha ──
-// Antes o cartão só aceitava análise da mesma data+turno da OP mais nova da linha.
-// Mas a OP é lançada DEPOIS do turno (no dia seguinte): durante o turno a OP
-// mais nova ainda é a de ontem, a análise de hoje não batia e o cartão ficava
-// "Sem análise" mesmo com teste lançado. Agora vale a análise mais nova da
-// linha (mesma regra do dashboard e do aviso das TVs), com a idade dela.
-async function carregarOpsDash(forcar){          // nome mantido: é o 🔄 do quadro
-  const r=await _supabase.from('laboratorio').select('*').order('data',{ascending:false}).order('hora',{ascending:false}).limit(400);
-  if(r.error){ toast('Não foi possível atualizar: '+r.error.message,'danger'); return; }
-  _analises=r.data||[];
-  renderDashLinhas(); if(forcar){ renderAnalises(); toast('Status das linhas atualizado.','success'); }
+// ── Status das Linhas: só a OP ATUAL de cada linha ──
+// O cartão mostra apenas as análises da OP mais nova da linha (mesma data e
+// mesmo turno da OP). Abriu OP nova → o cartão zera e
+// espera a primeira análise dela. O histórico continua inteiro na tabela.
+let _opsDash=null;   // OP mais nova por linha: { 'Linha 2': {op_numero,data,turno,produto} }
+function _turnoOrd(t){ const m=/(\d)/.exec(String(t||'')); return m?Number(m[1]):0; }
+function _chaveTempo(data,turno){ return String(data||'')+'#'+_turnoOrd(turno); }
+async function carregarOpsDash(forcar){
+  const desde=new Date(Date.now()-45*86400000).toISOString().slice(0,10);
+  const r=await db(_supabase.from('producao').select('id,op_numero,linha,data,turno,produto,produtos_op,status,created_at')
+    .gte('data',desde).order('data',{ascending:false}).limit(1000),'OPs do Status das Linhas');
+  if(r.error){ if(forcar) toast('Não foi possível ler as OPs; o painel mostra a última análise de cada linha.','warning'); renderDashLinhas(); return; }
+  const m={};
+  (r.data||[]).forEach(o=>{
+    if(!o.linha) return;
+    const k=_chaveTempo(o.data,o.turno), atual=m[o.linha];
+    if(!atual||k>atual._k||(k===atual._k&&String(o.created_at||'')>String(atual.created_at||''))) m[o.linha]=Object.assign({_k:k},o);
+  });
+  _opsDash=m; renderDashLinhas();
 }
-function _tsAnalise(a){ return String(a.data||'')+' '+String(a.hora||'00:00').slice(0,8); }
-function _idadeLab(a){
-  if(!a||!a.data) return '';
-  const dt=new Date(a.data+'T'+String(a.hora||'00:00').slice(0,5)+':00');
-  if(isNaN(dt)) return '';
-  const h=Math.max(0,(Date.now()-dt.getTime())/36e5);
-  if(h<1)  return '<span style="background:#dcfce7;color:#15803d;border-radius:6px;padding:1px 6px;">há menos de 1 h</span>';
-  if(h<8)  return `<span style="background:#dcfce7;color:#15803d;border-radius:6px;padding:1px 6px;">há ${Math.round(h)} h</span>`;
-  if(h<24) return `<span style="background:#fef3c7;color:#92400e;border-radius:6px;padding:1px 6px;">há ${Math.round(h)} h</span>`;
-  const d=Math.floor(h/24);
-  return `<span style="background:#fee2e2;color:#991b1b;border-radius:6px;padding:1px 6px;">⚠️ há ${d} dia${d>1?'s':''}</span>`;
+/* Granulometria · Separador · Umidade no card, antes de abrir a análise.
+   Cor só fora da faixa: granulometria fora de 20–25% e umidade acima de 0,60%.
+   Seta ▲/▼ junto, para não depender só da cor. */
+function _fmtBR2(v){ return Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function _lcIndicadoresHTML(a){
+  if(!a||!window.Regras||!Regras.labIndicadoresCard) return '';
+  const ind=Regras.labIndicadoresCard(a,_afericoesAferidor||[]); if(!ind) return '';
+  const cel=(rot,val,fora,dica)=>`<div class="lc-ind${fora?' fora':''}" title="${esc(dica)}"><div class="lc-ind-l">${rot}</div><div class="lc-ind-v">${val}</div></div>`;
+  const g=ind.gran, gf=ind.granFaixa, u=ind.umidade, uf=ind.umidadeFaixa;
+  const gTxt=g===null?'—':(gf==='baixo'?'▼ ':gf==='alto'?'▲ ':'')+_fmtBR2(g)+'%';
+  const gDica=g===null?'Sem peneiramento nesta análise':
+    (gf==='ok'?'Dentro da faixa ('+Regras.LAB_GRAN_MIN+' a '+Regras.LAB_GRAN_MAX+'%)':(gf==='baixo'?'Abaixo de '+Regras.LAB_GRAN_MIN+'%':'Acima de '+Regras.LAB_GRAN_MAX+'%'))+' — soma #20 + #50 + #100 + #200';
+  const sTxt=ind.separador===null?'—':esc(ind.separador);
+  const sDica=ind.separador===null?'Sem separador na análise nem no aferidor':(ind.separadorOrigem==='aferidor'?'Da última aferição da linha (aferidor)':'Gravado na análise (vem do aferidor)');
+  const uTxt=u===null?'—':(uf==='alta'?'▲ ':'')+_fmtBR2(u)+'%';
+  const uDica=u===null?'Sem umidade nesta análise':(uf==='alta'?'Acima de '+_fmtBR2(Regras.LAB_UMIDADE_MAX)+'%':'Até '+_fmtBR2(Regras.LAB_UMIDADE_MAX)+'%');
+  return `<div class="lc-inds">${cel('Granulometria',gTxt,gf==='baixo'||gf==='alto',gDica)}${cel('Separador',sTxt,false,sDica)}${cel('Umidade',uTxt,uf==='alta',uDica)}</div>`;
 }
 function renderDashLinhas(){
   document.getElementById('linhas-dash').innerHTML=_linhas.map(linha=>{
-    const doLinha=(_analises||[]).filter(a=>a.linha===linha.nome).sort((x,y)=>_tsAnalise(y).localeCompare(_tsAnalise(x)));
+    const op=_opsDash&&_opsDash[linha.nome];
+    // análises da linha, da mais nova para a mais velha; com OP conhecida,
+    // só as que são da OP atual (data/turno igual ou depois do início dela)
+    let doLinha=(_analises||[]).filter(a=>a.linha===linha.nome);
+    // OP é de um dia + turno: só conta análise da MESMA data e do MESMO turno.
+    // (antes contava "dali para frente" e uma análise de outro dia aparecia na OP)
+    if(op) doLinha=doLinha.filter(a=>String(a.data||'')===String(op.data||'')
+      &&(!_turnoOrd(a.turno)||!_turnoOrd(op.turno)||_turnoOrd(a.turno)===_turnoOrd(op.turno)));   // turno sem número (Administrativo) conta como o da OP
     const ult=doLinha[0];
     const st=(ult&&ult.status)||'Sem análise';
     const stCls={OK:'ok',Ajuste:'ajuste','Manutenção':'manutencao','Parada':'parada','Sem análise':''}[st]||'';
     const stIcon={'OK':'✅','Ajuste':'⚠️','Manutenção':'🔧','Parada':'🛑','Sem análise':'❓'}[st]||'❓';
-    // clicar no cartão ABRE a última análise para ver; sem análise, abre a lista da linha
-    const abrir=ult?`verAnalise('${escJs(ult.id)}')`:`filtrarPorLinha('${escJs(linha.nome)}')`;
-    return`<div class="linha-card ${stCls}" onclick="${abrir}" title="${ult?'Ver a última análise':'Ver as análises da linha'}">
+    return`<div class="linha-card ${stCls}" onclick="filtrarPorLinha('${escJs(linha.nome)}')">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;">
         <div><div style="font-weight:800;color:var(--primary);font-size:14px;">${esc(linha.nome)}</div>
         <div style="font-size:12px;margin-top:4px;">${stIcon} ${esc(st)}</div></div>
         <button class="btn btn-primary btn-sm" onclick="event.stopPropagation();novaAnalise('${escJs(linha.nome)}')">+ Teste</button>
       </div>
-      ${ult?`<div style="font-size:11px;color:#94a3b8;margin-top:6px;">Último: ${esc(dataBR(ult.data))} ${esc(String(ult.hora||'').slice(0,5))} — ${esc(ult.produto||'—')}</div>
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;margin-top:6px;font-size:11px;">${_idadeLab(ult)}
-          <a href="#" style="color:var(--primary);font-weight:700;text-decoration:none;" onclick="event.stopPropagation();event.preventDefault();filtrarPorLinha('${escJs(linha.nome)}')">📋 todas</a></div>`
+      ${ult?_lcIndicadoresHTML(ult):''}
+      ${ult?`<div style="font-size:11px;color:#94a3b8;margin-top:6px;">Último: ${esc(dataBR(ult.data))} ${esc(ult.hora||'')} — ${esc(ult.produto||'—')}${doLinha.length>1?' · '+doLinha.length+' análises nesta OP':''}</div>`
            :''}
     </div>`;
   }).join('')||'<p style="color:#94a3b8;padding:16px;">Nenhuma linha cadastrada.</p>';
@@ -4045,7 +4071,7 @@ function _lauEhProdutoLaudo(nome){
   const n=_lauNorm(nome);
   return LAUDO_PRODUTOS.some(p=>n.includes(_lauNorm(p)));
 }
-function _lauUnidade(produto){ const n=_lauNorm(produto); return (n.includes('bag')||n.includes('granel')) ? 't' : 'sc'; }   // granel sai em tonelada
+function _lauUnidade(produto){ return _lauNorm(produto).includes('bag') ? 't' : 'sc'; }
 // 25 kg/saco e 1000 kg/bag estavam hardcoded. Agora o peso vem do CADASTRO do
 // produto quando existe (peso_kg / peso_unidade / kg_por_saco).
 function _lauPesoUnidadeKg(produtoNome, unidade){
@@ -4500,7 +4526,7 @@ function abrirCarregamentoLaudo(opId){
     ${jaReg.length?`<div class="sec-title" style="margin-top:14px;">Carregamentos já registrados</div>
       <div class="table-wrap"><table style="font-size:12px;"><thead><tr>
         <th>Data</th><th>Cliente</th><th>NF</th><th>Quantidade</th><th></th></tr></thead><tbody>
-        ${jaReg.map(x=>`<tr><td>${esc(x.data||'—')}</td><td>${esc(x.cliente||'—')}${x.origem==='carregamento'?`<div style="font-size:10.5px;color:#15803d;">🚛 automático · ordem ${esc(x.ordem_numero||'—')}${x.placa?' · '+esc(x.placa):''}</div>`:''}</td><td>${esc(x.nota_fiscal||'—')}</td>
+        ${jaReg.map(x=>`<tr><td>${esc(x.data||'—')}</td><td>${esc(x.cliente||'—')}</td><td>${esc(x.nota_fiscal||'—')}</td>
           <td><strong>${Number(x.quantidade||0).toLocaleString('pt-BR')} ${x.unidade||un}</strong></td>
           <td><button class="btn btn-ghost btn-sm" style="color:var(--danger);" onclick="excluirCarregamentoLaudo('${x.id}','${opId}')">🗑️</button></td></tr>`).join('')}
       </tbody></table></div>`:''}`;
@@ -5075,8 +5101,6 @@ async function _abrirLaudoInterno(opId, jaImprimir){
   const existente=_lauDoOp(opId);
   _cert=await montarCertificado(op,existente);
   if(existente){ _cert.assinado_em=existente.assinado_em; _cert.assinatura_hash=existente.assinatura_hash; }
-  // laudo finalizado antes da 051 não tem a folha no Storage: grava agora (Carregamento/Portaria usam)
-  if(existente&&existente.status==='finalizado'&&!existente.arquivo_path) _lauGravarArquivo(existente,_cert);
   _lauEdit={opId, laudoId:existente?existente.id:null, produto:_cert.produto, unidade:_cert.unidade};
   document.getElementById('lau-tit').textContent=(existente&&existente.numero?('📜 '+existente.numero):'📜 Novo Certificado')+' — OP '+(op.op_numero||'');
   document.getElementById('lau-corpo').innerHTML=`<div id="lau-barra" style="padding:9px 12px;border-radius:9px;background:#f8fafc;border:1px solid #e2e8f0;margin-bottom:10px;font-size:12.5px;"></div>
@@ -5163,8 +5187,6 @@ async function salvarLaudo(finalizar){
     }
     _lauEdit.laudoId=salvo.id; c.laudoId=salvo.id; c.numero=salvo.numero||c.numero;
     if(finalizar){
-      c.finalizado=true; c.assinado_em=salvo.assinado_em||row.assinado_em; c.assinatura_hash=salvo.assinatura_hash||row.assinatura_hash;
-      await _lauGravarArquivo(salvo,c);      // folha pronta no Storage → Carregamento/Portaria imprimem (051)
       const rp=await _supabase.from('producao').update({laudo_id:salvo.id,laudo_numero:salvo.numero}).eq('id',op.id);
       if(rp.error) toast('Laudo salvo, mas não consegui gravar o vínculo na OP: '+rp.error.message,'warning');
       op.laudo_id=salvo.id; op.laudo_numero=salvo.numero;
@@ -5178,32 +5200,6 @@ async function salvarLaudo(finalizar){
     if(/chk_laudo_segregacao/i.test(msg)) toast('O banco recusou: quem assina o certificado não pode ser quem aprovou os pallets.','danger');
     else toast('Erro ao salvar o certificado: '+msg,'danger');
   }
-}
-
-// Folha do certificado FINALIZADO no Storage (documentos/laudos/<numero>.html).
-// Quem carrega (carregamento.html) e a portaria imprimem dela, sem montar nada.
-async function _lauGravarArquivo(laudo,c){
-  try{
-    if(!laudo||!c||!c.finalizado) return;
-    const nome=String(laudo.numero||laudo.id).replace(/[^\w.-]+/g,'_');
-    const path=`laudos/${nome}.html`;
-    const html=docCertificado(c,false);
-    const up=await _supabase.storage.from('documentos').upload(path,new Blob([html],{type:'text/html'}),{upsert:true,contentType:'text/html; charset=utf-8'});
-    if(up.error) throw up.error;
-    const r=await _supabase.from('lab_laudos').update({arquivo_path:path}).eq('id',laudo.id);
-    if(r.error) throw r.error;
-    laudo.arquivo_path=path;
-  }catch(e){ console.warn('[laudo] arquivo:',e); toast('Certificado salvo, mas a cópia para o Carregamento não subiu: '+(e.message||e),'warning'); }
-}
-// Link direto: laboratorio.html?laudo=<id>&imprimir=1 (vem do Carregamento / Portaria)
-async function abrirLaudoPorLink(){
-  const q=new URLSearchParams(location.search), id=q.get('laudo'); if(!id) return;
-  const {data:l}=await _supabase.from('lab_laudos').select('id,producao_id').eq('id',id).single();
-  if(!l||!l.producao_id){ toast('Certificado não encontrado.','warning'); return; }
-  const {data:op}=await _supabase.from('producao').select('id,data').eq('id',l.producao_id).single();
-  const mes=document.getElementById('lau-mes'); if(mes&&op&&op.data) mes.value=String(op.data).slice(0,7);
-  showTab('laudo'); await carregarLaudos();
-  abrirLaudo(l.producao_id, q.get('imprimir')==='1');
 }
 
 // Baixar / imprimir: imprime a própria folha da tela (mesmo HTML, mesmo CSS).
@@ -8451,7 +8447,7 @@ function limparAssinatura(id){
   cv.getContext('2d').clearRect(0,0,cv.width,cv.height); cv._vazio=true;
 }
 
-init().then(()=>abrirLaudoPorLink()).catch(e=>console.error('[laboratorio] link do laudo:',e));
+init();
 </script>
 </body>
 </html>

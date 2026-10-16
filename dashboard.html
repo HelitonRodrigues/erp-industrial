@@ -10,7 +10,6 @@
 <script src="js/supabase.js"></script>
 <script src="js/utils.js"></script>
 <script src="js/regras.js"></script>
-<script src="js/alerta-linhas.js"></script>
 <style>
 /* ══════════════════════════════════════════
    DASHBOARD — Clareza, Hierarquia e Interativo
@@ -361,7 +360,7 @@
 .mini-row-v{font-size:14px;font-weight:700;color:var(--primary);font-variant-numeric:tabular-nums;white-space:nowrap;}
 
 /* Cards de qualidade: mesma altura, sem "buraco" quando não tem análise */
-.linha-grid .q-card{min-height:104px;display:flex;flex-direction:column;justify-content:space-between;}
+.linha-grid .q-card{min-height:150px;display:flex;flex-direction:column;justify-content:space-between;}
 /* Cards de qualidade da linha — mesmo padrão visual do módulo Laboratório */
 .q-card{background:#fff;border-radius:14px;padding:14px;border:1.5px solid var(--line);transition:all .15s;cursor:pointer;}
 .q-card:hover{border-color:var(--primary);box-shadow:0 4px 16px rgba(4,45,77,.1);}
@@ -371,6 +370,13 @@
 .q-card.parada{border-left:5px solid #374151;}
 .q-card.sem{border-left:5px solid var(--ink-5);}
 .q-idade{font-size:10.5px;font-weight:700;padding:2px 7px;border-radius:20px;display:inline-block;margin-top:6px;}
+/* Granulometria · Separador · Umidade no card da linha */
+.q-inds{display:flex;flex-direction:column;gap:4px;margin:10px 0 2px;}
+.q-ind{display:flex;justify-content:space-between;align-items:baseline;gap:8px;background:#f8fafc;border:1px solid var(--line);border-radius:7px;padding:4px 9px;}
+.q-ind-l{font-size:11px;font-weight:700;color:var(--ink-3);white-space:nowrap;}
+.q-ind-v{font-size:15px;font-weight:800;color:var(--primary);font-variant-numeric:tabular-nums;white-space:nowrap;}
+.q-ind.fora{background:var(--bad-bg);border-color:var(--bad-line);}
+.q-ind.fora .q-ind-l,.q-ind.fora .q-ind-v{color:#991b1b;}
 </style>
 </head>
 <body>
@@ -698,9 +704,27 @@ function _seloIdade(horas){
   const dias = Math.floor(horas/24);
   return `<span class="q-idade" style="background:var(--bad-bg);color:#991b1b;">\u26a0\ufe0f an\u00e1lise de ${dias} dia${dias>1?'s':''} atr\u00e1s</span>`;
 }
-let _qAnalises = [];
-function renderQualidadeLinhas(linhas, analises){
-  _qAnalises = analises || [];
+/* Granulometria · Separador · Umidade no próprio card, sem abrir o modal.
+   Cor só quando sai da faixa (regra em js/regras.js): granulometria fora de
+   20–25% e umidade acima de 0,60%. Seta ▲/▼ junto, para não depender da cor. */
+function _fmtBR(v,d){ return Number(v).toLocaleString('pt-BR',{minimumFractionDigits:d,maximumFractionDigits:d}); }
+function _labIndicadoresHTML(ind){
+  if(!ind) return '';
+  const cel=(rotulo,valor,alerta,dica)=>`<div class="q-ind${alerta?' fora':''}" title="${dica}">
+      <div class="q-ind-l">${rotulo}</div><div class="q-ind-v">${valor}</div></div>`;
+  const R=window.Regras;
+  const g=ind.gran, gf=ind.granFaixa;
+  const gTxt = g===null?'\u2014':(gf==='baixo'?'\u25bc ':gf==='alto'?'\u25b2 ':'')+_fmtBR(g,2)+'%';
+  const gDica = g===null?'Sem peneiramento nesta an\u00e1lise':
+    (gf==='ok'?'Dentro da faixa ('+R.LAB_GRAN_MIN+' a '+R.LAB_GRAN_MAX+'%)':(gf==='baixo'?'Abaixo de '+R.LAB_GRAN_MIN+'%':'Acima de '+R.LAB_GRAN_MAX+'%'))+' \u2014 soma #20 + #50 + #100 + #200';
+  const sTxt = ind.separador===null?'\u2014':String(ind.separador).replace(/[<>&"]/g,'');
+  const sDica = ind.separador===null?'Sem separador na an\u00e1lise nem no aferidor':(ind.separadorOrigem==='aferidor'?'Da \u00faltima aferi\u00e7\u00e3o da linha (aferidor)':'Gravado na an\u00e1lise (vem do aferidor)');
+  const u=ind.umidade, uf=ind.umidadeFaixa;
+  const uTxt = u===null?'\u2014':(uf==='alta'?'\u25b2 ':'')+_fmtBR(u,2)+'%';
+  const uDica = u===null?'Sem umidade nesta an\u00e1lise':(uf==='alta'?'Acima de '+_fmtBR(R.LAB_UMIDADE_MAX,2)+'%':'At\u00e9 '+_fmtBR(R.LAB_UMIDADE_MAX,2)+'%');
+  return `<div class="q-inds">${cel('Granulometria',gTxt,gf==='baixo'||gf==='alto',gDica)}${cel('Separador',sTxt,false,sDica)}${cel('Umidade',uTxt,uf==='alta',uDica)}</div>`;
+}
+function renderQualidadeLinhas(linhas, analises, afericoes){
   const el = document.getElementById('qualidade-st');
   if(!el) return;
   const lns = linhas || [];
@@ -715,7 +739,7 @@ function renderQualidadeLinhas(linhas, analises){
     // ocupa o mesmo espaço com o aviso, evitando cards de alturas diferentes.
     const dtTxt = ult ? _dataHoraBR(ult.data, ult.hora) : '';
     const tip = ult ? `${st} \u2014 ${dtTxt}${ult.produto?' \u00b7 '+ult.produto:''}${ult.responsavel?' \u00b7 resp.: '+ult.responsavel:''} (clique para abrir o Laborat\u00f3rio)` : 'Sem an\u00e1lise registrada (clique para abrir o Laborat\u00f3rio)';
-    return `<div class="q-card ${cfg.cls}" role="button" tabindex="0" onclick="verAnaliseLinha('${String(l.nome).replace(/\\/g,'\\\\').replace(/'/g,"\\'")}')" title="${tip.replace(/"/g,'&quot;').replace('clique para abrir o Laborat\u00f3rio','clique para ver a an\u00e1lise')}">
+    return `<div class="q-card ${cfg.cls}" role="button" tabindex="0" onclick="irPara('laboratorio.html')" title="${tip.replace(/"/g,'&quot;')}">
       <div>
         <div style="display:flex;justify-content:space-between;align-items:baseline;gap:6px;">
           <span style="font-weight:800;color:var(--primary);font-size:13.5px;">${l.nome}</span>
@@ -723,6 +747,7 @@ function renderQualidadeLinhas(linhas, analises){
         </div>
         ${ult?`<div style="font-size:11px;color:var(--ink-3);margin-top:5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${ult.produto||'\u2014'}${ult.turno?' \u00b7 '+ult.turno:''}</div>`
              :`<div style="font-size:11px;color:var(--ink-5);margin-top:5px;">nenhuma an\u00e1lise registrada</div>`}
+        ${ult&&window.Regras&&Regras.labIndicadoresCard?_labIndicadoresHTML(Regras.labIndicadoresCard(ult, afericoes||[])):''}
       </div>
       <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
         ${ult?_seloIdade(horas):'<span class="q-idade" style="background:var(--line-soft);color:var(--ink-4);">sem hist\u00f3rico</span>'}
@@ -829,10 +854,10 @@ async function init(opts){
     if(emp) document.getElementById('dash-empresa').textContent=emp.nome_fantasia||emp.razao_social||'ERP Industrial';
   }catch(e){}
 
-  let pMes=[],pPrev=[],pH=[],lns=[],port=[],epiV=[],almx=[],manut=[],pals=[],pOntem=[],planos=[],labAn=[],planoCusto=[],palsPrev=[];
+  let pMes=[],pPrev=[],pH=[],lns=[],port=[],epiV=[],almx=[],manut=[],pals=[],pOntem=[],planos=[],labAn=[],planoCusto=[],palsPrev=[],afLab=[];
   try{
     const safe=async q=>{try{const r=await q;return r.data||[];}catch(e){return[];}};
-    [pMes,pPrev,pH,lns,port,epiV,almx,manut,pals,pOntem,planos,labAn,planoCusto,palsPrev]=await Promise.all([
+    [pMes,pPrev,pH,lns,port,epiV,almx,manut,pals,pOntem,planos,labAn,planoCusto,palsPrev,afLab]=await Promise.all([
       safe(_supabase.from('producao').select('id,data,linha,turno,encarregado,equipe,total_sacos,ht,hp,eficiencia,consumo_lenha,status,paradas_op,efic_disp,efic_prod,produtos_op,produto,op_numero,dia_semana').gte('data',mIni).lte('data',mFim)),
       // 'data' entra no select para permitir o comparativo pro-rata (mesmos dias)
       safe(_supabase.from('producao').select('data,total_sacos,consumo_lenha,eficiencia,ht,hp').gte('data',pIni).lte('data',pFim)),
@@ -854,14 +879,16 @@ async function init(opts){
       // Laboratório: últimas análises — alimenta o visor "Como a linha está agora"
       // só as colunas que o visor usa — select('*') trazia 6 colunas jsonb
       // (peneiramento, composição, aferições, ensaios...) de 300 linhas
-      safe(_supabase.from('laboratorio').select('id,linha,data,hora,status,produto,turno,responsavel,umidade,massa,separador,obs,peneiramento').order('data',{ascending:false}).order('hora',{ascending:false}).limit(300)),
+      safe(_supabase.from('laboratorio').select('linha,data,hora,status,produto,turno,responsavel,separador,umidade,peneiramento').order('data',{ascending:false}).order('hora',{ascending:false}).limit(300)),
       // Custo & Precificação: planejamento do mês (custo/ton, faturamento e alvo)
       safe(_supabase.from('planejamentos_custo').select('codigo,nome,mes,ano,totais,estado,status,atualizado_em').eq('mes',m).eq('ano',ano).order('atualizado_em',{ascending:false}).limit(5)),
       // pallets do mês anterior — sem eles o comparativo de pallets nunca comparava nada
       safe(_supabase.from('producao_pallets').select('id,status').gte('created_at',pIni+'T00:00:00').lte('created_at',pFim+'T23:59:59.999')),
+      // Aferidor: separador da linha quando a análise não trouxe o valor
+      safe(_supabase.from('aferidor_aditivacao').select('numero,data,hora,linha,itens').order('data',{ascending:false}).limit(60)),
     ]);
   }catch(e){console.warn('Erro nas queries:',e);}
-  renderQualidadeLinhas(lns, labAn);
+  renderQualidadeLinhas(lns, labAn, afLab);
   renderCustoAlvo(planoCusto, pMes);
 
   // ── Módulos adicionais: Frota, Abastecimento, Terceiros, Custos ──
@@ -1220,38 +1247,6 @@ function abrirModalDia(dataStr){
   document.getElementById('modal-dia').classList.add('open');
 }
 
-/* Clicar no cartão "Como a linha está agora" ABRE a última análise aqui mesmo
-   (antes mandava para o Laboratório). Botão no rodapé leva à análise completa. */
-function verAnaliseLinha(linha){
-  const a = (_qAnalises||[]).find(x => x.linha === linha);
-  const esc2 = v => String(v==null?'':v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  const cor = {OK:'#16a34a',Ajuste:'#b45309','Manuten\u00e7\u00e3o':'#d97706',Parada:'#dc2626'};
-  document.getElementById('modal-dia-title').textContent = '\ud83e\uddea ' + linha + ' \u2014 \u00faltima an\u00e1lise';
-  if(!a){
-    document.getElementById('modal-dia-resumo').innerHTML = '';
-    document.getElementById('modal-dia-body').innerHTML = '<p style="color:var(--ink-4);padding:12px 0;">Nenhuma an\u00e1lise registrada para esta linha.</p>';
-  } else {
-    const pen = a.peneiramento || {};
-    const campos = [['Produto',a.produto],['Turno',a.turno],['Respons\u00e1vel',a.responsavel],['Umidade',a.umidade!=null?a.umidade+'%':null],['Massa',a.massa],['Separador',a.separador]]
-      .filter(c => c[1]!=null && c[1]!=='');
-    const peneiras = [['#20','p20'],['#50','p50'],['#100','p100'],['#200','p200']].filter(([,k]) => pen[k]!=null);
-    document.getElementById('modal-dia-resumo').innerHTML = `<div style="display:flex;align-items:center;gap:12px;background:#f8fafc;border-radius:12px;padding:14px;margin-bottom:14px;">
-        <div><div style="font-size:13px;color:var(--ink-3);">${esc2(_dataHoraBR(a.data,a.hora))}</div>${_seloIdade(_idadeAnalise(a.data,a.hora))}</div>
-        <span style="margin-left:auto;font-size:22px;font-weight:800;color:${cor[a.status]||'#64748b'};">${(Q_STATUS[a.status]||Q_STATUS['Sem an\u00e1lise']).icone} ${esc2(a.status||'\u2014')}</span></div>`;
-    document.getElementById('modal-dia-body').innerHTML = `
-      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin-bottom:12px;">
-        ${campos.map(([k,v]) => `<div style="background:#f8fafc;border-radius:10px;padding:10px;"><div style="font-size:10px;font-weight:700;color:var(--ink-4);text-transform:uppercase;">${k}</div><div style="font-size:14px;font-weight:700;color:var(--primary);margin-top:2px;">${esc2(v)}</div></div>`).join('')}
-      </div>
-      ${peneiras.length ? `<div style="font-size:11px;font-weight:700;color:var(--primary);text-transform:uppercase;margin-bottom:6px;">\ud83d\udcca Peneiramento</div>
-        <div style="display:flex;gap:8px;margin-bottom:12px;">${peneiras.map(([r,k]) => `<div style="flex:1;background:#f8fafc;border-radius:10px;padding:8px;text-align:center;"><div style="font-size:10px;color:var(--ink-4);">${r}</div><div style="font-weight:800;color:var(--primary);">${esc2(pen[k])}%</div></div>`).join('')}</div>` : ''}
-      ${a.obs ? `<div style="background:#fffbeb;border-radius:10px;padding:10px;font-size:13px;color:#92400e;margin-bottom:12px;">\ud83d\udcdd ${esc2(a.obs)}</div>` : ''}
-      <div style="display:flex;justify-content:flex-end;gap:8px;">
-        <button class="btn btn-secondary btn-sm" onclick="fecharModalDia()">Fechar</button>
-        <a class="btn btn-primary btn-sm" href="laboratorio.html?analise=${encodeURIComponent(a.id)}">Ver an\u00e1lise completa no Laborat\u00f3rio \u2192</a>
-      </div>`;
-  }
-  document.getElementById('modal-dia').classList.add('open');
-}
 function fecharModalDia(){
   document.getElementById('modal-dia').classList.remove('open');
 }
@@ -1617,8 +1612,6 @@ function podeAtualizar(){
   return true;
 }
 setInterval(()=>{ if(podeAtualizar()) init({silencioso:true}); }, REFRESH_MS);
-// Status das Linhas mudou no laboratório → som + aviso grande (js/alerta-linhas.js) e atualiza a tela
-AlertaLinhas.iniciar({ aoMudar: ()=>{ if(podeAtualizar()) init({silencioso:true}); } });
 // ao voltar para a aba, atualiza se os dados já estiverem velhos
 document.addEventListener('visibilitychange',()=>{
   if(!document.hidden && _ultimaCarga && Date.now()-_ultimaCarga>REFRESH_MS) init({silencioso:true});
