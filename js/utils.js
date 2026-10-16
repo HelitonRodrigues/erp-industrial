@@ -290,9 +290,10 @@ const MODULO_FUNCIONALIDADES = {
   ],
   felisbina: [
     { id:'lancamento', label:'📝 Lançamento do dia' },
+    { id:'grade', label:'🗓️ Grade do mês' },
     { id:'estoque', label:'📦 Estoque' },
     { id:'movimentos', label:'📋 Movimentos' },
-    { id:'resumo', label:'📊 Resumo do mês' },
+    { id:'resumo', label:'📊 Resumos' },
     { id:'cadastro', label:'⚙️ Cadastro & Ficha' },
   ],
   lenha: [
