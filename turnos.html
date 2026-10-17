@@ -86,6 +86,20 @@
           <div class="form-group"><label class="form-label">Horário de Fim</label><input id="t-ref-fim" type="time" class="form-input"></div>
         </div>
       </div>
+      <div style="background:#f0f9ff;border-radius:12px;padding:16px;border:1.2px solid #bae6fd;">
+        <label class="form-label" style="margin-bottom:4px;">👥 Escala por pessoa (opcional)</label>
+        <p style="font-size:12px;color:#64748b;margin:0 0 12px;">Os dias acima são os dias em que a <strong>máquina</strong> roda. Aqui vai quantas jornadas cada pessoa faz na semana — é assim que o sistema mostra as horas semanais de cada um (ex.: 5x2 = 5 jornadas).</p>
+        <div class="form-grid-2">
+          <div class="form-group"><label class="form-label">Escala</label>
+            <select id="t-reg-escala" class="form-input" onchange="regEscalaMudou()"><option value="">— Não definida —</option><option value="5x2">5x2 (5 dias de trabalho, 2 de folga)</option><option value="6x1">6x1 (6 dias de trabalho, 1 de folga)</option></select></div>
+          <div class="form-group"><label class="form-label">Jornadas por pessoa na semana</label><input id="t-reg-jornadas" type="number" class="form-input" min="1" max="7" placeholder="5" oninput="calcTotalTurno()"></div>
+        </div>
+        <div class="form-grid-2" style="margin-top:10px;">
+          <div class="form-group"><label class="form-label">Hora noturna reduzida (52min30s = 1h)</label>
+            <select id="t-reg-noturna" class="form-input" onchange="calcTotalTurno()"><option value="nao">Não conta</option><option value="22-5">Das 22h às 5h (CLT)</option><option value="turno">No turno inteiro (acordo coletivo)</option></select></div>
+          <div class="form-group"><label class="form-label">Fim da jornada (se sai depois da máquina — apoio)</label><input id="t-reg-fim" type="time" step="1" class="form-input" oninput="calcTotalTurno()"></div>
+        </div>
+      </div>
       <div id="t-resumo" style="background:linear-gradient(135deg,#042D4D,#0E3B62);border-radius:12px;padding:16px;color:#fff;display:none;">
         <p style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#7aa3c0;margin-bottom:10px;font-weight:700;">📊 Resumo Semanal</p>
         <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;" id="t-resumo-grid"></div>
@@ -133,6 +147,40 @@ initSidebar('turnos.html');
 function calcMinutos(ini,fim){if(!ini||!fim)return 0;const[h1,m1]=ini.split(':').map(Number);let[h2,m2]=fim.split(':').map(Number);let mins=(h2*60+m2)-(h1*60+m1);if(mins<0)mins+=1440;return mins;}
 function minsParaHoras(mins){if(!mins)return'0h';const h=Math.floor(mins/60),m=mins%60;return`${h}h${m>0?String(m).padStart(2,'0')+'min':''}`;}
 
+/* ── Jornada por pessoa (escala 5x2 etc.) ──────────────────────────────────
+   O calendário do turno é o horário da MÁQUINA (é o que Produção e Custo usam).
+   calendario._regime guarda a escala da PESSOA: {escala, jornadas, noturna, fim_jornada}.
+   noturna: 'nao' | '22-5' (CLT: das 22h às 5h, 52min30s = 1h) | 'turno' (acordo: turno inteiro).
+   Jornada computada = permanência − refeição, com a parte noturna × 60/52,5. */
+const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function hmsSeg(t){if(!t)return null;const p=String(t).split(':').map(Number);if(p.some(isNaN))return null;return (p[0]||0)*3600+(p[1]||0)*60+(p[2]||0);}
+function segParaHoras(seg){seg=Math.round(seg||0);if(seg<=0)return'0h';const h=Math.floor(seg/3600),m=Math.floor(seg%3600/60),s=seg%60;return h+'h'+(m||s?String(m).padStart(2,'0')+'min':'')+(s?String(s).padStart(2,'0')+'s':'');}
+function _sobrepoe(a1,a2,b1,b2){return Math.max(0,Math.min(a2,b2)-Math.max(a1,b1));}
+function jornadaComputadaSeg(ini,fimJornada,refIni,refFim,refMin,noturna){
+  const i=hmsSeg(ini);let f=hmsSeg(fimJornada);if(i==null||f==null)return 0;if(f<=i)f+=86400;
+  // trechos trabalhados: tira a refeição (se tem horário) do meio da permanência
+  let trechos=[[i,f]],refSobra=Number(refMin||0)*60;
+  let ri=hmsSeg(refIni),rf=hmsSeg(refFim);
+  if(ri!=null&&rf!=null&&rf!==ri){if(rf<ri)rf+=86400;if(ri<i){ri+=86400;rf+=86400;}
+    if(_sobrepoe(i,f,ri,rf)>0){trechos=[[i,Math.max(i,ri)],[Math.min(f,rf),f]].filter(([a,b])=>b>a);refSobra=0;}}
+  let total=0,noite=0;
+  trechos.forEach(([a,b])=>{total+=b-a;
+    if(noturna==='turno')noite+=b-a;
+    else if(noturna==='22-5')for(let k=-1;k<=1;k++)noite+=_sobrepoe(a,b,k*86400+22*3600,k*86400+29*3600);});
+  // refeição sem horário: sai da parte diurna (ou da noturna, se não sobrar diurna)
+  const dia=total-noite;const tiraDia=Math.min(dia,refSobra),tiraNoite=refSobra-tiraDia;
+  return (dia-tiraDia)+(noite-tiraNoite)*60/52.5;
+}
+function regimeDoTurno(t){const r=(t&&t.calendario&&t.calendario._regime)||null;return r&&r.escala?r:null;}
+/* jornada média por pessoa (seg) e carga semanal = média × jornadas */
+function cargaPessoa(cal,reg,refIni,refFim,refMin){
+  if(!reg)return null;
+  const dias=DIAS_SEMANA.filter(d=>cal[d]?.ativo&&cal[d]?.inicio&&cal[d]?.fim);if(!dias.length)return null;
+  const js=dias.map(d=>jornadaComputadaSeg(cal[d].inicio,reg.fim_jornada||cal[d].fim,refIni,refFim,refMin,reg.noturna||'nao'));
+  const media=js.reduce((a,b)=>a+b,0)/js.length;const jorn=Number(reg.jornadas)||dias.length;
+  return {jornadaSeg:media,jornadas:jorn,semanaSeg:media*jorn};
+}
+
 async function init(){const{data}=await _supabase.from('turnos').select('*').order('nome');_turnos=data||[];renderTurnos();}
 
 function renderTurnos(){
@@ -151,13 +199,14 @@ function renderTurnos(){
     const mediaDia=diasAtivos.length>0?Math.round(totalMins/diasAtivos.length):0;
     const primD=diasAtivos[0];
     const horarioPrincipal=primD?`${cal[primD].inicio} → ${cal[primD].fim}`:'—';
+    const reg=regimeDoTurno(t);const cp=cargaPessoa(cal,reg,t.refeicao_inicio,t.refeicao_fim,refMins);
     const tr=document.createElement('tr');
     tr.innerHTML=`<td><strong style="color:var(--primary);">${t.nome}</strong></td>
       <td style="font-size:12px;">${diasShort}</td>
-      <td><strong>🕐 ${horarioPrincipal}</strong></td>
+      <td><strong>🕐 ${horarioPrincipal}</strong>${reg&&reg.fim_jornada?`<div style="font-size:11px;color:#64748b;">jornada até ${esc(reg.fim_jornada)} (apoio)</div>`:''}</td>
       <td style="font-size:12px;">${t.refeicao_nome||t.refeicaoNome||'—'}${refMins>0?` (${refMins}min)`:''}</td>
-      <td><span class="badge badge-info">${mediaDia>0?minsParaHoras(mediaDia):'—'}</span></td>
-      <td><span class="badge badge-success">${totalMins>0?minsParaHoras(totalMins):'—'}</span></td>
+      <td><span class="badge badge-info" title="Horas de máquina por dia">${mediaDia>0?minsParaHoras(mediaDia):'—'}</span>${cp?`<div style="font-size:11px;color:#0369a1;margin-top:3px;" title="Jornada computada de cada pessoa">👤 ${segParaHoras(cp.jornadaSeg)}</div>`:''}</td>
+      <td><span class="badge badge-success" title="Horas de máquina na semana">${totalMins>0?minsParaHoras(totalMins):'—'}</span>${cp?`<div style="font-size:11px;font-weight:700;color:#0369a1;margin-top:3px;" title="Carga semanal de cada pessoa">👤 ${segParaHoras(cp.semanaSeg)} por pessoa (${esc(reg.escala)})</div>`:''}</td>
       <td><span class="badge ${t.status==='ativo'?'badge-success':'badge-gray'}">${t.status==='ativo'?'✅ Ativo':'⚫ Inativo'}</span></td>
       <td><div class="table-actions">
         <button class="btn btn-secondary btn-sm" onclick="visualizarTurno('${t.id}')">👁️</button>
@@ -180,9 +229,9 @@ function buildCalendarioTurno(turnoData){
     tr.innerHTML=`<td style="padding:8px 14px;font-weight:600;font-size:13px;color:var(--primary);">${dia}</td>
       <td style="text-align:center;padding:8px;"><label class="toggle"><input type="checkbox" id="t-cal-ativo-${i}" ${d.ativo?'checked':''} onchange="calcTotalTurno()"><span class="toggle-slider"></span></label></td>
       <td style="padding:6px 8px;"><div style="display:flex;gap:6px;align-items:center;">
-        <input type="time" id="t-cal-ini-${i}" value="${d.inicio||''}" class="form-input" style="padding:6px 8px;font-size:12px;width:110px;" oninput="calcTotalTurno()">
+        <input type="time" id="t-cal-ini-${i}" value="${d.inicio||''}"${/:\d\d:\d\d/.test(d.inicio||'')?' step="1"':''} class="form-input" style="padding:6px 8px;font-size:12px;width:110px;" oninput="calcTotalTurno()">
         <span style="color:#94a3b8;font-size:12px;">→</span>
-        <input type="time" id="t-cal-fim-${i}" value="${d.fim||''}" class="form-input" style="padding:6px 8px;font-size:12px;width:110px;" oninput="calcTotalTurno()">
+        <input type="time" id="t-cal-fim-${i}" value="${d.fim||''}"${/:\d\d:\d\d/.test(d.fim||'')?' step="1"':''} class="form-input" style="padding:6px 8px;font-size:12px;width:110px;" oninput="calcTotalTurno()">
       </div></td>
       <td style="padding:6px 8px;display:none;"></td>
       <td style="text-align:center;padding:8px;" id="t-cal-horas-${i}"><span class="badge ${liquido>0?'badge-success':'badge-gray'}" style="font-size:11px;">${liquido>0?minsParaHoras(liquido):'Folga'}</span></td>`;
@@ -213,6 +262,12 @@ function calcTotalTurno(){
       <div style="text-align:center;"><div style="font-size:20px;font-weight:800;color:var(--accent);">${minsParaHoras(mediaDia)}</div><div style="font-size:11px;color:#7aa3c0;">Média/Dia</div></div>
       <div style="text-align:center;"><div style="font-size:20px;font-weight:800;color:var(--accent);">${minsParaHoras(totalSemana)}</div><div style="font-size:11px;color:#7aa3c0;">Total/Semana</div></div>
       <div style="text-align:center;"><div style="font-size:20px;font-weight:800;color:var(--accent);">${minsParaHoras(totalMes)}</div><div style="font-size:11px;color:#7aa3c0;">Estimado/Mês</div></div>`;
+    const reg=regimeDoForm();const cp=cargaPessoa(getCalendarioFromForm(),reg,document.getElementById('t-ref-inicio').value,document.getElementById('t-ref-fim').value,refMins);
+    grid.innerHTML=`<div style="grid-column:1/-1;font-size:11px;color:#7aa3c0;font-weight:700;text-transform:uppercase;letter-spacing:.5px;">⚙️ Máquina</div>`+grid.innerHTML;
+    if(cp)grid.innerHTML+=`<div style="grid-column:1/-1;border-top:1px solid rgba(255,255,255,.15);margin-top:4px;padding-top:10px;font-size:11px;color:#7aa3c0;font-weight:700;text-transform:uppercase;letter-spacing:.5px;">👤 Cada pessoa (${esc(reg.escala)})</div>
+      <div style="text-align:center;"><div style="font-size:20px;font-weight:800;color:#fff;">${cp.jornadas}</div><div style="font-size:11px;color:#7aa3c0;">Jornadas/Semana</div></div>
+      <div style="text-align:center;"><div style="font-size:20px;font-weight:800;color:#fff;">${segParaHoras(cp.jornadaSeg)}</div><div style="font-size:11px;color:#7aa3c0;">Jornada computada</div></div>
+      <div style="text-align:center;grid-column:span 2;"><div style="font-size:20px;font-weight:800;color:#fff;">${segParaHoras(cp.semanaSeg)}</div><div style="font-size:11px;color:#7aa3c0;">Carga semanal por pessoa</div></div>`;
   } else {resumo.style.display='none';}
 }
 
@@ -229,7 +284,19 @@ function marcarSemana(tipo){
   calcTotalTurno();
 }
 
-function getCalendarioFromForm(){const cal={};DIAS_SEMANA.forEach((dia,i)=>{cal[dia]={ativo:document.getElementById(`t-cal-ativo-${i}`)?.checked||false,inicio:document.getElementById(`t-cal-ini-${i}`)?.value||'',fim:document.getElementById(`t-cal-fim-${i}`)?.value||''};});return cal;}
+function getCalendarioFromForm(){const cal={};DIAS_SEMANA.forEach((dia,i)=>{cal[dia]={ativo:document.getElementById(`t-cal-ativo-${i}`)?.checked||false,inicio:document.getElementById(`t-cal-ini-${i}`)?.value||'',fim:document.getElementById(`t-cal-fim-${i}`)?.value||''};});const reg=regimeDoForm();if(reg)cal._regime=reg;return cal;}
+function regimeDoForm(){
+  const escala=document.getElementById('t-reg-escala')?.value||'';if(!escala)return null;
+  return {escala,jornadas:parseInt(document.getElementById('t-reg-jornadas').value)||(escala==='6x1'?6:5),
+    noturna:document.getElementById('t-reg-noturna').value||'nao',fim_jornada:document.getElementById('t-reg-fim').value||null};
+}
+function preencherRegime(reg){
+  document.getElementById('t-reg-escala').value=reg?.escala||'';
+  document.getElementById('t-reg-jornadas').value=reg?.jornadas||'';
+  document.getElementById('t-reg-noturna').value=reg?.noturna||'22-5';
+  document.getElementById('t-reg-fim').value=reg?.fim_jornada||'';
+}
+function regEscalaMudou(){const e=document.getElementById('t-reg-escala').value;const j=document.getElementById('t-reg-jornadas');if(e&&!j.value)j.value=e==='6x1'?6:5;calcTotalTurno();}
 
 function openModalTurno(){
   _editingTurnoId=null;
@@ -238,6 +305,7 @@ function openModalTurno(){
   document.getElementById('t-ref-nome').value='';document.getElementById('t-ref-min').value='';
   document.getElementById('t-ref-inicio').value='';document.getElementById('t-ref-fim').value='';
   document.getElementById('t-resumo').style.display='none';document.getElementById('t-error').classList.add('hidden');
+  preencherRegime(null);
   buildCalendarioTurno(null);document.getElementById('modal-turno').classList.remove('hidden');
 }
 
@@ -251,6 +319,7 @@ function editarTurno(id){
   document.getElementById('t-ref-inicio').value=t.refeicao_inicio||t.refeicaoInicio||'';
   document.getElementById('t-ref-fim').value=t.refeicao_fim||t.refeicaoFim||'';
   document.getElementById('t-error').classList.add('hidden');
+  preencherRegime(regimeDoTurno(t));
   buildCalendarioTurno(t);document.getElementById('modal-turno').classList.remove('hidden');
 }
 
@@ -280,16 +349,21 @@ async function salvarTurno(){
 function visualizarTurno(id){
   const t=_turnos.find(x=>x.id===id);if(!t)return;
   document.getElementById('modal-view-turno-title').textContent='🕐 '+t.nome;
-  const cal=t.calendario||{};const refMins=parseInt(t.refeicao_min||t.refeicaoMin||0)||0;
+  const cal=t.calendario||{};const refMins=parseInt(t.refeicao_min||t.refeicaoMin||0)||0;const reg=regimeDoTurno(t);
   const diasHtml=DIAS_SEMANA.map((dia,i)=>{
     const d=cal[dia]||{};const mins=d.ativo?calcMinutos(d.inicio,d.fim):0;const liq=Math.max(0,mins-refMins);
+    const jp=reg&&d.ativo&&d.inicio?jornadaComputadaSeg(d.inicio,reg.fim_jornada||d.fim,t.refeicao_inicio,t.refeicao_fim,refMins,reg.noturna||'nao'):0;
     return`<tr style="border-bottom:1px solid #f1f5f9;">
       <td style="padding:8px 12px;font-weight:600;color:${d.ativo&&d.inicio?'var(--primary)':'#94a3b8'};">${dia}</td>
       <td style="padding:8px 12px;font-size:12px;">${d.ativo&&d.inicio?`${d.inicio} → ${d.fim}`:'Folga'}</td>
       <td style="padding:8px 12px;"><span class="badge ${liq>0?'badge-success':'badge-gray'}" style="font-size:11px;">${liq>0?minsParaHoras(liq):'—'}</span></td>
+      ${reg?`<td style="padding:8px 12px;font-size:12px;color:#0369a1;font-weight:700;">${jp>0?segParaHoras(jp):'—'}</td>`:''}
     </tr>`;}).join('');
+  const cp=cargaPessoa(cal,reg,t.refeicao_inicio,t.refeicao_fim,refMins);
+  const NOT={nao:'não conta',['22-5']:'das 22h às 5h (CLT)',turno:'no turno inteiro (acordo coletivo)'};
   document.getElementById('modal-view-turno-body').innerHTML=`
-    <table style="width:100%;border-collapse:collapse;margin-bottom:16px;"><thead><tr style="background:#f8fafc;"><th style="padding:8px 12px;text-align:left;font-size:11px;text-transform:uppercase;color:#64748b;">Dia</th><th style="padding:8px 12px;text-align:left;font-size:11px;text-transform:uppercase;color:#64748b;">Horário</th><th style="padding:8px 12px;text-align:left;font-size:11px;text-transform:uppercase;color:#64748b;">Horas Líquidas</th></tr></thead><tbody>${diasHtml}</tbody></table>
+    <table style="width:100%;border-collapse:collapse;margin-bottom:16px;"><thead><tr style="background:#f8fafc;"><th style="padding:8px 12px;text-align:left;font-size:11px;text-transform:uppercase;color:#64748b;">Dia</th><th style="padding:8px 12px;text-align:left;font-size:11px;text-transform:uppercase;color:#64748b;">Horário</th><th style="padding:8px 12px;text-align:left;font-size:11px;text-transform:uppercase;color:#64748b;">${reg?'Máquina':'Horas Líquidas'}</th>${reg?'<th style="padding:8px 12px;text-align:left;font-size:11px;text-transform:uppercase;color:#0369a1;">Jornada da pessoa</th>':''}</tr></thead><tbody>${diasHtml}</tbody></table>
+    ${cp?`<div style="background:#f0f9ff;border-radius:10px;padding:12px;border:1px solid #bae6fd;margin-bottom:10px;font-size:13px;color:#0c4a6e;">👤 <strong>Escala ${esc(reg.escala)}</strong>: cada pessoa faz <strong>${cp.jornadas} jornadas de ${segParaHoras(cp.jornadaSeg)} = ${segParaHoras(cp.semanaSeg)} por semana</strong>. Hora noturna reduzida: ${NOT[reg.noturna]||'—'}.${reg.fim_jornada?` A máquina para no fim do horário; a jornada vai até <strong>${esc(reg.fim_jornada)}</strong> em apoio fora da máquina.`:''}</div>`:''}
     ${t.refeicao_nome||t.refeicaoNome?`<div style="background:#f8fafc;border-radius:10px;padding:12px;border:1px solid #e2e8f0;"><p style="font-size:12px;color:#64748b;">🍽️ ${t.refeicao_nome||t.refeicaoNome} — ${refMins} min</p></div>`:''}`;
   document.getElementById('modal-view-turno').classList.remove('hidden');
 }

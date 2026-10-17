@@ -601,3 +601,15 @@ fábrica específica. Não generalizar.
 ## Felisbina — Grade do mês e Resumos (10/2026)
 - Aba **Grade do mês** (`tab-grade`, permissão `felisbina.grade`): dias × itens do setor, igual às abas da planilha (SILICATE/TOPDRY/PREPARADOR/TINTAS). A célula é o TOTAL do dia daquele tipo; grava via RPC `felis_ajustar_dia` (migração 061), que substitui os lançamentos não-ficha do dia/tipo e, na produção, refaz a baixa pela ficha. Consumo de insumo: a célula manda no total, a parte da ficha fica.
 - Aba **Resumos**: visões por setor (Overview produção/carregamento) e **Compilado de insumos**. Liberado = final + carregado. Estoque de segurança = `felis_itens.estoque_minimo`.
+
+## Escala 5x2 — 42h (sessão 2026-10-17, base: "Plano_Escala_5x2_Silicate_V4")
+- **Turnos novos** (os antigos ficaram intactos): `1º - Manhã 5x2 (42h)` 07:20–16:44 (almoço 11–12), `2º - Tarde 5x2 (42h)`
+  16:24–01:19:30 (janta 19–20), `3º - Madrugada 5x2 (42h) L2` 00:59:30–07:40 na máquina (lanche 03–04; jornada até 09:20:30 em apoio).
+  Máquina roda Seg–Sáb; cada pessoa faz 5 jornadas (folga rotativa). Passagem de 20 min nas trocas.
+- **calendario._regime** = escala da PESSOA `{escala, jornadas, noturna:'nao'|'22-5'|'turno', fim_jornada}`. O calendário continua
+  sendo o horário da MÁQUINA (Produção/Custo leem só os dias). turnos.html: `jornadaComputadaSeg` (hora noturna 52min30s; '22-5' CLT,
+  'turno' = acordo no turno inteiro) → 8h24 × 5 = 42h nos três (conferido com o PDF; etapa 40h também fecha 8h00).
+  Horários com segundos: `calcMinutos` ignora os segundos (máquina T = 7h55, N = 5h41).
+- **custo-precificacao**: CP-0012 "Novembro/2026 — Escala 5x2 (42h)" = cópia do CP-0011 (out) com os turnos trocados
+  (Manhã→M 5x2, Noite→T 5x2, Madrugada→N 5x2), calendário de nov (feriados 2, 15, 20; domingos folga) e 2 produtos novos no mapa.
+  Equipes iguais às de outubro (as 13 contratações do plano ainda não existem no cadastro).
