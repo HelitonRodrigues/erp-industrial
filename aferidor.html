@@ -279,6 +279,7 @@ async function init() {
     _ops = ops.data || [];
     _produtos = prods.data || [];
     _aditivacoes = (adit.data || []).map(a => ({ ...a, itens: Array.isArray(a.itens) ? a.itens : [] }));
+    await carregarOpsAferidas();
     preencherSelects();
     setHoje();
     renderRotulos();
@@ -324,11 +325,28 @@ function preencherSelects() {
    numa lista de 400. A lista passa a trazer só as que faltam.
    A OP do registro aberto continua na lista: sem ela o select perderia o valor
    ao editar e o vínculo sumiria no primeiro "salvar". */
+// _aditivacoes só traz as 300 mais recentes (lista da tela). A OP aferida antes
+// disso voltava para a lista como pendente — por isso o conjunto das OPs já
+// aferidas vem de uma leitura própria, só com as duas colunas, sem limite.
+let _opsAferidas = { id: new Set(), num: new Set() };
+async function carregarOpsAferidas() {
+  const id = new Set(), num = new Set();
+  for (let de = 0; ; de += 1000) {
+    const { data, error } = await db(_supabase.from('aferidor_aditivacao').select('id,lancamento_id,op_numero').order('id').range(de, de + 999), 'conferir OPs já aferidas');
+    if (error) return;
+    (data || []).forEach(a => {
+      if (a.lancamento_id) id.add(String(a.lancamento_id));
+      const n = (a.op_numero || '').trim().toUpperCase(); if (n) num.add(n);
+    });
+    if (!data || data.length < 1000) break;
+  }
+  _opsAferidas = { id, num };
+}
 function opsSemAfericao(manterId) {
   // Casa pelos DOIS caminhos: o id do lançamento e o número da OP. Registro
   // antigo ou lançado sem escolher a OP na lista fica só com o número — pelo
   // id ele não seria encontrado e a OP voltaria a aparecer como pendente.
-  const porId = new Set(), porNum = new Set();
+  const porId = new Set(_opsAferidas.id), porNum = new Set(_opsAferidas.num);
   (_aditivacoes || []).forEach(a => {
     if (a.lancamento_id) porId.add(String(a.lancamento_id));
     const n = (a.op_numero || '').trim().toUpperCase();
@@ -352,6 +370,7 @@ async function atualizarListaOP() {
     ]);
     if (af.data) _aditivacoes = af.data.map(a => ({ ...a, itens: Array.isArray(a.itens) ? a.itens : [] }));
     if (ops.data) _ops = ops.data;
+    await carregarOpsAferidas();
     pintarSelectOP(atual);
     renderAditList();
     toast('Lista de OPs atualizada.', 'success');
@@ -1140,6 +1159,7 @@ async function novoAdit() {
     if (data) _aditivacoes = data.map(a => ({ ...a, itens: Array.isArray(a.itens) ? a.itens : [] }));
     const { data: ops } = await _supabase.from('producao').select('*').order('data', { ascending: false }).order('created_at', { ascending: false }).limit(400);
     if (ops) _ops = ops;
+    await carregarOpsAferidas();
   } catch (e) { console.warn('[aferidor] atualizar OPs:', e && e.message); }
   document.getElementById('ad-edit-id').value = '';
   document.getElementById('ad-num').textContent = nextAditNum();
@@ -1162,6 +1182,19 @@ async function salvarAdit() {
   const editId = document.getElementById('ad-edit-id').value;
   const opId = document.getElementById('ad-op').value || null;
   const op = _ops.find(o => o.id === opId);
+  // Um registro por OP: confere no banco na hora de salvar (outra pessoa pode
+  // ter lançado a mesma OP agora há pouco, com a lista desta tela já aberta).
+  if (opId) {
+    let q = _supabase.from('aferidor_aditivacao').select('id,numero').eq('lancamento_id', opId).limit(1);
+    if (editId) q = q.neq('id', editId);
+    const { data: ja, error: eJa } = await db(q, 'conferir se a OP já tem registro');
+    if (eJa) return;
+    if (ja && ja.length) {
+      toast(`A OP ${op ? (op.op_numero || '') : ''} já tem o registro de aditivação ${ja[0].numero || ''}. Abra e edite esse registro em vez de lançar outro.`, 'danger');
+      await carregarOpsAferidas(); pintarSelectOP(editId ? opId : '');
+      return;
+    }
+  }
   const agora = new Date().toISOString();
   const dados = {
     numero: document.getElementById('ad-num').textContent,
@@ -1205,6 +1238,7 @@ async function salvarAdit() {
 async function recarregarAdit() {
   const { data } = await _supabase.from('aferidor_aditivacao').select('*').order('criado_em', { ascending: false }).limit(300);
   _aditivacoes = (data || []).map(a => ({ ...a, itens: Array.isArray(a.itens) ? a.itens : [] }));
+  await carregarOpsAferidas();
   renderAditList();
   pintarSelectOP(document.getElementById('ad-edit-id')?.value
     ? (document.getElementById('ad-op')?.value || '') : '');
