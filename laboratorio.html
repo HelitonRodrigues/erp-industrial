@@ -6222,7 +6222,7 @@ function renderCaulimMP(){
       <div class="sec-title" style="margin:0;">Lotes de Matéria-Prima</div>
       <button class="btn btn-primary btn-sm" onclick="abrirNovoLoteMP()">+ Novo Lote de MP</button>
     </div>
-    <div class="table-wrap"><table style="font-size:12px;"><thead><tr><th>Número</th><th>Frente(s)</th><th>Variação Declarada</th><th>Montante</th><th>ΔE</th><th>Cor</th><th>Umidade</th><th>Dureza</th><th>Retido #200</th><th>📷</th><th>Analista</th></tr></thead>
+    <div class="table-wrap"><table style="font-size:12px;"><thead><tr><th>Número</th><th>Frente(s)</th><th>Variação Declarada</th><th>Montante</th><th>ΔE</th><th>Cor</th><th>Umidade</th><th>Dureza</th><th>Retido #200</th><th>📷</th><th>Analista</th><th></th></tr></thead>
     <tbody>${(_caulimLotesMP||[]).map(l=>{
       const frs=Array.isArray(l.frentes)&&l.frentes.length?l.frentes:null;
       const rotFrente = frs
@@ -6240,7 +6240,8 @@ function renderCaulimMP(){
       <td>${l.retido_200!=null?esc(l.retido_200)+'%':'—'}</td>
       <td>${fotos?`<button class="btn btn-ghost btn-sm" style="padding:2px 7px;" onclick="verFotosLoteMP('${l.id}')">📷 ${fotos}</button>`:'<span style="color:#cbd5e1;">—</span>'}</td>
       <td>${esc(l.analista_mp||'—')}</td>
-    </tr>`;}).join('')||'<tr><td colspan="11" style="text-align:center;color:#94a3b8;">Nenhum lote de MP cadastrado</td></tr>'}</tbody></table></div>
+      <td><button class="btn btn-secondary btn-sm" onclick="abrirNovoLoteMP('${l.id}')" title="Editar o lote">✏️ Editar</button></td>
+    </tr>`;}).join('')||'<tr><td colspan="12" style="text-align:center;color:#94a3b8;">Nenhum lote de MP cadastrado</td></tr>'}</tbody></table></div>
   </div>`;
 }
 
@@ -6281,7 +6282,7 @@ function hexDaCorLote(l,a,b){ return (l==null||a==null||b==null)?null:labParaHex
 /* ── LOTE DE MATÉRIA-PRIMA ────────────────────────────────────
    Número no padrão da fábrica: L01/2026-B — sequencial do ano, barra, ano,
    traço e a sigla da variação de cor (o campo "codigo" do cadastro). */
-let _mpFrentes=[], _mpFrenteAtiva=0, _mpFotos=[];
+let _mpFrentes=[], _mpFrenteAtiva=0, _mpFotos=[], _mpEditId=null;
 
 function proximoNumeroLoteMP(codigoVariacao){
   const ano=new Date().getFullYear();
@@ -6324,6 +6325,7 @@ function codigoVariacaoSel(){
 }
 function atualizarNumeroLoteMP(){
   const el=document.getElementById('mp-numero'); if(!el) return;
+  if(_mpEditId) return;   // edição: o número do lote não muda (OPs e laudos já citam ele)
   el.value=proximoNumeroLoteMP(codigoVariacaoSel());
 }
 
@@ -6470,24 +6472,35 @@ function verFotosLoteMP(id){
       :'<p style="color:#94a3b8;">Nenhuma foto neste lote.</p>',
     `<button class="btn btn-secondary" onclick="closeModal('modal-fotos-mp')">Fechar</button>`);
 }
-function abrirNovoLoteMP(){
-  if(!guardAction('laboratorio','create')) return;
+// Sem id = lote novo. Com id = editar o lote (mesma ficha, preenchida; o número não muda).
+function abrirNovoLoteMP(id){
+  const ed=id?(_caulimLotesMP||[]).find(x=>x.id===id):null;
+  if(id&&!ed){toast('Lote não encontrado — recarregue a página.','warning');return;}
+  if(!guardAction('laboratorio',ed?'edit':'create')) return;
   if(!mpProdutosVariacao().length){toast('Cadastre os produtos de caulim em Ensaios & Limites → Limites por Produto antes de lançar um lote de MP.','warning');}
   const u=getUser()||{};
+  _mpEditId=ed?ed.id:null;
   _mpFrentes=[{nome:'',mistura_pct:null}]; _mpFrenteAtiva=0; _mpFotos=[];
+  if(ed){
+    const frs=Array.isArray(ed.frentes)&&ed.frentes.length?ed.frentes:null;
+    _mpFrentes=frs?frs.map(f=>({nome:f.nome||'',mistura_pct:f.mistura_pct??null}))
+                  :[{nome:ed.frente_nome||frenteNome(ed.frente_id)||'',mistura_pct:ed.mistura_pct??null}];
+    if(_mpFrentes.length===1&&Number(_mpFrentes[0].mistura_pct)===100) _mpFrentes[0].mistura_pct=null;
+    _mpFotos=Array.isArray(ed.fotos)?ed.fotos.slice():[];
+  }
 
   const body=`<div class="af-box-caulim af-box" style="margin-bottom:12px;">
     <div class="form-grid-3">
       <div class="form-group"><label class="form-label">Lote (gerado automaticamente)</label>
         <div style="display:flex;gap:6px;">
           <input id="mp-numero" class="form-input" readonly style="background:#f1f5f9;font-weight:800;cursor:not-allowed;">
-          <button class="btn btn-secondary btn-sm" onclick="atualizarNumeroLoteMP()" title="Gerar de novo">🔄</button>
+          ${ed?'':'<button class="btn btn-secondary btn-sm" onclick="atualizarNumeroLoteMP()" title="Gerar de novo">🔄</button>'}
         </div>
-        <div style="font-size:11px;color:#94a3b8;margin-top:3px;">Padrão L'SS'/AAAA-sigla da variação — ex.: L01/2026-B.</div></div>
-      <div class="form-group"><label class="form-label">Data</label><input id="mp-data" type="date" class="form-input" value="${hoje()}"></div>
+        <div style="font-size:11px;color:#94a3b8;margin-top:3px;">${ed?'Na edição o número do lote não muda.':"Padrão L'SS'/AAAA-sigla da variação — ex.: L01/2026-B."}</div></div>
+      <div class="form-group"><label class="form-label">Data</label><input id="mp-data" type="date" class="form-input" value="${esc((ed&&ed.data)||hoje())}"></div>
       <div class="form-group"><label class="form-label">Analista de MP <span class="req">*</span></label>
-        <input id="mp-analista" class="form-input" readonly style="background:#f1f5f9;cursor:not-allowed;font-weight:700;" value="${esc(u.nome||u.email||'')}">
-        <div style="font-size:11px;color:#94a3b8;margin-top:3px;">Usuário logado no sistema.</div></div>
+        <input id="mp-analista" class="form-input" readonly style="background:#f1f5f9;cursor:not-allowed;font-weight:700;" value="${esc((ed&&ed.analista_mp)||u.nome||u.email||'')}">
+        <div style="font-size:11px;color:#94a3b8;margin-top:3px;">${ed?'Quem lançou o lote (a edição fica na auditoria).':'Usuário logado no sistema.'}</div></div>
     </div>
   </div>
 
@@ -6559,7 +6572,21 @@ function abrirNovoLoteMP(){
     </div>
   </div>`;
   const footer=`<button class="btn btn-secondary" onclick="closeModal('modal-lote-mp')">Cancelar</button><button class="btn btn-primary" id="btn-salvar-lote-mp" onclick="salvarLoteMP()">💾 Salvar Lote de MP</button>`;
-  openModal('modal-lote-mp','🪨 Novo Lote de Matéria-Prima',body,footer,{lg:true});
+  openModal('modal-lote-mp',ed?'✏️ Editar Lote de MP — '+esc(ed.numero):'🪨 Novo Lote de Matéria-Prima',body,footer,{lg:true});
+  if(ed){
+    const pv=(id,v)=>{const el=document.getElementById(id); if(el&&v!=null) el.value=v;};
+    pv('mp-numero',ed.numero); pv('mp-montante',ed.montante_t);
+    pv('mp-r',ed.cor_r); pv('mp-g',ed.cor_g); pv('mp-b-rgb',ed.cor_b_rgb);
+    pv('mp-l',ed.cor_l); pv('mp-a',ed.cor_a); pv('mp-b',ed.cor_b);
+    pv('mp-umidade',ed.umidade_pct); pv('mp-dureza',ed.dureza); pv('mp-r200',ed.retido_200??(ed.granulometria&&ed.granulometria.retido_200));
+    const sel=document.getElementById('mp-variacao');
+    if(sel){ sel.dataset.tocado='1';   // a variação gravada manda; a cor não troca sozinha
+      const pid=ed.produto_id||'';
+      if(pid&&![...sel.options].some(o=>o.value===String(pid))) sel.insertAdjacentHTML('beforeend',`<option value="${esc(pid)}">${esc(variacaoDoMP(ed))}</option>`);
+      sel.value=pid; }
+    pintarFrentesMP(); pintarFotosMP(); mpPintarCor(); atualizarSTDPreview(); sugerirVariacaoPelaCor(); mpAvaliarCaract();
+    return;
+  }
   pintarFrentesMP(); pintarFotosMP(); mpPintarCor(); atualizarNumeroLoteMP(); mpAvaliarCaract();
 }
 // Trocar a variação traz de Limites por Produto: STD, ΔE, limites da caracterização e a sigla.
@@ -6609,7 +6636,7 @@ function calcDeltaEPreview(){
   rEl.innerHTML=`<span class="badge ${ok?'badge-success':'badge-danger'}">${ok?'✅ Dentro do padrão':'❌ Fora do padrão'}</span>`;
 }
 async function salvarLoteMP(){
-  if (!guardAction('laboratorio', 'create')) return;
+  if (!guardAction('laboratorio', _mpEditId?'edit':'create')) return;
   mpLerFrenteAtiva();
   const u=getUser()||{};
   const analista=(document.getElementById('mp-analista')?.value||u.nome||u.email||'').trim();
@@ -6647,7 +6674,7 @@ async function salvarLoteMP(){
   const caract=mpCaracterizacao();
 
   const numero=gv('mp-numero')||proximoNumeroLoteMP(codigoVariacaoSel());
-  if((_caulimLotesMP||[]).some(x=>String(x.numero||'').trim()===numero)){
+  if((_caulimLotesMP||[]).some(x=>x.id!==_mpEditId&&String(x.numero||'').trim()===numero)){
     toast('Já existe o lote '+numero+' — clique em 🔄 para gerar o próximo número.','warning'); return;
   }
   const principal=_mpFrentes[0]||{};
@@ -6679,6 +6706,14 @@ async function salvarLoteMP(){
   const btn=document.getElementById('btn-salvar-lote-mp');
   if(btn){btn.disabled=true;btn.innerHTML='<span class="spin"></span>';}
   try{
+    if(_mpEditId){
+      const{data:nd,error}=await _supabase.from('caulim_lotes_mp').update(row).eq('id',_mpEditId).select().single(); if(error) throw error;
+      const i=_caulimLotesMP.findIndex(x=>x.id===_mpEditId); if(i>=0) _caulimLotesMP[i]=nd;
+      await addLog('UPDATE','CAULIM_LOTE_MP',nd.id,'Lote de MP '+numero+' editado');
+      _mpEditId=null;
+      closeModal('modal-lote-mp'); toast('Lote de MP '+numero+' atualizado.','success'); renderCaulimMP();
+      return;
+    }
     const{data:nd,error}=await _supabase.from('caulim_lotes_mp').insert(row).select().single(); if(error) throw error;
     _caulimLotesMP.unshift(nd);
     await addLog('CREATE','CAULIM_LOTE_MP',nd.id,numero);

@@ -382,26 +382,24 @@ function fmtData(d) { if (!d) return '—'; const p = String(d).slice(0, 10).spl
    validade. Os pallets são numerados em sequência na OP (produto 1: 1..18,
    produto 2: 19..23), e é esse número que existe em producao_pallets. */
 // Numeração: cada PRODUTO conta do 1 (Produto A 1–20, Produto B 1–40); com mais de
-// um produto o código ganha a letra do produto (…-B-P001). OP com pallets gravados
-// na numeração antiga (contínua na OP) continua igual — op._palNumAntiga, lido do
-// banco ao abrir os rótulos (Regras.palletsNumeracaoAntiga).
+// um produto o código ganha a letra do produto (…-B-P001). Mesma regra do producao.html.
 function produtosComPallets(op) {
   let base = 0;
   const palDe = pp => (pp.pallets || []).reduce((s, pl) => s + (parseInt(pl.qtd) || 0), 0);
   const nomeDe = pp => Regras.normalizarNome(pp.produto || pp.nome || '');
   const ordem = [];
   (op.produtos_op || []).forEach(pp => { const k = nomeDe(pp); if (palDe(pp) > 0 && !ordem.includes(k)) ordem.push(k); });
-  const antiga = !!op._palNumAntiga, multi = ordem.length > 1, contados = {};
+  const multi = ordem.length > 1, contados = {};
   return (op.produtos_op || []).map((pp, idx) => {
     const pal = palDe(pp);
     const k = nomeDe(pp);
-    const primeiro = antiga ? base + 1 : (contados[k] || 0) + 1;
-    if (!antiga) contados[k] = (contados[k] || 0) + pal;
+    const primeiro = (contados[k] || 0) + 1;
+    contados[k] = primeiro - 1 + pal;
     // producao.html grava `produto`; registros antigos do laboratório usam `nome`.
     // Ler os dois evita o nome do produto sair "—" na etiqueta.
     const item = { idx, produto: pp.produto || pp.nome || '—', linhaProduto: pp.linha_produto || '',
       pallets: pal, primeiroNumero: primeiro, ultimoNumero: primeiro + pal - 1,
-      sufixo: (!antiga && multi && ordem.includes(k)) ? String.fromCharCode(65 + ordem.indexOf(k)) + '-' : '',
+      sufixo: (multi && ordem.includes(k)) ? String.fromCharCode(65 + ordem.indexOf(k)) + '-' : '',
       lote: pp.lote || null, validade: pp.validade || null, sacos: pp.total_sacos || 0, raw: pp };
     base += pal;
     return item;
@@ -863,13 +861,9 @@ function rotuloLabelHTML(op, i, qtd, pp) {
   return _isFichaProduto(pp) ? rotuloLabelHTMLCompleto(op, i, qtd, pp) : rotuloLabelHTMLSimples(op, i, qtd, pp);
 }
 
-async function abrirRotulos(opId) {
+function abrirRotulos(opId) {
   const op = _ops.find(o => o.id === opId);
   if (!op) return;
-  // Numeração antiga ou nova: depende dos pallets que a OP já tem no banco.
-  const { data: rowsPal, error: ePal } = await db(_supabase.from('producao_pallets').select('numero,produto,codigo,embalagem_tipo').eq('lancamento_id', op.id), 'conferir numeração dos pallets');
-  if (ePal) return;
-  op._palNumAntiga = Regras.palletsNumeracaoAntiga(rowsPal);
   _rotuloOp = op;
   // Cada produto da OP tem os seus pallets: o rótulo é emitido por produto,
   // senão a etiqueta sai com os dois nomes e o lote de um deles.
@@ -948,8 +942,8 @@ async function salvarPalletsRotulo(op, qtdFallback) {
       for (let k = 1; k <= q; k++) alvo.push({ numero: k, produto: nome });
     }
     const { data: exist } = await _supabase.from('producao_pallets').select('id,numero,produto').eq('lancamento_id', op.id);
-    // numeração antiga: o nº é único na OP; nova: o nº recomeça em cada produto
-    const chave = (prod, n) => op._palNumAntiga ? String(n) : Regras.normalizarNome(prod) + '|' + n;
+    // o nº recomeça em cada produto: o pallet é produto + nº
+    const chave = (prod, n) => Regras.normalizarNome(prod) + '|' + n;
     const byNum = {}; (exist || []).forEach(p => { byNum[chave(p.produto, p.numero)] = p.id; });
     const linha = op.linha || '—';
     const data = op.data || new Date().toISOString().slice(0, 10);
