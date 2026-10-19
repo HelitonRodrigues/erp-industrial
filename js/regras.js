@@ -538,20 +538,5 @@
     var opTail = opNumero ? String(opNumero).split('-').pop() : '0000';
     return lin3 + '-' + String(data || '').replace(/-/g, '') + '-' + opTail + '-' + (sufixo || '') + 'P' + String(numero || 0).padStart(3, '0');
   };
-  // OP com pallets JÁ gravados na numeração antiga (contínua na OP: o 2º produto
-  // começa depois do 1º). Essas ficam como estão — etiqueta já impressa.
-  Regras.palletsNumeracaoAntiga = function (rows) {
-    var min = {}, n = 0;
-    (rows || []).forEach(function (r) {
-      if (!r || r.embalagem_tipo === 'granel' || /-GRANEL$/i.test(String(r.codigo || ''))) return;
-      var k = Regras.normalizarNome(r.produto);
-      if (!(k in min)) { min[k] = Infinity; n++; }
-      min[k] = Math.min(min[k], Number(r.numero) || 0);
-    });
-    if (n < 2) return false;
-    for (var k in min) if (min[k] > 1) return true;
-    return false;
-  };
-
   global.Regras = Regras;
 })(typeof window !== 'undefined' ? window : this);
