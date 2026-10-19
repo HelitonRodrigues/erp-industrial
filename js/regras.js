@@ -509,5 +509,49 @@
     };
   };
 
+  // ── NUMERAÇÃO DOS PALLETS DA OP — cada PRODUTO conta do 1 ──────────────
+  // itens: um por pallet, na ordem da OP ({produto, ...}). Produto que aparece
+  // duas vezes na OP (começo e fim do turno) continua a conta dele.
+  // Devolve cada item com `numero` (do produto) e `sufixo`: '' quando a OP tem
+  // um produto só (código igual ao de sempre: …-P001); com mais de um produto,
+  // 'A-', 'B-'… na ordem em que aparecem (…-B-P001), para o código continuar único.
+  Regras.numerarPalletsPorProduto = function (itens) {
+    var ordem = [], cont = {};
+    (itens || []).forEach(function (it) {
+      var k = Regras.normalizarNome(it && it.produto);
+      if (!(k in cont)) { cont[k] = 0; ordem.push(k); }
+    });
+    var multi = ordem.length > 1;
+    return (itens || []).map(function (it) {
+      var k = Regras.normalizarNome(it && it.produto);
+      cont[k] += 1;
+      var out = {};
+      for (var c in it) if (Object.prototype.hasOwnProperty.call(it, c)) out[c] = it[c];
+      out.numero = cont[k];
+      out.sufixo = multi ? String.fromCharCode(65 + ordem.indexOf(k)) + '-' : '';
+      return out;
+    });
+  };
+  // Código do pallet: LIN-AAAAMMDD-OPTAIL-[X-]P###
+  Regras.codigoPallet = function (linha, data, opNumero, sufixo, numero) {
+    var lin3 = String(linha || '').replace(/[^A-Za-z0-9]/g, '').substring(0, 3).toUpperCase() || 'LIN';
+    var opTail = opNumero ? String(opNumero).split('-').pop() : '0000';
+    return lin3 + '-' + String(data || '').replace(/-/g, '') + '-' + opTail + '-' + (sufixo || '') + 'P' + String(numero || 0).padStart(3, '0');
+  };
+  // OP com pallets JÁ gravados na numeração antiga (contínua na OP: o 2º produto
+  // começa depois do 1º). Essas ficam como estão — etiqueta já impressa.
+  Regras.palletsNumeracaoAntiga = function (rows) {
+    var min = {}, n = 0;
+    (rows || []).forEach(function (r) {
+      if (!r || r.embalagem_tipo === 'granel' || /-GRANEL$/i.test(String(r.codigo || ''))) return;
+      var k = Regras.normalizarNome(r.produto);
+      if (!(k in min)) { min[k] = Infinity; n++; }
+      min[k] = Math.min(min[k], Number(r.numero) || 0);
+    });
+    if (n < 2) return false;
+    for (var k in min) if (min[k] > 1) return true;
+    return false;
+  };
+
   global.Regras = Regras;
 })(typeof window !== 'undefined' ? window : this);
