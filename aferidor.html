@@ -381,14 +381,27 @@ function fmtData(d) { if (!d) return '—'; const p = String(d).slice(0, 10).spl
 /* Uma OP pode ter mais de um produto, cada um com seus pallets, seu lote e sua
    validade. Os pallets são numerados em sequência na OP (produto 1: 1..18,
    produto 2: 19..23), e é esse número que existe em producao_pallets. */
+// Numeração: cada PRODUTO conta do 1 (Produto A 1–20, Produto B 1–40); com mais de
+// um produto o código ganha a letra do produto (…-B-P001). OP com pallets gravados
+// na numeração antiga (contínua na OP) continua igual — op._palNumAntiga, lido do
+// banco ao abrir os rótulos (Regras.palletsNumeracaoAntiga).
 function produtosComPallets(op) {
   let base = 0;
+  const palDe = pp => (pp.pallets || []).reduce((s, pl) => s + (parseInt(pl.qtd) || 0), 0);
+  const nomeDe = pp => Regras.normalizarNome(pp.produto || pp.nome || '');
+  const ordem = [];
+  (op.produtos_op || []).forEach(pp => { const k = nomeDe(pp); if (palDe(pp) > 0 && !ordem.includes(k)) ordem.push(k); });
+  const antiga = !!op._palNumAntiga, multi = ordem.length > 1, contados = {};
   return (op.produtos_op || []).map((pp, idx) => {
-    const pal = (pp.pallets || []).reduce((s, pl) => s + (parseInt(pl.qtd) || 0), 0);
+    const pal = palDe(pp);
+    const k = nomeDe(pp);
+    const primeiro = antiga ? base + 1 : (contados[k] || 0) + 1;
+    if (!antiga) contados[k] = (contados[k] || 0) + pal;
     // producao.html grava `produto`; registros antigos do laboratório usam `nome`.
     // Ler os dois evita o nome do produto sair "—" na etiqueta.
     const item = { idx, produto: pp.produto || pp.nome || '—', linhaProduto: pp.linha_produto || '',
-      pallets: pal, primeiroNumero: base + 1, ultimoNumero: base + pal,
+      pallets: pal, primeiroNumero: primeiro, ultimoNumero: primeiro + pal - 1,
+      sufixo: (!antiga && multi && ordem.includes(k)) ? String.fromCharCode(65 + ordem.indexOf(k)) + '-' : '',
       lote: pp.lote || null, validade: pp.validade || null, sacos: pp.total_sacos || 0, raw: pp };
     base += pal;
     return item;
@@ -650,7 +663,7 @@ function rotuloLabelHTMLCompleto(op, i, qtd, pp) {
   const prodStr = pp.produto || produtosDaOP(op);
   // número do pallet dentro da OP: o produto 2 começa depois dos pallets do 1º
   const numPallet = (pp.primeiroNumero || 1) + (i - 1);
-  const codigo = `${linha.replace(/[^A-Za-z0-9]/g, '').substring(0, 3).toUpperCase()}-${data.replace(/-/g, '')}-${op.op_numero ? String(op.op_numero).split('-').pop() : String(Math.floor(Math.random() * 9000) + 1000)}-P${String(numPallet).padStart(3, '0')}`;
+  const codigo = `${linha.replace(/[^A-Za-z0-9]/g, '').substring(0, 3).toUpperCase()}-${data.replace(/-/g, '')}-${op.op_numero ? String(op.op_numero).split('-').pop() : String(Math.floor(Math.random() * 9000) + 1000)}-${pp.sufixo || ''}P${String(numPallet).padStart(3, '0')}`;
   // QR local em vez de api.qrserver.com — imprime sem internet.
   const qrHtml = qrSvgLocal(urlRastreio(codigo), 29);
   // Ficha técnica: depende da linha DESTE produto
@@ -748,7 +761,7 @@ function rotuloLabelHTMLSimples(op, i, qtd, pp) {
   const numPallet = (pp.primeiroNumero || 1) + (i - 1);
   const linha = op.linha || '—';
   const data = (op.data || new Date().toISOString().slice(0, 10));
-  const codigo = `${linha.replace(/[^A-Za-z0-9]/g, '').substring(0, 3).toUpperCase()}-${data.replace(/-/g, '')}-${op.op_numero ? String(op.op_numero).split('-').pop() : String(Math.floor(Math.random() * 9000) + 1000)}-P${String(numPallet).padStart(3, '0')}`;
+  const codigo = `${linha.replace(/[^A-Za-z0-9]/g, '').substring(0, 3).toUpperCase()}-${data.replace(/-/g, '')}-${op.op_numero ? String(op.op_numero).split('-').pop() : String(Math.floor(Math.random() * 9000) + 1000)}-${pp.sufixo || ''}P${String(numPallet).padStart(3, '0')}`;
   const validadeRotulo = validadeDoProduto(op, pp);
   const emp = _empresa || {};
   const nomeEmp = String(emp.razao_social || emp.nome_fantasia || 'ERP INDUSTRIAL').toUpperCase();
@@ -850,9 +863,13 @@ function rotuloLabelHTML(op, i, qtd, pp) {
   return _isFichaProduto(pp) ? rotuloLabelHTMLCompleto(op, i, qtd, pp) : rotuloLabelHTMLSimples(op, i, qtd, pp);
 }
 
-function abrirRotulos(opId) {
+async function abrirRotulos(opId) {
   const op = _ops.find(o => o.id === opId);
   if (!op) return;
+  // Numeração antiga ou nova: depende dos pallets que a OP já tem no banco.
+  const { data: rowsPal, error: ePal } = await db(_supabase.from('producao_pallets').select('numero,produto,codigo,embalagem_tipo').eq('lancamento_id', op.id), 'conferir numeração dos pallets');
+  if (ePal) return;
+  op._palNumAntiga = Regras.palletsNumeracaoAntiga(rowsPal);
   _rotuloOp = op;
   // Cada produto da OP tem os seus pallets: o rótulo é emitido por produto,
   // senão a etiqueta sai com os dois nomes e o lote de um deles.
@@ -923,15 +940,17 @@ async function salvarPalletsRotulo(op, qtdFallback) {
     const pps = produtosComPallets(op);
     const alvo = [];
     if (pps.some(pp => pp.pallets > 0)) {
-      pps.forEach(pp => { for (let k = 1; k <= pp.pallets; k++) alvo.push({ numero: pp.primeiroNumero + k - 1, produto: pp.produto }); });
+      pps.forEach(pp => { for (let k = 1; k <= pp.pallets; k++) alvo.push({ numero: pp.primeiroNumero + k - 1, produto: pp.produto, sufixo: pp.sufixo || '' }); });
     } else {
       // OP sem detalhamento de pallets: usa a quantidade informada na tela
       const q = Math.max(1, parseInt(qtdFallback) || 1);
       const nome = ((op.produtos_op || [])[0] || {}).produto || op.produto || '';
       for (let k = 1; k <= q; k++) alvo.push({ numero: k, produto: nome });
     }
-    const { data: exist } = await _supabase.from('producao_pallets').select('id,numero').eq('lancamento_id', op.id);
-    const byNum = {}; (exist || []).forEach(p => { byNum[p.numero] = p.id; });
+    const { data: exist } = await _supabase.from('producao_pallets').select('id,numero,produto').eq('lancamento_id', op.id);
+    // numeração antiga: o nº é único na OP; nova: o nº recomeça em cada produto
+    const chave = (prod, n) => op._palNumAntiga ? String(n) : Regras.normalizarNome(prod) + '|' + n;
+    const byNum = {}; (exist || []).forEach(p => { byNum[chave(p.produto, p.numero)] = p.id; });
     const linha = op.linha || '—';
     const data = op.data || new Date().toISOString().slice(0, 10);
     const turno = op.turno || null;
@@ -940,8 +959,9 @@ async function salvarPalletsRotulo(op, qtdFallback) {
     const opTail = op.op_numero ? String(op.op_numero).split('-').pop() : '0000';
     const inserts = [], updates = [];
     alvo.forEach(t => {
-      const codigo = `${lin3}-${data.replace(/-/g, '')}-${opTail}-P${String(t.numero).padStart(3, '0')}`;
-      if (byNum[t.numero]) updates.push({ id: byNum[t.numero], codigo, equipe, produto: t.produto });
+      const codigo = `${lin3}-${data.replace(/-/g, '')}-${opTail}-${t.sufixo || ''}P${String(t.numero).padStart(3, '0')}`;
+      const exId = byNum[chave(t.produto, t.numero)];
+      if (exId) updates.push({ id: exId, codigo, equipe, produto: t.produto });
       else inserts.push({ lancamento_id: op.id, data, linha, turno, equipe, produto: t.produto, numero: t.numero, status: 'pendente', codigo });
     });
     if (inserts.length) {

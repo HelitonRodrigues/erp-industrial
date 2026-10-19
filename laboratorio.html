@@ -2362,8 +2362,7 @@ function verPalletDetalhe(id){
       <div class="form-grid-3">
         ${[['Responsável',an.responsavel],['Intervalo representado','#'+(an.intervalo_ini??'—')+' a #'+(an.intervalo_fim??'—')],
            ['Traço',an.traco_nome],['Cimento',(an.composicao&&an.composicao.cimento_marca)||'—'],
-           ['Cimento (g)',(an.composicao&&an.composicao.cimento_g)],['Areia nº',(an.composicao&&an.composicao.areia_numero)],
-           ['Areia (g)',(an.composicao&&an.composicao.areia_g)],['Lote da areia',an.lote_areia],
+           ['Cimento (g)',(an.composicao&&an.composicao.cimento_g)],['Areia (g)',(an.composicao&&an.composicao.areia_g)],['Lote da areia',an.lote_areia],
            ['Água (mL)',an.agua_ml],['Densidade (g/mL)',an.densidade],['Umidade (%)',an.umidade],
            ['M.M (%)',an.mm_result],['Peso esp. (g/cm³)',an.peso_esp_result],
            ['Liga',an.liga],['Exsudação',an.exsudacao],['Cor',an.cor],
@@ -2565,7 +2564,7 @@ function imprimirLaudo(laudoId){
     ${comp?`<div class="sec">Composição do ensaio</div>
       <table><tbody>
         <tr><td class="rot">Cimento</td><td>${esc((comp.cimento_marca||'—')+(comp.cimento_g?' — '+comp.cimento_g+' g':''))}</td>
-            <td class="rot">Areia</td><td>${esc('nº '+(comp.areia_numero||'—')+(comp.areia_g?' — '+comp.areia_g+' g':''))}</td></tr>
+            <td class="rot">Areia</td><td>${esc((comp.areia_numero?'nº '+comp.areia_numero:'')+(comp.areia_g?(comp.areia_numero?' — ':'')+comp.areia_g+' g':'')||'—')}</td></tr>
         <tr><td class="rot">Traço</td><td>${esc(comp.traco_nome||'—')}</td>
             <td class="rot">Lote da areia</td><td>${esc(comp.lote_areia||'—')}</td></tr>
         <tr><td class="rot">Aditivos</td><td colspan="3">${Array.isArray(comp.aditivos)&&comp.aditivos.length
@@ -2622,7 +2621,7 @@ function imprimirFichaPallet(palletId){
     <div class="sec">Composição</div>
     <table><tbody>
       <tr><td class="rot">Cimento CP II</td><td>${esc((comp.cimento_marca||'—')+(comp.cimento_g!=null?' — '+comp.cimento_g+' g':''))}</td>
-          <td class="rot">Areia nº</td><td>${esc((comp.areia_numero||'—')+(comp.areia_g!=null?' — '+comp.areia_g+' g':''))}</td></tr>
+          <td class="rot">Areia</td><td>${esc((comp.areia_numero?'nº '+comp.areia_numero:'')+(comp.areia_g!=null?(comp.areia_numero?' — ':'')+comp.areia_g+' g':'')||'—')}</td></tr>
       <tr><td class="rot">Traço</td><td>${esc(comp.traco_nome||'—')}</td>
           <td class="rot">Lote da areia</td><td>${esc(comp.lote_areia||'—')}</td></tr>
       <tr><td class="rot">Aditivos</td><td colspan="3">${Array.isArray(comp.aditivos)&&comp.aditivos.length
@@ -2828,6 +2827,17 @@ function ensaiosPallet(){
 }
 function valorTxtEnsaio(e){ return e.valor==null?'—':(e.valor+(e.un?' '+e.un:'')); }
 
+// Último ensaio da MESMA OP e MESMO produto que começa no pallet atual ou antes
+// dele (o de começo mais alto; empate → o mais recente). Base para pré-preencher.
+function ensaioAnteriorNaOP(p){
+  if(!p||!p.lancamento_id) return null;
+  const n=Number(p.numero)||0, prod=_lauNorm(p.produto);
+  const ini=a=>Number(a.intervalo_ini??a.pallet_numero??0);
+  return (_palletAnalises||[])
+    .filter(a=>a.lancamento_id===p.lancamento_id && _lauNorm(a.produto)===prod && ini(a)<=n)
+    .sort((a,b)=>ini(b)-ini(a)||String(b.data||'').localeCompare(String(a.data||''))||String(b.hora||'').localeCompare(String(a.hora||''))
+      ||String(b.created_at||'').localeCompare(String(a.created_at||'')))[0]||null;
+}
 function abrirPalletLab(id,idsSelecionados){
   if(!guardAction('laboratorio','edit')) return;
   const p=(_pallets||[]).find(x=>x.id===id); if(!p){toast('Pallet não encontrado.','warning');return;}
@@ -2843,6 +2853,11 @@ function abrirPalletLab(id,idsSelecionados){
   _palEditId=id;
   const anExist=analisePropriaDoPallet(id);
   _palAnaliseEditId=anExist?anExist.id:null;
+  // Granulometria e umidade vêm preenchidas com o último ensaio desta OP e produto
+  // (pallet de número menor). Se o laboratório mudar, o ensaio novo passa a ser a
+  // base do pallet dele em diante — ex.: mudou no #5, do #5 para frente vem o novo.
+  const anAnterior=anExist?null:ensaioAnteriorNaOP(p);
+  const anBase=anExist||anAnterior;
   const cpExist=(anExist&&anExist.composicao&&typeof anExist.composicao==='object')?anExist.composicao:{};
   const prod=p.producao||{};
   const prodCad=(_prods||[]).find(x=>_lauNorm(x.nome)===_lauNorm(p.produto));
@@ -2879,7 +2894,7 @@ function abrirPalletLab(id,idsSelecionados){
     return pe.ativo!==false;
   }).sort((a,b)=>(a.ordem||0)-(b.ordem||0));
   const granExist={};
-  if(anExist&&Array.isArray(anExist.granulometria)) anExist.granulometria.forEach(d=>{granExist[String(d.peneira_id)]=d;});
+  if(anBase&&Array.isArray(anBase.granulometria)) anBase.granulometria.forEach(d=>{granExist[String(d.peneira_id)]=d;});
 
   // M1/M2 saíram: lança-se só o M3 (massa retida). Ensaio antigo reabre com o
   // M3 que já estava gravado (ou M2 − M1, se só havia os dois).
@@ -2911,7 +2926,7 @@ function abrirPalletLab(id,idsSelecionados){
   const ens=[];
   if(cfg.agua)      ens.push(campoNum('agua','pl-agua','Água (mL)','0.1',anExist?.agua_ml));
   if(cfg.densidade) ens.push(campoNum('densidade','pl-dens','Densidade (g/mL)','0.01',anExist?.densidade));
-  if(cfg.umidade)   ens.push(campoNum('umidade','pl-umid','Umidade da amostra (%)','0.01',anExist?.umidade));
+  if(cfg.umidade)   ens.push(campoNum('umidade','pl-umid','Umidade da amostra (%)','0.01',anBase?.umidade));
   if(cfg.liga)      ens.push(campoQual('liga','pl-liga','Liga',anExist&&anExist.liga));
   if(cfg.exsudacao) ens.push(campoQual('exsudacao','pl-exsud','Exsudação (EXS)',anExist&&anExist.exsudacao));
   if(cfg.cor)       ens.push(campoQual('cor','pl-cor','Cor do material',anExist&&anExist.cor));
@@ -2942,9 +2957,7 @@ function abrirPalletLab(id,idsSelecionados){
         <input type="number" step="0.1" min="0" id="pl-cim-g" class="form-input" value="${esc(cpExist.cimento_g??(tracoPadrao?tracoPadrao.cimento_g:'')??'')}" placeholder="100" oninput="atualizarSaldosPallet()"></div>
     </div>
     <div id="pl-avisos-traco"></div>
-    <div class="form-grid-3">
-      <div class="form-group"><label class="form-label">Areia nº <span class="req">*</span></label>
-        <input type="text" id="pl-areia-num" class="form-input" placeholder="Ex.: 7" value="${esc(cpExist.areia_numero||'')}"></div>
+    <div class="form-grid-2">
       <div class="form-group"><label class="form-label">Areia (g) <span class="req">*</span></label>
         <input type="number" step="0.1" min="0" id="pl-areia-g" class="form-input" value="${esc(cpExist.areia_g??(tracoPadrao?tracoPadrao.areia_g:'')??'')}" placeholder="600" oninput="atualizarSaldosPallet()"></div>
       <div class="form-group"><label class="form-label">Lote da areia padrão</label>
@@ -2983,7 +2996,7 @@ function abrirPalletLab(id,idsSelecionados){
       <span style="font-weight:400;text-transform:none;letter-spacing:0;color:#64748b;">— peneiras de Limites por Produto</span></div>
     <div class="form-group" style="max-width:280px;">
       <label class="form-label">Peso da amostra inicial (g) <span class="req">*</span></label>
-      <input type="number" step="0.01" min="0" id="pl-peso" class="form-input" value="${esc(anExist&&anExist.peso_amostra_g!=null?anExist.peso_amostra_g:100)}" oninput="calcPalletGran()">
+      <input type="number" step="0.01" min="0" id="pl-peso" class="form-input" value="${esc(anBase&&anBase.peso_amostra_g!=null?anBase.peso_amostra_g:100)}" oninput="calcPalletGran()">
       <span style="font-size:10.5px;color:#94a3b8;">% retida = M3 ÷ peso inicial × 100. Lance só o M3 (massa retida).</span>
     </div>
     <div class="table-wrap" style="margin-top:8px;"><table style="font-size:12px;" id="pl-tab-gran"><thead><tr>
@@ -3016,6 +3029,10 @@ function abrirPalletLab(id,idsSelecionados){
             <div style="font-size:13px;font-weight:700;color:var(--primary);">${esc(v)}</div></div>`).join('')}
       </div>
     </div>
+    ${anAnterior&&(cfg.gran||cfg.umidade)?`<div style="padding:10px 13px;border-radius:9px;background:#ecfdf5;border-left:4px solid #16a34a;font-size:12.5px;color:#15803d;margin-bottom:12px;">
+      <strong>${esc([cfg.gran?'Granulometria':null,cfg.umidade?'umidade':null].filter(Boolean).join(' e '))}</strong> vieram do ensaio do pallet
+      <strong>#${esc(anAnterior.intervalo_ini??anAnterior.pallet_numero??'—')}</strong> desta OP (${esc(fmtD(anAnterior.data)||'')} ${esc(String(anAnterior.hora||'').slice(0,5))}).
+      Se o material mudou, altere — o valor novo passa a valer deste pallet em diante.</div>`:''}
     ${naLista.length?`<div style="padding:9px 13px;border-radius:9px;background:#f8fafc;border:1.2px dashed #cbd5e1;font-size:12px;color:#475569;margin-bottom:12px;">
       <strong>Não se aplica a este produto</strong> (Limites por Produto): ${esc(naLista.join(' · '))}. Esses itens não aparecem e não são cobrados.</div>`:''}
 
@@ -3178,9 +3195,6 @@ function aplicarTracoPallet(opts){
   if(t.areia_entrada_id){
     const ent=(_entradasCAI||[]).find(x=>x.id===t.areia_entrada_id);
     if(ent&&por('pl-areia',ent.lote)) veio.push('lote da areia '+ent.lote);
-    if(ent&&ent.produto_nome){
-      const m=/(\d+)/.exec(ent.produto_nome); if(m&&por('pl-areia-num',m[1])) veio.push('areia nº '+m[1]);
-    }
     // baixa de estoque da areia: o lote de entrada do próprio traço
     if(por('pl-lote-areia',t.areia_entrada_id)) veio.push('baixa da areia no lote do traço');
   }
@@ -3218,7 +3232,7 @@ function previewIntervalo(){
   const p=(_pallets||[]).find(x=>x.id===_palEditId); if(!p) return;
   const ini=intOrNull(gv('pl-int-ini'))??p.numero;
   const fim=intOrNull(gv('pl-int-fim'))??ini;
-  const abr=(_pallets||[]).filter(x=>x.lancamento_id===p.lancamento_id &&
+  const abr=(_pallets||[]).filter(x=>x.lancamento_id===p.lancamento_id && x.produto===p.produto &&   // nº recomeça em cada produto
     (x.numero||0)>=Math.min(ini,fim) && (x.numero||0)<=Math.max(ini,fim));
   const el=document.getElementById('pl-int-info'); if(!el) return;
   const jaDecidido=abr.filter(x=>x.id!==p.id&&(x.status==='aprovado'||x.status==='reprovado'));
@@ -3280,7 +3294,6 @@ function camposFaltandoPallet(ens){
   if(cfg.traco){
     if(!gv('pl-cim-marca').trim()) falta.push('Cimento — marca/tipo');
     if(numOrNull(gv('pl-cim-g'))==null) falta.push('Cimento (g)');
-    if(!gv('pl-areia-num').trim()) falta.push('Areia nº');
     if(numOrNull(gv('pl-areia-g'))==null) falta.push('Areia (g)');
   }
   if(cfg.aditivo){
@@ -3505,7 +3518,7 @@ async function salvarStatusPallet(){
   const ini=selecionados.length?(nums.length?Math.min.apply(null,nums):p.numero):(intOrNull(gv('pl-int-ini'))??p.numero);
   const fim=selecionados.length?(nums.length?Math.max.apply(null,nums):p.numero):(intOrNull(gv('pl-int-fim'))??ini);
   const abrangidos=selecionados.length?selecionados
-    :(_pallets||[]).filter(x=>x.lancamento_id===p.lancamento_id &&
+    :(_pallets||[]).filter(x=>x.lancamento_id===p.lancamento_id && x.produto===p.produto &&   // nº recomeça em cada produto
       (x.numero||0)>=Math.min(ini,fim)&&(x.numero||0)<=Math.max(ini,fim));
   if(!abrangidos.length){toast('O intervalo informado não corresponde a nenhum pallet desta OP.','danger');return;}
 
@@ -3524,11 +3537,12 @@ async function salvarStatusPallet(){
   const nomePeneira=id=>{const x=(_peneiras||[]).find(y=>String(y.id)===String(id))||{}; return x.codigo||x.nome||null;};
   const granDetalhe=av.detalhe.map(d=>({...d,nome:nomePeneira(d.peneira_id)}));
   const u=getUser();
+  const cpExistSalvo=(_palAnaliseEditId&&((_palletAnalises||[]).find(a=>a.id===_palAnaliseEditId)||{}).composicao)||{};
 
   const composicao={
     cimento_marca:gv('pl-cim-marca').trim()||null,
     cimento_g:numOrNull(gv('pl-cim-g')),
-    areia_numero:gv('pl-areia-num').trim()||null,
+    areia_numero:cpExistSalvo.areia_numero||null,   // campo saiu da ficha; ensaio antigo mantém o que tinha
     areia_g:numOrNull(gv('pl-areia-g')),
     lote_areia:gv('pl-areia')||null,
     traco_id:gv('pl-traco')||null,

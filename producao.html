@@ -1861,27 +1861,49 @@ async function reconciliarPalletsOP(lid, dados){
   // SEGURANÇA: se a OP não informa quantidade de pallets (target 0), NÃO mexe no estoque.
   // (assim, criar/editar uma OP sem o detalhamento nunca apaga os pallets criados no aferidor)
   if(target.length===0) return;
-  target.forEach((t,idx)=>{t.numero=idx+1;
-    t.codigo=t.granel
-      ? `${lin3}-${(data||'').replace(/-/g,'')}-${opTail}-GRANEL`
-      : `${lin3}-${(data||'').replace(/-/g,'')}-${opTail}-P${String(idx+1).padStart(3,'0')}`;});
-  // existentes
-  const {data:rows}=await _supabase.from('producao_pallets').select('id,numero,produto,estoque_status').eq('lancamento_id',lid);
-  const byNum={}; (rows||[]).forEach(r=>byNum[r.numero]=r);
-  const inserts=[], updates=[];
-  target.forEach(t=>{const ex=byNum[t.numero];
-    if(ex) updates.push({id:ex.id,codigo:t.codigo,produto:t.produto,equipe,granel:!!t.granel});
+  const {data:rows}=await _supabase.from('producao_pallets').select('id,numero,produto,codigo,embalagem_tipo,estoque_status').eq('lancamento_id',lid);
+  const inserts=[], updates=[], usados=new Set();
+  let removiveis=[];
+  if(Regras.palletsNumeracaoAntiga(rows)){
+    // OP antiga: numeração contínua na OP (etiquetas já impressas assim) — regra de antes
+    target.forEach((t,idx)=>{t.numero=idx+1;
+      t.codigo=t.granel
+        ? `${lin3}-${(data||'').replace(/-/g,'')}-${opTail}-GRANEL`
+        : `${lin3}-${(data||'').replace(/-/g,'')}-${opTail}-P${String(idx+1).padStart(3,'0')}`;});
+    const byNum={}; (rows||[]).forEach(r=>byNum[r.numero]=r);
+    target.forEach(t=>{const ex=byNum[t.numero]; if(ex){usados.add(ex.id);t.ex=ex;}});
+    removiveis=(rows||[]).filter(r=>r.numero>target.length && !(r.estoque_status==='carregado'||r.estoque_status==='expedido')).map(r=>r.id);
+  }else{
+    // Cada PRODUTO conta do 1 (Produto A 1–20, Produto B 1–40). Com mais de um
+    // produto na OP o código ganha a letra do produto (…-B-P001) e continua único.
+    const pal=Regras.numerarPalletsPorProduto(target.filter(t=>!t.granel));
+    const gran={};
+    target.forEach(t=>{
+      if(t.granel){const k=Regras.normalizarNome(t.produto); gran[k]=(gran[k]||0)+1; t.numero=gran[k];
+        t.codigo=`${lin3}-${(data||'').replace(/-/g,'')}-${opTail}-GRANEL`; return;}
+      const x=pal.shift(); t.numero=x.numero; t.codigo=Regras.codigoPallet(linha,data,dados.op_numero,x.sufixo,x.numero);
+    });
+    // 1º casa pelo mesmo produto + número; o que sobrar casa com pallet livre do
+    // MESMO produto (nunca passa o status do laboratório de um produto para outro).
+    const chave=(prod,n)=>Regras.normalizarNome(prod)+'|'+n;
+    const porChave={}; (rows||[]).forEach(r=>{porChave[chave(r.produto,r.numero)]=r;});
+    target.forEach(t=>{const ex=porChave[chave(t.produto,t.numero)]; if(ex&&!usados.has(ex.id)){usados.add(ex.id);t.ex=ex;}});
+    const livres=(rows||[]).filter(r=>!usados.has(r.id)).sort((a,b)=>(a.numero||0)-(b.numero||0));
+    target.forEach(t=>{if(t.ex)return; const i=livres.findIndex(r=>Regras.normalizarNome(r.produto)===Regras.normalizarNome(t.produto)&&!(r.estoque_status==='carregado'||r.estoque_status==='expedido'));
+      if(i>=0){const ex=livres.splice(i,1)[0]; usados.add(ex.id); t.ex=ex;}});
+    removiveis=livres.filter(r=>!(r.estoque_status==='carregado'||r.estoque_status==='expedido')).map(r=>r.id);
+  }
+  target.forEach(t=>{const ex=t.ex;
+    if(ex) updates.push({id:ex.id,numero:t.numero,codigo:t.codigo,produto:t.produto,equipe,granel:!!t.granel});
     else inserts.push({lancamento_id:lid,data,linha,turno,equipe,produto:t.produto,numero:t.numero,
                        status:'pendente',codigo:t.codigo,embalagem_tipo:t.granel?'granel':null});
   });
-  // sobra: numero acima do produzido e que NÃO está carregado/expedido
-  const removiveis=(rows||[]).filter(r=>r.numero>target.length && !(r.estoque_status==='carregado'||r.estoque_status==='expedido')).map(r=>r.id);
   // executa — sem fallback silencioso: db() faz qualquer erro aparecer (codigo/equipe existem no schema)
   if(inserts.length){
     await db(_supabase.from('producao_pallets').insert(inserts),'criar pallets');
   }
   for(const u of updates){
-    const patch={codigo:u.codigo,produto:u.produto,equipe:u.equipe};
+    const patch={numero:u.numero,codigo:u.codigo,produto:u.produto,equipe:u.equipe};
     if(u.granel) patch.embalagem_tipo='granel';
     await db(_supabase.from('producao_pallets').update(patch).eq('id',u.id),'atualizar pallet');
   }
