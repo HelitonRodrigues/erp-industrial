@@ -672,8 +672,9 @@ async function initSidebar(paginaAtiva) {
   // Dados da empresa
   try {
     const { data } = await _supabase.from('empresa_config')
-      .select('nome_fantasia,razao_social,logo').limit(1).maybeSingle();
+      .select('*').limit(1).maybeSingle();
     if (data) {
+      window._ERP_EMPRESA = data;   // usado no cabeçalho dos PDFs (exportarPDF)
       setEl('sb-company-name', data.nome_fantasia || data.razao_social || 'ERP Industrial');
       if (data.logo) {
         const logoEl = document.getElementById('sb-logo');
@@ -1069,33 +1070,57 @@ function exportarCSV(colunas, linhas, nomeArquivo) {
 }
 
 // ── EXPORT PDF genérico ─────────────────────────────────────
-function exportarPDF(titulo, colunas, linhas) {
-  const empresa = document.getElementById('sb-company-name')?.textContent?.trim() || 'ERP Industrial';
-  const logo    = document.querySelector('#sb-logo img')?.src || null;
+/* Cabeçalho da empresa para PDFs/impressões: logo, nome fantasia, razão social,
+   CNPJ/IE, endereço e contato — tudo vem de Configurações → Empresa. */
+async function carregarEmpresaPDF(){
+  if (window._ERP_EMPRESA) return window._ERP_EMPRESA;
+  try {
+    const { data } = await _supabase.from('empresa_config').select('*').limit(1).maybeSingle();
+    if (data) window._ERP_EMPRESA = data;
+  } catch (e) {}
+  return window._ERP_EMPRESA || null;
+}
+function cabecalhoEmpresaHTML(emp) {
+  const e = emp || window._ERP_EMPRESA || {};
+  const x = v => String(v == null ? '' : v).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const nome  = e.nome_fantasia || e.razao_social || document.getElementById('sb-company-name')?.textContent?.trim() || 'ERP Industrial';
+  const razao = e.razao_social && e.razao_social !== nome ? e.razao_social : '';
+  const doc   = [e.cnpj && 'CNPJ: ' + e.cnpj, e.ie && 'IE: ' + e.ie].filter(Boolean).join(' &nbsp;|&nbsp; ');
+  const end   = [e.rua && (e.rua + (e.numero ? ', ' + e.numero : '')), e.bairro, e.cidade && (e.cidade + (e.uf ? '/' + e.uf : '')), e.cep && 'CEP ' + e.cep].filter(Boolean).join(' — ');
+  const cont  = [e.telefone, e.email].filter(Boolean).join('  |  ');
+  const logo  = e.logo || document.querySelector('#sb-logo img')?.src || null;
   const logoHtml = logo
-    ? `<img src="${logo}" style="height:48px;object-fit:contain;">`
-    : `<div style="width:48px;height:48px;background:#042D4D;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:20px;">🏭</div>`;
-  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
-    body{font-family:sans-serif;padding:24px;color:#1e293b;}
-    .cab{display:flex;align-items:center;gap:14px;padding-bottom:14px;border-bottom:2px solid #042D4D;margin-bottom:18px;}
-    h2{color:#042D4D;margin-bottom:4px;font-size:15px;}
-    .meta{font-size:11px;color:#64748b;margin-bottom:14px;}
+    ? `<img src="${x(logo)}" style="height:52px;max-width:130px;object-fit:contain;">`
+    : `<div style="width:52px;height:52px;background:#042D4D;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:22px;">🏭</div>`;
+  const linha = t => t ? `<div style="font-size:10.5px;color:#64748b;margin-top:2px;">${t}</div>` : '';
+  return `<div style="display:flex;align-items:center;gap:14px;padding-bottom:12px;border-bottom:2px solid #042D4D;margin-bottom:16px;">
+    ${logoHtml}<div style="flex:1;min-width:0;"><div style="font-size:17px;font-weight:800;color:#042D4D;line-height:1.15;">${x(nome)}</div>
+    ${razao ? `<div style="font-size:11px;color:#475569;margin-top:1px;">${x(razao)}</div>` : ''}${linha(doc)}${linha(x(end))}${linha(x(cont))}</div></div>`;
+}
+async function exportarPDF(titulo, colunas, linhas) {
+  const w = window.open('','_blank');      // abre já (no clique) para o navegador não bloquear
+  if (!w) { if (typeof toast === 'function') toast('Permita pop-ups para gerar o PDF.', 'warning'); return; }
+  const emp = await carregarEmpresaPDF();
+  const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>${titulo}</title><style>
+    body{font-family:Arial,Helvetica,sans-serif;padding:24px;color:#1e293b;}
+    h2{color:#042D4D;margin:0 0 4px;font-size:15px;}
+    .meta{font-size:11px;color:#64748b;margin:0 0 14px;}
     table{width:100%;border-collapse:collapse;}
-    th{background:#042D4D;color:#fff;padding:9px 10px;text-align:left;font-size:11px;}
-    td{padding:7px 10px;border-bottom:1px solid #e2e8f0;font-size:12px;}
+    th{background:#042D4D;color:#C9FF64;padding:8px 10px;text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.3px;}
+    td{padding:7px 10px;border-bottom:1px solid #e2e8f0;font-size:11.5px;}
     tr:nth-child(even) td{background:#f8fafc;}
-    @media print{body{padding:12px;}}
+    @page{size:A4;margin:12mm;} @media print{body{padding:0;}}
+    *{-webkit-print-color-adjust:exact;print-color-adjust:exact;}
   </style></head><body>
-  <div class="cab">${logoHtml}<div><strong style="font-size:16px;color:#042D4D;">${empresa}</strong><br><span style="font-size:11px;color:#64748b;">ERP Industrial</span></div></div>
+  ${cabecalhoEmpresaHTML(emp)}
   <h2>${titulo}</h2>
-  <p class="meta">Gerado em ${new Date().toLocaleString('pt-BR')} | Total: ${linhas.length} registros</p>
+  <p class="meta">Gerado em ${new Date().toLocaleString('pt-BR')} &nbsp;·&nbsp; ${linhas.length} registro(s)</p>
   <table><thead><tr>${colunas.map(c=>`<th>${c}</th>`).join('')}</tr></thead>
-  <tbody>${linhas.map(r=>`<tr>${r.map(c=>`<td>${c||'—'}</td>`).join('')}</tr>`).join('')}</tbody></table>
-  <script>setTimeout(()=>window.print(),400);<\/script>
+  <tbody>${linhas.map(r=>`<tr>${r.map(c=>`<td>${c==null||c===''?'—':c}</td>`).join('')}</tr>`).join('')}</tbody></table>
+  <script>window.onload=()=>setTimeout(()=>window.print(),300);<\/script>
   </body></html>`;
-  const w = window.open('','_blank');
-  w?.document.write(html);
-  w?.document.close();
+  w.document.write(html);
+  w.document.close();
 }
 
 // ── MODAL FOTO ─────────────────────────────────────────────
