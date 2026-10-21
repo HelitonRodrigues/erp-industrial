@@ -549,6 +549,7 @@
    *   • máquina rodando: real = H.T da OP, meta = horas-meta do turno.
    * A média/h vem do planejamento do mês (seção da linha/turno); se não houver,
    * do cadastro da linha. Nome casado ignorando espaço/acento/maiúscula.
+   * Turno parado (OP sem produção) conta a meta cheia com 0 feito.
    * Devolve { turno, producao:{bateu,horasReal,horasMeta,itens[]}, disponibilidade:{real,meta}, semCap[] }.
    */
   Regras.metaDaOP = function (op, secoes, linhaCad, produtos) {
@@ -588,6 +589,17 @@
       itens.push({ produto: it.produto, linha_produto: lp, unidade: un, real: real, meta: meta, capHora: cap });
       hReal += real / cap; hMeta += meta / cap;
     });
+    // turno PARADO (sem produção lançada): conta a meta cheia com 0 feito,
+    // pela média/h do 1º produto planejado para a linha/turno
+    var nada = itensOP.every(function (it) { return !(parseFloat(it.total_sacos) > 0) && !(parseFloat(it.sacos_pallets) > 0); });
+    if (!itens.length && nada && horasMeta > 0) {
+      var p0 = cands[0];
+      if (p0) {
+        var cap0 = parseFloat(p0.capHora) || 0;
+        itens.push({ produto: p0.nome, linha_produto: p0.nome, unidade: p0.unidade || 'sacos', real: 0, meta: cap0 * horasMeta, capHora: cap0 });
+        hMeta += horasMeta; semCap = [];
+      }
+    }
     return {
       turno: op.turno,
       producao: { bateu: hMeta > 0 ? hReal >= hMeta - 1e-9 : null, horasReal: hReal, horasMeta: hMeta, itens: itens },
