@@ -278,7 +278,7 @@ body.pz-on #toast-container{top:10px;bottom:auto;left:10px;right:10px;z-index:14
         <!-- TOTAIS -->
         <div id="l-op-totais" style="display:none;margin-top:10px;background:linear-gradient(135deg,#042D4D,#0E3B62);border-radius:10px;padding:14px;color:#fff;">
           <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;text-align:center;">
-            <div><div style="font-size:22px;font-weight:800;color:#C9FF64;" id="l-tot-sacos">0</div><div style="font-size:10px;color:#7aa3c0;">Total Sacos</div></div>
+            <div><div style="font-size:22px;font-weight:800;color:#C9FF64;" id="l-tot-sacos">0</div><div style="font-size:10px;color:#7aa3c0;">Total produzido</div></div>
             <div><div style="font-size:22px;font-weight:800;color:#C9FF64;" id="l-tot-ht">0h</div><div style="font-size:10px;color:#7aa3c0;">Total H.T</div></div>
             <div><div style="font-size:22px;font-weight:800;color:#C9FF64;" id="l-tot-media">—</div><div style="font-size:10px;color:#7aa3c0;">Média sc/h</div></div>
           </div>
@@ -443,10 +443,14 @@ function fmtDataBR(d){
    Só afeta a EXIBIÇÃO: o banco continua guardando o que sempre guardou. */
 function unidadeDoLanc(l){
   const prods=(l&&Array.isArray(l.produtos_op)&&l.produtos_op.length)?l.produtos_op:[{produto:l&&l.produto}];
+  let soUnid=prods.length>0;
   for(const p of prods){
     const un=String(Regras.unidadeDoProduto(p&&p.produto,_prods)||'').toLowerCase().trim();
     if((Regras.UNIDADE_KG[un]||0)>1) return {massa:true,sig:'t',lbl:'Toneladas'};
+    if(!/^unid/.test(un)) soUnid=false;
   }
+  // big bag é cadastrado em "unidades": não é saco (out/2026 — antes somava bag como saco)
+  if(soUnid) return {massa:false,sig:'un',lbl:'Unidades'};
   return {massa:false,sig:'sc',lbl:'Sacos'};
 }
 function qtdDoLanc(l){
@@ -455,18 +459,37 @@ function qtdDoLanc(l){
   if(!prods) return Regras.qtdNaUnidadeDoProduto(l.total_sacos,Regras.unidadeDoProduto(l.produto,_prods));
   return prods.reduce((s,p)=>s+Regras.qtdNaUnidadeDoProduto(p.total_sacos,Regras.unidadeDoProduto(p.produto,_prods)),0);
 }
-function fmtQtd(v,massa){
+function fmtQtd(v,massa,sig){
   const n=Number(v)||0;
   return massa ? n.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:3})+' t'
-               : n.toLocaleString('pt-BR')+' sc';
+               : n.toLocaleString('pt-BR',{maximumFractionDigits:0})+(sig==='un'?' un':' sc');
 }
-function qtdLancTxt(l){ return fmtQtd(qtdDoLanc(l),unidadeDoLanc(l).massa); }
+function qtdLancTxt(l){ const u=unidadeDoLanc(l); return fmtQtd(qtdDoLanc(l),u.massa,u.sig); }
+/* Produção de vários lançamentos separada por unidade — nunca soma saco com bag com tonelada.
+   Só exibição (out/2026). */
+function qtdPorUnidade(lancs){
+  const r={sc:0,un:0,t:0};
+  (lancs||[]).forEach(l=>{
+    const prods=(Array.isArray(l.produtos_op)&&l.produtos_op.length)?l.produtos_op:[{produto:l.produto,total_sacos:l.total_sacos}];
+    prods.forEach(p=>{
+      const un=String(Regras.unidadeDoProduto(p.produto,_prods)||'').toLowerCase().trim();
+      const q=Regras.qtdNaUnidadeDoProduto(p.total_sacos,un)||0;
+      if((Regras.UNIDADE_KG[un]||0)>1) r.t+=q; else if(/^unid/.test(un)) r.un+=q; else r.sc+=q;
+    });
+  });
+  return r;
+}
+function fmtPorUnidade(r,sep){
+  const p=[]; if(r.sc) p.push(fmtQtd(r.sc,false,'sc')); if(r.un) p.push(fmtQtd(r.un,false,'un')); if(r.t) p.push(fmtQtd(r.t,true));
+  return p.length?p.join(sep||' · '):'0';
+}
 // Soma de vários lançamentos da MESMA linha (unidade uniforme).
 function totalDosLancs(lancs){
   const arr=lancs||[];
   const massa=arr.some(l=>unidadeDoLanc(l).massa);
+  const por=qtdPorUnidade(arr);
   return {valor:arr.reduce((s,l)=>s+qtdDoLanc(l),0),massa,
-          lbl:massa?'Toneladas':'Sacos', sig:massa?'t':'sc'};
+          lbl:massa?'Toneladas':'Sacos', sig:massa?'t':'sc', por, txt:fmtPorUnidade(por,'<br>')};
 }
 
 fetch('partials/sidebar.html').then(r=>r.text()).then(html=>{
@@ -477,7 +500,11 @@ fetch('partials/sidebar.html').then(r=>r.text()).then(html=>{
 initSidebar('producao.html');
 
 async function init(){
-  const hoje=new Date().toISOString().split('T')[0];
+  // dia no fuso local (toISOString virava o dia depois das 21h); os filtros de
+  // consulta abrem no mês/dia de ONTEM — o fechamento da fábrica é D-1
+  const _ld=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  const _on=new Date(); _on.setDate(_on.getDate()-1);
+  const hoje=_ld(_on);
   document.getElementById('fm-mes').value=hoje.slice(0,7);
 
   const[{data:ln},{data:tn},{data:fn},{data:mt},{data:pr}]=await Promise.all([
@@ -516,8 +543,8 @@ async function init(){
   const fparM=document.getElementById('fpar-motivo');
   if(fparM){const mots=[...new Set(_motivosDB.map(m=>m.nome))];mots.forEach(m=>{const o=document.createElement('option');o.value=m;o.textContent=m;fparM.appendChild(o);});}
   // Datas padrão paradas = mês atual
-  const fparIni=document.getElementById('fpar-ini');if(fparIni)fparIni.value=new Date().toISOString().slice(0,7)+'-01';
-  const fparFim=document.getElementById('fpar-fim');if(fparFim)fparFim.value=new Date().toISOString().split('T')[0];
+  const fparIni=document.getElementById('fpar-ini');if(fparIni)fparIni.value=hoje.slice(0,7)+'-01';
+  const fparFim=document.getElementById('fpar-fim');if(fparFim)fparFim.value=hoje;
   const sfl=document.getElementById('fl-linha');
   if(sfl)_linhas.forEach(l=>{const o=document.createElement('option');o.value=l.nome;o.textContent=l.nome;sfl.appendChild(o);});
   const sft=document.getElementById('fl-turno');
@@ -530,7 +557,7 @@ async function init(){
   if(sme){const encs=[...new Set(_funcs.map(f=>f.nome))];encs.forEach(n=>{const o=document.createElement('option');o.value=n;o.textContent=n;sme.appendChild(o);});}
 
   await loadLancs();
-  {const pm=document.getElementById('pl-mes');if(pm&&!pm.value)pm.value=new Date().toISOString().slice(0,7);await plMesMudou();}
+  {const pm=document.getElementById('pl-mes');if(pm&&!pm.value)pm.value=hoje.slice(0,7);await plMesMudou();}
   rlL();rlM();renderLinhaBlocks();renderIndicadores();rlParadas();renderPorProduto();
 }
 
@@ -2223,19 +2250,19 @@ function rlM(){
   // Cada um soma no seu campo, e o ranking é pelo ensacado.
   const mp={};lista.forEach(l=>{
     const e=l.encarregado||'Não informado';
-    if(!mp[e])mp[e]={enc:e,turnos:0,ht:0,hp:0,sacos:0,ton:0,htSc:0,hpSc:0,linhas:{}};
+    if(!mp[e])mp[e]={enc:e,turnos:0,ht:0,hp:0,sacos:0,ton:0,un:0,htSc:0,hpSc:0,linhas:{}};
     const u=unidadeDoLanc(l), q=qtdDoLanc(l);
     mp[e].turnos++;mp[e].ht+=l.ht||0;mp[e].hp+=l.hp||0;
-    if(u.massa) mp[e].ton+=q; else { mp[e].sacos+=q; mp[e].htSc+=l.ht||0; mp[e].hpSc+=l.hp||0; }
-    if(!mp[e].linhas[l.linha])mp[e].linhas[l.linha]={sc:0,t:0};
-    if(u.massa) mp[e].linhas[l.linha].t+=q; else mp[e].linhas[l.linha].sc+=q;
+    if(u.massa) mp[e].ton+=q; else if(u.sig==='un') mp[e].un+=q; else { mp[e].sacos+=q; mp[e].htSc+=l.ht||0; mp[e].hpSc+=l.hp||0; }
+    if(!mp[e].linhas[l.linha])mp[e].linhas[l.linha]={sc:0,t:0,un:0};
+    if(u.massa) mp[e].linhas[l.linha].t+=q; else if(u.sig==='un') mp[e].linhas[l.linha].un+=q; else mp[e].linhas[l.linha].sc+=q;
   });
   const rank=Object.values(mp).sort((a,b)=>b.sacos-a.sacos);
   const rg=document.getElementById('ranking-grid');rg.innerHTML='';
   const mdl=['🥇','🥈','🥉'];
-  rank.slice(0,6).forEach((r,i)=>{const hd=r.htSc;const msc=hd>0?(r.sacos/hd).toFixed(1):0;const d=(r.ht+r.hp)>0?Regras.disponibilidade(r.ht,r.hp).toFixed(1):0;const dc=parseFloat(d)>=85?'#16a34a':parseFloat(d)>=70?'#b45309':'#dc2626';rg.innerHTML+=`<div class="card" style="padding:14px;border-left:4px solid ${i===0?'#f59e0b':i===1?'#94a3b8':i===2?'#b45309':'#e2e8f0'};"><div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;"><span style="font-size:20px;">${mdl[i]||`${i+1}°`}</span><div><div style="font-weight:800;color:var(--primary);">${r.enc}</div><div style="font-size:11px;color:#64748b;">${r.turnos} turno(s)</div></div></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:12px;"><div style="background:#f8fafc;border-radius:6px;padding:8px;text-align:center;"><div style="font-size:16px;font-weight:800;color:var(--primary);">${r.sacos.toLocaleString('pt-BR')}</div><div style="color:#64748b;">Sacos${r.ton?' <span style="color:#7c3aed;">+ '+fmtQtd(r.ton,true)+'</span>':''}</div></div><div style="background:#f8fafc;border-radius:6px;padding:8px;text-align:center;"><div style="font-size:16px;font-weight:800;color:${dc};">${d}%</div><div style="color:#64748b;">Disponib.</div></div><div style="background:#f8fafc;border-radius:6px;padding:8px;text-align:center;"><div style="font-size:16px;font-weight:800;color:var(--primary);">${msc}</div><div style="color:#64748b;">sc/h</div></div><div style="background:#f8fafc;border-radius:6px;padding:8px;text-align:center;"><div style="font-size:16px;font-weight:800;color:var(--primary);">${r.ht.toFixed(1)}h</div><div style="color:#64748b;">H.T</div></div></div></div>`;});
+  rank.slice(0,6).forEach((r,i)=>{const hd=r.htSc;const msc=hd>0?(r.sacos/hd).toFixed(1):0;const d=(r.ht+r.hp)>0?Regras.disponibilidade(r.ht,r.hp).toFixed(1):0;const dc=parseFloat(d)>=85?'#16a34a':parseFloat(d)>=70?'#b45309':'#dc2626';rg.innerHTML+=`<div class="card" style="padding:14px;border-left:4px solid ${i===0?'#f59e0b':i===1?'#94a3b8':i===2?'#b45309':'#e2e8f0'};"><div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;"><span style="font-size:20px;">${mdl[i]||`${i+1}°`}</span><div><div style="font-weight:800;color:var(--primary);">${r.enc}</div><div style="font-size:11px;color:#64748b;">${r.turnos} turno(s)</div></div></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:12px;"><div style="background:#f8fafc;border-radius:6px;padding:8px;text-align:center;"><div style="font-size:16px;font-weight:800;color:var(--primary);">${r.sacos.toLocaleString('pt-BR',{maximumFractionDigits:0})}</div><div style="color:#64748b;">Sacos${r.un?' <span style="color:#0369a1;">+ '+fmtQtd(r.un,false,'un')+'</span>':''}${r.ton?' <span style="color:#7c3aed;">+ '+fmtQtd(r.ton,true)+'</span>':''}</div></div><div style="background:#f8fafc;border-radius:6px;padding:8px;text-align:center;"><div style="font-size:16px;font-weight:800;color:${dc};">${d}%</div><div style="color:#64748b;">Disponib.</div></div><div style="background:#f8fafc;border-radius:6px;padding:8px;text-align:center;"><div style="font-size:16px;font-weight:800;color:var(--primary);">${msc}</div><div style="color:#64748b;">sc/h</div></div><div style="background:#f8fafc;border-radius:6px;padding:8px;text-align:center;"><div style="font-size:16px;font-weight:800;color:var(--primary);">${r.ht.toFixed(1)}h</div><div style="color:#64748b;">H.T</div></div></div></div>`;});
   const tbody=document.getElementById('tbody-meta');const empty=document.getElementById('meta-empty');tbody.innerHTML='';if(!rank.length){empty.classList.remove('hidden');return;}empty.classList.add('hidden');
-  rank.forEach((r,i)=>{const hd=r.htSc;const msc=hd>0?(r.sacos/hd).toFixed(1):0;const d=(r.ht+r.hp)>0?Regras.disponibilidade(r.ht,r.hp).toFixed(1):0;const dc=parseFloat(d)>=85?'#16a34a':parseFloat(d)>=70?'#b45309':'#dc2626';const lstr=Object.entries(r.linhas).map(([l,s])=>`${l}: ${s.t?fmtQtd(s.t,true):fmtQtd(s.sc,false)}`).join(' | ');const tr=document.createElement('tr');tr.innerHTML=`<td><strong>${i+1}°</strong></td><td><strong style="color:var(--primary);">${r.enc}</strong></td><td>${r.turnos}</td><td>${r.ht.toFixed(1)}h</td><td style="color:#ef4444;">${r.hp.toFixed(1)}h</td><td><strong style="color:${dc};">${d}%</strong></td><td><strong>${r.sacos.toLocaleString('pt-BR')}</strong>${r.ton?`<div style="font-size:10.5px;color:#7c3aed;font-weight:700;">+ ${fmtQtd(r.ton,true)}</div>`:''}</td><td>${msc}</td><td style="font-size:11px;color:#64748b;">${lstr}</td>`;tbody.appendChild(tr);});
+  rank.forEach((r,i)=>{const hd=r.htSc;const msc=hd>0?(r.sacos/hd).toFixed(1):0;const d=(r.ht+r.hp)>0?Regras.disponibilidade(r.ht,r.hp).toFixed(1):0;const dc=parseFloat(d)>=85?'#16a34a':parseFloat(d)>=70?'#b45309':'#dc2626';const lstr=Object.entries(r.linhas).map(([l,s])=>`${l}: ${[s.sc?fmtQtd(s.sc,false):'',s.un?fmtQtd(s.un,false,'un'):'',s.t?fmtQtd(s.t,true):''].filter(Boolean).join(' + ')||'0'}`).join(' | ');const tr=document.createElement('tr');tr.innerHTML=`<td><strong>${i+1}°</strong></td><td><strong style="color:var(--primary);">${r.enc}</strong></td><td>${r.turnos}</td><td>${r.ht.toFixed(1)}h</td><td style="color:#ef4444;">${r.hp.toFixed(1)}h</td><td><strong style="color:${dc};">${d}%</strong></td><td><strong>${r.sacos.toLocaleString('pt-BR',{maximumFractionDigits:0})}</strong>${r.un?`<div style="font-size:10.5px;color:#0369a1;font-weight:700;">+ ${fmtQtd(r.un,false,'un')}</div>`:''}${r.ton?`<div style="font-size:10.5px;color:#7c3aed;font-weight:700;">+ ${fmtQtd(r.ton,true)}</div>`:''}</td><td>${msc}</td><td style="font-size:11px;color:#64748b;">${lstr}</td>`;tbody.appendChild(tr);});
 }
 
 // ── EXCLUIR ──
@@ -2510,7 +2537,7 @@ async function renderIndicadores(){
   const kpis=document.getElementById('ind-kpis');
   if(kpis)kpis.innerHTML=[
     ['⚙️ OEE Geral',oeeGeral==null?'—':oeeGeral.toFixed(1)+'%'+(oeeLinhas.some(o=>o.oeeParcial)?' *':''),oeeCorG],
-    ['📦 Total Sacos',totSc.toLocaleString('pt-BR'),'var(--primary)'],
+    ['📦 Produção',fmtPorUnidade(qtdPorUnidade(lista),'<br>'),'var(--primary)'],   // por unidade (antes: total_sacos cru, com o kg do granel)
     ['⏱️ H. Trabalhadas',totHT.toFixed(1)+'h','var(--primary)'],
     ['🏭 Lançamentos',lista.length,'var(--primary)'],
     ['🔬 Em Análise',lista.filter(l=>l.status==='em_analise').length,'#b45309'],
@@ -2799,7 +2826,7 @@ function renderLinhaBlocks(){
       var tot=totalDosLancs(lancs);
       var totHP=lancs.reduce(function(s,x){return s+(x.hp||0);},0);
       var totHT=lancs.reduce(function(s,x){return s+(x.ht||0);},0);
-      var cels=[[(tot.massa?'⚖️ ':'📦 ')+tot.lbl,fmtQtd(tot.valor,tot.massa)],['📋 Lançamentos',lancs.length],['🛑 H. Paradas',totHP.toFixed(1)+'h'],['⏱️ H. Trabalhadas',totHT.toFixed(1)+'h']];
+      var cels=[['📦 Produção',tot.txt],['📋 Lançamentos',lancs.length],['🛑 H. Paradas',totHP.toFixed(1)+'h'],['⏱️ H. Trabalhadas',totHT.toFixed(1)+'h']];
       return '<div onclick="abrirLinha(\''+pJs(nome)+'\')" style="cursor:pointer;border:1px solid #e2e8f0;border-radius:14px;overflow:hidden;background:#fff;transition:box-shadow .15s;" onmouseover="this.style.boxShadow=\'0 6px 20px rgba(4,45,77,.12)\'" onmouseout="this.style.boxShadow=\'none\'">'
         +'<div style="padding:14px 16px;background:linear-gradient(135deg,#042D4D,#0E3B62);color:#fff;font-weight:800;font-size:15px;display:flex;justify-content:space-between;align-items:center;">🏭 '+pEsc(nome)+'<span style="font-size:20px;opacity:.8;">›</span></div>'
         +'<div style="padding:14px 16px;display:grid;grid-template-columns:1fr 1fr;gap:8px;">'
@@ -2815,7 +2842,7 @@ function renderLancLinhaHTML(nome,lancs){
   var totHP=lancs.reduce(function(s,l){return s+(l.hp||0);},0);
   var disp=(totHT+totHP)>0?Regras.disponibilidade(totHT,totHP).toFixed(1):'0';   // HT/(HT+HP)×100 (js/regras.js)
   var kpi='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">'
-    +[[(tot.massa?'⚖️ ':'📦 ')+tot.lbl,fmtQtd(tot.valor,tot.massa)],['⏱️ H.T',totHT.toFixed(1)+'h'],['🛑 H.P',totHP.toFixed(1)+'h'],['📊 Disp.',disp+'%']].map(function(a){return '<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:6px 12px;font-size:12px;"><b style="color:#042D4D;">'+a[1]+'</b> <span style="color:#94a3b8;">'+a[0]+'</span></div>';}).join('')+'</div>';
+    +[['📦 Produção',tot.txt],['⏱️ H.T',totHT.toFixed(1)+'h'],['🛑 H.P',totHP.toFixed(1)+'h'],['📊 Disp.',disp+'%']].map(function(a){return '<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:6px 12px;font-size:12px;"><b style="color:#042D4D;">'+a[1]+'</b> <span style="color:#94a3b8;">'+a[0]+'</span></div>';}).join('')+'</div>';
   var rows=lancs.map(function(l){
     var prods=(l.produtos_op&&l.produtos_op.length?l.produtos_op.map(function(p){return p.produto;}).filter(Boolean).join(', '):l.produto)||'—';
     var stCor=l.status==='parada'?'badge-danger':l.status==='em_analise'?'badge-warning':l.status==='reprovado'?'badge-danger':l.status==='aprovado'?'badge-success':'badge-gray';
