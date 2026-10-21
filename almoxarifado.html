@@ -1355,12 +1355,32 @@ async function descartarSolicitacao(solId){
   }catch(e){toast('Erro ao descartar: '+(e.message||e),'warning');return;}
   abrirSolicCad();renderSolicBanner();
 }
-async function concluirSolicitacaoCad(){
+/* Conclui a solicitação e DEVOLVE o vínculo: grava qual item foi criado e, se a
+   solicitação veio de uma peça de equipamento (migração 063), já vincula a peça.
+   Antes o usuário tinha de voltar ao equipamento e fazer "Vincular existente". */
+async function concluirSolicitacaoCad(prodId){
   if(!_solCadId)return;
+  const solId=_solCadId;
   try{
-    await _supabase.from('almoxarifado_solicitacoes_cadastro').update({status:'cadastrada'}).eq('id',_solCadId);
+    const s=getSolicitacoesCad().find(x=>x.id===solId)||{};
+    let r=await _supabase.from('almoxarifado_solicitacoes_cadastro').update({status:'cadastrada',almox_id:prodId||null}).eq('id',solId);
+    if(r.error) await _supabase.from('almoxarifado_solicitacoes_cadastro').update({status:'cadastrada'}).eq('id',solId);   // banco sem a migração 063
+    if(prodId&&s.equipamento_id&&s.componente_uid){
+      const tb=s.origem==='equip_linhas'?'equipamentos_linhas':'equipamentos_gerais';
+      const{data:eq}=await _supabase.from(tb).select('componentes').eq('id',s.equipamento_id).maybeSingle();
+      const comps=(eq&&eq.componentes)||[];
+      const i=comps.findIndex(c=>c&&c.uid===s.componente_uid);
+      if(i>=0&&!comps[i].almox_id){
+        const item=(_itens||[]).find(x=>x.id===prodId);
+        const c={...comps[i],almox_id:prodId}; delete c.sol_id;
+        if(item&&item.custo_unitario!=null) c.valor_unitario=item.custo_unitario;
+        comps[i]=c;   // só esta peça muda; o resto (histórico etc.) fica como está
+        const u=await _supabase.from(tb).update({componentes:comps,atualizado_em:new Date().toISOString()}).eq('id',s.equipamento_id);
+        if(!u.error) toast('🔗 Peça vinculada automaticamente ao equipamento'+(s.equipamento?' '+s.equipamento:'')+'.','success');
+      }
+    }
     await recarregarSolicitacoesCad();
-  }catch(e){}
+  }catch(e){ console.warn('[solicitação de cadastro]',e); }
   _solCadId=null;renderSolicBanner();
 }
 
@@ -1549,7 +1569,7 @@ async function salvarProduto(){
       toast('✅ Produto cadastrado!','success');
     }
     await recarregarItens();
-    if(_solCadId&&!_editProdId)concluirSolicitacaoCad();
+    if(_solCadId&&!_editProdId)concluirSolicitacaoCad(prodId);
     if(_ctxInline){const ctx=_ctxInline;_ctxInline=null;closeModal('m-produto');if(ctx==='entrada')addProdutoEntrada(prodId);else if(ctx==='solicitacao')addProdutoSolicitacao(prodId);}
     else closeModal('m-produto');
   }catch(e){errEl.innerHTML='Erro: '+e.message;errEl.classList.remove('hidden');}
