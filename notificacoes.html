@@ -9,328 +9,160 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="js/supabase.js"></script>
 <script src="js/utils.js"></script>
+<script src="js/regras.js"></script>
+<script src="js/notificacoes-aviso.js"></script>
 <style>
-/* ══════════════════════════════════════════
-   CENTRAL DE NOTIFICAÇÕES
-   ══════════════════════════════════════════ */
+/* ══════════════════════════════════════════════════════════════════════════
+   NOTIFICAÇÕES (out/2026) — caixa de entrada ao vivo
+   Tempo real (Realtime) + som por tipo + aviso na tela do computador.
+   Uma notificação por condição: ela some sozinha quando o problema acaba.
+   ══════════════════════════════════════════════════════════════════════════ */
+:root{
+  --ok:#16a34a; --ok-bg:#dcfce7; --ok-line:#22c55e;
+  --warn:#b45309; --warn-bg:#fef3c7; --warn-line:#f59e0b;
+  --bad:#dc2626; --bad-bg:#fee2e2; --bad-line:#ef4444;
+  --info:#2563eb; --info-bg:#dbeafe; --info-line:#3b82f6;
+  --line:#e3e9f0; --line-soft:#f1f5f9;
+  --ink-2:#475569; --ink-3:#64748b; --ink-4:#94a3b8; --ink-5:#cbd5e1;
+}
+[role="button"],button{cursor:pointer;}
+button:focus-visible,a:focus-visible,[role="button"]:focus-visible{outline:2px solid var(--primary);outline-offset:2px;}
 
-/* ── RESUMO KPI ── */
-.notif-kpis {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  gap: 12px;
-  margin-bottom: 24px;
-}
-.notif-kpi {
-  background: #fff;
-  border-radius: 14px;
-  padding: 16px 18px;
-  border: 1.5px solid #e2e8f0;
-  position: relative;
-  overflow: hidden;
-  cursor: pointer;
-  transition: box-shadow .15s, transform .15s;
-}
-.notif-kpi:hover { box-shadow: 0 4px 16px rgba(4,45,77,.1); transform: translateY(-1px); }
-.notif-kpi::before {
-  content: '';
-  position: absolute;
-  top: 0; left: 0; right: 0;
-  height: 3px;
-  background: var(--kc, #e2e8f0);
-  border-radius: 14px 14px 0 0;
-}
-.notif-kpi-value { font-size: 28px; font-weight: 800; line-height: 1; margin-bottom: 4px; }
-.notif-kpi-label { font-size: 12px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: .4px; }
+.nt-wrap{max-width:1100px;}
+.nt-head{display:flex;justify-content:space-between;align-items:flex-end;gap:14px;flex-wrap:wrap;margin-bottom:18px;}
+.nt-head h1{margin:0;font-size:26px;font-weight:800;color:var(--primary);letter-spacing:-.4px;}
+.nt-live{display:flex;align-items:center;gap:8px;margin-top:6px;font-size:13px;color:var(--ink-3);font-weight:600;flex-wrap:wrap;}
+.nt-live .dot{width:9px;height:9px;border-radius:50%;background:var(--ink-5);flex-shrink:0;}
+.nt-live.on .dot{background:var(--ok-line);box-shadow:0 0 0 0 rgba(34,197,94,.6);animation:ntPulso 2s infinite;}
+.nt-live.on b{color:var(--ok);}
+@keyframes ntPulso{0%{box-shadow:0 0 0 0 rgba(34,197,94,.55)}70%{box-shadow:0 0 0 8px rgba(34,197,94,0)}100%{box-shadow:0 0 0 0 rgba(34,197,94,0)}}
+@media (prefers-reduced-motion:reduce){.nt-live.on .dot{animation:none;}}
+.nt-acts{display:flex;gap:8px;flex-wrap:wrap;}
+.nt-btn{height:44px;padding:0 16px;border-radius:12px;border:1.5px solid var(--line);background:#fff;font:inherit;font-size:13.5px;
+  font-weight:700;color:var(--primary);display:inline-flex;align-items:center;gap:8px;white-space:nowrap;text-decoration:none;}
+.nt-btn:hover{border-color:var(--primary);}
+.nt-btn.pri{background:var(--primary);border-color:var(--primary);color:var(--accent);}
+.nt-btn.pri:hover{filter:brightness(1.12);}
+.nt-btn:disabled{opacity:.6;cursor:default;}
+.nt-btn.mudo{color:var(--ink-3);}
 
-/* ── BARRA FILTROS ── */
-.filtro-bar {
-  background: #fff;
-  border-radius: 14px;
-  border: 1.5px solid #e2e8f0;
-  padding: 14px 18px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-  margin-bottom: 16px;
-}
-.filtro-chip {
-  padding: 7px 16px;
-  border-radius: 20px;
-  border: 1.5px solid #e2e8f0;
-  background: #f8fafc;
-  font-size: 13px;
-  font-weight: 600;
-  color: #475569;
-  cursor: pointer;
-  transition: all .15s;
-  white-space: nowrap;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.filtro-chip:hover { border-color: var(--primary); color: var(--primary); background: #f0f6ff; }
-.filtro-chip.ativo { background: var(--primary); color: #fff; border-color: var(--primary); }
-.chip-cnt {
-  background: rgba(255,255,255,.3);
-  color: inherit;
-  font-size: 10px;
-  font-weight: 800;
-  padding: 1px 6px;
-  border-radius: 10px;
-  min-width: 18px;
-  text-align: center;
-}
-.filtro-chip.ativo .chip-cnt { background: rgba(255,255,255,.25); }
-.chip-cnt.danger { background: #fee2e2; color: #dc2626; }
+/* faixas de aviso (som bloqueado, migração) */
+.nt-faixa{display:flex;align-items:center;gap:12px;border-radius:12px;padding:12px 14px;margin-bottom:12px;font-size:13.5px;font-weight:600;}
+.nt-faixa.som{background:#fff1f2;color:#9f1239;border:1.5px solid #fecdd3;cursor:pointer;}
+.nt-faixa.som:hover{background:#ffe4e6;}
+.nt-faixa.mig{background:var(--warn-bg);color:#7c2d12;border:1.5px solid #fcd34d;}
+.nt-faixa .ic{font-size:22px;}
+.nt-faixa .tx{flex:1;}
+.nt-faixa small{display:block;font-weight:500;opacity:.85;margin-top:2px;}
+.nt-faixa .bt{background:#fff;border:0;border-radius:9px;padding:9px 14px;font:inherit;font-weight:800;color:inherit;white-space:nowrap;}
 
-/* ── CONTROLES BARRA ── */
-.controles-bar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-bottom: 16px;
-}
-.controles-left  { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-.controles-right { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.nt-prog{height:3px;background:transparent;border-radius:3px;overflow:hidden;margin:-6px 0 12px;}
+.nt-prog span{display:block;height:100%;width:0;background:var(--primary);transition:width .25s;}
 
-/* ── GRUPO DE MODULO ── */
-.modulo-grupo { margin-bottom: 24px; }
-.modulo-header {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 10px;
-  padding-bottom: 8px;
-  border-bottom: 2px solid #f1f5f9;
-}
-.modulo-icon {
-  width: 32px; height: 32px;
-  border-radius: 8px;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 16px;
-  flex-shrink: 0;
-}
-.modulo-title {
-  font-size: 14px;
-  font-weight: 800;
-  color: var(--primary);
-}
-.modulo-cnt {
-  font-size: 11px;
-  font-weight: 700;
-  padding: 2px 8px;
-  border-radius: 10px;
-  background: #f1f5f9;
-  color: #64748b;
-}
-.modulo-link {
-  margin-left: auto;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--primary);
-  text-decoration: none;
-  padding: 4px 10px;
-  border-radius: 8px;
-  border: 1px solid var(--primary);
-  transition: all .15s;
-}
-.modulo-link:hover { background: var(--primary); color: #fff; }
+/* abas */
+.nt-tabs{display:flex;gap:4px;background:var(--line-soft);padding:4px;border-radius:12px;margin-bottom:14px;width:fit-content;max-width:100%;overflow-x:auto;}
+.nt-tab{border:0;background:transparent;font:inherit;font-size:14px;font-weight:700;color:var(--ink-3);padding:9px 16px;border-radius:9px;white-space:nowrap;}
+.nt-tab b{display:inline-block;min-width:22px;padding:1px 7px;margin-left:6px;border-radius:20px;background:#fff;color:var(--ink-2);font-size:12px;text-align:center;}
+.nt-tab.on{background:#fff;color:var(--primary);box-shadow:0 1px 3px rgba(4,45,77,.12);}
+.nt-tab.on b{background:var(--primary);color:var(--accent);}
+.nt-tab b.alerta{background:var(--bad);color:#fff;}
 
-/* ── NOTIF ITEM ── */
-.notif-item {
-  background: #fff;
-  border-radius: 12px;
-  border: 1.5px solid #e2e8f0;
-  padding: 0;
-  margin-bottom: 8px;
-  overflow: hidden;
-  transition: box-shadow .15s, border-color .15s;
-  position: relative;
-}
-.notif-item:hover { box-shadow: 0 3px 14px rgba(4,45,77,.09); border-color: #cbd5e1; }
-.notif-item.urgente { border-left: 5px solid #ef4444; }
-.notif-item.aviso   { border-left: 5px solid #f59e0b; }
-.notif-item.info    { border-left: 5px solid #2563eb; }
-.notif-item.sucesso { border-left: 5px solid #22c55e; }
-.notif-item.visto   { opacity: .72; }
-.notif-item.concluido { opacity: .45; }
+/* resumo por gravidade */
+.nt-sev{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:12px;}
+.sv{background:#fff;border:1.5px solid var(--line);border-radius:14px;padding:12px 14px;text-align:left;font:inherit;display:flex;align-items:center;gap:12px;}
+.sv:hover{border-color:#b9c8d8;}
+.sv .n{font-size:28px;font-weight:800;line-height:1;font-variant-numeric:tabular-nums;min-width:34px;}
+.sv .l{font-size:13px;font-weight:700;color:var(--ink-2);}
+.sv .l small{display:block;font-size:11.5px;font-weight:500;color:var(--ink-4);}
+.sv.urgente .n{color:var(--bad);} .sv.aviso .n{color:var(--warn);} .sv.info .n{color:var(--info);}
+.sv.on.urgente{border-color:var(--bad-line);background:#fff5f5;}
+.sv.on.aviso{border-color:var(--warn-line);background:#fffbf0;}
+.sv.on.info{border-color:var(--info-line);background:#f5f9ff;}
+.sv.zero{opacity:.55;}
 
-.notif-main {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 14px 16px;
-  cursor: pointer;
-}
-.notif-ico {
-  width: 40px; height: 40px;
-  border-radius: 10px;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 19px;
-  flex-shrink: 0;
-}
-.notif-ico.urgente { background: #fee2e2; }
-.notif-ico.aviso   { background: #fef9c3; }
-.notif-ico.info    { background: #eff6ff; }
-.notif-ico.sucesso { background: #dcfce7; }
+/* módulos */
+.nt-mods{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px;}
+.md{border:1.5px solid var(--line);background:#fff;border-radius:20px;padding:6px 12px;font:inherit;font-size:12.5px;font-weight:700;color:var(--ink-2);}
+.md b{color:var(--ink-4);font-weight:700;margin-left:4px;}
+.md.on{background:var(--primary);border-color:var(--primary);color:#fff;}
+.md.on b{color:var(--accent);}
 
-.notif-body { flex: 1; min-width: 0; }
-.notif-titulo {
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--primary);
-  margin-bottom: 3px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.notif-desc {
-  font-size: 13px;
-  color: #475569;
-  line-height: 1.5;
-  margin-bottom: 5px;
-}
-.notif-meta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-.notif-tag {
-  font-size: 11px;
-  font-weight: 700;
-  padding: 2px 8px;
-  border-radius: 8px;
-}
-.tag-urgente { background: #fee2e2; color: #dc2626; }
-.tag-aviso   { background: #fef9c3; color: #b45309; }
-.tag-info    { background: #eff6ff; color: #2563eb; }
-.tag-sucesso { background: #dcfce7; color: #16a34a; }
-.notif-ts    { font-size: 11px; color: #94a3b8; }
-.notif-status-badge {
-  font-size: 10px;
-  font-weight: 700;
-  padding: 2px 8px;
-  border-radius: 8px;
-}
-.sb-novo      { background: #f0fdf4; color: #16a34a; border: 1px solid #bbf7d0; }
-.sb-visto     { background: #f8fafc; color: #64748b; border: 1px solid #e2e8f0; }
-.sb-concluido { background: #f1f5f9; color: #94a3b8; border: 1px solid #e2e8f0; }
+/* lista */
+.grp{margin-bottom:18px;}
+.grp-h{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:800;color:var(--ink-2);margin:0 0 8px 2px;}
+.grp-h i{width:10px;height:10px;border-radius:3px;}
+.ni{position:relative;display:grid;grid-template-columns:44px minmax(0,1fr) auto;gap:14px;align-items:start;background:#fff;
+  border:1px solid var(--line);border-radius:14px;padding:14px 16px 14px 18px;margin-bottom:8px;box-shadow:0 1px 2px rgba(4,45,77,.04);}
+.ni::before{content:'';position:absolute;left:0;top:10px;bottom:10px;width:4px;border-radius:0 4px 4px 0;background:var(--ink-5);}
+.ni.urgente::before{background:var(--bad-line);} .ni.aviso::before{background:var(--warn-line);} .ni.info::before{background:var(--info-line);}
+.ni.novo{border-color:#cbd8e6;box-shadow:0 2px 10px rgba(4,45,77,.08);}
+.ni.chegou{animation:ntChegou 1.4s ease-out;}
+@keyframes ntChegou{0%{background:#f3ffd9;transform:translateY(-6px);opacity:.3}30%{opacity:1;transform:none}100%{background:#fff}}
+@media (prefers-reduced-motion:reduce){.ni.chegou{animation:none;}}
+.ni-ic{width:44px;height:44px;border-radius:12px;background:var(--line-soft);display:flex;align-items:center;justify-content:center;font-size:21px;}
+.ni.urgente .ni-ic{background:var(--bad-bg);} .ni.aviso .ni-ic{background:var(--warn-bg);} .ni.info .ni-ic{background:var(--info-bg);}
+.ni-t{font-size:15px;font-weight:800;color:var(--primary);line-height:1.3;display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.ni-nova{font-size:10.5px;font-weight:800;background:var(--accent);color:var(--primary);padding:2px 7px;border-radius:5px;}
+.ni-d{font-size:13.5px;color:var(--ink-2);margin-top:3px;line-height:1.45;}
+.ni-m{font-size:12px;color:var(--ink-4);margin-top:6px;display:flex;gap:4px 12px;flex-wrap:wrap;}
+.ni-m b{color:var(--ink-3);font-weight:700;}
+.ni-det{margin-top:10px;display:flex;flex-wrap:wrap;gap:6px;}
+.ni-det span{background:var(--line-soft);border-radius:8px;padding:5px 9px;font-size:12px;color:var(--ink-2);}
+.ni-det span em{font-style:normal;color:var(--ink-4);margin-right:4px;}
+.ni-mais{border:0;background:none;padding:0;margin-top:6px;font:inherit;font-size:12px;font-weight:700;color:var(--info);}
+.ni-a{display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:flex-end;}
+.ni-b{height:40px;padding:0 13px;border-radius:10px;border:1.5px solid var(--line);background:#fff;font:inherit;font-size:13px;font-weight:700;
+  color:var(--primary);display:inline-flex;align-items:center;gap:6px;text-decoration:none;white-space:nowrap;}
+.ni-b:hover{border-color:var(--primary);}
+.ni-b.ok{background:var(--ok-bg);border-color:transparent;color:#166534;}
+.ni-b.ok:hover{background:#bbf7d0;}
+.ni.resolvida{opacity:.78;}
+.ni.resolvida::before{background:var(--ok-line);}
+.ni.resolvida .ni-ic{background:var(--ok-bg);}
 
-.notif-acoes {
-  display: flex;
-  gap: 4px;
-  align-items: center;
-  flex-shrink: 0;
-  padding-left: 8px;
-}
-.notif-btn {
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 7px;
-  font-size: 11px;
-  font-weight: 600;
-  padding: 5px 10px;
-  cursor: pointer;
-  color: #475569;
-  white-space: nowrap;
-  transition: all .15s;
-}
-.notif-btn:hover       { background: #f1f5f9; border-color: #cbd5e1; color: var(--primary); }
-.notif-btn.btn-verde   { background: #f0fdf4; border-color: #bbf7d0; color: #16a34a; }
-.notif-btn.btn-verde:hover { background: #dcfce7; }
-.notif-btn.btn-red     { background: #fff1f2; border-color: #fecdd3; color: #dc2626; }
-.notif-btn.btn-red:hover   { background: #fee2e2; }
+.nt-vazio{text-align:center;padding:56px 20px;background:#fff;border:1.5px dashed var(--line);border-radius:16px;color:var(--ink-3);}
+.nt-vazio .ic{font-size:40px;}
+.nt-vazio b{display:block;font-size:16px;color:var(--primary);margin-top:8px;}
+.nt-vazio p{margin:4px 0 0;font-size:13px;}
+.nt-rodape{display:flex;justify-content:flex-end;gap:8px;margin-top:6px;}
 
-/* ── DETALHE (expansível) ── */
-.notif-detalhe {
-  display: none;
-  padding: 0 16px 14px 68px;
-  border-top: 1px solid #f1f5f9;
-}
-.notif-detalhe.aberto { display: block; }
-.notif-detalhe-inner {
-  background: #f8fafc;
-  border-radius: 10px;
-  padding: 14px 16px;
-  font-size: 13px;
-  color: #334155;
-  line-height: 1.6;
-}
-.det-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-  gap: 8px;
-  margin-top: 10px;
-}
-.det-cell {
-  background: #fff;
-  border-radius: 8px;
-  padding: 8px 10px;
-  border: 1px solid #e2e8f0;
-}
-.det-label { font-size: 10px; color: #94a3b8; font-weight: 700; text-transform: uppercase; }
-.det-value { font-size: 13px; font-weight: 700; color: var(--primary); margin-top: 2px; }
-.det-action {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 12px;
-  padding: 7px 14px;
-  background: var(--primary);
-  color: #fff;
-  border-radius: 8px;
-  font-size: 12px;
-  font-weight: 700;
-  text-decoration: none;
-  transition: opacity .15s;
-  border: none;
-  cursor: pointer;
-}
-.det-action:hover { opacity: .85; }
+/* configuração (gaveta) */
+.nt-ov{position:fixed;inset:0;z-index:600;background:rgba(3,32,54,.45);display:none;justify-content:flex-end;}
+.nt-ov.on{display:flex;}
+.nt-drw{width:min(420px,100%);height:100%;background:#fff;box-shadow:-12px 0 40px rgba(4,45,77,.2);display:flex;flex-direction:column;}
+.nt-drw-h{display:flex;justify-content:space-between;align-items:center;padding:18px 20px;border-bottom:1px solid var(--line);}
+.nt-drw-h h2{margin:0;font-size:17px;font-weight:800;color:var(--primary);}
+.nt-drw-h p{margin:2px 0 0;font-size:12px;color:var(--ink-3);}
+.nt-x{width:38px;height:38px;border-radius:10px;border:0;background:var(--line-soft);font-size:16px;color:var(--ink-3);}
+.nt-drw-b{flex:1;overflow-y:auto;padding:16px 20px;display:flex;flex-direction:column;gap:16px;}
+.cf-sec h3{margin:0 0 8px;font-size:13px;font-weight:800;color:var(--ink-2);}
+.cf-row{display:flex;align-items:center;gap:12px;padding:11px 12px;border-radius:12px;background:#f8fafc;margin-bottom:6px;}
+.cf-row .tx{flex:1;font-size:14px;font-weight:700;color:var(--primary);}
+.cf-row .tx small{display:block;font-size:12px;font-weight:500;color:var(--ink-3);margin-top:1px;}
+.cf-row .tst{height:34px;padding:0 10px;border-radius:9px;border:1.5px solid var(--line);background:#fff;font:inherit;font-size:12px;font-weight:700;color:var(--primary);}
+.sw{position:relative;width:46px;height:26px;flex-shrink:0;}
+.sw input{opacity:0;width:0;height:0;position:absolute;}
+.sw span{position:absolute;inset:0;background:var(--ink-5);border-radius:20px;transition:background .15s;cursor:pointer;}
+.sw span::after{content:'';position:absolute;left:3px;top:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:transform .15s;box-shadow:0 1px 3px rgba(0,0,0,.2);}
+.sw input:checked+span{background:var(--primary);}
+.sw input:checked+span::after{transform:translateX(20px);background:var(--accent);}
+.sw input:focus-visible+span{outline:2px solid var(--primary);outline-offset:2px;}
+.cf-vol{display:flex;align-items:center;gap:10px;padding:6px 12px;}
+.cf-vol input{flex:1;accent-color:var(--primary);height:28px;}
+.cf-nota{font-size:12px;color:var(--ink-3);line-height:1.5;background:var(--line-soft);border-radius:10px;padding:10px 12px;}
 
-/* ── LOADING / EMPTY ── */
-.notif-loading {
-  text-align: center;
-  padding: 60px 20px;
-  color: #94a3b8;
-}
-.notif-empty {
-  text-align: center;
-  padding: 60px 20px;
-  background: #fff;
-  border-radius: 14px;
-  border: 1.5px dashed #e2e8f0;
-}
-.notif-empty-icon { font-size: 40px; margin-bottom: 12px; }
-.notif-empty-title { font-size: 16px; font-weight: 700; color: var(--primary); margin-bottom: 6px; }
-.notif-empty-sub   { font-size: 13px; color: #94a3b8; }
-
-/* ── PROGRESSBAR verificação ── */
-.verificando-bar {
-  height: 3px;
-  background: #f1f5f9;
-  border-radius: 2px;
-  overflow: hidden;
-  margin-bottom: 20px;
-}
-.verificando-fill {
-  height: 100%;
-  background: var(--primary);
-  border-radius: 2px;
-  transition: width .3s;
-}
-
-/* ── RESPONSIVE ── */
-@media (max-width: 700px) {
-  .notif-acoes { flex-direction: column; }
-  .notif-main  { flex-wrap: wrap; }
-  .notif-detalhe { padding-left: 16px; }
-  .controles-bar { flex-direction: column; align-items: flex-start; }
+@media (max-width:700px){
+  .nt-sev{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;}
+  .sv{flex-direction:column;align-items:flex-start;gap:4px;padding:10px;}
+  .sv .n{font-size:24px;}
+  .sv .l small{display:none;}
+  .ni{grid-template-columns:36px minmax(0,1fr);gap:10px;padding:12px 12px 12px 16px;}
+  .ni-ic{width:36px;height:36px;font-size:17px;border-radius:10px;}
+  .ni-a{grid-column:1/-1;justify-content:stretch;}
+  .ni-a>*{flex:1;justify-content:center;}
+  .nt-acts{width:100%;} .nt-acts .nt-btn{flex:1;justify-content:center;}
+  #notif-clock{display:none;}
+  .topbar-user > div:last-child{display:none;}
 }
 </style>
 </head>
@@ -339,7 +171,7 @@
 
 <header class="topbar" id="topbar">
   <button class="topbar-open-sidebar" onclick="toggleSidebar()">☰</button>
-  <div class="topbar-title">🔔 Notificações</div>
+  <div class="topbar-title">Notificações</div>
   <div class="topbar-right">
     <span id="notif-clock" style="font-size:13px;color:#64748b;font-weight:500;"></span>
     <div class="topbar-user">
@@ -354,192 +186,189 @@
 </header>
 
 <main class="main-content" id="main-content">
+ <div class="nt-wrap">
 
-  <!-- CABEÇALHO -->
-  <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:24px;flex-wrap:wrap;gap:12px;">
+  <div class="nt-head">
     <div>
-      <h1 style="margin:0;font-size:24px;font-weight:800;color:var(--primary);">Central de Notificações</h1>
-      <p style="margin:4px 0 0;font-size:14px;color:#94a3b8;font-weight:500;">Alertas e avisos de todos os módulos do sistema</p>
+      <h1>Notificações</h1>
+      <div class="nt-live" id="nt-live"><span class="dot"></span><span id="nt-live-txt">Conectando…</span></div>
     </div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;">
-      <button class="btn btn-secondary" onclick="verificarAlertas(true)" id="btn-verificar">🔄 Verificar Alertas</button>
-      <button class="btn btn-secondary" onclick="marcarTodasVistas()">👁️ Marcar todas como vistas</button>
-      <button class="btn btn-secondary" onclick="limparConcluidas()" style="color:#94a3b8;">🗑️ Limpar concluídas</button>
-    </div>
-  </div>
-
-  <!-- BARRA DE PROGRESSO VERIFICAÇÃO -->
-  <div class="verificando-bar" id="verificando-bar" style="display:none;">
-    <div class="verificando-fill" id="verificando-fill" style="width:0%;"></div>
-  </div>
-  <div id="verificando-txt" style="font-size:12px;color:#94a3b8;text-align:center;margin-bottom:12px;display:none;"></div>
-
-  <!-- KPIs -->
-  <div class="notif-kpis" id="notif-kpis"></div>
-
-  <!-- CHIPS DE FILTRO -->
-  <div class="filtro-bar">
-    <span style="font-size:12px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.4px;white-space:nowrap;">Filtrar:</span>
-    <button class="filtro-chip ativo" onclick="setFiltro('todos',this)" id="chip-todos">Todos <span class="chip-cnt" id="chip-cnt-todos">0</span></button>
-    <button class="filtro-chip" onclick="setFiltro('novo',this)" id="chip-novo">🆕 Novos <span class="chip-cnt danger" id="chip-cnt-novo">0</span></button>
-    <button class="filtro-chip" onclick="setFiltro('urgente',this)" id="chip-urgente">🔴 Urgentes <span class="chip-cnt" id="chip-cnt-urgente">0</span></button>
-    <button class="filtro-chip" onclick="setFiltro('aviso',this)" id="chip-aviso">🟡 Avisos <span class="chip-cnt" id="chip-cnt-aviso">0</span></button>
-    <button class="filtro-chip" onclick="setFiltro('info',this)" id="chip-info">ℹ️ Info <span class="chip-cnt" id="chip-cnt-info">0</span></button>
-    <button class="filtro-chip" onclick="setFiltro('visto',this)">👁️ Vistos</button>
-    <button class="filtro-chip" onclick="setFiltro('concluido',this)">✅ Concluídos</button>
-    <div style="margin-left:auto;">
-      <select id="filtro-modulo" class="form-input" style="width:175px;font-size:13px;" onchange="renderLista()">
-        <option value="">Todos os módulos</option>
-        <option value="producao">⚙️ Produção</option>
-        <option value="laboratorio">🧪 Laboratório</option>
-        <option value="manutencao">🔧 Manutenção</option>
-        <option value="almoxarifado">📦 Almoxarifado</option>
-        <option value="epi">🦺 EPI</option>
-        <option value="portaria">🚛 Portaria</option>
-        <option value="expedicao">📤 Expedição</option>
-        <option value="frota">🚗 Frota</option>
-        <option value="abastecimento">⛽ Abastecimento</option>
-        <option value="bpf">📋 BPF</option>
-        <option value="rh">👥 RH</option>
-        <option value="equipamentos">⚙️ Equipamentos</option>
-      </select>
+    <div class="nt-acts">
+      <button type="button" class="nt-btn" id="btn-som" onclick="abrirConfig()">🔊 Som e avisos</button>
+      <button type="button" class="nt-btn pri" id="btn-verificar" onclick="verificarAlertas(true)">Verificar agora</button>
     </div>
   </div>
 
-  <!-- CONTROLES -->
-  <div class="controles-bar">
-    <div class="controles-left">
-      <span style="font-size:13px;color:#64748b;font-weight:600;" id="contagem-txt">— notificações</span>
-    </div>
-    <div class="controles-right">
-      <span style="font-size:12px;color:#94a3b8;" id="ultima-atualizacao">—</span>
-      <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:#64748b;cursor:pointer;">
-        <input type="checkbox" id="agrupar-modulo" checked onchange="renderLista()" style="accent-color:var(--primary);">
-        Agrupar por módulo
-      </label>
-    </div>
+  <div id="nt-faixas"></div>
+  <div class="nt-prog" id="nt-prog"><span id="nt-prog-fill"></span></div>
+
+  <div class="nt-tabs" role="tablist" id="nt-tabs">
+    <button type="button" class="nt-tab on" role="tab" data-v="abertas" onclick="setView('abertas')">Para resolver<b id="c-abertas">0</b></button>
+    <button type="button" class="nt-tab" role="tab" data-v="novas" onclick="setView('novas')">Novas<b id="c-novas">0</b></button>
+    <button type="button" class="nt-tab" role="tab" data-v="resolvidas" onclick="setView('resolvidas')">Resolvidas<b id="c-resolvidas">0</b></button>
   </div>
 
-  <!-- ÁREA PRINCIPAL -->
-  <div id="notif-loading" class="notif-loading">
-    <div class="spin" style="width:40px;height:40px;border-width:3px;margin:0 auto 16px;"></div>
-    <div style="font-size:15px;font-weight:600;">Verificando alertas do sistema...</div>
-  </div>
-  <div id="notif-area" style="display:none;"></div>
+  <div class="nt-sev" id="nt-sev"></div>
+  <div class="nt-mods" id="nt-mods"></div>
+  <div id="notif-falhas"></div>
 
+  <div id="notif-loading" style="text-align:center;padding:60px 20px;color:var(--ink-4);">
+    <div class="spin" style="width:36px;height:36px;border-width:3px;margin:0 auto 14px;"></div>
+    <div style="font-size:14px;font-weight:600;">Conferindo os módulos…</div>
+  </div>
+  <div id="nt-lista"></div>
+ </div>
 </main>
+
+<!-- CONFIGURAÇÃO: som e avisos deste aparelho -->
+<div class="nt-ov" id="nt-cfg" onclick="if(event.target===this)fecharConfig()">
+  <div class="nt-drw" role="dialog" aria-modal="true" aria-labelledby="cfg-tit">
+    <div class="nt-drw-h">
+      <div><h2 id="cfg-tit">Som e avisos</h2><p>Vale para este computador ou celular</p></div>
+      <button type="button" class="nt-x" onclick="fecharConfig()" aria-label="Fechar">✕</button>
+    </div>
+    <div class="nt-drw-b" id="cfg-body"></div>
+  </div>
+</div>
 
 <div id="toast-container"></div>
 
 <script>
 /* ═══════════════════════════════════════════════════════
-   ESTADO GLOBAL
+   ESTADO
    ═══════════════════════════════════════════════════════ */
-let _notifs   = [];  // todas as notificações (da tabela + geradas)
-let _filtro   = 'todos';
-let _abertos  = new Set(); // ids com detalhe aberto
+let _notifs = [];
+let _view = 'abertas', _sev = '', _mod = '';
+const _detAberto = new Set();
+let _semMigracao = false, _verificando = false, _ultimaVerif = 0;
+const VERIF_MS = 5 * 60 * 1000;
 
 const MODULOS = {
-  producao:      { icon:'⚙️', label:'Produção',      bg:'#eff6ff', href:'producao.html' },
-  laboratorio:   { icon:'🧪', label:'Laboratório',   bg:'#f0fdf4', href:'laboratorio.html' },
-  manutencao:    { icon:'🔧', label:'Manutenção',    bg:'#fef9c3', href:'manutencao.html' },
-  almoxarifado:  { icon:'📦', label:'Almoxarifado',  bg:'#fff7ed', href:'almoxarifado.html' },
-  epi:           { icon:'🦺', label:'EPI',           bg:'#fdf4ff', href:'epi.html' },
-  portaria:      { icon:'🚛', label:'Portaria',      bg:'#f0fdf4', href:'portaria.html' },
-  expedicao:     { icon:'📤', label:'Expedição',     bg:'#eff6ff', href:'expedicao.html' },
-  frota:         { icon:'🚗', label:'Frota',         bg:'#fff7ed', href:'frota.html' },
-  abastecimento: { icon:'⛽', label:'Abastecimento', bg:'#fefce8', href:'abastecimento.html' },
-  bpf:           { icon:'📋', label:'BPF',           bg:'#f8fafc', href:'bpf.html' },
-  rh:            { icon:'👥', label:'RH',            bg:'#fdf4ff', href:'rh.html' },
-  equipamentos:  { icon:'⚙️', label:'Equipamentos',  bg:'#f8fafc', href:'equip-gerais.html' },
-  compras:       { icon:'🛒', label:'Compras',       bg:'#fff7ed', href:'compras.html' },
-  carregamento:  { icon:'📦', label:'Carregamento',  bg:'#f0fdf4', href:'carregamento.html' },
-  terceiros:     { icon:'🤝', label:'Terceiros',     bg:'#faf5ff', href:'terceiros.html' },
-  sistema:       { icon:'⚙️', label:'Sistema',       bg:'#f8fafc', href:'#' },
+  producao:      { icon:'⚙️', label:'Produção',      href:'producao.html' },
+  laboratorio:   { icon:'🧪', label:'Laboratório',   href:'laboratorio.html' },
+  manutencao:    { icon:'🔧', label:'Manutenção',    href:'manutencao.html' },
+  almoxarifado:  { icon:'📦', label:'Almoxarifado',  href:'almoxarifado.html' },
+  insumos:       { icon:'🧱', label:'Insumos',       href:'insumos.html' },
+  epi:           { icon:'🦺', label:'EPI',           href:'epi.html' },
+  portaria:      { icon:'🚛', label:'Portaria',      href:'portaria.html' },
+  expedicao:     { icon:'📤', label:'Expedição',     href:'expedicao.html' },
+  frota:         { icon:'🚗', label:'Frota',         href:'frota.html' },
+  abastecimento: { icon:'⛽', label:'Abastecimento', href:'abastecimento.html' },
+  bpf:           { icon:'📋', label:'BPF',           href:'bpf.html' },
+  rh:            { icon:'👥', label:'RH',            href:'rh.html' },
+  equipamentos:  { icon:'🛠️', label:'Equipamentos',  href:'equip-gerais.html' },
+  compras:       { icon:'🛒', label:'Compras',       href:'compras.html' },
+  carregamento:  { icon:'🚚', label:'Carregamento',  href:'carregamento.html' },
+  terceiros:     { icon:'🤝', label:'Terceiros',     href:'terceiros.html' },
+  sistema:       { icon:'🔔', label:'Sistema',       href:'' },
 };
+const SEV = {
+  urgente:{ rot:'Urgente',     sub:'pede ação agora',   cor:'var(--bad-line)'  },
+  aviso:  { rot:'Aviso',       sub:'resolver hoje',     cor:'var(--warn-line)' },
+  info:   { rot:'Informativo', sub:'para acompanhar',   cor:'var(--info-line)' },
+};
+const ORD_SEV = { urgente:0, aviso:1, info:2 };
 
-/* ═══════════════════════════════════════════════════════
-   SETUP
-   ═══════════════════════════════════════════════════════ */
-fetch('partials/sidebar.html').then(r=>r.text()).then(html=>{
-  document.getElementById('sidebar-container').innerHTML = html;
-  document.querySelector('[href="notificacoes.html"]')?.classList.add('active');
-  openGroup('principal');
-  initSidebar('notificacoes.html');
-});
-
-setInterval(()=>{
-  document.getElementById('notif-clock').textContent =
-    new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
-}, 1000);
-
-async function init(){
-  await carregarSalvas();
-  await verificarAlertas(false);
+/* ── utilitários ── */
+function _hojeLocal(){ const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+function _diaLocal(n){ const d=new Date(); d.setDate(d.getDate()+n); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+function fmtData(d){ return d?new Date(d+'T12:00:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric'}):'—'; }
+const esc = v => String(v==null?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function haQuanto(iso){
+  if(!iso) return '';
+  const s=(Date.now()-new Date(iso).getTime())/1000;
+  if(s<60) return 'agora';
+  if(s<3600) return `há ${Math.floor(s/60)} min`;
+  if(s<86400) return `há ${Math.floor(s/3600)} h`;
+  const d=Math.floor(s/86400); if(d===1) return 'ontem';
+  if(d<7) return `há ${d} dias`;
+  return new Date(iso).toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'});
+}
+const _st   = n => n.status_notif || (n.lida ? 'visto' : 'novo');
+const _tipo = n => (n.tipo==='alerta' ? 'urgente' : (SEV[n.tipo] ? n.tipo : 'info'));
+const _nomeUser = () => { try{ const u=getUser(); return (u&&(u.nome||u.login))||'Usuário'; }catch(e){ return 'Usuário'; } };
+const _chaveBase = c => String(c||'').replace(/_\d{4}-\d{2}(-\d{2})?$/,'');
+const _qtd = t => { const m=String(t||'').match(/\d+/); return m?parseInt(m[0]):0; };
+function _detObj(d){ if(!d) return null; if(typeof d==='object') return d; try{ return JSON.parse(d); }catch(e){ return null; } }
+const _ROT_DET = { quantidade:'Quantidade', linhas:'Linhas', linha:'Linha', dia:'Dia', data:'Data', itens:'Itens', os:'OS', veiculos:'Veículos',
+  reprovados:'Reprovados', pendentes:'Pendentes', total:'Total', ordens:'Ordens', documentos:'Documentos', nome:'Nome', atual:'Atual', min:'Mínimo' };
+function _detHTML(d){
+  const o=_detObj(d); if(!o||typeof o!=='object') return '';
+  const val=v=>Array.isArray(v)
+    ? v.map(x=>(x&&typeof x==='object')?Object.entries(x).map(([k,y])=>(_ROT_DET[k]?_ROT_DET[k]+': ':'')+(y??'—')).join(' · '):x).join(' | ')
+    : (v&&typeof v==='object'?Object.values(v).join(' · '):v);
+  return Object.entries(o).filter(([k,v])=>k!=='chave'&&v!==''&&v!=null&&!(Array.isArray(v)&&!v.length))
+    .map(([k,v])=>`<span><em>${esc(_ROT_DET[k]||k)}</em>${esc(val(v))}</span>`).join('');
 }
 
 /* ═══════════════════════════════════════════════════════
-   CARREGAR NOTIFICAÇÕES SALVAS
+   CARREGAR
    ═══════════════════════════════════════════════════════ */
 async function carregarSalvas(){
   try{
-    const {data} = await _supabase
-      .from('notificacoes')
-      .select('*')
-      .order('created_at',{ascending:false})
-      .limit(500);
-    _notifs = data || [];
-  } catch(e){ _notifs = []; }
+    const lim = new Date(Date.now()-7*86400000).toISOString();
+    const r = await _supabase.from('notificacoes').select('*')
+      .or(`status_notif.neq.concluido,resolvido_em.gte.${lim}`).order('created_at',{ascending:false}).limit(500);
+    if(r.error){
+      // tabela ainda sem as colunas da migração 061
+      if(/status_notif|resolvido_em|column/i.test(r.error.message||'')){
+        _semMigracao = true;
+        const r2 = await _supabase.from('notificacoes').select('*').order('created_at',{ascending:false}).limit(300);
+        _notifs = r2.data||[];
+        return;
+      }
+      throw r.error;
+    }
+    _semMigracao = false;
+    _notifs = r.data||[];
+  }catch(e){ console.warn('[notificações] carregar:',e); }
 }
-
 /* ═══════════════════════════════════════════════════════
-   VERIFICAR ALERTAS — todos os módulos
+   VERIFICAR — confere os módulos e sincroniza com o banco
+   Roda ao abrir, a cada 5 min com a tela aberta e no botão.
    ═══════════════════════════════════════════════════════ */
-async function verificarAlertas(mostrarProgresso = true){
-  const btn = document.getElementById('btn-verificar');
-  if(btn){ btn.disabled = true; btn.innerHTML = '<span class="spin" style="width:14px;height:14px;border-width:2px;display:inline-block;vertical-align:middle;margin-right:6px;"></span>Verificando...'; }
-
-  const barra  = document.getElementById('verificando-bar');
-  const fill   = document.getElementById('verificando-fill');
-  const txt    = document.getElementById('verificando-txt');
-  if(mostrarProgresso){ barra.style.display='block'; txt.style.display='block'; }
-
-  const hoje    = new Date().toISOString().split('T')[0];
-  const em7dias = new Date(Date.now()+7*86400000).toISOString().split('T')[0];
-  const novosGerados = [];
-  // Fontes que falharam nesta verificação. Uma fonte quebrada (ex.: coluna renomeada
-  // no banco) gerava ZERO alertas em silêncio — e "sem alerta" é indistinguível de
-  // "está tudo bem". Agora a falha aparece na tela em vez de ficar só no console.
-  const falhas = [];
+async function verificarAlertas(manual){
+  if(_verificando) return;
+  _verificando = true;
+  const btn=document.getElementById('btn-verificar');
+  if(btn){ btn.disabled=true; btn.textContent='Verificando…'; }
+  const fill=document.getElementById('nt-prog-fill');
+  const hoje=_hojeLocal(), em7dias=_diaLocal(7);
+  const gerados=[], falhas=[], fontesOk=new Set();
 
   async function passo(pct, label, fn){
-    if(mostrarProgresso){ fill.style.width = pct+'%'; txt.textContent = label; }
+    if(fill) fill.style.width=pct+'%';
+    const fonte = String(label).replace(/[^A-Za-zÀ-ÿ ]/g,'').replace(/Verificando/i,'').trim().toLowerCase();
+    const out=[];
     try{
-      await fn(novosGerados, hoje, em7dias);
-    } catch(e){
-      const nome = String(label).replace(/^[^A-Za-zÀ-ÿ]*/,'').replace(/Verificando\s*/i,'').replace(/\.\.\.$/,'').trim();
-      falhas.push({ fonte: nome || label, erro: (e && e.message) ? e.message : String(e) });
+      await fn(out, hoje, em7dias);
+      fontesOk.add(fonte);
+      out.forEach(n=>{ n.fonte=fonte; n.chave=_chaveBase(n.chave); n.detalhe=_detObj(n.detalhe); gerados.push(n); });
+    }catch(e){
+      falhas.push({ fonte: fonte || label, erro: (e && e.message) ? e.message : String(e) });
       console.warn('[notificações] falhou:', label, e);
     }
   }
 
   // ── 01 PRODUÇÃO ──────────────────────────────────────
   await passo(6, '⚙️ Verificando Produção...', async(out)=>{
-    const mes = new Date().toISOString().slice(0,7);
+    const mes = _hojeLocal().slice(0,7);
     const {data:lancs} = await _supabase.from('producao').select('id,linha,status,data,turno').gte('data',mes+'-01').lte('data',mes+'-31');
     const l = lancs||[];
     const reprovados = l.filter(x=>x.status==='reprovado');
     const emAnalise  = l.filter(x=>x.status==='em_analise');
-    // Sem lançamento hoje por linha
+    // Sem lançamento ONTEM por linha (o fechamento da fábrica é D-1; domingo não cobra)
     const {data:linhas} = await _supabase.from('linhas_producao').select('nome').eq('status','ativo');
-    const hoje_ = new Date().toISOString().split('T')[0];
-    const linhasHoje = new Set(l.filter(x=>x.data===hoje_).map(x=>x.linha));
-    (linhas||[]).forEach(ln=>{
-      if(!linhasHoje.has(ln.nome))
-        out.push({tipo:'aviso',modulo:'producao',titulo:'Sem lançamento hoje',
-          descricao:`Linha ${ln.nome} não possui lançamento registrado hoje (${fmtData(hoje_)}).`,
-          detalhe:JSON.stringify({linha:ln.nome,data:hoje_}),chave:`prod_sem_lanc_${ln.nome}_${hoje_}`});
-    });
+    const ontem_ = _diaLocal(-1);
+    const {data:lancOntem} = await _supabase.from('producao').select('linha').eq('data',ontem_);
+    const linhasOntem = new Set((lancOntem||[]).map(x=>x.linha));
+    if(new Date(ontem_+'T12:00:00').getDay()!==0)
+      (linhas||[]).forEach(ln=>{
+        if(!linhasOntem.has(ln.nome))
+          out.push({tipo:'aviso',modulo:'producao',titulo:`${ln.nome}: sem OP lançada ontem`,
+            descricao:`A linha ${ln.nome} não tem lançamento de produção em ${fmtData(ontem_)}. Se a linha rodou, falta lançar a OP.`,
+            detalhe:{linha:ln.nome,dia:fmtData(ontem_)},chave:`prod_sem_lanc_${ln.nome}`});
+      });
     if(reprovados.length)
       out.push({tipo:'urgente',modulo:'producao',titulo:'Lançamentos reprovados',
         descricao:`${reprovados.length} lançamento(s) com status REPROVADO no mês atual.`,
@@ -553,7 +382,7 @@ async function verificarAlertas(mostrarProgresso = true){
 
   // ── 02 LABORATÓRIO ───────────────────────────────────
   await passo(13, '🧪 Verificando Laboratório...', async(out)=>{
-    const mes = new Date().toISOString().slice(0,7);
+    const mes = _hojeLocal().slice(0,7);
     const {data:lancs} = await _supabase.from('producao').select('id').gte('data',mes+'-01').lte('data',mes+'-31');
     const ids = (lancs||[]).map(l=>l.id);
     if(ids.length){
@@ -647,18 +476,21 @@ async function verificarAlertas(mostrarProgresso = true){
         detalhe:JSON.stringify({quantidade:sols.length}),chave:`alm_sols_${hoje}`});
   });
 
-  // ── 05 EPI ───────────────────────────────────────────
+  // ── 05 EPI — mesma regra do módulo EPI e do dashboard (Regras.epiPendencias):
+  //    entrega substituída, devolvida ou de funcionário desligado não é pendência
   await passo(31, '🦺 Verificando EPI...', async(out)=>{
-    const {data:vencidos} = await _supabase.from('epi_entregas').select('funcionario_id,epi_id,data_prevista_troca').lt('data_prevista_troca',hoje);
-    const {data:proximos} = await _supabase.from('epi_entregas').select('funcionario_id,epi_id,data_prevista_troca').gte('data_prevista_troca',hoje).lte('data_prevista_troca',em7dias);
-    if((vencidos||[]).length)
-      out.push({tipo:'urgente',modulo:'epi',titulo:'EPIs com prazo vencido',
-        descricao:`${vencidos.length} EPI(s) com data de troca VENCIDA. Substituição obrigatória.`,
-        detalhe:JSON.stringify({quantidade:vencidos.length}),chave:`epi_vencido_${hoje}`});
-    if((proximos||[]).length)
-      out.push({tipo:'aviso',modulo:'epi',titulo:'EPIs a vencer em 7 dias',
-        descricao:`${proximos.length} EPI(s) com prazo de troca nos próximos 7 dias.`,
-        detalhe:JSON.stringify({quantidade:proximos.length}),chave:`epi_prox_${hoje}`});
+    const [{data:ent},{data:funcs}] = await Promise.all([
+      _supabase.from('epi_entregas').select('id,funcionario_id,epi_id,data_entrega,data_prevista_troca,devolvido_em,created_at'),
+      _supabase.from('funcionarios').select('id,status')]);
+    const pend = Regras.epiPendencias(ent||[], funcs||[], hoje);
+    if(pend.vencidas.length)
+      out.push({tipo:'urgente',modulo:'epi',titulo:'EPIs com troca vencida',
+        descricao:`${pend.vencidas.length} EPI(s) com data de troca VENCIDA. Substituição obrigatória.`,
+        detalhe:{quantidade:pend.vencidas.length},chave:`epi_vencido`});
+    if(pend.proximas.length)
+      out.push({tipo:'aviso',modulo:'epi',titulo:'EPIs para trocar em breve',
+        descricao:`${pend.proximas.length} EPI(s) com troca prevista nos próximos dias.`,
+        detalhe:{quantidade:pend.proximas.length},chave:`epi_prox`});
   });
 
   // ── 06 PORTARIA ──────────────────────────────────────
@@ -753,7 +585,7 @@ async function verificarAlertas(mostrarProgresso = true){
       out.push({tipo:'info',modulo:'rh',titulo:'Funcionários em férias',
         descricao:`${ferias.length} funcionário(s) em gozo de férias atualmente.`,
         detalhe:JSON.stringify({quantidade:ferias.length}),chave:`rh_ferias_${hoje}`});
-    const em30 = new Date(Date.now()+30*86400000).toISOString().split('T')[0];
+    const em30 = _diaLocal(30);
     const {data:ferPrev} = await _supabase.from('rh_ferias').select('funcionario_id,data_inicio').eq('status','agendada').gte('data_inicio',hoje).lte('data_inicio',em30);
     if((ferPrev||[]).length)
       out.push({tipo:'info',modulo:'rh',titulo:'Férias agendadas nos próximos 30 dias',
@@ -847,346 +679,295 @@ async function verificarAlertas(mostrarProgresso = true){
         detalhe:JSON.stringify({quantidade:antigos.length}),chave:`terc_antigos_${hoje}`});
   });
 
-  fill.style.width = '100%';
+  if(fill) fill.style.width='100%';
+  await sincronizar(gerados, fontesOk);
+  _ultimaVerif = Date.now();
+  _renderFalhasFontes(falhas);
+  document.getElementById('notif-loading').style.display='none';
+  render();
+  setTimeout(()=>{ if(fill) fill.style.width='0'; }, 600);
+  if(btn){ btn.disabled=false; btn.textContent='Verificar agora'; }
+  _verificando = false;
+  if(manual && typeof toast==='function') toast('Verificação concluída.','success');
+}
 
-  // ── SALVAR NOVOS — recarregar banco antes de comparar (fonte única de verdade) ──
+/* Uma notificação ABERTA por condição (chave):
+   • condição nova            → insere (toca o som)
+   • piorou (mais itens ou
+     tipo mais grave)         → atualiza e volta para "Nova" (toca de novo)
+   • mudou o texto            → só atualiza
+   • deixou de existir        → resolvida sozinha (só se a fonte respondeu)   */
+async function sincronizar(gerados, fontesOk){
   await carregarSalvas();
+  if(_semMigracao){
+    // sem as colunas novas não dá para gravar: mostra o que foi encontrado agora, só na tela
+    _notifs = _notifs.concat(gerados.map((g,i)=>({...g, id:'tmp-'+i, status_notif:'novo', created_at:new Date().toISOString(), _tmp:true})));
+    return;
+  }
+  const abertas = _notifs.filter(n=>_st(n)!=='concluido' && n.chave);
+  const porChave = new Map(abertas.map(n=>[n.chave,n]));
+  const chavesAgora = new Set(gerados.map(g=>g.chave));
+  const agora = new Date().toISOString();
+  const tarefas = [], chegaram = [];
 
-  const chavesExistentes  = new Set(_notifs.map(n=>n.chave).filter(Boolean));
-  const titulosExistentes = new Set(_notifs.map(n=>n.titulo+'|'+n.modulo));
-  // Deduplica por chave (se coluna existir) ou por titulo+modulo (fallback)
-  const paraInserir = novosGerados.filter(n=>{
-    if(n.chave && chavesExistentes.has(n.chave)) return false;
-    if(!n.chave && titulosExistentes.has(n.titulo+'|'+n.modulo)) return false;
-    return true;
-  });
-
-  let inseridos = 0;
-
-  for(const n of paraInserir){
-    const payload = {
-      tipo:         n.tipo,
-      modulo:       n.modulo,
-      titulo:       n.titulo,
-      descricao:    n.descricao,
-      status_notif: 'novo',
-      created_at:   new Date().toISOString(),
-    };
-    let ok = false;
-    // Tentativa completa (com chave + detalhe)
-    try{
-      const {data:ins, error} = await _supabase
-        .from('notificacoes')
-        .insert({...payload, chave:n.chave||null, detalhe:n.detalhe||null})
-        .select('id').single();
-      if(!error && ins){ inseridos++; ok = true; }
-    }catch(e){}
-    // Fallback sem colunas extras caso a tabela não as tenha
-    if(!ok){
-      try{
-        const {data:ins2, error:e2} = await _supabase
-          .from('notificacoes')
-          .insert(payload)
-          .select('id').single();
-        if(!e2 && ins2) inseridos++;
-      }catch(e){}
+  for(const g of gerados){
+    const ex = porChave.get(g.chave);
+    if(!ex){
+      tarefas.push((async()=>{
+        const {data,error} = await _supabase.from('notificacoes').insert({
+          tipo:g.tipo, modulo:g.modulo, titulo:g.titulo, descricao:g.descricao, detalhe:g.detalhe||null,
+          chave:g.chave, fonte:g.fonte, status_notif:'novo', lida:false }).select('*').single();
+        if(!error && data){ _notifs.unshift(data); chegaram.push(data); }
+      })());
+      continue;
+    }
+    const piorou = (ORD_SEV[g.tipo]??2) < (ORD_SEV[_tipo(ex)]??2) || _qtd(g.descricao) > _qtd(ex.descricao);
+    if(piorou || ex.descricao!==g.descricao || ex.titulo!==g.titulo || ex.tipo!==g.tipo){
+      const upd = { tipo:g.tipo, titulo:g.titulo, descricao:g.descricao, detalhe:g.detalhe||null, atualizado_em:agora };
+      if(piorou && _st(ex)!=='novo') Object.assign(upd,{ status_notif:'novo', lida:false });
+      tarefas.push((async()=>{
+        const {data,error} = await _supabase.from('notificacoes').update(upd).eq('id',ex.id).select('*').single();
+        if(!error && data){ Object.assign(ex,data); if(piorou) chegaram.push(ex); }
+      })());
     }
   }
-
-  // Limpar concluídas com mais de 48h
-  const limite = new Date(Date.now()-48*3600000).toISOString();
-  try{
-    await _supabase.from('notificacoes').delete()
-      .eq('status_notif','concluido').lt('created_at',limite);
-  }catch(e){}
-
-  // Única recarga após todos os inserts — contagem sempre reflete o banco real
-  await carregarSalvas();
-  atualizarContadores();
-  renderLista();
-
-  if(mostrarProgresso){
-    setTimeout(()=>{ barra.style.display='none'; txt.style.display='none'; },800);
-  } else {
-    barra.style.display='none'; txt.style.display='none';
+  for(const n of abertas){
+    if(n.fonte && fontesOk.has(n.fonte) && !chavesAgora.has(n.chave)){
+      const upd = { status_notif:'concluido', lida:true, resolvido_em:agora, resolvido_por:'Sistema — o problema deixou de existir' };
+      tarefas.push(_supabase.from('notificacoes').update(upd).eq('id',n.id).then(({error})=>{ if(!error){ Object.assign(n,upd); AvisoNotif.confirmar(n.id); } }));
+    }
   }
-
-  document.getElementById('ultima-atualizacao').textContent =
-    'Atualizado: ' + new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})
-    + (falhas.length ? ' \u00b7 ' + falhas.length + ' fonte(s) sem resposta' : '');
-  _renderFalhasFontes(falhas);
-
-  document.getElementById('notif-loading').style.display = 'none';
-  document.getElementById('notif-area').style.display    = 'block';
-
-  if(btn){ btn.disabled=false; btn.innerHTML='🔄 Verificar Alertas'; }
-  // Toast conta apenas o que foi realmente inserido no banco
-  if(inseridos > 0) toast(`${inseridos} novo(s) alerta(s) detectado(s)!`,'warning');
+  // resolvidas há mais de 30 dias saem do banco
+  tarefas.push(_supabase.from('notificacoes').delete().eq('status_notif','concluido')
+    .lt('resolvido_em', new Date(Date.now()-30*86400000).toISOString()).then(()=>{},()=>{}));
+  await Promise.all(tarefas.map(t=>Promise.resolve(t).catch(e=>console.warn('[notificações] gravar:',e))));
+  // um som só (o do mais grave); o resto entra calado na lista
+  chegaram.sort((a,b)=>(ORD_SEV[_tipo(a)]??2)-(ORD_SEV[_tipo(b)]??2));
+  chegaram.forEach((n,i)=>{ _chegou.add(n.id); AvisoNotif.anunciar(n,{silencioso:i>0,denovo:true}); });
+  if(chegaram.length>1 && typeof toast==='function') toast(`${chegaram.length} notificações novas`,'warning');
 }
-
 /* ═══════════════════════════════════════════════════════
-   CONTADORES
+   RENDER
    ═══════════════════════════════════════════════════════ */
-function atualizarContadores(){
-  const novos    = _notifs.filter(n=>n.status_notif==='novo'||!n.status_notif).length;
-  const urgentes = _notifs.filter(n=>n.tipo==='urgente').length;
-  const avisos   = _notifs.filter(n=>n.tipo==='aviso').length;
-  const infos    = _notifs.filter(n=>n.tipo==='info').length;
-  const vistos   = _notifs.filter(n=>n.status_notif==='visto').length;
-  const concl    = _notifs.filter(n=>n.status_notif==='concluido').length;
+const _chegou = new Set();   // ids que acabaram de chegar (animação)
+function setView(v){ _view=v; _sev=''; _mod=''; render(); }
+function setSev(s){ _sev=_sev===s?'':s; render(); }
+function setMod(m){ _mod=_mod===m?'':m; render(); }
 
-  document.getElementById('chip-cnt-todos').textContent   = _notifs.length;
-  document.getElementById('chip-cnt-novo').textContent    = novos;
-  document.getElementById('chip-cnt-urgente').textContent = urgentes;
-  document.getElementById('chip-cnt-aviso').textContent   = avisos;
-  document.getElementById('chip-cnt-info').textContent    = infos;
+function render(){
+  const abertas = _notifs.filter(n=>_st(n)!=='concluido');
+  const novas   = _notifs.filter(n=>_st(n)==='novo');
+  const resolv  = _notifs.filter(n=>_st(n)==='concluido');
+  const cn=document.getElementById('c-novas');
+  document.getElementById('c-abertas').textContent=abertas.length;
+  cn.textContent=novas.length; cn.classList.toggle('alerta',novas.some(n=>_tipo(n)==='urgente'));
+  document.getElementById('c-resolvidas').textContent=resolv.length;
+  document.querySelectorAll('.nt-tab').forEach(b=>{ const on=b.dataset.v===_view; b.classList.toggle('on',on); b.setAttribute('aria-selected',on); });
+  document.title = (novas.length?`(${novas.length}) `:'')+'Notificações — ERP Industrial';
 
-  document.getElementById('notif-kpis').innerHTML = [
-    {label:'Novos',     value:novos,    cor:'#7c3aed', kc:'#7c3aed', filtro:'novo'},
-    {label:'Urgentes',  value:urgentes, cor:'#dc2626', kc:'#ef4444', filtro:'urgente'},
-    {label:'Avisos',    value:avisos,   cor:'#b45309', kc:'#f59e0b', filtro:'aviso'},
-    {label:'Informativos',value:infos,  cor:'#2563eb', kc:'#2563eb', filtro:'info'},
-    {label:'Vistos',    value:vistos,   cor:'#64748b', kc:'#94a3b8', filtro:'visto'},
-    {label:'Concluídos',value:concl,    cor:'#16a34a', kc:'#22c55e', filtro:'concluido'},
-  ].map(k=>`
-    <div class="notif-kpi" style="--kc:${k.kc};" onclick="setFiltro('${k.filtro}',null)">
-      <div class="notif-kpi-value" style="color:${k.cor};">${k.value}</div>
-      <div class="notif-kpi-label">${k.label}</div>
-    </div>`).join('');
-}
+  const base = _view==='novas'?novas:_view==='resolvidas'?resolv:abertas;
 
-/* ═══════════════════════════════════════════════════════
-   FILTRO
-   ═══════════════════════════════════════════════════════ */
-function setFiltro(f, btn){
-  _filtro = f;
-  document.querySelectorAll('.filtro-chip').forEach(c=>c.classList.remove('ativo'));
-  if(btn) btn.classList.add('ativo');
-  renderLista();
-}
+  // resumo por gravidade (não aparece em Resolvidas)
+  const sevEl=document.getElementById('nt-sev');
+  sevEl.style.display=_view==='resolvidas'?'none':'';
+  sevEl.innerHTML=Object.entries(SEV).map(([k,c])=>{
+    const q=base.filter(n=>_tipo(n)===k).length;
+    return `<button type="button" class="sv ${k}${_sev===k?' on':''}${q?'':' zero'}" onclick="setSev('${k}')" aria-pressed="${_sev===k}">
+      <span class="n">${q}</span><span class="l">${c.rot}<small>${c.sub}</small></span></button>`;
+  }).join('');
 
-/* ═══════════════════════════════════════════════════════
-   RENDER LISTA
-   ═══════════════════════════════════════════════════════ */
-function renderLista(){
-  const modulo   = document.getElementById('filtro-modulo').value;
-  const agrupar  = document.getElementById('agrupar-modulo').checked;
-  const area     = document.getElementById('notif-area');
+  let lista = base.filter(n=>!_sev||_tipo(n)===_sev);
+  // módulos presentes
+  const mods={}; lista.forEach(n=>{ const m=MODULOS[n.modulo]?n.modulo:'sistema'; mods[m]=(mods[m]||0)+1; });
+  if(_mod&&!mods[_mod]) _mod='';
+  document.getElementById('nt-mods').innerHTML=Object.keys(mods).length>1||_mod
+    ? Object.entries(mods).sort((a,b)=>b[1]-a[1]).map(([m,q])=>`<button type="button" class="md${_mod===m?' on':''}" onclick="setMod('${m}')">${MODULOS[m].icon} ${MODULOS[m].label}<b>${q}</b></button>`).join('')
+    : '';
+  if(_mod) lista=lista.filter(n=>(MODULOS[n.modulo]?n.modulo:'sistema')===_mod);
 
-  let lista = [..._notifs];
-
-  // Filtro de status
-  if(_filtro==='novo')      lista = lista.filter(n=>n.status_notif==='novo'||!n.status_notif);
-  else if(_filtro==='visto')     lista = lista.filter(n=>n.status_notif==='visto');
-  else if(_filtro==='concluido') lista = lista.filter(n=>n.status_notif==='concluido');
-  else if(_filtro==='urgente')   lista = lista.filter(n=>n.tipo==='urgente');
-  else if(_filtro==='aviso')     lista = lista.filter(n=>n.tipo==='aviso');
-  else if(_filtro==='info')      lista = lista.filter(n=>n.tipo==='info');
-
-  // Filtro de módulo
-  if(modulo) lista = lista.filter(n=>n.modulo===modulo);
-
-  // Ordenação: novo > urgente > aviso > info, depois data desc
-  const ordTipo = {urgente:0,aviso:1,info:2,sucesso:3};
-  const ordSt   = {novo:0,visto:1,concluido:2};
-  lista.sort((a,b)=>{
-    const sa=(ordSt[a.status_notif]??0), sb=(ordSt[b.status_notif]??0);
-    if(sa!==sb) return sa-sb;
-    const ta=(ordTipo[a.tipo]??3), tb=(ordTipo[b.tipo]??3);
-    if(ta!==tb) return ta-tb;
-    return (b.created_at||'').localeCompare(a.created_at||'');
-  });
-
-  document.getElementById('contagem-txt').textContent = `${lista.length} notificação(ões)`;
-
+  const el=document.getElementById('nt-lista');
   if(!lista.length){
-    area.innerHTML = `<div class="notif-empty">
-      <div class="notif-empty-icon">✅</div>
-      <div class="notif-empty-title">Nenhuma notificação</div>
-      <div class="notif-empty-sub">O sistema está sem alertas para o filtro selecionado.</div>
-    </div>`;
+    const msg = _view==='resolvidas'
+      ? ['📭','Nada resolvido nos últimos 7 dias','']
+      : ['✅','Tudo em ordem', _view==='novas'?'Nenhuma notificação nova.':'Nenhum problema aberto nos módulos verificados.'];
+    el.innerHTML=`<div class="nt-vazio"><div class="ic">${msg[0]}</div><b>${msg[1]}</b><p>${msg[2]}</p></div>`;
     return;
   }
 
-  if(agrupar){
-    // Agrupar por módulo
-    const grupos = {};
-    lista.forEach(n=>{
-      const m = n.modulo||'sistema';
-      if(!grupos[m]) grupos[m]=[];
-      grupos[m].push(n);
+  if(_view==='resolvidas'){
+    lista.sort((a,b)=>String(b.resolvido_em||b.created_at).localeCompare(String(a.resolvido_em||a.created_at)));
+    el.innerHTML=lista.map(itemHTML).join('')+
+      `<div class="nt-rodape"><button type="button" class="nt-btn" onclick="limparResolvidas()">Limpar resolvidas</button></div>`;
+  } else {
+    lista.sort((a,b)=>{
+      const sa=_st(a)==='novo'?0:1, sb=_st(b)==='novo'?0:1; if(sa!==sb) return sa-sb;
+      return String(b.atualizado_em||b.created_at).localeCompare(String(a.atualizado_em||a.created_at));
     });
-    area.innerHTML = Object.entries(grupos).map(([mod, itens])=>{
-      const cfg = MODULOS[mod]||MODULOS.sistema;
-      return `<div class="modulo-grupo">
-        <div class="modulo-header">
-          <div class="modulo-icon" style="background:${cfg.bg};">${cfg.icon}</div>
-          <span class="modulo-title">${cfg.label}</span>
-          <span class="modulo-cnt">${itens.length}</span>
-          <a class="modulo-link" href="${cfg.href}">Abrir módulo →</a>
-        </div>
-        ${itens.map(n=>renderItem(n)).join('')}
-      </div>`;
-    }).join('');
-  } else {
-    area.innerHTML = lista.map(n=>renderItem(n)).join('');
+    el.innerHTML=Object.keys(SEV).map(k=>{
+      const it=lista.filter(n=>_tipo(n)===k); if(!it.length) return '';
+      return `<section class="grp"><div class="grp-h"><i style="background:${SEV[k].cor};"></i>${SEV[k].rot} · ${it.length}</div>${it.map(itemHTML).join('')}</section>`;
+    }).join('')+(novas.length&&_view!=='resolvidas'
+      ? `<div class="nt-rodape"><button type="button" class="nt-btn" onclick="marcarTodasVistas()">Marcar todas como vistas</button></div>`:'');
   }
-
-  // Re-aplicar abertos
-  _abertos.forEach(id=>{
-    const el = document.getElementById(`det-${id}`);
-    if(el) el.classList.add('aberto');
-  });
+  _chegou.clear();
 }
 
-/* ── RENDER ITEM ── */
-function renderItem(n){
-  const tipo = n.tipo||'info';
-  const sn   = n.status_notif||'novo';
-  const cfg  = MODULOS[n.modulo||'sistema']||MODULOS.sistema;
-  const ts   = n.created_at?new Date(n.created_at).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'—';
-
-  const tagCls  = {urgente:'tag-urgente',aviso:'tag-aviso',info:'tag-info',sucesso:'tag-sucesso'}[tipo]||'tag-info';
-  const tagTxt  = {urgente:'🔴 Urgente',aviso:'🟡 Aviso',info:'ℹ️ Info',sucesso:'✅ OK'}[tipo]||tipo;
-  const snCls   = {novo:'sb-novo',visto:'sb-visto',concluido:'sb-concluido'}[sn]||'sb-novo';
-  const snTxt   = {novo:'🆕 Novo',visto:'👁️ Visto',concluido:'✅ Concluído'}[sn]||'Novo';
-
-  // Botões de ação
-  const btnVisto = sn==='novo'
-    ? `<button class="notif-btn" onclick="event.stopPropagation();marcarVisto('${n.id}')" title="Marcar como visto">👁️ Visto</button>`
-    : '';
-  const btnConcl = sn!=='concluido'
-    ? `<button class="notif-btn btn-verde" onclick="event.stopPropagation();marcarConcluido('${n.id}')" title="Concluir">✅ Concluir</button>`
-    : '';
-  const btnDel = `<button class="notif-btn btn-red" onclick="event.stopPropagation();excluir('${n.id}')" title="Excluir">🗑️</button>`;
-
-  // Detalhe expandido
-  let detalheHtml = '';
-  if(n.detalhe){
-    try{
-      const d = JSON.parse(n.detalhe);
-      const cells = Object.entries(d).filter(([k])=>!['chave'].includes(k)).map(([k,v])=>{
-        const val = Array.isArray(v)?v.join(', '):(typeof v==='object'&&v?JSON.stringify(v):String(v??'—'));
-        return `<div class="det-cell"><div class="det-label">${k}</div><div class="det-value" style="font-size:12px;">${val}</div></div>`;
-      }).join('');
-      detalheHtml = `<div class="det-grid">${cells}</div>`;
-    }catch(e){}
-  }
-
-  return `<div class="notif-item ${tipo} ${sn}" id="ni-${n.id}">
-    <div class="notif-main" onclick="toggleDetalhe('${n.id}')">
-      <div class="notif-ico ${tipo}">${cfg.icon}</div>
-      <div class="notif-body">
-        <div class="notif-titulo">${n.titulo||'—'}</div>
-        <div class="notif-desc">${n.descricao||'—'}</div>
-        <div class="notif-meta">
-          <span class="notif-tag ${tagCls}">${tagTxt}</span>
-          <span class="notif-status-badge ${snCls}">${snTxt}</span>
-          <span class="notif-ts">📅 ${ts}</span>
-          <span style="font-size:11px;color:#94a3b8;">${cfg.label}</span>
-        </div>
-      </div>
-      <div class="notif-acoes" onclick="event.stopPropagation()">
-        ${btnVisto}
-        ${btnConcl}
-        ${btnDel}
-      </div>
+function itemHTML(n){
+  const st=_st(n), tp=_tipo(n), cfg=MODULOS[n.modulo]||MODULOS.sistema;
+  const det=_detHTML(n.detalhe), aberto=_detAberto.has(n.id);
+  const atual = n.atualizado_em && n.created_at && (new Date(n.atualizado_em)-new Date(n.created_at))>60000;
+  const meta=[`<b>${cfg.label}</b>`, haQuanto(n.created_at)];
+  if(st!=='concluido' && atual) meta.push('atualizada '+haQuanto(n.atualizado_em));
+  if(st==='visto' && n.visto_por) meta.push('vista por '+esc(n.visto_por));
+  if(st==='concluido') meta.push('resolvida '+haQuanto(n.resolvido_em||n.atualizado_em)+(n.resolvido_por?' · '+esc(n.resolvido_por):''));
+  const id=esc(n.id), tmp=!!n._tmp;
+  const acoes = st==='concluido' ? (cfg.href?`<a class="ni-b" href="${cfg.href}">Abrir ${cfg.label}</a>`:'') :
+    `${cfg.href?`<a class="ni-b" href="${cfg.href}" onclick="return abrirModulo(event,'${id}','${cfg.href}')">Abrir</a>`:''}
+     ${st==='novo'&&!tmp?`<button type="button" class="ni-b" onclick="marcarVisto('${id}')">✓ Vi</button>`:''}
+     ${!tmp?`<button type="button" class="ni-b ok" onclick="resolver('${id}')">Resolvido</button>`:''}`;
+  return `<article class="ni ${tp} ${st==='novo'?'novo':''} ${st==='concluido'?'resolvida':''} ${_chegou.has(n.id)?'chegou':''}" id="ni-${id}">
+    <div class="ni-ic" aria-hidden="true">${st==='concluido'?'✅':cfg.icon}</div>
+    <div>
+      <div class="ni-t">${esc(n.titulo||'—')}${st==='novo'?'<span class="ni-nova">NOVA</span>':''}</div>
+      <div class="ni-d">${esc(n.descricao||n.mensagem||'')}</div>
+      <div class="ni-m">${meta.map(m=>`<span>${m}</span>`).join('')}</div>
+      ${det?(aberto?`<div class="ni-det">${det}</div><button type="button" class="ni-mais" onclick="togDet('${id}')">Esconder detalhes</button>`
+                   :`<button type="button" class="ni-mais" onclick="togDet('${id}')">Ver detalhes</button>`):''}
     </div>
-    <div class="notif-detalhe" id="det-${n.id}">
-      <div class="notif-detalhe-inner">
-        <div style="font-size:13px;color:#334155;margin-bottom:8px;">${n.descricao||''}</div>
-        ${detalheHtml}
-        <a class="det-action" href="${cfg.href}">Ir para ${cfg.label} →</a>
-      </div>
-    </div>
-  </div>`;
+    <div class="ni-a">${acoes}</div>
+  </article>`;
 }
-
-function toggleDetalhe(id){
-  const el = document.getElementById(`det-${id}`);
-  if(!el) return;
-  if(el.classList.contains('aberto')){
-    el.classList.remove('aberto'); _abertos.delete(id);
-  } else {
-    el.classList.add('aberto'); _abertos.add(id);
-    // Marcar como visto ao abrir
-    const n = _notifs.find(x=>x.id===id);
-    if(n && (n.status_notif==='novo'||!n.status_notif)) marcarVisto(id, false);
-  }
-}
+function togDet(id){ _detAberto.has(id)?_detAberto.delete(id):_detAberto.add(id); render(); }
 
 /* ═══════════════════════════════════════════════════════
    AÇÕES
    ═══════════════════════════════════════════════════════ */
-async function marcarVisto(id, rerender=true){
-  try{ await _supabase.from('notificacoes').update({status_notif:'visto'}).eq('id',id); }catch(e){}
-  const n = _notifs.find(x=>x.id===id);
-  if(n) n.status_notif = 'visto';
-  if(rerender){ atualizarContadores(); renderLista(); }
+async function _gravar(id, upd){
+  const n=_notifs.find(x=>String(x.id)===String(id)); if(!n||n._tmp) return false;
+  const antes={...n}; Object.assign(n,upd); render();
+  const {error}=await _supabase.from('notificacoes').update(upd).eq('id',id);
+  if(error){ Object.assign(n,antes); render(); if(typeof toast==='function') toast('Não foi possível gravar: '+error.message,'danger'); return false; }
+  return true;
 }
-
-async function marcarConcluido(id){
-  try{ await _supabase.from('notificacoes').update({status_notif:'concluido'}).eq('id',id); }catch(e){}
-  const n = _notifs.find(x=>x.id===id);
-  if(n) n.status_notif = 'concluido';
-  atualizarContadores(); renderLista();
-  toast('Notificação concluída.','success');
+function marcarVisto(id, rerender=true){
+  const n=_notifs.find(x=>String(x.id)===String(id));
+  AvisoNotif.confirmar(id);
+  if(!n||_st(n)!=='novo') return;
+  const p=_gravar(id,{status_notif:'visto',lida:true,visto_em:new Date().toISOString(),visto_por:_nomeUser()});
+  if(!rerender) return p;
 }
-
-async function excluir(id){
-  if (!guardAction('notificacoes', 'delete')) return;
-  try{ await _supabase.from('notificacoes').delete().eq('id',id); }catch(e){}
-  _notifs = _notifs.filter(x=>x.id!==id);
-  _abertos.delete(id);
-  atualizarContadores(); renderLista();
+async function abrirModulo(ev,id,href){
+  ev.preventDefault();
+  try{ await Promise.race([marcarVisto(id,false), new Promise(r=>setTimeout(r,1200))]); }catch(e){}
+  location.href=href; return false;
 }
-
+async function resolver(id){
+  AvisoNotif.confirmar(id);
+  const ok=await _gravar(id,{status_notif:'concluido',lida:true,resolvido_em:new Date().toISOString(),resolvido_por:_nomeUser()});
+  if(ok&&typeof toast==='function') toast('Marcada como resolvida. Se o problema continuar, ela volta na próxima verificação.','success');
+}
 async function marcarTodasVistas(){
-  try{ await _supabase.from('notificacoes').update({status_notif:'visto'}).eq('status_notif','novo'); }catch(e){}
-  _notifs.filter(n=>n.status_notif==='novo'||!n.status_notif).forEach(n=>n.status_notif='visto');
-  atualizarContadores(); renderLista();
-  toast('Todas marcadas como vistas.','success');
+  AvisoNotif.confirmar(null);
+  const ids=_notifs.filter(n=>_st(n)==='novo'&&!n._tmp).map(n=>n.id); if(!ids.length) return;
+  const upd={status_notif:'visto',lida:true,visto_em:new Date().toISOString(),visto_por:_nomeUser()};
+  _notifs.forEach(n=>{ if(ids.includes(n.id)) Object.assign(n,upd); }); render();
+  const {error}=await _supabase.from('notificacoes').update(upd).in('id',ids);
+  if(error&&typeof toast==='function') toast('Não foi possível gravar: '+error.message,'danger');
+}
+async function limparResolvidas(){
+  if(typeof guardAction==='function' && !guardAction('notificacoes','delete')) return;
+  const {error}=await _supabase.from('notificacoes').delete().eq('status_notif','concluido');
+  if(error){ if(typeof toast==='function') toast('Não foi possível limpar: '+error.message,'danger'); return; }
+  _notifs=_notifs.filter(n=>_st(n)!=='concluido'); render();
 }
 
-async function limparConcluidas(){
-  try{ await _supabase.from('notificacoes').delete().eq('status_notif','concluido'); }catch(e){}
-  _notifs = _notifs.filter(n=>n.status_notif!=='concluido');
-  atualizarContadores(); renderLista();
-  toast('Notificações concluídas removidas.','success');
-}
-
-/* Aviso de fonte que não respondeu. Sem isso, um alerta que parou de funcionar
-   parece "está tudo bem" — o pior tipo de falha num painel de alertas.          */
+/* Fonte que não respondeu: sem isso, um alerta que parou de funcionar parece "está tudo bem". */
 function _renderFalhasFontes(falhas){
-  let box = document.getElementById('notif-falhas');
-  if(!box){
-    const area = document.getElementById('notif-area') || document.body;
-    box = document.createElement('div');
-    box.id = 'notif-falhas';
-    area.parentNode.insertBefore(box, area);
-  }
-  if(!falhas || !falhas.length){ box.style.display='none'; box.innerHTML=''; return; }
-  box.style.display='';
-  box.innerHTML = `<div style="background:#fff7ed;border:2px solid #fb923c;border-radius:10px;padding:12px 14px;margin-bottom:14px;">
-    <div style="font-weight:800;color:#b45309;font-size:13px;">\u26a0\ufe0f ${falhas.length} fonte(s) de alerta n\u00e3o responderam</div>
-    <div style="font-size:12px;color:#7c2d12;margin-top:6px;line-height:1.6;">
-      ${falhas.map(f=>`\u2022 <strong>${f.fonte}</strong> <span style="color:#9a3412;">\u2014 ${String(f.erro).slice(0,110)}</span>`).join('<br>')}
-    </div>
-    <div style="font-size:11px;color:#9a3412;margin-top:8px;">
-      Enquanto isso, <strong>estes alertas n\u00e3o est\u00e3o sendo gerados</strong> \u2014 aus\u00eancia de aviso aqui n\u00e3o significa que est\u00e1 tudo certo nessa \u00e1rea.
-    </div>
-  </div>`;
+  const box=document.getElementById('notif-falhas');
+  if(!falhas||!falhas.length){ box.innerHTML=''; return; }
+  box.innerHTML=`<div class="nt-faixa mig"><span class="ic">⚠️</span><span class="tx">${falhas.length} verificação(ões) não responderam: ${falhas.map(f=>esc(f.fonte)).join(', ')}
+    <small>Enquanto isso, essas áreas não geram aviso — ausência de notificação aqui não quer dizer que está tudo certo.</small></span></div>`;
 }
 
-/* ── UTILITÁRIOS ── */
-function fmtData(d){ return d?new Date(d+'T12:00:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric'}):'—'; }
+/* ═══════════════════════════════════════════════════════
+   ESTADO AO VIVO + SOM
+   ═══════════════════════════════════════════════════════ */
+let _estadoAviso = null;
+function renderEstado(st){
+  if(st) _estadoAviso=st; st=_estadoAviso; if(!st) return;
+  const live=document.getElementById('nt-live');
+  live.classList.toggle('on',!!st.conectado);
+  const prox=_ultimaVerif?Math.max(0,Math.ceil((_ultimaVerif+VERIF_MS-Date.now())/60000)):null;
+  document.getElementById('nt-live-txt').innerHTML=(st.conectado?'<b>Ao vivo</b>':'Conferindo a cada 1 min')+
+    (_ultimaVerif?` · módulos verificados ${haQuanto(new Date(_ultimaVerif).toISOString())}${prox!=null?` · próxima em ${prox||'<1'} min`:''}`:'');
+  const p=st.prefs, b=document.getElementById('btn-som');
+  b.textContent=p.som?'🔊 Som e avisos':'🔇 Som desligado'; b.classList.toggle('mudo',!p.som);
+  const faixas=[];
+  if(_semMigracao) faixas.push(`<div class="nt-faixa mig"><span class="ic">🛠️</span><span class="tx">Falta rodar a migração <b>061_notificacoes_central.sql</b> no Supabase
+    <small>Até lá, o que a verificação encontra aparece só nesta tela — não grava, não toca em outros computadores e "Vi"/"Resolvido" ficam desativados.</small></span></div>`);
+  if(p.som && !st.liberado) faixas.push(`<div class="nt-faixa som" role="button" tabindex="0" onclick="liberarSom()"><span class="ic">🔇</span>
+    <span class="tx">O navegador está segurando o som<small>Toque aqui uma vez para as notificações tocarem neste aparelho.</small></span><span class="bt">Ligar som</span></div>`);
+  document.getElementById('nt-faixas').innerHTML=faixas.join('');
+  if(document.getElementById('nt-cfg').classList.contains('on')) renderConfig();
+}
+function liberarSom(){ AvisoNotif.liberar(); setTimeout(()=>AvisoNotif.tocar('info',true),200); }
 
-/* ── AUTO-REFRESH ── */
-setInterval(()=>verificarAlertas(false), 10*60*1000);
+/* ── configuração ── */
+function abrirConfig(){ renderConfig(); document.getElementById('nt-cfg').classList.add('on'); setTimeout(()=>document.querySelector('#nt-cfg .nt-x')?.focus(),50); }
+function fecharConfig(){ document.getElementById('nt-cfg').classList.remove('on'); document.getElementById('btn-som').focus(); }
+function _sw(id,on,fn){ return `<label class="sw"><input type="checkbox" id="${id}" ${on?'checked':''} onchange="${fn}"><span></span></label>`; }
+function cfgSet(k,v){ AvisoNotif.salvarPrefs({[k]:v}); renderEstado(AvisoNotif.estado()); }
+function renderConfig(){
+  const st=AvisoNotif.estado(), p=st.prefs;
+  const tela = st.tela==='granted'?'Ligado neste navegador':st.tela==='denied'?'Bloqueado — libere nas configurações do navegador':st.tela==='nao-suportado'?'Este navegador não suporta':'Ainda não autorizado';
+  document.getElementById('cfg-body').innerHTML=`
+    <div class="cf-sec"><h3>Som</h3>
+      <div class="cf-row"><span class="tx">Tocar som<small>${st.liberado?'Som liberado neste aparelho':'Falta um toque na tela para liberar'}</small></span>${_sw('cf-som',p.som,"cfgSet('som',this.checked)")}</div>
+      <div class="cf-vol"><span aria-hidden="true">🔈</span><input type="range" min="0.2" max="1" step="0.1" value="${p.volume}" aria-label="Volume" onchange="cfgSet('volume',+this.value);AvisoNotif.tocar('aviso',true)"><span aria-hidden="true">🔊</span></div>
+    </div>
+    <div class="cf-sec"><h3>Quais tocam</h3>
+      ${['urgente','aviso','info'].map(k=>`<div class="cf-row"><span class="tx">${SEV[k].rot}<small>${{urgente:'Alarme de dois tons',aviso:'Dois bipes',info:'Toque curto'}[k]}</small></span>
+        <button type="button" class="tst" onclick="AvisoNotif.liberar();AvisoNotif.tocar('${k}',true)">Testar</button>${_sw('cf-'+k,p[k],`cfgSet('${k}',this.checked)`)}</div>`).join('')}
+      <div class="cf-row"><span class="tx">Repetir o urgente<small>A cada 20 s, até alguém tocar em "Vi" (no máximo 3 min)</small></span>${_sw('cf-rep',p.repetir,"cfgSet('repetir',this.checked)")}</div>
+    </div>
+    <div class="cf-sec"><h3>Aviso na tela do computador</h3>
+      <div class="cf-row"><span class="tx">Mostrar quando o ERP estiver em segundo plano<small>${tela}</small></span>
+        ${st.tela==='granted'?_sw('cf-tela',p.tela,"cfgSet('tela',this.checked)"):st.tela==='default'?`<button type="button" class="tst" onclick="AvisoNotif.pedirTela().then(()=>renderEstado(AvisoNotif.estado()))">Permitir</button>`:''}</div>
+    </div>
+    <div class="cf-nota">Os módulos são conferidos ao abrir esta tela e a cada 5 minutos enquanto ela estiver aberta. Notificação gravada por outro módulo (ex.: pedido de correção do laboratório) chega na hora em qualquer tela que use este aviso.</div>`;
+}
 
-if(document.readyState==='loading'){
-  document.addEventListener('DOMContentLoaded', init);
-} else { init(); }
+/* ═══════════════════════════════════════════════════════
+   INÍCIO
+   ═══════════════════════════════════════════════════════ */
+fetch('partials/sidebar.html').then(r=>r.text()).then(html=>{
+  document.getElementById('sidebar-container').innerHTML=html;
+  document.querySelector('[href="notificacoes.html"]')?.classList.add('active');
+  openGroup('principal');
+  initSidebar('notificacoes.html');
+});
+setInterval(()=>{
+  const c=document.getElementById('notif-clock');
+  if(c) c.textContent=new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+},1000);
+setInterval(()=>{ renderEstado(); const lista=document.getElementById('nt-lista'); if(!lista.contains(document.activeElement)) render(); }, 30000);   // "há X min" anda sozinho
+setInterval(()=>{ if(!document.hidden||Date.now()-_ultimaVerif>2*VERIF_MS) verificarAlertas(false); }, VERIF_MS);
+document.addEventListener('keydown',e=>{ if(e.key==='Escape') fecharConfig(); });
+
+async function init(){
+  AvisoNotif.iniciar({
+    // gravada por outro módulo/aba → entra na lista na hora
+    aoChegar: n=>{ if(!_notifs.some(x=>String(x.id)===String(n.id))){ _notifs.unshift(n); _chegou.add(n.id); } render(); },
+    aoMudar:  n=>{ const x=_notifs.find(y=>String(y.id)===String(n.id)); if(x){ Object.assign(x,n); render(); } },
+  });
+  AvisoNotif.aoMudarEstado(renderEstado);
+  await carregarSalvas();
+  render();
+  document.getElementById('notif-loading').style.display=_notifs.length?'none':'';
+  await verificarAlertas(false);
+  renderEstado();
+}
+if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',init); else init();
 </script>
 </body>
 </html>
