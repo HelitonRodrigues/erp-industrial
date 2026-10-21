@@ -4,11 +4,149 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ERP Industrial — Turnos</title>
-<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/style.css">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="js/supabase.js"></script>
 <script src="js/utils.js"></script>
+<style>
+/* ══════════════════════════════════════════════════════════════════════════
+   TURNOS (out/2026) — mesmo desenho do Painel da fábrica
+   • O NOME do turno liga OPs, funcionários e escala (texto): com uso, o nome
+     fica travado e o turno não pode ser excluído — vira Inativo.
+   • "Cobertura da semana": as 24 h de cada dia com os turnos escolhidos — mostra
+     buraco (máquina sem turno) e sobreposição. Útil para montar a escala 5x2.
+   • Avisos de cadastro: dia marcado sem horário; refeição com duração diferente
+     do horário informado.
+   • Cálculo de jornada (hora noturna reduzida, escala por pessoa) sem mudança.
+   ══════════════════════════════════════════════════════════════════════════ */
+:root{
+  --ok:#16a34a; --ok-bg:#dcfce7; --ok-line:#22c55e;
+  --warn:#b45309; --warn-bg:#fef3c7; --warn-line:#f59e0b;
+  --bad:#dc2626; --bad-bg:#fee2e2; --bad-line:#ef4444;
+  --info:#2563eb; --info-bg:#dbeafe;
+  --wd-line:#e3e9f0; --line-soft:#f1f5f9;
+  --ink-2:#475569; --ink-3:#64748b; --ink-4:#94a3b8; --ink-5:#cbd5e1;
+  --wd-shadow:0 1px 2px rgba(4,45,77,.05);
+}
+button:focus-visible,a:focus-visible,[role="button"]:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--primary);outline-offset:2px;}
+.eq-head{display:flex;justify-content:space-between;align-items:flex-end;gap:14px;flex-wrap:wrap;margin-bottom:16px;}
+.eq-head h1{margin:0;font-size:26px;font-weight:800;color:var(--primary);letter-spacing:-.4px;}
+.eq-head p{margin:3px 0 0;font-size:13px;color:var(--ink-3);}
+.eq-acts{display:flex;gap:8px;flex-wrap:wrap;}
+.b{height:44px;padding:0 15px;border-radius:12px;border:1.5px solid var(--wd-line);background:#fff;font:inherit;font-size:13.5px;
+  font-weight:700;color:var(--primary);cursor:pointer;display:inline-flex;align-items:center;gap:7px;white-space:nowrap;}
+.b:hover{border-color:var(--primary);}
+.b.pri{background:var(--primary);border-color:var(--primary);color:var(--accent);}
+.b.sm{height:36px;padding:0 11px;font-size:12.5px;border-radius:9px;}
+.b.perigo{color:var(--bad);} .b.perigo:hover{border-color:var(--bad);}
+.b:disabled{opacity:.55;cursor:default;}
+
+.pend{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;}
+.pend .pi{display:inline-flex;align-items:center;gap:8px;border:1.5px solid #fcd34d;background:var(--warn-bg);color:#7c2d12;
+  border-radius:10px;padding:8px 12px;font:inherit;font-size:13px;font-weight:700;cursor:pointer;}
+.pend .pi.on{background:#7c2d12;border-color:#7c2d12;color:#fff;}
+.pend .pi b{font-size:15px;}
+
+.tiles{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;margin-bottom:16px;}
+.tile{background:#fff;border:1px solid var(--wd-line);border-radius:14px;padding:14px 16px;box-shadow:var(--wd-shadow);text-align:left;font:inherit;cursor:pointer;min-width:0;}
+.tile:hover{border-color:#b9c8d8;} .tile.on{border-color:var(--primary);box-shadow:0 0 0 1px var(--primary);}
+.tile.hero{background:var(--primary);border-color:var(--primary);cursor:default;}
+.tile:not([onclick]){cursor:default;}
+.pz-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;padding:10px 12px;border-bottom:1px solid var(--line-soft);cursor:pointer;}
+.pz-row:hover{background:#f8fafc;}
+.pz-row b{color:var(--primary);} .pz-row .cod{font-family:ui-monospace,Menlo,monospace;font-size:12px;color:var(--ink-3);margin-left:6px;}
+.pz-row .sub{display:block;font-size:11.5px;color:var(--ink-4);margin-top:2px;}
+.pz-det{padding:4px 12px 12px 24px;border-bottom:1px solid var(--line-soft);background:#fafcfe;}
+.pz-eq{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;font-size:13px;border-bottom:1px dashed var(--line-soft);}
+.pz-eq:last-child{border-bottom:0;}
+.tile-l{font-size:12.5px;font-weight:700;color:var(--ink-2);}
+.tile-v{font-size:28px;font-weight:800;color:var(--primary);letter-spacing:-.5px;line-height:1.1;margin-top:6px;font-variant-numeric:tabular-nums;}
+.tile-s{font-size:11.5px;color:var(--ink-3);margin-top:3px;}
+.tile.hero .tile-l{color:rgba(255,255,255,.8);} .tile.hero .tile-v{color:var(--accent);} .tile.hero .tile-s{color:rgba(255,255,255,.6);}
+.tile.ruim .tile-v{color:var(--bad);} .tile.atencao .tile-v{color:var(--warn);}
+
+.filtros{display:flex;gap:10px;flex-wrap:wrap;align-items:center;background:#fff;border:1px solid var(--wd-line);border-radius:14px;padding:10px 12px;margin-bottom:14px;box-shadow:var(--wd-shadow);}
+.busca{flex:1 1 240px;position:relative;}
+.busca input{width:100%;height:40px;padding-left:36px;}
+.busca span{position:absolute;left:12px;top:50%;transform:translateY(-50%);font-size:14px;opacity:.6;}
+.seg{display:flex;gap:3px;background:var(--line-soft);padding:3px;border-radius:10px;flex-wrap:wrap;}
+.seg button{border:0;background:transparent;font:inherit;font-size:13px;font-weight:700;color:var(--ink-3);padding:7px 12px;border-radius:7px;cursor:pointer;white-space:nowrap;}
+.seg button.on{background:var(--accent);color:var(--primary);box-shadow:0 1px 3px rgba(4,45,77,.18);}
+.seg button.on b{color:var(--primary);opacity:.65;}
+.seg button:not(.on):hover{color:var(--primary);background:rgba(255,255,255,.6);}
+.seg button b{font-weight:700;color:var(--ink-4);margin-left:4px;}
+
+.tag{display:inline-flex;align-items:center;gap:4px;font-size:11.5px;font-weight:700;padding:3px 9px;border-radius:20px;white-space:nowrap;}
+.tag.ok{background:var(--ok-bg);color:#166534;} .tag.warn{background:var(--warn-bg);color:#92400e;}
+.vazio{text-align:center;padding:40px 16px;color:var(--ink-3);background:#fff;border:1.5px dashed var(--wd-line);border-radius:14px;}
+.vazio b{display:block;color:var(--primary);font-size:15px;margin-top:6px;}
+.ib{width:36px;height:36px;border-radius:9px;border:1.5px solid var(--wd-line);background:#fff;font-size:14px;cursor:pointer;color:var(--primary);}
+.ib:hover{border-color:var(--primary);} .ib.x{color:var(--bad);} .ib.x:hover{border-color:var(--bad);}
+.ficha-g{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px;margin-bottom:14px;}
+.ficha-c{background:#f8fafc;border-radius:10px;padding:10px 12px;}
+.ficha-c span{display:block;font-size:11px;font-weight:700;color:var(--ink-4);}
+.ficha-c b{display:block;font-size:13.5px;color:var(--primary);margin-top:2px;word-break:break-word;}
+.tag.gray{background:var(--line-soft);color:var(--ink-3);} .tag.info{background:var(--info-bg);color:#1e40af;} .tag.bad{background:var(--bad-bg);color:#991b1b;}
+.trava{font-size:11.5px;color:var(--ink-3);margin-top:4px;line-height:1.4;}
+.wd{background:#fff;border:1px solid var(--wd-line);border-radius:14px;padding:16px 18px;box-shadow:var(--wd-shadow);margin-bottom:16px;}
+.wd-h{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;margin-bottom:12px;}
+.wd-h h2{margin:0;font-size:15.5px;font-weight:800;color:var(--primary);}
+.wd-h p{margin:2px 0 0;font-size:12px;color:var(--ink-3);}
+/* cobertura */
+.cv-sel{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;}
+.cv-chip{display:inline-flex;align-items:center;gap:6px;border:1.5px solid var(--wd-line);background:#fff;border-radius:20px;padding:5px 11px;font:inherit;font-size:12.5px;font-weight:700;color:var(--ink-3);cursor:pointer;}
+.cv-chip i{width:10px;height:10px;border-radius:3px;}
+.cv-chip.on{color:var(--primary);border-color:var(--primary);background:#f8fafc;}
+.cv-chip:not(.on) i{opacity:.35;}
+.cv-atalho{border:0;background:none;font:inherit;font-size:12.5px;font-weight:700;color:var(--info);cursor:pointer;padding:5px 4px;}
+.cv{display:grid;grid-template-columns:46px minmax(0,1fr) 70px;gap:4px 10px;align-items:center;}
+.cv-d{font-size:12.5px;font-weight:800;color:var(--ink-2);}
+.cv-t{position:relative;background:#f8fafc;border-radius:7px;overflow:hidden;}
+.cv-t .gap{position:absolute;top:0;bottom:0;background:repeating-linear-gradient(45deg,#fee2e2 0 6px,#fff1f2 6px 12px);}
+.cv-t .bar{position:absolute;border-radius:4px;opacity:.92;}
+.cv-t .bar:hover{opacity:1;outline:2px solid var(--primary);z-index:2;}
+.cv-t .ref{position:absolute;background:rgba(255,255,255,.7);}
+.cv-r{font-size:11.5px;color:var(--ink-3);text-align:right;font-variant-numeric:tabular-nums;}
+.cv-r.gap{color:var(--bad);font-weight:700;}
+.cv-ax{position:relative;height:16px;grid-column:2;}
+.cv-ax span{position:absolute;transform:translateX(-50%);font-size:10.5px;color:var(--ink-4);}
+.cv-leg{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--ink-3);margin-top:10px;}
+.cv-leg i{display:inline-block;width:14px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px;}
+/* cartões */
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:12px;}
+.tc{background:#fff;border:1px solid var(--wd-line);border-radius:16px;padding:16px;box-shadow:var(--wd-shadow);display:flex;flex-direction:column;gap:12px;min-width:0;border-top:4px solid var(--c,var(--primary));}
+.tc.inat{opacity:.6;}
+.tc-top{cursor:pointer;}
+.tc-top b{display:block;font-size:17px;font-weight:800;color:var(--primary);}
+.tc-top .chips{margin-top:6px;}
+.wk{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;}
+.wk div{border-radius:8px;padding:6px 2px;text-align:center;background:#f8fafc;}
+.wk div.on{background:var(--c-bg,#eef4fb);}
+.wk span{display:block;font-size:10.5px;font-weight:800;color:var(--ink-3);}
+.wk small{display:block;font-size:10px;color:var(--ink-2);font-variant-numeric:tabular-nums;line-height:1.25;margin-top:2px;}
+.wk div.off small{color:var(--ink-5);}
+.tc-n{display:grid;grid-template-columns:1fr 1fr;gap:6px;}
+.tc-n div{background:#f8fafc;border-radius:10px;padding:8px 10px;}
+.tc-n span{display:block;font-size:11px;font-weight:700;color:var(--ink-4);}
+.tc-n b{font-size:15px;color:var(--primary);font-variant-numeric:tabular-nums;}
+.tc-n small{display:block;font-size:11px;color:var(--ink-3);}
+.tc-av{font-size:12px;color:#92400e;background:var(--warn-bg);border-radius:9px;padding:7px 10px;line-height:1.4;}
+.tc-a{display:flex;gap:6px;margin-top:auto;}
+.tc-a .b{flex:1;justify-content:center;}
+/* formulário antigo, no padrão novo */
+#modal-turno .modal{max-width:860px;}
+#t-calendario-tbody td{vertical-align:middle;}
+.toggle{display:inline-block;vertical-align:middle;}
+.toggle input:checked + .toggle-slider{background:var(--ok-line);}
+@media (max-width:760px){
+  .cards{grid-template-columns:minmax(0,1fr);}
+  .cv{grid-template-columns:34px minmax(0,1fr);}
+  .cv-r{display:none;}
+  .eq-acts{width:100%;} .eq-acts .b{flex:1;justify-content:center;padding:0 8px;}
+  .topbar-user > div:last-child{display:none;}
+}
+</style>
 </head>
 <body>
 <div id="sidebar-container"></div>
@@ -23,35 +161,36 @@
     <button class="btn btn-ghost btn-sm" onclick="doLogout()" style="color:#64748b;">Sair</button>
   </div>
 </header>
+
 <main class="main-content" id="main-content">
-  <div class="page-header">
-    <div class="page-header-left"><h1>Turnos</h1><p>Gerencie os turnos de trabalho da fábrica</p></div>
-    <div style="display:flex;gap:10px;">
-      <button class="btn btn-secondary" onclick="exportarCSV(['Nome','Dias Ativos','Horas/Semana (máquina)','Horas/Semana por pessoa','Refeição','Status'],_turnos.map(t=>{const cal=t.calendario||{};const ref=parseInt(t.refeicao_min||0)||0;const dias=DIAS_SEMANA.filter(d=>cal[d]?.ativo&&cal[d]?.inicio).map(d=>DIAS_SHORT[DIAS_SEMANA.indexOf(d)]).join(', ');let tot=0;DIAS_SEMANA.forEach(d=>{if(cal[d]?.ativo&&cal[d]?.inicio)tot+=Math.max(0,calcMinutos(cal[d].inicio,cal[d].fim)-ref);});const cp=cargaPessoa(cal,regimeDoTurno(t),t.refeicao_inicio,t.refeicao_fim,ref);return[t.nome,dias||'—',minsParaHoras(tot),cp?segParaHoras(cp.semanaSeg):'',t.refeicao_nome||'—',t.status];}),'turnos')">⬇️ CSV</button>
-      <button class="btn btn-secondary" onclick="exportarPDF('Turnos',['Nome','Status'],_turnos.map(t=>[t.nome,t.status]))">📄 PDF</button>
-      <button class="btn btn-primary" onclick="openModalTurno()">+ Novo Turno</button>
+  <div class="eq-head">
+    <div><h1>Turnos</h1><p id="tu-sub">Horários da máquina e jornada de cada pessoa</p></div>
+    <div class="eq-acts">
+      <button class="b" onclick="exportarLista('csv')">📊 CSV</button>
+      <button class="b" onclick="exportarLista('pdf')">📄 PDF</button>
+      <button class="b pri" onclick="openModalTurno()">+ Novo turno</button>
     </div>
   </div>
-  <div class="card">
-    <div class="search-bar">
-      <div class="search-input-wrap" style="flex:1;"><span class="search-icon">🔍</span><input type="text" class="form-input" id="busca-turno" placeholder="Buscar turno..." oninput="renderTurnos()"></div>
-      <select class="form-input" id="filtro-status-turno" style="width:140px;" onchange="renderTurnos()"><option value="">Todos os status</option><option value="ativo">Ativo</option><option value="inativo">Inativo</option></select>
-    </div>
-    <div class="table-wrap">
-      <table><thead><tr><th>Nome do Turno</th><th>Dias Ativos</th><th>Horário Principal</th><th>Refeição</th><th>Horas/Dia</th><th>Horas/Semana</th><th>Status</th><th>Ações</th></tr></thead>
-      <tbody id="tbody-turnos"></tbody></table>
-    </div>
-    <div id="turnos-empty" class="empty-state hidden"><div class="empty-icon">🕐</div><h3>Nenhum turno cadastrado</h3><p>Clique em "+ Novo Turno" para começar.</p></div>
-  </div>
+  <div class="pend" id="tu-pend"></div>
+
+  <section class="wd" id="cobertura">
+    <div class="wd-h"><div><h2>Cobertura da semana</h2><p>As 24 horas de cada dia com os turnos escolhidos — listrado em vermelho = horário sem nenhum turno</p></div></div>
+    <div class="cv-sel" id="cv-sel"></div>
+    <div class="cv" id="cv"></div>
+    <div class="cv-leg"><span><i style="background:repeating-linear-gradient(45deg,#fee2e2 0 4px,#fff1f2 4px 8px);"></i>sem turno</span><span><i style="background:rgba(4,45,77,.25);"></i>faixa clara dentro da barra = refeição</span></div>
+  </section>
+
+  <div class="filtros"><div class="seg" id="seg-st" role="group" aria-label="Situação"></div></div>
+  <div class="cards" id="tu-lista"><div class="vazio" style="grid-column:1/-1;"><div class="spin" style="width:30px;height:30px;border-width:3px;margin:0 auto 10px;"></div>Carregando…</div></div>
 </main>
 
 <!-- MODAL TURNO -->
 <div id="modal-turno" class="modal-overlay hidden">
   <div class="modal modal-lg">
-    <div class="modal-header"><div class="modal-title" id="modal-turno-title">Novo Turno</div><button class="modal-close" onclick="closeModal('modal-turno')">✕</button></div>
+    <div class="modal-header"><div class="modal-title" id="modal-turno-title">Novo Turno</div><button class="modal-close" onclick="fecharEditor()">✕</button></div>
     <div style="display:flex;flex-direction:column;gap:20px;">
       <div class="form-grid-2">
-        <div class="form-group"><label class="form-label">Nome do Turno <span class="req">*</span></label><input id="t-nome" type="text" class="form-input" placeholder="Ex: 1º Turno Manhã"></div>
+        <div class="form-group"><label class="form-label" for="t-nome">Nome do turno <span class="req">*</span></label><input id="t-nome" type="text" class="form-input" placeholder="Ex.: 1º - Manhã"><div class="trava" id="t-nome-trava"></div></div>
         <div class="form-group"><label class="form-label">Status</label><select id="t-status" class="form-input"><option value="ativo">✅ Ativo</option><option value="inativo">⚫ Inativo</option></select></div>
       </div>
       <div class="form-group">
@@ -61,8 +200,7 @@
             <thead><tr style="background:var(--primary);">
               <th style="color:#fff;padding:10px 14px;text-align:left;font-size:11px;text-transform:uppercase;width:120px;">Dia</th>
               <th style="color:#fff;padding:10px 8px;text-align:center;font-size:11px;">Trabalha?</th>
-              <th style="color:#fff;padding:10px 8px;text-align:center;font-size:11px;">Início</th>
-              <th style="color:#fff;padding:10px 8px;text-align:center;font-size:11px;">Fim</th>
+              <th style="color:#fff;padding:10px 8px;text-align:left;font-size:11px;">Horário (início → fim)</th>
               <th style="color:#fff;padding:10px 8px;text-align:center;font-size:11px;">Horas</th>
             </tr></thead>
             <tbody id="t-calendario-tbody"></tbody>
@@ -107,27 +245,18 @@
       <div id="t-error" class="hidden alert alert-danger"></div>
     </div>
     <div class="modal-footer">
-      <button class="btn btn-secondary" onclick="closeModal('modal-turno')">Cancelar</button>
+      <button class="btn btn-secondary" onclick="fecharEditor()">Cancelar</button>
       <button class="btn btn-primary" id="btn-salvar-turno" onclick="salvarTurno()">💾 Salvar Turno</button>
     </div>
   </div>
 </div>
 
-<!-- MODAL VISUALIZAR TURNO -->
+<!-- FICHA -->
 <div id="modal-view-turno" class="modal-overlay hidden">
   <div class="modal modal-lg">
-    <div class="modal-header"><div class="modal-title" id="modal-view-turno-title">🕐 Turno</div><button class="modal-close" onclick="closeModal('modal-view-turno')">✕</button></div>
+    <div class="modal-header"><div class="modal-title" id="modal-view-turno-title">Turno</div><button class="modal-close" onclick="closeModal('modal-view-turno')" aria-label="Fechar">✕</button></div>
     <div id="modal-view-turno-body"></div>
-    <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('modal-view-turno')">Fechar</button></div>
-  </div>
-</div>
-
-<!-- MODAL CONFIRMAÇÃO -->
-<div id="modal-confirm" class="modal-overlay hidden">
-  <div class="modal" style="max-width:420px;">
-    <div class="modal-header"><div class="modal-title">⚠️ Confirmar Exclusão</div><button class="modal-close" onclick="closeModal('modal-confirm')">✕</button></div>
-    <p id="confirm-msg" style="font-size:14px;color:#475569;line-height:1.6;"></p>
-    <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('modal-confirm')">Cancelar</button><button class="btn btn-danger" id="confirm-ok-btn">🗑️ Sim, Excluir</button></div>
+    <div class="modal-footer" id="modal-view-turno-foot"></div>
   </div>
 </div>
 <div id="toast-container"></div>
@@ -135,7 +264,9 @@
 <script>
 const DIAS_SEMANA=['Segunda','Terça','Quarta','Quinta','Sexta','Sábado','Domingo'];
 const DIAS_SHORT=['Seg','Ter','Qua','Qui','Sex','Sáb','Dom'];
-let _editingTurnoId=null, _turnos=[];
+let _editingTurnoId=null, _turnos=[], _uso={}, _st='ativo', _cvSel=null;
+const CORES=['#042D4D','#3E7CB1','#7A9E2E','#D4A017','#9C5B8A','#C2410C','#0F766E','#8FB8DE','#B45309','#475569'];
+const corT=t=>CORES[Math.max(0,_turnos.findIndex(x=>x.id===t.id))%CORES.length];
 
 fetch('partials/sidebar.html').then(r=>r.text()).then(html=>{
   document.getElementById('sidebar-container').innerHTML=html;
@@ -144,6 +275,7 @@ fetch('partials/sidebar.html').then(r=>r.text()).then(html=>{
 });
 initSidebar('turnos.html');
 
+/* ═══ CÁLCULOS (sem mudança) ═══ */
 function calcMinutos(ini,fim){if(!ini||!fim)return 0;const[h1,m1]=ini.split(':').map(Number);let[h2,m2]=fim.split(':').map(Number);let mins=(h2*60+m2)-(h1*60+m1);if(mins<0)mins+=1440;return mins;}
 function minsParaHoras(mins){if(!mins)return'0h';const h=Math.floor(mins/60),m=mins%60;return`${h}h${m>0?String(m).padStart(2,'0')+'min':''}`;}
 
@@ -180,45 +312,126 @@ function cargaPessoa(cal,reg,refIni,refFim,refMin){
   const media=js.reduce((a,b)=>a+b,0)/js.length;const jorn=Number(reg.jornadas)||dias.length;
   return {jornadaSeg:media,jornadas:jorn,semanaSeg:media*jorn};
 }
+const _seg2min=t=>{ const s=hmsSeg(t); return s==null?null:s/60; };
+const fHm=t=>String(t||'').slice(0,5);
+const _norm=s=>String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]/g,'');
+function resumoTurno(t){
+  const cal=t.calendario||{}, refMins=parseInt(t.refeicao_min||t.refeicaoMin||'0')||0;
+  const dias=DIAS_SEMANA.filter(d=>cal[d]?.ativo&&cal[d]?.inicio&&cal[d]?.fim);
+  let tot=0; dias.forEach(d=>{ tot+=Math.max(0,calcMinutos(fHm(cal[d].inicio),fHm(cal[d].fim))-refMins); });
+  const reg=regimeDoTurno(t), cp=cargaPessoa(cal,reg,t.refeicao_inicio,t.refeicao_fim,refMins);
+  return {cal,refMins,dias,totMin:tot,mediaMin:dias.length?Math.round(tot/dias.length):0,reg,cp};
+}
+// inconsistências do cadastro
+function avisosTurno(t){
+  const cal=t.calendario||{}, av=[];
+  const semHora=DIAS_SEMANA.filter(d=>cal[d]?.ativo&&!(cal[d]?.inicio&&cal[d]?.fim));
+  if(semHora.length) av.push(`${semHora.join(', ')} marcado(s) como dia de trabalho, mas sem horário`);
+  const rm=parseInt(t.refeicao_min||0)||0, ri=_seg2min(t.refeicao_inicio), rf=_seg2min(t.refeicao_fim);
+  if(rm&&ri!=null&&rf!=null){ let dur=rf-ri; if(dur<0) dur+=1440; if(Math.abs(dur-rm)>=1) av.push(`Refeição de ${rm} min, mas o horário (${fHm(t.refeicao_inicio)}–${fHm(t.refeicao_fim)}) dá ${Math.round(dur)} min`); }
+  return av;
+}
+const usoDe=t=>_uso[t.nome]||{ops:0,func:0,esc:0};
+const emUso=t=>{ const u=usoDe(t); return u.ops+u.func+u.esc>0; };
 
-async function init(){const{data}=await _supabase.from('turnos').select('*').order('nome');_turnos=data||[];renderTurnos();}
-
-function renderTurnos(){
-  const busca=(document.getElementById('busca-turno')?.value||'').toLowerCase();
-  const status=document.getElementById('filtro-status-turno')?.value||'';
-  const lista=_turnos.filter(t=>(!busca||t.nome?.toLowerCase().includes(busca))&&(!status||t.status===status));
-  const tbody=document.getElementById('tbody-turnos');const empty=document.getElementById('turnos-empty');
-  tbody.innerHTML='';
-  if(!lista.length){empty.classList.remove('hidden');return;}empty.classList.add('hidden');
-  lista.forEach(t=>{
-    const cal=t.calendario||{};
-    const diasAtivos=DIAS_SEMANA.filter(d=>cal[d]?.ativo&&cal[d]?.inicio);
-    const diasShort=diasAtivos.map(d=>DIAS_SHORT[DIAS_SEMANA.indexOf(d)]).join(', ')||'—';
-    const refMins=parseInt(t.refeicao_min||t.refeicaoMin||'0')||0;
-    let totalMins=0;diasAtivos.forEach(d=>{const m=calcMinutos(cal[d].inicio,cal[d].fim);totalMins+=Math.max(0,m-refMins);});
-    const mediaDia=diasAtivos.length>0?Math.round(totalMins/diasAtivos.length):0;
-    const primD=diasAtivos[0];
-    const horarioPrincipal=primD?`${cal[primD].inicio} → ${cal[primD].fim}`:'—';
-    const reg=regimeDoTurno(t);const cp=cargaPessoa(cal,reg,t.refeicao_inicio,t.refeicao_fim,refMins);
-    const tr=document.createElement('tr');
-    tr.innerHTML=`<td><strong style="color:var(--primary);">${t.nome}</strong></td>
-      <td style="font-size:12px;">${diasShort}</td>
-      <td><strong>🕐 ${horarioPrincipal}</strong>${reg&&reg.fim_jornada?`<div style="font-size:11px;color:#64748b;">jornada até ${esc(reg.fim_jornada)} (apoio)</div>`:''}</td>
-      <td style="font-size:12px;">${t.refeicao_nome||t.refeicaoNome||'—'}${refMins>0?` (${refMins}min)`:''}</td>
-      ${cp?`<td><span class="badge badge-info" style="white-space:nowrap;" title="Jornada de cada pessoa (com hora noturna reduzida)">👤 ${segParaHoras(cp.jornadaSeg)}</span><div style="font-size:11px;color:#64748b;margin-top:3px;" title="Horas que a máquina roda por dia">⚙️ máquina ${minsParaHoras(mediaDia)}</div></td>
-      <td><span class="badge badge-success" style="white-space:nowrap;" title="Carga semanal de cada pessoa">👤 ${segParaHoras(cp.semanaSeg)} por pessoa</span><div style="font-size:11px;color:#64748b;margin-top:3px;" title="Horas que a máquina roda na semana (todos os dias ativos somados)">⚙️ máquina ${minsParaHoras(totalMins)} · ${diasAtivos.length} dias</div></td>`
-      :`<td><span class="badge badge-info">${mediaDia>0?minsParaHoras(mediaDia):'—'}</span></td>
-      <td><span class="badge badge-success">${totalMins>0?minsParaHoras(totalMins):'—'}</span></td>`}
-      <td><span class="badge ${t.status==='ativo'?'badge-success':'badge-gray'}">${t.status==='ativo'?'✅ Ativo':'⚫ Inativo'}</span></td>
-      <td><div class="table-actions">
-        <button class="btn btn-secondary btn-sm" onclick="visualizarTurno('${t.id}')">👁️</button>
-        <button class="btn btn-secondary btn-sm" onclick="editarTurno('${t.id}')">✏️ Editar</button>
-        <button class="btn btn-danger btn-sm" onclick="confirmarExclusao('${t.id}','${t.nome}')">🗑️</button>
-      </div></td>`;
-    tbody.appendChild(tr);
-  });
+/* ═══ CARGA ═══ */
+async function init(){
+  const [tu,op,fu,es]=await Promise.all([
+    _supabase.from('turnos').select('*').order('nome'),
+    _supabase.from('producao').select('turno').limit(20000),
+    _supabase.from('funcionarios').select('turno,status'),
+    _supabase.from('rh_escala').select('turno').limit(20000)]);
+  _turnos=tu.data||[]; _uso={};
+  const add=(n,k)=>{ if(!n) return; (_uso[n]=_uso[n]||{ops:0,func:0,esc:0})[k]++; };
+  (op.data||[]).forEach(r=>add(r.turno,'ops'));
+  (fu.data||[]).filter(r=>r.status!=='inativo').forEach(r=>add(r.turno,'func'));
+  (es.data||[]).forEach(r=>add(r.turno,'esc'));
+  if(!_cvSel){ const usados=_turnos.filter(t=>t.status==='ativo'&&emUso(t)).map(t=>t.id); _cvSel=new Set(usados.length?usados:_turnos.filter(t=>t.status==='ativo').map(t=>t.id)); }
+  render();
+}
+function render(){ renderPend(); renderCobertura(); renderTurnos(); }
+function renderPend(){
+  const atv=_turnos.filter(t=>t.status==='ativo');
+  document.getElementById('tu-sub').textContent=`${atv.length} turno(s) ativo(s) · ${atv.filter(emUso).length} em uso`;
+  const com=_turnos.filter(t=>avisosTurno(t).length);
+  document.getElementById('tu-pend').innerHTML=com.length?`<span class="pi" style="cursor:default;"><b>${com.length}</b> turno(s) com cadastro a conferir: ${com.map(t=>esc(t.nome)).join(', ')}</span>`:'';
 }
 
+/* ═══ COBERTURA DA SEMANA ═══ */
+function cvToggle(id){ _cvSel.has(id)?_cvSel.delete(id):_cvSel.add(id); renderCobertura(); }
+function cvAtalho(q){ _cvSel=new Set(_turnos.filter(t=>t.status==='ativo'&&(q==='uso'?emUso(t):q==='5x2'?!!regimeDoTurno(t):true)).map(t=>t.id)); renderCobertura(); }
+function renderCobertura(){
+  const atv=_turnos.filter(t=>t.status==='ativo');
+  document.getElementById('cv-sel').innerHTML=atv.map(t=>`<button type="button" class="cv-chip${_cvSel.has(t.id)?' on':''}" onclick="cvToggle('${esc(t.id)}')" aria-pressed="${_cvSel.has(t.id)}"><i style="background:${corT(t)};"></i>${esc(t.nome)}</button>`).join('')+
+    `<button type="button" class="cv-atalho" onclick="cvAtalho('uso')">só os em uso</button><button type="button" class="cv-atalho" onclick="cvAtalho('5x2')">só escala nova</button><button type="button" class="cv-atalho" onclick="cvAtalho('todos')">todos</button>`;
+  const sel=atv.filter(t=>_cvSel.has(t.id));
+  // segmentos por dia (o turno que vira a meia-noite continua no dia seguinte)
+  const seg=DIAS_SEMANA.map(()=>[]);
+  sel.forEach((t,lane)=>{ const cal=t.calendario||{};
+    DIAS_SEMANA.forEach((d,i)=>{ const c=cal[d]; if(!(c&&c.ativo&&c.inicio&&c.fim)) return;
+      const a=_seg2min(c.inicio), b=_seg2min(c.fim); if(a==null||b==null) return;
+      const ri=_seg2min(t.refeicao_inicio), rf=_seg2min(t.refeicao_fim);
+      const put=(dia,x,y,ini)=>seg[dia].push({t,lane,x,y,ini,c});
+      if(b>a) put(i,a,b,true); else { put(i,a,1440,true); put((i+1)%7,0,b,false); }
+      // refeição (mesma lógica de virada)
+      if(ri!=null&&rf!=null&&rf!==ri){ const dentro=(m)=>b>a?(m>=a&&m<=b):(m>=a||m<=b);
+        if(dentro(ri)){ const dia=(b<=a&&ri<a)?(i+1)%7:i; seg[dia].push({t,lane,x:ri,y:rf>ri?rf:1440,ref:true}); } }
+    }); });
+  const L=Math.max(1,sel.length), lh=Math.min(16,Math.max(9,Math.floor(64/L)));
+  let html='';
+  DIAS_SEMANA.forEach((d,i)=>{
+    // buracos: minutos sem nenhum turno
+    const cob=new Uint8Array(1440); seg[i].filter(s=>!s.ref).forEach(s=>{ for(let m=Math.floor(s.x);m<Math.ceil(s.y)&&m<1440;m++) cob[m]=1; });
+    const gaps=[]; let g=null; for(let m=0;m<1440;m++){ if(!cob[m]){ if(g==null) g=m; } else if(g!=null){ gaps.push([g,m]); g=null; } } if(g!=null) gaps.push([g,1440]);
+    const semMin=gaps.reduce((s,[a,b])=>s+(b-a),0);
+    const altura=L*lh+(L-1)*2+8;
+    html+=`<div class="cv-d">${DIAS_SHORT[i]}</div><div class="cv-t" style="height:${altura}px;">`+
+      (sel.length?gaps.map(([a,b])=>`<div class="gap" style="left:${a/14.4}%;width:${(b-a)/14.4}%;" title="Sem turno: ${hm(a)}–${hm(b)}"></div>`).join(''):'')+
+      seg[i].map(s=>{ const top=4+s.lane*(lh+2);
+        if(s.ref) return `<div class="ref" style="left:${s.x/14.4}%;width:${(s.y-s.x)/14.4}%;top:${top+2}px;height:${lh-4}px;"></div>`;
+        return `<div class="bar" style="left:${s.x/14.4}%;width:${(s.y-s.x)/14.4}%;top:${top}px;height:${lh}px;background:${corT(s.t)};" title="${esc(s.t.nome)}: ${fHm(s.c.inicio)} → ${fHm(s.c.fim)}${s.ini?'':' (veio da noite anterior)'}"></div>`; }).join('')+
+      `</div><div class="cv-r${sel.length&&semMin?' gap':''}">${!sel.length?'':semMin?`${minsParaHoras(semMin)} sem turno`:'24 h cobertas'}</div>`;
+  });
+  html+=`<div></div><div class="cv-ax">${[0,3,6,9,12,15,18,21,24].map(h=>`<span style="left:${h/24*100}%;">${h}h</span>`).join('')}</div><div></div>`;
+  document.getElementById('cv').innerHTML=sel.length?html:'<div style="grid-column:1/-1;color:var(--ink-4);font-size:13px;padding:10px 0;">Escolha um ou mais turnos acima.</div>';
+}
+const hm=m=>`${String(Math.floor(m/60)%24).padStart(2,'0')}:${String(Math.round(m%60)).padStart(2,'0')}`;
+
+/* ═══ CARTÕES ═══ */
+function setSt(s){ _st=s; renderTurnos(); }
+function renderTurnos(){
+  const atv=_turnos.filter(t=>t.status==='ativo');
+  document.getElementById('seg-st').innerHTML=[['ativo','Ativos',atv.length],['uso','Em uso',atv.filter(emUso).length],['inativo','Inativos',_turnos.length-atv.length],['','Todos',_turnos.length]]
+    .map(([k,r,n])=>`<button type="button" class="${_st===k?'on':''}" onclick="setSt('${k}')">${r}<b>${n}</b></button>`).join('');
+  const lista=_turnos.filter(t=>!_st||(_st==='uso'?t.status==='ativo'&&emUso(t):t.status===_st));
+  const el=document.getElementById('tu-lista');
+  if(!lista.length){ el.innerHTML='<div class="vazio" style="grid-column:1/-1;"><div style="font-size:34px;">🕐</div><b>Nenhum turno aqui</b></div>'; return; }
+  el.innerHTML=lista.map(t=>{
+    const r=resumoTurno(t), u=usoDe(t), id=esc(t.id), av=avisosTurno(t), c=corT(t);
+    const wk=DIAS_SEMANA.map((d,i)=>{ const x=r.cal[d]; const on=x&&x.ativo&&x.inicio&&x.fim;
+      return `<div class="${on?'on':'off'}"><span>${DIAS_SHORT[i]}</span><small>${on?`${fHm(x.inicio)}<br>${fHm(x.fim)}`:'folga'}</small></div>`; }).join('');
+    return `<div class="tc${t.status!=='ativo'?' inat':''}" style="--c:${c};--c-bg:${c}1a;">
+      <div class="tc-top" role="button" tabindex="0" onclick="visualizarTurno('${id}')" onkeydown="if(event.key==='Enter')visualizarTurno('${id}')">
+        <b>${esc(t.nome)}</b>
+        <div class="chips">${t.status!=='ativo'?'<span class="tag gray">Inativo</span>':''}${r.reg?`<span class="tag info">escala ${esc(r.reg.escala)}</span>`:''}
+          ${emUso(t)?`<span class="tag ok">em uso</span>`:'<span class="tag gray">sem uso ainda</span>'}
+          ${u.ops?`<span class="tag gray">${u.ops} OP(s)</span>`:''}${u.func?`<span class="tag gray">${u.func} pessoa(s)</span>`:''}</div></div>
+      <div class="wk">${wk}</div>
+      <div class="tc-n">
+        <div><span>Máquina</span><b>${minsParaHoras(r.totMin)}</b><small>por semana · ${r.dias.length} dia(s)</small></div>
+        <div><span>Cada pessoa</span><b>${r.cp?segParaHoras(r.cp.semanaSeg):minsParaHoras(r.totMin)}</b><small>${r.cp?`${r.cp.jornadas} jornadas de ${segParaHoras(r.cp.jornadaSeg)}`:'por semana'}</small></div>
+      </div>
+      ${t.refeicao_nome||r.refMins?`<div style="font-size:12.5px;color:var(--ink-2);">🍽️ ${esc(t.refeicao_nome||'Refeição')} · ${r.refMins} min${t.refeicao_inicio?` · ${fHm(t.refeicao_inicio)}–${fHm(t.refeicao_fim)}`:''}</div>`:''}
+      ${av.length?`<div class="tc-av">⚠️ ${av.map(esc).join('<br>⚠️ ')}</div>`:''}
+      <div class="tc-a">
+        <button type="button" class="b sm" onclick="visualizarTurno('${id}')">Ficha</button>
+        <button type="button" class="b sm" onclick="editarTurno('${id}')">✏️ Editar</button>
+        <button type="button" class="b sm" onclick="duplicarTurno('${id}')" title="Criar um turno parecido">⧉ Duplicar</button>
+      </div></div>`;
+  }).join('');
+}
+
+/* ═══ CALENDÁRIO DO FORMULÁRIO (sem mudança) ═══ */
 function buildCalendarioTurno(turnoData){
   const tbody=document.getElementById('t-calendario-tbody');tbody.innerHTML='';
   const cal=turnoData?.calendario||{};
@@ -235,7 +448,6 @@ function buildCalendarioTurno(turnoData){
         <span style="color:#94a3b8;font-size:12px;">→</span>
         <input type="time" id="t-cal-fim-${i}" value="${d.fim||''}"${/:\d\d:\d\d/.test(d.fim||'')?' step="1"':''} class="form-input" style="padding:6px 8px;font-size:12px;width:110px;" oninput="calcTotalTurno()">
       </div></td>
-      <td style="padding:6px 8px;display:none;"></td>
       <td style="text-align:center;padding:8px;" id="t-cal-horas-${i}"><span class="badge ${liquido>0?'badge-success':'badge-gray'}" style="font-size:11px;">${liquido>0?minsParaHoras(liquido):'Folga'}</span></td>`;
     tbody.appendChild(tr);
   });
@@ -299,82 +511,98 @@ function preencherRegime(reg){
   document.getElementById('t-reg-fim').value=reg?.fim_jornada||'';
 }
 function regEscalaMudou(){const e=document.getElementById('t-reg-escala').value;const j=document.getElementById('t-reg-jornadas');if(e&&!j.value)j.value=e==='6x1'?6:5;calcTotalTurno();}
-
-function openModalTurno(){
-  _editingTurnoId=null;
-  document.getElementById('modal-turno-title').textContent='Novo Turno';
-  document.getElementById('t-nome').value='';document.getElementById('t-status').value='ativo';
-  document.getElementById('t-ref-nome').value='';document.getElementById('t-ref-min').value='';
-  document.getElementById('t-ref-inicio').value='';document.getElementById('t-ref-fim').value='';
-  document.getElementById('t-resumo').style.display='none';document.getElementById('t-error').classList.add('hidden');
-  preencherRegime(null);
-  buildCalendarioTurno(null);document.getElementById('modal-turno').classList.remove('hidden');
-}
-
-function editarTurno(id){
-  const t=_turnos.find(x=>x.id===id);if(!t)return;
-  _editingTurnoId=id;
-  document.getElementById('modal-turno-title').textContent='Editar Turno — '+t.nome;
-  document.getElementById('t-nome').value=t.nome||'';document.getElementById('t-status').value=t.status||'ativo';
-  document.getElementById('t-ref-nome').value=t.refeicao_nome||t.refeicaoNome||'';
-  document.getElementById('t-ref-min').value=t.refeicao_min||t.refeicaoMin||'';
-  document.getElementById('t-ref-inicio').value=t.refeicao_inicio||t.refeicaoInicio||'';
-  document.getElementById('t-ref-fim').value=t.refeicao_fim||t.refeicaoFim||'';
+/* ═══ EDITOR ═══ */
+function _preencher(t,copia){
+  _editingTurnoId=t&&!copia?t.id:null;
+  document.getElementById('modal-turno-title').textContent=!t?'Novo turno':copia?'Novo turno (cópia de '+t.nome+')':'Editar — '+t.nome;
+  const nm=document.getElementById('t-nome');
+  nm.value=t?(copia?t.nome+' (cópia)':t.nome||''):'';
+  document.getElementById('t-status').value=t&&!copia?t.status||'ativo':'ativo';
+  document.getElementById('t-ref-nome').value=t?t.refeicao_nome||t.refeicaoNome||'':'';
+  document.getElementById('t-ref-min').value=t?t.refeicao_min||t.refeicaoMin||'':'';
+  document.getElementById('t-ref-inicio').value=t?fHm(t.refeicao_inicio||t.refeicaoInicio):'';
+  document.getElementById('t-ref-fim').value=t?fHm(t.refeicao_fim||t.refeicaoFim):'';
   document.getElementById('t-error').classList.add('hidden');
-  preencherRegime(regimeDoTurno(t));
-  buildCalendarioTurno(t);document.getElementById('modal-turno').classList.remove('hidden');
+  const trava=!!(t&&!copia&&emUso(t)), u=t?usoDe(t):{};
+  nm.readOnly=trava; nm.style.background=trava?'#f5f7fa':'';
+  document.getElementById('t-nome-trava').textContent=trava?`🔒 Nome travado: usado em ${u.ops} OP(s), ${u.func} funcionário(s) e ${u.esc} lançamento(s) de escala. Para mudar o nome, duplique e inative este.`:'';
+  preencherRegime(t?regimeDoTurno(t):null);
+  if(!t) document.getElementById('t-resumo').style.display='none';
+  buildCalendarioTurno(t||null);
+  document.getElementById('modal-turno').classList.remove('hidden');
+  setTimeout(()=>(trava?document.getElementById('t-ref-nome'):nm).focus(),50);
 }
-
+function openModalTurno(){ _preencher(null); }
+function editarTurno(id){ const t=_turnos.find(x=>x.id===id); if(t){ closeModal('modal-view-turno'); _preencher(t); } }
+function duplicarTurno(id){ const t=_turnos.find(x=>x.id===id); if(t){ closeModal('modal-view-turno'); _preencher(t,true); } }
+function fecharEditor(){ closeModal('modal-turno'); }
 async function salvarTurno(){
-  if (!guardAction('turnos', 'edit')) return;
-  const nome=document.getElementById('t-nome').value.trim();
-  const errEl=document.getElementById('t-error');const btn=document.getElementById('btn-salvar-turno');
-  if(!nome){errEl.textContent='Nome do turno é obrigatório!';errEl.classList.remove('hidden');return;}
+  if(!guardAction('turnos','edit')) return;
+  const errEl=document.getElementById('t-error'), btn=document.getElementById('btn-salvar-turno');
+  const erro=m=>{ errEl.textContent=m; errEl.classList.remove('hidden'); };
+  const nome=document.getElementById('t-nome').value.trim().replace(/\s+/g,' ');
+  if(!nome) return erro('Informe o nome do turno.');
+  const dup=_turnos.find(x=>x.id!==_editingTurnoId&&_norm(x.nome)===_norm(nome)); if(dup) return erro(`Já existe o turno "${dup.nome}".`);
+  const atual=_editingTurnoId?_turnos.find(x=>x.id===_editingTurnoId):null;
+  if(atual&&atual.nome!==nome&&emUso(atual)) return erro('Este turno está em uso; o nome não pode mudar.');
   const cal=getCalendarioFromForm();
-  const temDia=DIAS_SEMANA.some(d=>cal[d].ativo&&cal[d].inicio&&cal[d].fim);
-  if(!temDia){errEl.textContent='Configure pelo menos um dia com horário!';errEl.classList.remove('hidden');return;}
+  if(!DIAS_SEMANA.some(d=>cal[d].ativo&&cal[d].inicio&&cal[d].fim)) return erro('Informe o horário de pelo menos um dia.');
+  const semHora=DIAS_SEMANA.filter(d=>cal[d].ativo&&!(cal[d].inicio&&cal[d].fim));
+  if(semHora.length) return erro(`Dia marcado sem horário: ${semHora.join(', ')}. Informe o horário ou desmarque.`);
+  const rm=parseInt(document.getElementById('t-ref-min').value)||0, ri=document.getElementById('t-ref-inicio').value, rf=document.getElementById('t-ref-fim').value;
+  if(rm&&ri&&rf){ let d=_seg2min(rf)-_seg2min(ri); if(d<0) d+=1440; if(Math.abs(d-rm)>=1&&!confirm(`A refeição está com ${rm} min, mas o horário ${ri}–${rf} dá ${Math.round(d)} min. Salvar assim mesmo?`)) return; }
   const dados={nome,status:document.getElementById('t-status').value,calendario:cal,
-    refeicao_nome:document.getElementById('t-ref-nome').value,
-    refeicao_min:parseInt(document.getElementById('t-ref-min').value)||0,
-    refeicao_inicio:document.getElementById('t-ref-inicio').value,
-    refeicao_fim:document.getElementById('t-ref-fim').value,
-    atualizado_em:new Date().toISOString()};
-  btn.innerHTML='<span class="spin"></span>';btn.disabled=true;
+    refeicao_nome:document.getElementById('t-ref-nome').value,refeicao_min:rm,refeicao_inicio:ri,refeicao_fim:rf,atualizado_em:new Date().toISOString()};
+  btn.disabled=true; btn.innerHTML='<span class="spin"></span>';
   try{
-    if(_editingTurnoId){await db(_supabase.from('turnos').update(dados).eq('id',_editingTurnoId),'atualizar turno');await addLog('UPDATE','TURNOS',_editingTurnoId,'Atualizado: '+nome);toast('Turno atualizado!','success');}
-    else{const{data}=await db(_supabase.from('turnos').insert(dados).select().single(),'cadastrar turno');await addLog('CREATE','TURNOS',data.id,'Novo turno: '+nome);toast('Turno cadastrado!','success');}
-    closeModal('modal-turno');await init();
-  }catch(e){errEl.textContent='Erro: '+e.message;errEl.classList.remove('hidden');}
-  btn.innerHTML='💾 Salvar Turno';btn.disabled=false;
+    if(atual){ await db(_supabase.from('turnos').update(dados).eq('id',atual.id),'atualizar turno'); await addLog('UPDATE','TURNOS',atual.id,'Atualizado: '+nome); toast('Turno atualizado!','success'); }
+    else{ const{data}=await db(_supabase.from('turnos').insert(dados).select().single(),'cadastrar turno'); await addLog('CREATE','TURNOS',data.id,'Novo turno: '+nome); toast('Turno cadastrado!','success'); if(_cvSel) _cvSel.add(data.id); }
+    closeModal('modal-turno'); await init();
+  }catch(e){ erro('Erro: '+e.message); }
+  btn.disabled=false; btn.innerHTML='💾 Salvar Turno';
+}
+async function excluirTurno(id){
+  if(!guardAction('turnos','delete')) return;
+  const t=_turnos.find(x=>x.id===id); if(!t) return;
+  if(emUso(t)){ const u=usoDe(t); alert(`"${t.nome}" está em uso (${u.ops} OP(s), ${u.func} funcionário(s), ${u.esc} lançamento(s) de escala) e não pode ser excluído.\n\nSe saiu de uso, edite e mude o status para Inativo.`); return; }
+  if(!confirm(`Excluir o turno "${t.nome}"? Isto não pode ser desfeito.`)) return;
+  try{ await db(_supabase.from('turnos').delete().eq('id',id),'excluir turno'); await addLog('DELETE','TURNOS',id,'Excluído: '+t.nome);
+    toast('Turno excluído.','warning'); closeModal('modal-view-turno'); _cvSel&&_cvSel.delete(id); await init(); }catch(e){ toast('Erro: '+e.message,'danger'); }
 }
 
+/* ═══ FICHA ═══ */
 function visualizarTurno(id){
-  const t=_turnos.find(x=>x.id===id);if(!t)return;
-  document.getElementById('modal-view-turno-title').textContent='🕐 '+t.nome;
-  const cal=t.calendario||{};const refMins=parseInt(t.refeicao_min||t.refeicaoMin||0)||0;const reg=regimeDoTurno(t);
-  const diasHtml=DIAS_SEMANA.map((dia,i)=>{
-    const d=cal[dia]||{};const mins=d.ativo?calcMinutos(d.inicio,d.fim):0;const liq=Math.max(0,mins-refMins);
-    const jp=reg&&d.ativo&&d.inicio?jornadaComputadaSeg(d.inicio,reg.fim_jornada||d.fim,t.refeicao_inicio,t.refeicao_fim,refMins,reg.noturna||'nao'):0;
-    return`<tr style="border-bottom:1px solid #f1f5f9;">
-      <td style="padding:8px 12px;font-weight:600;color:${d.ativo&&d.inicio?'var(--primary)':'#94a3b8'};">${dia}</td>
-      <td style="padding:8px 12px;font-size:12px;">${d.ativo&&d.inicio?`${d.inicio} → ${d.fim}`:'Folga'}</td>
-      <td style="padding:8px 12px;"><span class="badge ${liq>0?'badge-success':'badge-gray'}" style="font-size:11px;">${liq>0?minsParaHoras(liq):'—'}</span></td>
-      ${reg?`<td style="padding:8px 12px;font-size:12px;color:#0369a1;font-weight:700;">${jp>0?segParaHoras(jp):'—'}</td>`:''}
-    </tr>`;}).join('');
-  const cp=cargaPessoa(cal,reg,t.refeicao_inicio,t.refeicao_fim,refMins);
-  const NOT={nao:'não conta',['22-5']:'das 22h às 5h (CLT)',turno:'no turno inteiro (acordo coletivo)'};
+  const t=_turnos.find(x=>x.id===id); if(!t) return; const r=resumoTurno(t), u=usoDe(t), av=avisosTurno(t);
+  document.getElementById('modal-view-turno-title').textContent=t.nome;
+  const NOT={nao:'não conta','22-5':'das 22h às 5h (CLT)',turno:'no turno inteiro (acordo coletivo)'};
+  const linhas=DIAS_SEMANA.map((d,i)=>{ const x=r.cal[d]||{}; const on=x.ativo&&x.inicio&&x.fim; const liq=on?Math.max(0,calcMinutos(fHm(x.inicio),fHm(x.fim))-r.refMins):0;
+    const jp=r.reg&&on?jornadaComputadaSeg(x.inicio,r.reg.fim_jornada||x.fim,t.refeicao_inicio,t.refeicao_fim,r.refMins,r.reg.noturna||'nao'):0;
+    return `<tr><td><b style="color:${on?'var(--primary)':'var(--ink-4)'};">${d}</b></td><td>${on?`${fHm(x.inicio)} → ${fHm(x.fim)}`:'Folga'}</td><td class="n">${liq?minsParaHoras(liq):'—'}</td>${r.reg?`<td class="n">${jp?segParaHoras(jp):'—'}</td>`:''}</tr>`; }).join('');
+  const cel=(a,b)=>`<div class="ficha-c"><span>${a}</span><b>${b}</b></div>`;
   document.getElementById('modal-view-turno-body').innerHTML=`
-    <table style="width:100%;border-collapse:collapse;margin-bottom:16px;"><thead><tr style="background:#f8fafc;"><th style="padding:8px 12px;text-align:left;font-size:11px;text-transform:uppercase;color:#64748b;">Dia</th><th style="padding:8px 12px;text-align:left;font-size:11px;text-transform:uppercase;color:#64748b;">Horário</th><th style="padding:8px 12px;text-align:left;font-size:11px;text-transform:uppercase;color:#64748b;">${reg?'Máquina':'Horas Líquidas'}</th>${reg?'<th style="padding:8px 12px;text-align:left;font-size:11px;text-transform:uppercase;color:#0369a1;">Jornada da pessoa</th>':''}</tr></thead><tbody>${diasHtml}</tbody></table>
-    ${cp?`<div style="background:#f0f9ff;border-radius:10px;padding:12px;border:1px solid #bae6fd;margin-bottom:10px;font-size:13px;color:#0c4a6e;">👤 <strong>Escala ${esc(reg.escala)}</strong>: cada pessoa faz <strong>${cp.jornadas} jornadas de ${segParaHoras(cp.jornadaSeg)} = ${segParaHoras(cp.semanaSeg)} por semana</strong>. Hora noturna reduzida: ${NOT[reg.noturna]||'—'}.${reg.fim_jornada?` A máquina para no fim do horário; a jornada vai até <strong>${esc(reg.fim_jornada)}</strong> em apoio fora da máquina.`:''}</div>`:''}
-    ${t.refeicao_nome||t.refeicaoNome?`<div style="background:#f8fafc;border-radius:10px;padding:12px;border:1px solid #e2e8f0;"><p style="font-size:12px;color:#64748b;">🍽️ ${t.refeicao_nome||t.refeicaoNome} — ${refMins} min</p></div>`:''}`;
+    ${av.length?`<div class="tc-av" style="margin-bottom:12px;">⚠️ ${av.map(esc).join('<br>⚠️ ')}</div>`:''}
+    <div class="ficha-g">${cel('Situação',t.status==='ativo'?'Ativo':'Inativo')}${cel('Máquina por semana',minsParaHoras(r.totMin))}
+      ${cel('Cada pessoa por semana',r.cp?segParaHoras(r.cp.semanaSeg):'—')}${cel('Escala',r.reg?esc(r.reg.escala)+` · ${r.reg.jornadas} jornadas`:'não definida')}
+      ${r.reg?cel('Hora noturna reduzida',NOT[r.reg.noturna]||'—'):''}${cel('Refeição',(t.refeicao_nome?esc(t.refeicao_nome)+' · ':'')+r.refMins+' min')}
+      ${cel('Em uso',`${u.ops} OP(s) · ${u.func} pessoa(s) · ${u.esc} escala(s)`)}</div>
+    <div style="overflow-x:auto;"><table class="rel" style="width:100%;border-collapse:separate;border-spacing:0;font-size:13px;">
+      <thead><tr><th>Dia</th><th>Máquina</th><th style="text-align:right;">Horas</th>${r.reg?'<th style="text-align:right;">Jornada/pessoa</th>':''}</tr></thead>
+      <tbody>${linhas}</tbody></table></div>`;
+  document.getElementById('modal-view-turno-foot').innerHTML=`<button class="btn btn-secondary" style="color:#dc2626;margin-right:auto;" onclick="excluirTurno('${esc(id)}')">Excluir</button>
+    <button class="btn btn-secondary" onclick="duplicarTurno('${esc(id)}')">⧉ Duplicar</button><button class="btn btn-primary" onclick="editarTurno('${esc(id)}')">✏️ Editar</button>`;
   document.getElementById('modal-view-turno').classList.remove('hidden');
 }
 
-function confirmarExclusao(id,nome){
-  document.getElementById('confirm-msg').innerHTML=`Deseja excluir o turno <strong>${nome}</strong>?`;
-  document.getElementById('confirm-ok-btn').onclick=async()=>{await db(_supabase.from('turnos').delete().eq('id',id),'excluir turno');await addLog('DELETE','TURNOS',id,'Excluído: '+nome);toast('Turno excluído.','warning');closeModal('modal-confirm');await init();};
-  document.getElementById('modal-confirm').classList.remove('hidden');
+/* ═══ EXPORTAR ═══ */
+function exportarLista(tipo){
+  const lista=_turnos.filter(t=>!_st||(_st==='uso'?t.status==='ativo'&&emUso(t):t.status===_st));
+  const cab=['Turno','Dias','Horário','Refeição','Máquina/semana','Pessoa/semana','Escala','Status'];
+  const lin=lista.map(t=>{ const r=resumoTurno(t), d0=r.dias[0];
+    return [t.nome,r.dias.map(d=>DIAS_SHORT[DIAS_SEMANA.indexOf(d)]).join(', ')||'—',d0?`${fHm(r.cal[d0].inicio)} → ${fHm(r.cal[d0].fim)}`:'—',
+      (t.refeicao_nome||'')+(r.refMins?` (${r.refMins} min)`:''),minsParaHoras(r.totMin),r.cp?segParaHoras(r.cp.semanaSeg):'—',r.reg?r.reg.escala:'—',t.status==='ativo'?'Ativo':'Inativo']; });
+  if(tipo==='csv') exportarCSV(cab,lin,'turnos'); else exportarPDF('Turnos',cab,lin);
 }
+document.addEventListener('keydown',e=>{ if(e.key!=='Escape') return; for(const m of ['modal-turno','modal-view-turno']){ const el=document.getElementById(m); if(el&&!el.classList.contains('hidden')){ closeModal(m); return; } } });
 
 init();
 </script>
