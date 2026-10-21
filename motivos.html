@@ -4,11 +4,138 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ERP Industrial — Motivos de Parada</title>
-<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/style.css">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="js/supabase.js"></script>
 <script src="js/utils.js"></script>
+<style>
+/* ══════════════════════════════════════════════════════════════════════════
+   MOTIVOS DE PARADA (out/2026) — mesmo desenho do Painel da fábrica
+   • Pareto das paradas lançadas nas OPs (horas por motivo, até ontem — D-1).
+   • Motivo usado nas OPs mas fora do cadastro aparece para cadastrar.
+   • "Conta como hora trabalhada" agora editável (coluna conta_como_trabalhada,
+     que a Produção já usa e a tela antiga não mostrava).
+   • O NOME liga as paradas lançadas: com uso, fica travado; excluir só sem uso.
+   ══════════════════════════════════════════════════════════════════════════ */
+:root{
+  --ok:#16a34a; --ok-bg:#dcfce7; --ok-line:#22c55e;
+  --warn:#b45309; --warn-bg:#fef3c7; --warn-line:#f59e0b;
+  --bad:#dc2626; --bad-bg:#fee2e2; --bad-line:#ef4444;
+  --info:#2563eb; --info-bg:#dbeafe;
+  --wd-line:#e3e9f0; --line-soft:#f1f5f9;
+  --ink-2:#475569; --ink-3:#64748b; --ink-4:#94a3b8; --ink-5:#cbd5e1;
+  --wd-shadow:0 1px 2px rgba(4,45,77,.05);
+}
+button:focus-visible,a:focus-visible,[role="button"]:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--primary);outline-offset:2px;}
+.eq-head{display:flex;justify-content:space-between;align-items:flex-end;gap:14px;flex-wrap:wrap;margin-bottom:16px;}
+.eq-head h1{margin:0;font-size:26px;font-weight:800;color:var(--primary);letter-spacing:-.4px;}
+.eq-head p{margin:3px 0 0;font-size:13px;color:var(--ink-3);}
+.eq-acts{display:flex;gap:8px;flex-wrap:wrap;}
+.b{height:44px;padding:0 15px;border-radius:12px;border:1.5px solid var(--wd-line);background:#fff;font:inherit;font-size:13.5px;
+  font-weight:700;color:var(--primary);cursor:pointer;display:inline-flex;align-items:center;gap:7px;white-space:nowrap;}
+.b:hover{border-color:var(--primary);}
+.b.pri{background:var(--primary);border-color:var(--primary);color:var(--accent);}
+.b.sm{height:36px;padding:0 11px;font-size:12.5px;border-radius:9px;}
+.b.perigo{color:var(--bad);} .b.perigo:hover{border-color:var(--bad);}
+.b:disabled{opacity:.55;cursor:default;}
+
+.pend{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;}
+.pend .pi{display:inline-flex;align-items:center;gap:8px;border:1.5px solid #fcd34d;background:var(--warn-bg);color:#7c2d12;
+  border-radius:10px;padding:8px 12px;font:inherit;font-size:13px;font-weight:700;cursor:pointer;}
+.pend .pi.on{background:#7c2d12;border-color:#7c2d12;color:#fff;}
+.pend .pi b{font-size:15px;}
+
+.tiles{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;margin-bottom:16px;}
+.tile{background:#fff;border:1px solid var(--wd-line);border-radius:14px;padding:14px 16px;box-shadow:var(--wd-shadow);text-align:left;font:inherit;cursor:pointer;min-width:0;}
+.tile:hover{border-color:#b9c8d8;} .tile.on{border-color:var(--primary);box-shadow:0 0 0 1px var(--primary);}
+.tile.hero{background:var(--primary);border-color:var(--primary);cursor:default;}
+.tile:not([onclick]){cursor:default;}
+.pz-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;padding:10px 12px;border-bottom:1px solid var(--line-soft);cursor:pointer;}
+.pz-row:hover{background:#f8fafc;}
+.pz-row b{color:var(--primary);} .pz-row .cod{font-family:ui-monospace,Menlo,monospace;font-size:12px;color:var(--ink-3);margin-left:6px;}
+.pz-row .sub{display:block;font-size:11.5px;color:var(--ink-4);margin-top:2px;}
+.pz-det{padding:4px 12px 12px 24px;border-bottom:1px solid var(--line-soft);background:#fafcfe;}
+.pz-eq{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;font-size:13px;border-bottom:1px dashed var(--line-soft);}
+.pz-eq:last-child{border-bottom:0;}
+.tile-l{font-size:12.5px;font-weight:700;color:var(--ink-2);}
+.tile-v{font-size:28px;font-weight:800;color:var(--primary);letter-spacing:-.5px;line-height:1.1;margin-top:6px;font-variant-numeric:tabular-nums;}
+.tile-s{font-size:11.5px;color:var(--ink-3);margin-top:3px;}
+.tile.hero .tile-l{color:rgba(255,255,255,.8);} .tile.hero .tile-v{color:var(--accent);} .tile.hero .tile-s{color:rgba(255,255,255,.6);}
+.tile.ruim .tile-v{color:var(--bad);} .tile.atencao .tile-v{color:var(--warn);}
+
+.filtros{display:flex;gap:10px;flex-wrap:wrap;align-items:center;background:#fff;border:1px solid var(--wd-line);border-radius:14px;padding:10px 12px;margin-bottom:14px;box-shadow:var(--wd-shadow);}
+.busca{flex:1 1 240px;position:relative;}
+.busca input{width:100%;height:40px;padding-left:36px;}
+.busca span{position:absolute;left:12px;top:50%;transform:translateY(-50%);font-size:14px;opacity:.6;}
+.seg{display:flex;gap:3px;background:var(--line-soft);padding:3px;border-radius:10px;flex-wrap:wrap;}
+.seg button{border:0;background:transparent;font:inherit;font-size:13px;font-weight:700;color:var(--ink-3);padding:7px 12px;border-radius:7px;cursor:pointer;white-space:nowrap;}
+.seg button.on{background:var(--accent);color:var(--primary);box-shadow:0 1px 3px rgba(4,45,77,.18);}
+.seg button.on b{color:var(--primary);opacity:.65;}
+.seg button:not(.on):hover{color:var(--primary);background:rgba(255,255,255,.6);}
+.seg button b{font-weight:700;color:var(--ink-4);margin-left:4px;}
+
+.tag{display:inline-flex;align-items:center;gap:4px;font-size:11.5px;font-weight:700;padding:3px 9px;border-radius:20px;white-space:nowrap;}
+.tag.ok{background:var(--ok-bg);color:#166534;} .tag.warn{background:var(--warn-bg);color:#92400e;}
+.vazio{text-align:center;padding:40px 16px;color:var(--ink-3);background:#fff;border:1.5px dashed var(--wd-line);border-radius:14px;}
+.vazio b{display:block;color:var(--primary);font-size:15px;margin-top:6px;}
+.ib{width:36px;height:36px;border-radius:9px;border:1.5px solid var(--wd-line);background:#fff;font-size:14px;cursor:pointer;color:var(--primary);}
+.ib:hover{border-color:var(--primary);} .ib.x{color:var(--bad);} .ib.x:hover{border-color:var(--bad);}
+.ficha-g{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px;margin-bottom:14px;}
+.ficha-c{background:#f8fafc;border-radius:10px;padding:10px 12px;}
+.ficha-c span{display:block;font-size:11px;font-weight:700;color:var(--ink-4);}
+.ficha-c b{display:block;font-size:13.5px;color:var(--primary);margin-top:2px;word-break:break-word;}
+.tag.gray{background:var(--line-soft);color:var(--ink-3);} .tag.info{background:var(--info-bg);color:#1e40af;} .tag.bad{background:var(--bad-bg);color:#991b1b;}
+.trava{font-size:11.5px;color:var(--ink-3);margin-top:4px;line-height:1.4;}
+.wd{background:#fff;border:1px solid var(--wd-line);border-radius:14px;padding:16px 18px;box-shadow:var(--wd-shadow);margin-bottom:16px;}
+.wd-h{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;margin-bottom:14px;}
+.wd-h h2{margin:0;font-size:15.5px;font-weight:800;color:var(--primary);}
+.wd-h p{margin:2px 0 0;font-size:12px;color:var(--ink-3);}
+.pend .pi button{margin-left:8px;border:0;background:#7c2d12;color:#fff;border-radius:8px;padding:4px 10px;font:inherit;font-size:12px;font-weight:700;cursor:pointer;}
+/* pareto */
+.pa{display:grid;grid-template-columns:minmax(150px,240px) minmax(0,1fr) 150px;gap:6px 12px;align-items:center;}
+.pa-n{font-size:13px;font-weight:700;color:var(--primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;}
+.pa-n.fora{color:#92400e;}
+.pa-b{position:relative;height:22px;background:#f1f5f9;border-radius:6px;overflow:hidden;}
+.pa-b span{position:absolute;left:0;top:0;bottom:0;border-radius:6px;background:var(--primary);}
+.pa-b span.cauda{background:#9fb6cc;}
+.pa-b i{position:absolute;top:3px;bottom:3px;width:2px;background:var(--accent);border-radius:2px;}
+.pa-v{font-size:12.5px;color:var(--ink-2);font-variant-numeric:tabular-nums;white-space:nowrap;}
+.pa-v b{color:var(--primary);}
+.pa-v small{color:var(--ink-4);}
+.pa-nota{font-size:12px;color:var(--ink-3);margin-top:12px;line-height:1.5;background:#f8fafc;border-radius:10px;padding:9px 12px;}
+.tot{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:14px;}
+.tot div{background:#f8fafc;border-radius:12px;padding:10px 12px;}
+.tot span{display:block;font-size:11.5px;font-weight:700;color:var(--ink-3);}
+.tot b{font-size:22px;font-weight:800;color:var(--primary);font-variant-numeric:tabular-nums;}
+/* lista */
+.lst{background:#fff;border:1px solid var(--wd-line);border-radius:14px;box-shadow:var(--wd-shadow);overflow:hidden;}
+.mo{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr) auto;gap:12px;align-items:center;padding:11px 14px;border-bottom:1px solid var(--line-soft);}
+.mo:last-child{border-bottom:0;} .mo:hover{background:#fafcfe;} .mo.inat{opacity:.55;}
+.mo-n b{display:block;font-size:14px;color:var(--primary);}
+.mo-n small{display:block;font-size:12px;color:var(--ink-3);margin-top:2px;}
+.mo-n .chips{margin-top:5px;}
+.mo-u{font-size:12.5px;color:var(--ink-2);font-variant-numeric:tabular-nums;}
+.mo-u b{color:var(--primary);}
+.mo-u small{display:block;font-size:11.5px;color:var(--ink-4);}
+.sw{position:relative;width:46px;height:26px;flex-shrink:0;display:inline-block;}
+.sw input{opacity:0;width:0;height:0;position:absolute;}
+.sw span{position:absolute;inset:0;background:var(--ink-5);border-radius:20px;cursor:pointer;transition:background .15s;}
+.sw span::after{content:'';position:absolute;left:3px;top:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:transform .15s;box-shadow:0 1px 3px rgba(0,0,0,.2);}
+.sw input:checked+span{background:var(--ok-line);}
+.sw input:checked+span::after{transform:translateX(20px);}
+.sw input:focus-visible+span{outline:2px solid var(--primary);outline-offset:2px;}
+.cf-row{display:flex;align-items:center;gap:12px;padding:11px 12px;border-radius:12px;background:#f8fafc;}
+.cf-row .tx{flex:1;font-size:14px;font-weight:700;color:var(--primary);}
+.cf-row .tx small{display:block;font-size:12px;font-weight:500;color:var(--ink-3);margin-top:2px;line-height:1.4;}
+@media (max-width:760px){
+  .pa{grid-template-columns:minmax(0,1fr) 92px;} .pa-b{grid-column:1/-1;order:3;height:14px;}
+  .mo{grid-template-columns:minmax(0,1fr) auto;} .mo-u{display:none;}
+  .tot{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;} .tot b{font-size:18px;}
+  .eq-acts{width:100%;} .eq-acts .b{flex:1;justify-content:center;padding:0 8px;}
+  .topbar-user > div:last-child{display:none;}
+}
+</style>
 </head>
 <body>
 <div id="sidebar-container"></div>
@@ -23,68 +150,69 @@
     <button class="btn btn-ghost btn-sm" onclick="doLogout()" style="color:#64748b;">Sair</button>
   </div>
 </header>
+
 <main class="main-content" id="main-content">
-  <div class="page-header">
-    <div class="page-header-left"><h1>Motivos de Parada</h1><p>Cadastre os motivos utilizados para justificar paradas de produção</p></div>
-    <div style="display:flex;gap:10px;">
-      <button class="btn btn-secondary" onclick="exportarCSV(['Nome','Descrição','Status'],_motivos.map(m=>[m.nome,m.descricao||'—',m.status]),'motivos-parada')">⬇️ CSV</button>
-      <button class="btn btn-secondary" onclick="exportarPDF('Motivos de Parada',['Nome','Descrição','Status'],_motivos.map(m=>[m.nome,m.descricao||'—',m.status]))">📄 PDF</button>
-      <button class="btn btn-primary" onclick="openModalMotivo()">+ Novo Motivo</button>
+  <div class="eq-head">
+    <div><h1>Motivos de Parada</h1><p id="mo-sub">Motivos usados para justificar as paradas nas OPs</p></div>
+    <div class="eq-acts">
+      <button class="b" onclick="exportarLista('csv')">📊 CSV</button>
+      <button class="b" onclick="exportarLista('pdf')">📄 PDF</button>
+      <button class="b pri" onclick="openModalMotivo()">+ Novo motivo</button>
     </div>
   </div>
-  <div class="card">
-    <div class="search-bar">
-      <div class="search-input-wrap" style="flex:1;"><span class="search-icon">🔍</span><input type="text" class="form-input" id="busca-motivo" placeholder="Buscar motivo..." oninput="renderMotivos()"></div>
-      <select class="form-input" id="filtro-status-motivo" style="width:140px;" onchange="renderMotivos()"><option value="">Todos</option><option value="ativo">Ativo</option><option value="inativo">Inativo</option></select>
+  <div class="pend" id="mo-pend"></div>
+
+  <section class="wd">
+    <div class="wd-h">
+      <div><h2>Onde a fábrica mais para</h2><p id="pa-sub">Horas paradas por motivo, lançadas nas OPs</p></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <div class="seg" id="seg-per" role="group" aria-label="Período"></div>
+        <div class="seg" id="seg-ln" role="group" aria-label="Linha"></div>
+      </div>
     </div>
-    <div class="table-wrap">
-      <table><thead><tr><th>Nome do Motivo</th><th>Descrição</th><th>Status</th><th>Ações</th></tr></thead>
-      <tbody id="tbody-motivos"></tbody></table>
-    </div>
-    <div id="motivos-empty" class="empty-state hidden"><div class="empty-icon">🛑</div><h3>Nenhum motivo cadastrado</h3><p>Clique em "+ Novo Motivo" para começar.</p></div>
+    <div class="tot" id="pa-tot"></div>
+    <div class="pa" id="pareto"></div>
+    <div class="pa-nota" id="pa-nota"></div>
+  </section>
+
+  <div class="filtros">
+    <label class="busca"><span aria-hidden="true">🔍</span><input type="search" class="form-input" id="busca-motivo" placeholder="Buscar motivo" oninput="renderMotivos()" aria-label="Buscar"></label>
+    <div class="seg" id="seg-st" role="group" aria-label="Situação"></div>
   </div>
+  <div class="lst" id="mo-lista"><div class="vazio" style="border:0;"><div class="spin" style="width:30px;height:30px;border-width:3px;margin:0 auto 10px;"></div>Carregando…</div></div>
 </main>
 
-<!-- MODAL MOTIVO -->
+<!-- EDITOR -->
 <div id="modal-motivo" class="modal-overlay hidden">
-  <div class="modal" style="max-width:500px;">
-    <div class="modal-header"><div class="modal-title" id="modal-motivo-title">Novo Motivo de Parada</div><button class="modal-close" onclick="closeModal('modal-motivo')">✕</button></div>
-    <div style="display:flex;flex-direction:column;gap:16px;">
-      <div class="form-group"><label class="form-label">Nome do Motivo <span class="req">*</span></label><input id="motivo-nome" type="text" class="form-input" placeholder="Ex: Falta de Matéria-Prima, Quebra de Equipamento"></div>
-      <div class="form-group"><label class="form-label">Descrição</label><input id="motivo-desc" type="text" class="form-input" placeholder="Descrição detalhada do motivo"></div>
-      <div class="form-group"><label class="form-label">Status</label>
-        <select id="motivo-status" class="form-input"><option value="ativo">✅ Ativo</option><option value="inativo">⚫ Inativo</option></select>
-      </div>
+  <div class="modal" style="max-width:520px;">
+    <div class="modal-header"><div class="modal-title" id="modal-motivo-title">Novo motivo de parada</div><button class="modal-close" onclick="closeModal('modal-motivo')" aria-label="Fechar">✕</button></div>
+    <div style="display:flex;flex-direction:column;gap:14px;">
+      <div class="form-group"><label class="form-label" for="motivo-nome">Nome do motivo <span class="req">*</span></label>
+        <input id="motivo-nome" type="text" class="form-input" placeholder="Ex.: FALTA DE EMBALAGEM" style="text-transform:uppercase;"><div class="trava" id="motivo-trava"></div></div>
+      <div class="form-group"><label class="form-label" for="motivo-desc">Descrição</label><input id="motivo-desc" type="text" class="form-input" placeholder="Quando usar este motivo"></div>
+      <div class="cf-row"><span class="tx">Conta como hora trabalhada<small>Ao escolher este motivo na OP, a parada já vem marcada como trabalhada (ex.: limpeza programada, treinamento).</small></span>
+        <label class="sw"><input type="checkbox" id="motivo-trab"><span></span></label></div>
+      <div class="form-group"><label class="form-label" for="motivo-status">Situação</label>
+        <select id="motivo-status" class="form-input"><option value="ativo">Ativo — aparece na OP</option><option value="inativo">Inativo — não aparece mais na OP</option></select></div>
       <div id="motivo-error" class="hidden alert alert-danger"></div>
     </div>
     <div class="modal-footer">
+      <button class="btn btn-secondary" style="color:#dc2626;margin-right:auto;" id="btn-excluir-motivo" onclick="excluirMotivo()">Excluir</button>
       <button class="btn btn-secondary" onclick="closeModal('modal-motivo')">Cancelar</button>
       <button class="btn btn-primary" id="btn-salvar-motivo" onclick="salvarMotivo()">💾 Salvar</button>
     </div>
   </div>
 </div>
-
-<!-- MODAL VISUALIZAR MOTIVO -->
-<div id="modal-view-motivo" class="modal-overlay hidden">
-  <div class="modal" style="max-width:480px;">
-    <div class="modal-header"><div class="modal-title">🛑 Motivo de Parada</div><button class="modal-close" onclick="closeModal('modal-view-motivo')">✕</button></div>
-    <div id="modal-view-motivo-body"></div>
-    <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('modal-view-motivo')">Fechar</button></div>
-  </div>
-</div>
-
-<!-- MODAL CONFIRMAÇÃO -->
-<div id="modal-confirm" class="modal-overlay hidden">
-  <div class="modal" style="max-width:420px;">
-    <div class="modal-header"><div class="modal-title">⚠️ Confirmar Exclusão</div><button class="modal-close" onclick="closeModal('modal-confirm')">✕</button></div>
-    <p id="confirm-msg" style="font-size:14px;color:#475569;line-height:1.6;"></p>
-    <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('modal-confirm')">Cancelar</button><button class="btn btn-danger" id="confirm-ok-btn">🗑️ Sim, Excluir</button></div>
-  </div>
-</div>
 <div id="toast-container"></div>
-
 <script>
-let _editingMotivoId=null, _motivos=[];
+let _editingMotivoId=null, _motivos=[], _ops=[], _linhas=[], _per='30', _ln='', _st='ativo';
+const esc=v=>String(v==null?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const _norm=s=>String(s||'').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^A-Z0-9]/g,'');
+const fN=(v,d=0)=>(Number(v)||0).toLocaleString('pt-BR',{minimumFractionDigits:d,maximumFractionDigits:d});
+const fH=h=>{ h=Number(h)||0; if(h<1) return Math.round(h*60)+' min'; return fN(h,1)+' h'; };
+const fD=d=>d?String(d).slice(0,10).split('-').reverse().join('/'):'—';
+function _iso(d){ return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+function _dia(n){ const d=new Date(); d.setDate(d.getDate()+n); return _iso(d); }
 
 fetch('partials/sidebar.html').then(r=>r.text()).then(html=>{
   document.getElementById('sidebar-container').innerHTML=html;
@@ -93,93 +221,133 @@ fetch('partials/sidebar.html').then(r=>r.text()).then(html=>{
 });
 initSidebar('motivos.html');
 
-async function init(){const{data}=await _supabase.from('motivos_parada').select('*').order('nome');_motivos=data||[];renderMotivos();}
+/* ═══ CARGA ═══ */
+async function init(){
+  const [mo,op,ln]=await Promise.all([
+    _supabase.from('motivos_parada').select('*').order('nome'),
+    _supabase.from('producao').select('data,linha,paradas_op').limit(20000),
+    _supabase.from('linhas_producao').select('nome').eq('status','ativo').order('nome')]);
+  _motivos=mo.data||[]; _linhas=(ln.data||[]).map(l=>l.nome);
+  // uma linha por parada lançada
+  _ops=[]; (op.data||[]).forEach(o=>(o.paradas_op||[]).forEach(p=>{
+    const h=parseFloat(p.duracao_h??p.horas??(p.duracao_min!=null?p.duracao_min/60:0))||0;
+    if(p.motivo) _ops.push({data:o.data,linha:o.linha,motivo:String(p.motivo).trim(),h,trab:!!p.conta_trabalhada,obs:p.obs_parada_item||''});
+  }));
+  render();
+}
+function render(){ renderPend(); renderPareto(); renderMotivos(); }
+// paradas no período escolhido (sempre até ONTEM — o dia corrente ainda não fechou)
+function paradasPeriodo(){
+  const ate=_dia(-1); const ini=_per==='30'?_dia(-30):_per==='mes'?ate.slice(0,8)+'01':_per==='90'?_dia(-90):'0000';
+  return _ops.filter(p=>p.data>=ini&&p.data<=ate&&(!_ln||p.linha===_ln));
+}
+function usoTotal(nome){ const k=_norm(nome); const l=_ops.filter(p=>_norm(p.motivo)===k); return {n:l.length,h:l.reduce((s,p)=>s+p.h,0),ult:l.reduce((m,p)=>p.data>m?p.data:m,'')}; }
+const cadastrado=nome=>_motivos.some(m=>_norm(m.nome)===_norm(nome));
 
+function renderPend(){
+  const fora=[...new Set(_ops.map(p=>p.motivo))].filter(m=>!cadastrado(m));
+  document.getElementById('mo-sub').textContent=`${_motivos.filter(m=>m.status==='ativo').length} motivo(s) ativo(s) · ${fN(_ops.length)} parada(s) lançada(s) nas OPs`;
+  document.getElementById('mo-pend').innerHTML=fora.map(m=>{ const u=usoTotal(m);
+    return `<span class="pi" style="cursor:default;">“${esc(m)}” foi usado ${u.n}× nas OPs (${fH(u.h)}), mas não está no cadastro<button type="button" onclick="cadastrarFora('${esc(m).replace(/'/g,"\\'")}')">Cadastrar</button></span>`; }).join('');
+}
+function cadastrarFora(nome){ openModalMotivo(); document.getElementById('motivo-nome').value=nome; }
+
+/* ═══ PARETO ═══ */
+function setPer(p){ _per=p; renderPareto(); }
+function setLn(l){ _ln=l; renderPareto(); }
+function renderPareto(){
+  document.getElementById('seg-per').innerHTML=[['30','30 dias'],['mes','Este mês'],['90','3 meses'],['tudo','Tudo']].map(([k,r])=>`<button type="button" class="${_per===k?'on':''}" onclick="setPer('${k}')">${r}</button>`).join('');
+  document.getElementById('seg-ln').innerHTML=[['','Todas'],..._linhas.map(l=>[l,l])].map(([k,r])=>`<button type="button" class="${_ln===k?'on':''}" onclick="setLn('${esc(k)}')">${esc(r)}</button>`).join('');
+  const lista=paradasPeriodo(); const g={};
+  lista.forEach(p=>{ const k=_norm(p.motivo); (g[k]=g[k]||{nome:p.motivo,n:0,h:0,trab:0}); g[k].n++; g[k].h+=p.h; if(p.trab) g[k].trab+=p.h; });
+  const arr=Object.values(g).sort((a,b)=>b.h-a.h); const tot=arr.reduce((s,x)=>s+x.h,0);
+  const ate=_dia(-1);
+  document.getElementById('pa-sub').textContent=`Horas paradas por motivo, lançadas nas OPs${_ln?' da '+_ln:''} · até ${fD(ate)}`;
+  document.getElementById('pa-tot').innerHTML=`<div><span>Horas paradas</span><b>${fH(tot)}</b></div><div><span>Paradas lançadas</span><b>${fN(lista.length)}</b></div><div><span>Motivos diferentes</span><b>${arr.length}</b></div>`;
+  const el=document.getElementById('pareto'), nota=document.getElementById('pa-nota');
+  if(!arr.length){ el.innerHTML='<div style="grid-column:1/-1;color:var(--ink-4);font-size:13px;">Nenhuma parada lançada neste período.</div>'; nota.textContent=''; return; }
+  const max=arr[0].h||1; let acum=0, n80=0;
+  el.innerHTML=arr.map(x=>{ const ant=acum; acum+=x.h; const pctAc=tot?acum/tot*100:0; const top=tot?ant/tot<0.8:true; if(top) n80++;
+    return `<div class="pa-n${cadastrado(x.nome)?'':' fora'}" title="${esc(x.nome)}" onclick="abrirPorNome('${esc(x.nome).replace(/'/g,"\\'")}')">${esc(x.nome)}</div>
+      <div class="pa-b"><span class="${top?'':'cauda'}" style="width:${(x.h/max*100).toFixed(1)}%;"></span></div>
+      <div class="pa-v"><b>${fH(x.h)}</b> · ${x.n}× <small>· ${tot?fN(x.h/tot*100,0):0}% (acum. ${fN(pctAc,0)}%)</small></div>`; }).join('');
+  const top=arr.slice(0,n80).map(x=>x.nome);
+  nota.innerHTML=`<b>${n80} motivo(s)</b> somam 80% do tempo parado: ${top.map(esc).join(', ')}. Atacar estes é o que mais devolve hora de máquina.`;
+}
+function abrirPorNome(nome){ const m=_motivos.find(x=>_norm(x.nome)===_norm(nome)); if(m) editarMotivo(m.id); else cadastrarFora(nome); }
+
+/* ═══ LISTA ═══ */
+function setSt(s){ _st=s; renderMotivos(); }
 function renderMotivos(){
-  const busca=(document.getElementById('busca-motivo')?.value||'').toLowerCase();
-  const status=document.getElementById('filtro-status-motivo')?.value||'';
-  const lista=_motivos.filter(m=>(!busca||m.nome?.toLowerCase().includes(busca)||(m.descricao||'').toLowerCase().includes(busca))&&(!status||m.status===status));
-  const tbody=document.getElementById('tbody-motivos');const empty=document.getElementById('motivos-empty');
-  tbody.innerHTML='';
-  if(!lista.length){empty.classList.remove('hidden');return;}empty.classList.add('hidden');
-  lista.forEach(m=>{
-    const tr=document.createElement('tr');
-    tr.innerHTML=`<td><strong style="color:var(--primary);">${m.nome}</strong></td>
-      <td style="font-size:13px;color:#64748b;">${m.descricao||'—'}</td>
-      <td><span class="badge ${m.status==='ativo'?'badge-success':'badge-gray'}">${m.status==='ativo'?'✅ Ativo':'⚫ Inativo'}</span></td>
-      <td><div class="table-actions">
-        <button class="btn btn-secondary btn-sm" onclick="visualizarMotivo('${m.id}')">👁️</button>
-        <button class="btn btn-secondary btn-sm" onclick="editarMotivo('${m.id}')">✏️ Editar</button>
-        <button class="btn btn-danger btn-sm" onclick="confirmarExclusao('${m.id}','${m.nome}')">🗑️</button>
-      </div></td>`;
-    tbody.appendChild(tr);
-  });
+  const atv=_motivos.filter(m=>m.status==='ativo');
+  const semUso=atv.filter(m=>!usoTotal(m.nome).n);
+  document.getElementById('seg-st').innerHTML=[['ativo','Ativos',atv.length],['semuso','Nunca usados',semUso.length],['inativo','Inativos',_motivos.length-atv.length],['','Todos',_motivos.length]]
+    .map(([k,r,n])=>`<button type="button" class="${_st===k?'on':''}" onclick="setSt('${k}')">${r}<b>${n}</b></button>`).join('');
+  const q=_norm(document.getElementById('busca-motivo').value);
+  const lista=_motivos.filter(m=>(!_st||(_st==='semuso'?m.status==='ativo'&&!usoTotal(m.nome).n:m.status===_st))&&(!q||_norm(m.nome+' '+(m.descricao||'')).includes(q)))
+    .map(m=>({m,u:usoTotal(m.nome)})).sort((a,b)=>b.u.h-a.u.h||a.m.nome.localeCompare(b.m.nome));
+  const el=document.getElementById('mo-lista');
+  if(!lista.length){ el.innerHTML='<div class="vazio" style="border:0;"><b>Nenhum motivo aqui</b></div>'; return; }
+  el.innerHTML=lista.map(({m,u})=>`<div class="mo${m.status!=='ativo'?' inat':''}">
+    <div class="mo-n"><b>${esc(m.nome)}</b>${m.descricao?`<small>${esc(m.descricao)}</small>`:''}
+      <div class="chips">${m.conta_como_trabalhada?'<span class="tag info">conta como trabalhada</span>':''}${m.status!=='ativo'?'<span class="tag gray">Inativo</span>':''}${u.n?'':'<span class="tag gray">nunca usado</span>'}</div></div>
+    <div class="mo-u">${u.n?`<b>${fH(u.h)}</b> em ${u.n} parada(s)<small>última em ${fD(u.ult)}</small>`:'—'}</div>
+    <div><button type="button" class="b sm" onclick="editarMotivo('${esc(m.id)}')" aria-label="Editar ${esc(m.nome)}">✏️ Editar</button></div></div>`).join('');
 }
 
-function openModalMotivo(){
-  _editingMotivoId=null;
-  document.getElementById('modal-motivo-title').textContent='Novo Motivo de Parada';
-  document.getElementById('motivo-nome').value='';document.getElementById('motivo-desc').value='';
-  document.getElementById('motivo-status').value='ativo';document.getElementById('motivo-error').classList.add('hidden');
+/* ═══ EDITOR ═══ */
+function _abrir(m){
+  _editingMotivoId=m?m.id:null;
+  document.getElementById('modal-motivo-title').textContent=m?'Editar — '+m.nome:'Novo motivo de parada';
+  const nm=document.getElementById('motivo-nome'); nm.value=m?m.nome:'';
+  document.getElementById('motivo-desc').value=m?m.descricao||'':'';
+  document.getElementById('motivo-trab').checked=!!(m&&m.conta_como_trabalhada);
+  document.getElementById('motivo-status').value=m?m.status||'ativo':'ativo';
+  const u=m?usoTotal(m.nome):{n:0}, trava=u.n>0;
+  nm.readOnly=trava; nm.style.background=trava?'#f5f7fa':'';
+  document.getElementById('motivo-trava').textContent=trava?`🔒 Nome travado: usado em ${u.n} parada(s) lançada(s). Se não serve mais, deixe Inativo.`:'';
+  document.getElementById('btn-excluir-motivo').style.display=m?'':'none';
+  document.getElementById('motivo-error').classList.add('hidden');
   document.getElementById('modal-motivo').classList.remove('hidden');
+  setTimeout(()=>(trava?document.getElementById('motivo-desc'):nm).focus(),50);
 }
-
-function editarMotivo(id){
-  const m=_motivos.find(x=>x.id===id);if(!m)return;
-  _editingMotivoId=id;
-  document.getElementById('modal-motivo-title').textContent='Editar Motivo';
-  document.getElementById('motivo-nome').value=m.nome||'';document.getElementById('motivo-desc').value=m.descricao||'';
-  document.getElementById('motivo-status').value=m.status||'ativo';document.getElementById('motivo-error').classList.add('hidden');
-  document.getElementById('modal-motivo').classList.remove('hidden');
-}
-
+function openModalMotivo(){ _abrir(null); }
+function editarMotivo(id){ const m=_motivos.find(x=>x.id===id); if(m) _abrir(m); }
 async function salvarMotivo(){
-  if (!guardAction('motivos', 'edit')) return;
-  const nome=document.getElementById('motivo-nome').value.trim();
-  const errEl=document.getElementById('motivo-error');const btn=document.getElementById('btn-salvar-motivo');
-  if(!nome){errEl.textContent='Nome é obrigatório!';errEl.classList.remove('hidden');return;}
-  const dados={nome,descricao:document.getElementById('motivo-desc').value.trim()||null,status:document.getElementById('motivo-status').value};
-  btn.innerHTML='<span class="spin"></span>';btn.disabled=true;
+  if(!guardAction('motivos','edit')) return;
+  const errEl=document.getElementById('motivo-error'), btn=document.getElementById('btn-salvar-motivo');
+  const erro=t=>{ errEl.textContent=t; errEl.classList.remove('hidden'); };
+  const nome=document.getElementById('motivo-nome').value.trim().replace(/\s+/g,' ').toUpperCase();
+  if(!nome) return erro('Informe o nome do motivo.');
+  const dup=_motivos.find(x=>x.id!==_editingMotivoId&&_norm(x.nome)===_norm(nome)); if(dup) return erro(`Já existe “${dup.nome}”.`);
+  const atual=_editingMotivoId?_motivos.find(x=>x.id===_editingMotivoId):null;
+  if(atual&&atual.nome!==nome&&usoTotal(atual.nome).n) return erro('Este motivo já foi usado; o nome não pode mudar.');
+  const dados={nome,descricao:document.getElementById('motivo-desc').value.trim()||null,status:document.getElementById('motivo-status').value,
+    conta_como_trabalhada:document.getElementById('motivo-trab').checked,atualizado_em:new Date().toISOString()};
+  btn.disabled=true; btn.innerHTML='<span class="spin"></span>';
   try{
-    if(_editingMotivoId){await db(_supabase.from('motivos_parada').update(dados).eq('id',_editingMotivoId),'atualizar motivo');await addLog('UPDATE','MOTIVOS',_editingMotivoId,'Atualizado: '+nome);toast('Motivo atualizado!','success');}
-    else{const{data,error:err}=await _supabase.from('motivos_parada').insert(dados).select().single();if(err)throw err;await addLog('CREATE','MOTIVOS',data.id,'Novo motivo: '+nome);toast('Motivo cadastrado!','success');}
-    closeModal('modal-motivo');await init();
-  }catch(e){errEl.textContent='Erro: '+e.message;errEl.classList.remove('hidden');}
-  btn.innerHTML='💾 Salvar';btn.disabled=false;
+    if(atual){ await db(_supabase.from('motivos_parada').update(dados).eq('id',atual.id),'atualizar motivo'); await addLog('UPDATE','MOTIVOS',atual.id,'Atualizado: '+nome); toast('Motivo atualizado!','success'); }
+    else{ const{data,error}=await _supabase.from('motivos_parada').insert(dados).select().single(); if(error) throw error; await addLog('CREATE','MOTIVOS',data.id,'Novo motivo: '+nome); toast('Motivo cadastrado!','success'); }
+    closeModal('modal-motivo'); await init();
+  }catch(e){ erro('Erro: '+e.message); }
+  btn.disabled=false; btn.innerHTML='💾 Salvar';
+}
+async function excluirMotivo(){
+  if(!guardAction('motivos','delete')) return;
+  const m=_motivos.find(x=>x.id===_editingMotivoId); if(!m) return; const u=usoTotal(m.nome);
+  if(u.n){ alert(`“${m.nome}” já foi usado em ${u.n} parada(s) e não pode ser excluído.\n\nMude a situação para Inativo: ele some da OP e o histórico continua.`); return; }
+  if(!confirm(`Excluir o motivo “${m.nome}”?`)) return;
+  try{ await db(_supabase.from('motivos_parada').delete().eq('id',m.id),'excluir motivo'); await addLog('DELETE','MOTIVOS',m.id,'Excluído: '+m.nome);
+    toast('Motivo excluído.','warning'); closeModal('modal-motivo'); await init(); }catch(e){ toast('Erro: '+e.message,'danger'); }
 }
 
-function visualizarMotivo(id){
-  const m=_motivos.find(x=>x.id===id);if(!m)return;
-  document.getElementById('modal-view-motivo-body').innerHTML=`
-    <div style="display:flex;flex-direction:column;gap:12px;padding:4px 0;">
-      <div style="padding:14px 16px;background:#f8fafc;border-radius:10px;border:1px solid #e2e8f0;">
-        <p style="font-size:11px;color:#94a3b8;font-weight:600;text-transform:uppercase;margin-bottom:4px;">Nome</p>
-        <p style="font-size:16px;font-weight:800;color:var(--primary);">${m.nome}</p>
-      </div>
-      <div style="padding:14px 16px;background:#f8fafc;border-radius:10px;border:1px solid #e2e8f0;">
-        <p style="font-size:11px;color:#94a3b8;font-weight:600;text-transform:uppercase;margin-bottom:4px;">Descrição</p>
-        <p style="font-size:14px;color:var(--text);">${m.descricao||'Nenhuma descrição cadastrada.'}</p>
-      </div>
-      <div style="display:flex;gap:12px;">
-        <div style="flex:1;padding:14px 16px;background:#f8fafc;border-radius:10px;border:1px solid #e2e8f0;">
-          <p style="font-size:11px;color:#94a3b8;font-weight:600;text-transform:uppercase;margin-bottom:6px;">Status</p>
-          <span class="badge ${m.status==='ativo'?'badge-success':'badge-gray'}">${m.status==='ativo'?'✅ Ativo':'⚫ Inativo'}</span>
-        </div>
-        <div style="flex:1;padding:14px 16px;background:#f8fafc;border-radius:10px;border:1px solid #e2e8f0;">
-          <p style="font-size:11px;color:#94a3b8;font-weight:600;text-transform:uppercase;margin-bottom:4px;">Criado em</p>
-          <p style="font-size:13px;font-weight:600;color:var(--primary);">${m.created_at?new Date(m.created_at).toLocaleDateString('pt-BR'):new Date().toLocaleDateString('pt-BR')}</p>
-        </div>
-      </div>
-    </div>`;
-  document.getElementById('modal-view-motivo').classList.remove('hidden');
+/* ═══ EXPORTAR ═══ */
+function exportarLista(tipo){
+  const cab=['Motivo','Descrição','Conta como trabalhada','Paradas','Horas','Última vez','Situação'];
+  const lin=_motivos.map(m=>{ const u=usoTotal(m.nome); return [m.nome,m.descricao||'',m.conta_como_trabalhada?'Sim':'Não',u.n,fN(u.h,1),fD(u.ult),m.status==='ativo'?'Ativo':'Inativo']; });
+  if(tipo==='csv') exportarCSV(cab,lin,'motivos-parada'); else exportarPDF('Motivos de Parada',cab,lin);
 }
-
-function confirmarExclusao(id,nome){
-  document.getElementById('confirm-msg').innerHTML=`Deseja excluir o motivo <strong>${nome}</strong>?`;
-  document.getElementById('confirm-ok-btn').onclick=async()=>{await db(_supabase.from('motivos_parada').delete().eq('id',id),'excluir motivo');await addLog('DELETE','MOTIVOS',id,'Excluído: '+nome);toast('Motivo excluído.','warning');closeModal('modal-confirm');await init();};
-  document.getElementById('modal-confirm').classList.remove('hidden');
-}
-
+document.addEventListener('keydown',e=>{ if(e.key==='Escape') closeModal('modal-motivo'); });
 init();
 </script>
 </body>
