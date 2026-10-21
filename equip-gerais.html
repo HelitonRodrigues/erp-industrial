@@ -4,11 +4,172 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ERP Industrial — Equipamentos Gerais</title>
-<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/style.css">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="js/supabase.js"></script>
 <script src="js/utils.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<style>
+/* ══════════════════════════════════════════════════════════════════════════
+   EQUIPAMENTOS GERAIS (out/2026) — mesma tela do equip-linhas.html, agrupada por localização — mesmo desenho do Painel da fábrica
+   SEGURANÇA DOS DADOS
+   • Os componentes guardam campos que a MANUTENÇÃO grava (histórico de
+     revisões, componente pai, última OS, assinaturas…). A tela antiga remontava
+     o componente só com os campos do formulário e apagava tudo isso ao salvar.
+     Agora cada componente é editado no lugar: só os campos alterados mudam, e
+     na hora de gravar a lista é relida do banco e mesclada (se a Manutenção
+     fechou uma OS enquanto a tela estava aberta, nada se perde).
+   • Cada componente ganha um "uid" (campo novo, aditivo) para a mescla e para o
+     vínculo automático com o almoxarifado.
+   • Cópia de segurança: tabela equipamentos_gerais_backup_2026_10.
+   COMPONENTES
+   • Um campo "Peça" busca direto no almoxarifado. Não achou → "Pedir cadastro";
+     quando o almoxarifado cadastrar, o vínculo se faz sozinho (migração 063).
+   • "Copiar conjunto" de outro equipamento; árvore pelo componente pai.
+   ══════════════════════════════════════════════════════════════════════════ */
+:root{
+  --ok:#16a34a; --ok-bg:#dcfce7; --ok-line:#22c55e;
+  --warn:#b45309; --warn-bg:#fef3c7; --warn-line:#f59e0b;
+  --bad:#dc2626; --bad-bg:#fee2e2; --bad-line:#ef4444;
+  --info:#2563eb; --info-bg:#dbeafe;
+  --wd-line:#e3e9f0; --line-soft:#f1f5f9;
+  --ink-2:#475569; --ink-3:#64748b; --ink-4:#94a3b8; --ink-5:#cbd5e1;
+  --wd-shadow:0 1px 2px rgba(4,45,77,.05);
+}
+button:focus-visible,a:focus-visible,[role="button"]:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--primary);outline-offset:2px;}
+.eq-head{display:flex;justify-content:space-between;align-items:flex-end;gap:14px;flex-wrap:wrap;margin-bottom:16px;}
+.eq-head h1{margin:0;font-size:26px;font-weight:800;color:var(--primary);letter-spacing:-.4px;}
+.eq-head p{margin:3px 0 0;font-size:13px;color:var(--ink-3);}
+.eq-acts{display:flex;gap:8px;flex-wrap:wrap;}
+.b{height:44px;padding:0 15px;border-radius:12px;border:1.5px solid var(--wd-line);background:#fff;font:inherit;font-size:13.5px;
+  font-weight:700;color:var(--primary);cursor:pointer;display:inline-flex;align-items:center;gap:7px;white-space:nowrap;}
+.b:hover{border-color:var(--primary);}
+.b.pri{background:var(--primary);border-color:var(--primary);color:var(--accent);}
+.b.sm{height:36px;padding:0 11px;font-size:12.5px;border-radius:9px;}
+.b.perigo{color:var(--bad);} .b.perigo:hover{border-color:var(--bad);}
+.b:disabled{opacity:.55;cursor:default;}
+
+.pend{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;}
+.pend .pi{display:inline-flex;align-items:center;gap:8px;border:1.5px solid #fcd34d;background:var(--warn-bg);color:#7c2d12;
+  border-radius:10px;padding:8px 12px;font:inherit;font-size:13px;font-weight:700;cursor:pointer;}
+.pend .pi.on{background:#7c2d12;border-color:#7c2d12;color:#fff;}
+.pend .pi b{font-size:15px;}
+
+.tiles{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;margin-bottom:16px;}
+.tile{background:#fff;border:1px solid var(--wd-line);border-radius:14px;padding:14px 16px;box-shadow:var(--wd-shadow);text-align:left;font:inherit;cursor:pointer;min-width:0;}
+.tile:hover{border-color:#b9c8d8;} .tile.on{border-color:var(--primary);box-shadow:0 0 0 1px var(--primary);}
+.tile.hero{background:var(--primary);border-color:var(--primary);cursor:default;}
+.tile:not([onclick]){cursor:default;}
+.pz-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;padding:10px 12px;border-bottom:1px solid var(--line-soft);cursor:pointer;}
+.pz-row:hover{background:#f8fafc;}
+.pz-row b{color:var(--primary);} .pz-row .cod{font-family:ui-monospace,Menlo,monospace;font-size:12px;color:var(--ink-3);margin-left:6px;}
+.pz-row .sub{display:block;font-size:11.5px;color:var(--ink-4);margin-top:2px;}
+.pz-det{padding:4px 12px 12px 24px;border-bottom:1px solid var(--line-soft);background:#fafcfe;}
+.pz-eq{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;font-size:13px;border-bottom:1px dashed var(--line-soft);}
+.pz-eq:last-child{border-bottom:0;}
+.tile-l{font-size:12.5px;font-weight:700;color:var(--ink-2);}
+.tile-v{font-size:28px;font-weight:800;color:var(--primary);letter-spacing:-.5px;line-height:1.1;margin-top:6px;font-variant-numeric:tabular-nums;}
+.tile-s{font-size:11.5px;color:var(--ink-3);margin-top:3px;}
+.tile.hero .tile-l{color:rgba(255,255,255,.8);} .tile.hero .tile-v{color:var(--accent);} .tile.hero .tile-s{color:rgba(255,255,255,.6);}
+.tile.ruim .tile-v{color:var(--bad);} .tile.atencao .tile-v{color:var(--warn);}
+
+.filtros{display:flex;gap:10px;flex-wrap:wrap;align-items:center;background:#fff;border:1px solid var(--wd-line);border-radius:14px;padding:10px 12px;margin-bottom:14px;box-shadow:var(--wd-shadow);}
+.busca{flex:1 1 240px;position:relative;}
+.busca input{width:100%;height:40px;padding-left:36px;}
+.busca span{position:absolute;left:12px;top:50%;transform:translateY(-50%);font-size:14px;opacity:.6;}
+.seg{display:flex;gap:3px;background:var(--line-soft);padding:3px;border-radius:10px;flex-wrap:wrap;}
+.seg button{border:0;background:transparent;font:inherit;font-size:13px;font-weight:700;color:var(--ink-3);padding:7px 12px;border-radius:7px;cursor:pointer;white-space:nowrap;}
+.seg button.on{background:var(--accent);color:var(--primary);box-shadow:0 1px 3px rgba(4,45,77,.18);}
+.seg button.on b{color:var(--primary);opacity:.65;}
+.seg button:not(.on):hover{color:var(--primary);background:rgba(255,255,255,.6);}
+.seg button b{font-weight:700;color:var(--ink-4);margin-left:4px;}
+
+/* cartões de equipamento */
+.grp-ln{font-size:14px;font-weight:800;color:var(--ink-2);margin:4px 2px 10px;display:flex;align-items:center;gap:8px;}
+.grp-ln small{font-weight:600;color:var(--ink-4);}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:10px;margin-bottom:20px;}
+.eqc{background:#fff;border:1px solid var(--wd-line);border-radius:14px;padding:14px;box-shadow:var(--wd-shadow);display:flex;flex-direction:column;gap:10px;min-width:0;}
+.eqc:hover{border-color:#b9c8d8;}
+.eqc.inat{opacity:.6;}
+.eqc-top{display:flex;gap:12px;align-items:center;cursor:pointer;}
+.eqc-ft{width:52px;height:52px;border-radius:12px;background:var(--line-soft);display:flex;align-items:center;justify-content:center;font-size:22px;overflow:hidden;flex-shrink:0;}
+.eqc-ft img{width:100%;height:100%;object-fit:cover;}
+.eqc-n{min-width:0;}
+.eqc-n b{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;font-size:15px;line-height:1.25;color:var(--primary);overflow:hidden;}
+.eqc-n small{display:block;font-size:12px;color:var(--ink-3);margin-top:1px;}
+.chips{display:flex;gap:5px;flex-wrap:wrap;}
+.tag{display:inline-flex;align-items:center;gap:4px;font-size:11.5px;font-weight:700;padding:3px 9px;border-radius:20px;white-space:nowrap;}
+.tag.ok{background:var(--ok-bg);color:#166534;} .tag.warn{background:var(--warn-bg);color:#92400e;}
+.tag.bad{background:var(--bad-bg);color:#991b1b;} .tag.info{background:var(--info-bg);color:#1e40af;}
+.tag.gray{background:var(--line-soft);color:var(--ink-3);}
+.eqc-a{display:flex;gap:6px;margin-top:auto;}
+.eqc-a .b{flex:1;justify-content:center;}
+.vazio{text-align:center;padding:40px 16px;color:var(--ink-3);background:#fff;border:1.5px dashed var(--wd-line);border-radius:14px;}
+.vazio b{display:block;color:var(--primary);font-size:15px;margin-top:6px;}
+
+/* editor */
+.f-tabs{display:flex;gap:3px;background:var(--line-soft);padding:3px;border-radius:10px;margin-bottom:16px;width:fit-content;max-width:100%;overflow-x:auto;}
+.f-tab{border:0;background:transparent;font:inherit;font-size:13px;font-weight:700;color:var(--ink-3);padding:8px 14px;border-radius:8px;cursor:pointer;white-space:nowrap;}
+.f-tab.on{background:var(--accent);color:var(--primary);box-shadow:0 1px 3px rgba(4,45,77,.18);}
+.cp-bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;}
+.cp-bar .resumo{margin-left:auto;font-size:12px;color:var(--ink-3);}
+.cp-l{display:flex;flex-direction:column;gap:6px;}
+.cp{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center;background:#f8fafc;border:1px solid transparent;border-radius:11px;padding:9px 10px 9px 12px;}
+.cp:hover{border-color:var(--wd-line);background:#fff;}
+.cp.novo{border-color:#c9e88a;background:#fbffef;}
+.cp.mudou{border-color:#bfdbfe;}
+.cp-n{min-width:0;}
+.cp-n b{color:var(--primary);font-size:13.5px;}
+.cp-n .cod{font-family:ui-monospace,Menlo,monospace;font-size:12px;color:var(--ink-3);margin-left:6px;}
+.cp-n .sub{display:block;font-size:11.5px;color:var(--ink-4);margin-top:2px;}
+.cp-n .chips{margin-top:5px;}
+.cp-a{display:flex;gap:4px;}
+.ib{width:36px;height:36px;border-radius:9px;border:1.5px solid var(--wd-line);background:#fff;font-size:14px;cursor:pointer;color:var(--primary);}
+.ib:hover{border-color:var(--primary);} .ib.x{color:var(--bad);} .ib.x:hover{border-color:var(--bad);}
+.filho{margin-left:22px;position:relative;}
+.filho::before{content:'';position:absolute;left:-14px;top:-6px;bottom:50%;width:10px;border-left:1.5px solid var(--ink-5);border-bottom:1.5px solid var(--ink-5);border-radius:0 0 0 6px;}
+.cp-vazio{text-align:center;color:var(--ink-4);font-size:13px;padding:22px;border:1.5px dashed var(--wd-line);border-radius:12px;}
+
+/* busca de peça no almoxarifado */
+.ac{position:relative;}
+.ac-l{position:absolute;left:0;right:0;top:calc(100% + 4px);background:#fff;border:1px solid var(--wd-line);border-radius:12px;box-shadow:0 12px 30px rgba(4,45,77,.16);
+  max-height:280px;overflow-y:auto;z-index:50;display:none;}
+.ac-l.on{display:block;}
+.ac-i{display:flex;justify-content:space-between;gap:10px;padding:9px 12px;cursor:pointer;border-bottom:1px solid var(--line-soft);font-size:13px;}
+.ac-i:last-child{border-bottom:0;}
+.ac-i:hover,.ac-i.sel{background:#f1f5f9;}
+.ac-i b{color:var(--primary);} .ac-i small{display:block;font-size:11px;color:var(--ink-4);}
+.ac-i .v{font-size:12px;font-weight:700;color:var(--ok);white-space:nowrap;}
+.ac-novo{padding:10px 12px;font-size:13px;color:var(--ink-2);background:#fffbeb;}
+.vinc{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--ok-bg);border-radius:10px;padding:9px 12px;font-size:13px;color:#166534;font-weight:600;}
+.vinc.aguard{background:var(--warn-bg);color:#92400e;}
+.vinc.sem{background:var(--line-soft);color:var(--ink-3);}
+.vinc .b{margin-left:auto;}
+.rev{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;}
+.rev div{background:#f8fafc;border-radius:10px;padding:8px 10px;}
+.rev span{display:block;font-size:11px;font-weight:700;color:var(--ink-4);}
+.rev b{font-size:14px;color:var(--primary);}
+.hist{font-size:12.5px;color:var(--ink-2);background:#f8fafc;border-radius:10px;padding:10px 12px;line-height:1.5;}
+.ficha-g{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px;margin-bottom:14px;}
+.ficha-c{background:#f8fafc;border-radius:10px;padding:10px 12px;}
+.ficha-c span{display:block;font-size:11px;font-weight:700;color:var(--ink-4);}
+.ficha-c b{display:block;font-size:13.5px;color:var(--primary);margin-top:2px;word-break:break-word;}
+.copia-i{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--wd-line);border-radius:10px;margin-bottom:6px;cursor:pointer;}
+.copia-i:hover{background:#f8fafc;border-color:var(--primary);}
+.copia-i b{color:var(--primary);}
+.modal-xl{max-width:920px !important;width:100%;}
+
+@media (max-width:1200px){ .tiles{grid-template-columns:repeat(3,minmax(0,1fr));} }
+@media (max-width:760px){
+  .tiles{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;}
+  .eq-acts{width:100%;} .eq-acts .b{flex:1;justify-content:center;padding:0 8px;}
+  .seg{width:100%;} .seg button{flex:1;padding:7px 6px;}
+  .rev{grid-template-columns:1fr 1fr;}
+  .filho{margin-left:14px;}
+  .topbar-user > div:last-child{display:none;}
+}
+</style>
 </head>
 <body>
 <div id="sidebar-container"></div>
@@ -23,131 +184,204 @@
     <button class="btn btn-ghost btn-sm" onclick="doLogout()" style="color:#64748b;">Sair</button>
   </div>
 </header>
+
 <main class="main-content" id="main-content">
-  <div class="page-header">
-    <div class="page-header-left"><h1>Equipamentos Gerais</h1><p>Equipamentos fora das linhas — compressores, geradores, etc.</p></div>
-    <div style="display:flex;gap:10px;">
-      <button class="btn btn-secondary" onclick="exportarCSV(['Nome','Código','Localização','Fabricante/Modelo','Horímetro','Status'],_equips.map(e=>[e.nome,e.codigo||'—',e.localizacao||'—',[e.fabricante,e.modelo].filter(Boolean).join('/')||'—',(e.horimetro||0)+'h',e.status]),'equip-gerais')">⬇️ CSV</button>
-      <button class="btn btn-secondary" onclick="exportarPDF('Equipamentos Gerais',['Nome','Código','Localização','Status'],_equips.map(e=>[e.nome,e.codigo||'—',e.localizacao||'—',e.status]))">📄 PDF</button>
-      <button class="btn btn-primary" onclick="openModalEquip()">+ Novo Equipamento</button>
+  <div class="eq-head">
+    <div><h1>Equipamentos Gerais</h1><p id="eq-sub">Equipamentos fora das linhas — compressores, geradores, etc.</p></div>
+    <div class="eq-acts">
+      <button class="b" onclick="exportarLista('csv')">📊 CSV</button>
+      <button class="b" onclick="exportarLista('pdf')">📄 PDF</button>
+      <button class="b" onclick="imprimirEtiquetas()" title="Etiquetas com QR dos equipamentos do local selecionado">🏷️ Etiquetas QR</button>
+      <button class="b pri" onclick="openModalEquip()">+ Novo equipamento</button>
     </div>
   </div>
-  <div class="card">
-    <div class="search-bar">
-      <div class="search-input-wrap" style="flex:1;"><span class="search-icon">🔍</span><input type="text" class="form-input" id="busca-eqg" placeholder="Buscar por nome, código ou localização..." oninput="renderEquips()"></div>
-      <select class="form-input" id="filtro-status-eqg" style="width:140px;" onchange="renderEquips()"><option value="">Todos os status</option><option value="ativo">Ativo</option><option value="manutencao">Em Manutenção</option><option value="inativo">Inativo</option></select>
-    </div>
-    <div class="table-wrap">
-      <table><thead><tr><th>Equipamento</th><th>Código</th><th>Localização</th><th>Fabricante / Modelo</th><th>Nº Série / Patrim.</th><th>Horímetro</th><th>Status</th><th>Ações</th></tr></thead>
-      <tbody id="tbody-eqg"></tbody></table>
-    </div>
-    <div id="eqg-empty" class="empty-state hidden"><div class="empty-icon">🔧</div><h3>Nenhum equipamento cadastrado</h3><p>Clique em "+ Novo Equipamento" para começar.</p></div>
+  <div class="pend" id="eq-pend"></div>
+  <div class="tiles" id="eq-tiles"></div>
+  <div class="filtros">
+    <label class="busca"><span aria-hidden="true">🔍</span><input type="search" class="form-input" id="busca-eql" placeholder="Buscar equipamento, TAG, fabricante ou peça" oninput="renderEquips()" aria-label="Buscar"></label>
+    <div class="seg" id="seg-linha" role="group" aria-label="Local"></div>
   </div>
+  <div id="eq-lista"><div class="vazio"><div class="spin" style="width:30px;height:30px;border-width:3px;margin:0 auto 10px;"></div>Carregando…</div></div>
 </main>
 
-<!-- MODAL EQUIPAMENTO -->
-<!-- MODAL: vincular componente a produto já cadastrado no almoxarifado -->
-<div id="m-vincular-almox" class="modal-overlay hidden" onclick="if(event.target===this)closeModal('m-vincular-almox')" style="z-index:30070;">
-  <div class="modal" style="max-width:640px;max-height:84vh;display:flex;flex-direction:column;">
-    <div class="modal-header" style="flex-shrink:0;"><div class="modal-title">🔗 Vincular a produto do Almoxarifado</div><button class="modal-close" onclick="closeModal('m-vincular-almox')">✕</button></div>
-    <input id="vinc-busca" type="text" class="form-input" style="flex-shrink:0;margin-bottom:10px;" placeholder="🔍 Buscar por nome ou código..." oninput="renderVincLista()">
-    <div id="vinc-lista" style="overflow-y:auto;flex:1;"></div>
+<!-- EDITOR DO EQUIPAMENTO -->
+<div id="modal-equip" class="modal-overlay hidden">
+  <div class="modal modal-xl">
+    <div class="modal-header"><div class="modal-title" id="modal-equip-title">Novo equipamento</div><button class="modal-close" onclick="fecharEditor()" aria-label="Fechar">✕</button></div>
+    <div class="f-tabs" role="tablist">
+      <button type="button" class="f-tab on" id="t-dados" onclick="edTab('dados')">📋 Dados</button>
+      <button type="button" class="f-tab" id="t-comp" onclick="edTab('comp')">⚙️ Componentes <span id="t-comp-n"></span></button>
+    </div>
+    <div id="p-dados" style="display:flex;flex-direction:column;gap:14px;">
+      <div style="display:flex;align-items:center;gap:16px;padding:14px;background:#f8fafc;border-radius:12px;">
+        <div id="eql-foto-preview" class="eqc-ft" style="width:72px;height:72px;font-size:28px;cursor:pointer;" onclick="if(_eqlFoto)verFotoInline(_eqlFoto)">⚙️</div>
+        <div><div style="font-size:13px;font-weight:700;color:var(--primary);margin-bottom:6px;">Foto do equipamento</div>
+          <div style="display:flex;gap:8px;"><button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('eql-foto-input').click()">📷 Escolher</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="eql-btn-rm-foto" onclick="removerFotoEQL()" style="display:none;color:#dc2626;">Remover</button></div>
+          <input type="file" id="eql-foto-input" accept="image/*" style="display:none;" onchange="previewFotoEQL(this)"></div>
+      </div>
+      <div class="form-grid-2">
+        <div class="form-group"><label class="form-label" for="equip-nome">Nome do equipamento <span class="req">*</span></label><input id="equip-nome" type="text" class="form-input" placeholder="Ex.: Moinho"></div>
+        <div class="form-group"><label class="form-label" for="equip-codigo">Código / TAG <span class="req">*</span></label><input id="equip-codigo" type="text" class="form-input" placeholder="Ex.: MOI-01" oninput="checarTag()"><div id="tag-msg" style="font-size:11.5px;color:var(--bad);margin-top:4px;"></div></div>
+      </div>
+      <div class="form-grid-2">
+        <div class="form-group"><label class="form-label" for="equip-linha">Localização</label>
+          <input id="equip-linha" type="text" class="form-input" list="dl-locais" placeholder="Ex.: Sala de Compressores, Pátio, Elétrica" autocomplete="off">
+          <datalist id="dl-locais"></datalist></div>
+        <div class="form-group"><label class="form-label" for="equip-cc">Centro de custo</label><input id="equip-cc" type="text" class="form-input" placeholder="Ex.: CC-001"></div>
+      </div>
+      <div class="form-grid-2">
+        <div class="form-group"><label class="form-label" for="equip-fabricante">Fabricante</label><input id="equip-fabricante" type="text" class="form-input"></div>
+        <div class="form-group"><label class="form-label" for="equip-modelo">Modelo</label><input id="equip-modelo" type="text" class="form-input"></div>
+      </div>
+      <div class="form-grid-2">
+        <div class="form-group"><label class="form-label" for="equip-serie">Nº de série</label><input id="equip-serie" type="text" class="form-input"></div>
+        <div class="form-group"><label class="form-label" for="equip-patrimonio">Nº de patrimônio</label><input id="equip-patrimonio" type="text" class="form-input"></div>
+      </div>
+      <div class="form-grid-2">
+        <div class="form-group"><label class="form-label" for="equip-horimetro">Horímetro (h)</label><input id="equip-horimetro" type="number" class="form-input" min="0">
+          </div>
+        <div class="form-group"><label class="form-label" for="equip-aquisicao">Data de aquisição</label><input id="equip-aquisicao" type="date" class="form-input"></div>
+      </div>
+      <div class="form-grid-2">
+        <div class="form-group"><label class="form-label" for="equip-status">Situação</label>
+          <select id="equip-status" class="form-input"><option value="ativo">Ativo</option><option value="manutencao">Em manutenção</option><option value="inativo">Inativo</option></select></div>
+        <div class="form-group"><label class="form-label" for="equip-obs">Observações</label><input id="equip-obs" type="text" class="form-input"></div>
+      </div>
+    </div>
+    <div id="p-comp" style="display:none;">
+      <div class="cp-bar">
+        <button type="button" class="b sm pri" onclick="abrirPeca(null)">+ Adicionar peça</button>
+        <button type="button" class="b sm" onclick="abrirCopia()">📋 Copiar conjunto de outro equipamento</button>
+        <span class="resumo" id="cp-resumo"></span>
+      </div>
+      <div class="cp-l" id="cp-lista"></div>
+    </div>
+    <div id="equip-error" class="hidden alert alert-danger" style="margin-top:12px;"></div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="fecharEditor()">Cancelar</button>
+      <button class="btn btn-primary" id="btn-salvar-equip" onclick="salvarEquip()">💾 Salvar</button>
+    </div>
   </div>
 </div>
-<div id="modal-equip" class="modal-overlay hidden">
+
+<!-- PEÇA (componente) -->
+<div id="modal-peca" class="modal-overlay hidden" style="z-index:30060;">
   <div class="modal modal-lg">
-    <div class="modal-header"><div class="modal-title" id="modal-equip-title">Novo Equipamento Geral</div><button class="modal-close" onclick="closeModal('modal-equip')">✕</button></div>
-    <div style="display:flex;flex-direction:column;gap:16px;">
+    <div class="modal-header"><div class="modal-title" id="pc-tit">Adicionar peça</div><button class="modal-close" onclick="closeModal('modal-peca')" aria-label="Fechar">✕</button></div>
+    <div style="display:flex;flex-direction:column;gap:14px;">
+      <div class="form-group" style="margin:0;"><label class="form-label" for="pc-busca">Peça no almoxarifado</label>
+        <div class="ac"><input id="pc-busca" type="search" class="form-input" placeholder="Digite: rolamento 6205, correia B-90…" autocomplete="off"
+          oninput="buscarPeca()" onkeydown="teclaBusca(event)" onfocus="buscarPeca()">
+          <div class="ac-l" id="pc-ac" role="listbox"></div></div></div>
+      <div id="pc-vinc"></div>
       <div class="form-grid-2">
-        <div class="form-group"><label class="form-label">Nome do Equipamento <span class="req">*</span></label><input id="equip-nome" type="text" class="form-input" placeholder="Ex: Compressor Atlas"></div>
-        <div class="form-group"><label class="form-label">Código / TAG <span class="req">*</span></label><input id="equip-codigo" type="text" class="form-input" placeholder="Ex: COMP-01"></div>
-      </div>
-      <div class="form-group"><label class="form-label">Centro de Custo</label><input id="equip-cc" type="text" class="form-input" placeholder="Ex: CC-001"></div>
-      <div class="form-group">
-        <label class="form-label">Localização</label>
-        <input id="equip-local" type="text" class="form-input" placeholder="Ex: Sala de Compressores, Pátio, Elétrica">
-      </div>
-      <div class="form-grid-2">
-        <div class="form-group"><label class="form-label">Fabricante</label><input id="equip-fabricante" type="text" class="form-input" placeholder="Ex: WEG, Atlas Copco"></div>
-        <div class="form-group"><label class="form-label">Modelo</label><input id="equip-modelo" type="text" class="form-input" placeholder="Ex: GA55"></div>
+        <div class="form-group"><label class="form-label" for="pc-nome">Nome <span class="req">*</span></label><input id="pc-nome" type="text" class="form-input" placeholder="Ex.: Rolamento"></div>
+        <div class="form-group"><label class="form-label" for="pc-codigo">Código / especificação</label><input id="pc-codigo" type="text" class="form-input" placeholder="Ex.: 6205ZZ"></div>
       </div>
       <div class="form-grid-2">
-        <div class="form-group"><label class="form-label">Nº de Série</label><input id="equip-serie" type="text" class="form-input"></div>
-        <div class="form-group"><label class="form-label">Nº de Patrimônio</label><input id="equip-patrimonio" type="text" class="form-input"></div>
+        <div class="form-group"><label class="form-label" for="pc-qtd">Quantidade</label>
+          <div style="display:flex;gap:6px;"><input id="pc-qtd" type="number" min="1" class="form-input" value="1" style="flex:1;">
+          <select id="pc-un" class="form-input" style="width:110px;"></select></div></div>
+        <div class="form-group"><label class="form-label" for="pc-fab">Fabricante</label><input id="pc-fab" type="text" class="form-input"></div>
       </div>
       <div class="form-grid-2">
-        <div class="form-group"><label class="form-label">Horímetro Atual (h)</label><input id="equip-horimetro" type="number" class="form-input" placeholder="0" min="0"></div>
-        <div class="form-group"><label class="form-label">Data de Aquisição</label><input id="equip-aquisicao" type="date" class="form-input"></div>
+        <div class="form-group"><label class="form-label" for="pc-pai">Faz parte de</label><select id="pc-pai" class="form-input"></select>
+          <div style="font-size:11.5px;color:var(--ink-4);margin-top:4px;">Ex.: o rolamento faz parte do Motor.</div></div>
+        <div class="form-group"><label class="form-label" for="pc-valor">Valor unitário (R$)</label><input id="pc-valor" type="number" min="0" step="0.01" class="form-input"><div id="pc-valor-dica" style="font-size:11.5px;color:var(--ink-4);margin-top:4px;"></div></div>
       </div>
       <div class="form-grid-2">
-        <div class="form-group"><label class="form-label">Status</label>
-          <select id="equip-status" class="form-input"><option value="ativo">✅ Ativo</option><option value="manutencao">🔧 Em Manutenção</option><option value="inativo">⚫ Inativo</option></select>
-        </div>
-        <div class="form-group"><label class="form-label">Observações</label><input id="equip-obs" type="text" class="form-input"></div>
+        <div class="form-group"><label class="form-label" for="pc-hinst">Horímetro do equipamento na instalação (h)</label><input id="pc-hinst" type="number" min="0" class="form-input" oninput="calcRevPeca()"></div>
+        <div class="form-group"><label class="form-label" for="pc-intv">Revisar a cada (h)</label><input id="pc-intv" type="number" min="0" class="form-input" oninput="calcRevPeca()"></div>
       </div>
-      <!-- FOTO EQUIPAMENTO PRINCIPAL -->
-      <div style="display:flex;align-items:center;gap:16px;padding:14px;background:#f8fafc;border-radius:12px;border:1.2px solid #e2e8f0;margin-bottom:4px;">
-        <div id="eqg-foto-preview" style="width:80px;height:80px;border-radius:10px;background:#e2e8f0;display:flex;align-items:center;justify-content:center;font-size:28px;overflow:hidden;flex-shrink:0;cursor:pointer;" onclick="verFotoEQG()">🔧</div>
-        <div><p style="font-size:13px;font-weight:600;color:var(--primary);margin-bottom:4px;">Foto do Equipamento</p><p style="font-size:11px;color:#94a3b8;margin-bottom:8px;">Clique para visualizar em tamanho real.</p>
-          <div style="display:flex;gap:8px;"><button class="btn btn-secondary btn-sm" onclick="document.getElementById('eqg-foto-input').click()">📷 Selecionar</button><button class="btn btn-ghost btn-sm" id="eqg-btn-rm-foto" onclick="removerFotoEQG()" style="display:none;color:#dc2626;">🗑️</button></div>
-          <input type="file" id="eqg-foto-input" accept="image/*" style="display:none;" onchange="previewFotoEQG(this)">
-        </div>
+      <div class="rev" id="pc-rev"></div>
+      <div class="form-group" style="margin:0;"><label class="form-label" for="pc-obs">Observações</label><input id="pc-obs" type="text" class="form-input"></div>
+      <div style="display:flex;align-items:center;gap:12px;">
+        <div id="pc-foto" class="eqc-ft" style="cursor:pointer;" onclick="if(_pcFoto)verFotoInline(_pcFoto)">📷</div>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('pc-foto-in').click()">📷 Foto da peça</button>
+        <input type="file" id="pc-foto-in" accept="image/*" style="display:none;" onchange="fotoPeca(this)">
       </div>
-      <div style="border:1.2px solid #e2e8f0;border-radius:12px;padding:16px;background:#fafbfc;">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-          <label class="form-label" style="margin:0;">⚙️ Conjunto de Componentes</label>
-          <button class="btn btn-secondary btn-sm" onclick="addComponente()">+ Adicionar</button>
-        </div>
-        <div id="equip-componentes-list" style="display:flex;flex-direction:column;gap:8px;"></div>
-        <p style="font-size:11px;color:#94a3b8;margin-top:8px;">Ex: Motor 5cv, Correia B78, Rolamento 6205...</p>
-      </div>
-      <div id="equip-error" class="hidden alert alert-danger"></div>
+      <div id="pc-hist"></div>
+      <div id="pc-err" class="hidden alert alert-danger"></div>
     </div>
     <div class="modal-footer">
-      <button class="btn btn-secondary" onclick="closeModal('modal-equip')">Cancelar</button>
-      <button class="btn btn-primary" id="btn-salvar-equip" onclick="salvarEquip()">💾 Salvar Equipamento</button>
+      <button class="btn btn-secondary" onclick="closeModal('modal-peca')">Cancelar</button>
+      <button class="btn btn-primary" onclick="confirmarPeca()">✓ Pronto</button>
     </div>
   </div>
 </div>
 
-<!-- MODAL VISUALIZAR -->
-<div id="modal-view-equip" class="modal-overlay hidden">
-  <div class="modal modal-lg">
-    <div class="modal-header"><div class="modal-title" id="modal-view-equip-title">⚙️ Equipamento</div><button class="modal-close" onclick="closeModal('modal-view-equip')">✕</button></div>
-    <div id="modal-view-equip-body"></div>
-    <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('modal-view-equip')">Fechar</button></div>
+<!-- COPIAR CONJUNTO -->
+<div id="modal-copia" class="modal-overlay hidden" style="z-index:30060;">
+  <div class="modal" style="max-width:560px;">
+    <div class="modal-header"><div class="modal-title">Copiar conjunto de componentes</div><button class="modal-close" onclick="closeModal('modal-copia')" aria-label="Fechar">✕</button></div>
+    <p style="font-size:13px;color:var(--ink-3);margin:0 0 10px;line-height:1.5;">Copia as peças (nome, código, quantidade, vínculo com o almoxarifado, intervalo de revisão e quem faz parte de quem). Histórico e horímetro de instalação <b>não</b> são copiados.</p>
+    <input id="copia-busca" type="search" class="form-input" placeholder="Buscar equipamento…" oninput="renderCopia()" style="margin-bottom:10px;">
+    <div id="copia-lista" style="max-height:55vh;overflow-y:auto;"></div>
   </div>
 </div>
 
-<!-- MODAL HORÍMETRO -->
+<!-- TODAS AS PEÇAS -->
+<div id="modal-pecas" class="modal-overlay hidden">
+  <div class="modal modal-xl" style="max-height:88vh;display:flex;flex-direction:column;">
+    <div class="modal-header" style="flex-shrink:0;"><div class="modal-title">Peças cadastradas</div><button class="modal-close" onclick="closeModal('modal-pecas')" aria-label="Fechar">✕</button></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;flex-shrink:0;">
+      <input id="pz-busca" type="search" class="form-input" placeholder="Buscar peça ou código (ex.: 6206)" oninput="renderPecas()" style="flex:1 1 240px;">
+      <div class="seg" id="pz-seg"></div>
+    </div>
+    <div id="pz-resumo" style="font-size:12px;color:var(--ink-3);margin:0 2px 6px;flex-shrink:0;"></div>
+    <div id="pz-lista" style="overflow-y:auto;flex:1;border:1px solid var(--wd-line);border-radius:12px;"></div>
+  </div>
+</div>
+
+<!-- FICHA -->
+<div id="modal-view-equip" class="modal-overlay hidden">
+  <div class="modal modal-xl">
+    <div class="modal-header"><div class="modal-title" id="modal-view-equip-title">Equipamento</div><button class="modal-close" onclick="closeModal('modal-view-equip')" aria-label="Fechar">✕</button></div>
+    <div id="modal-view-equip-body"></div>
+    <div class="modal-footer" id="modal-view-equip-foot"></div>
+  </div>
+</div>
+
+<!-- QR DO EQUIPAMENTO -->
+<div id="modal-qr" class="modal-overlay hidden" style="z-index:30070;">
+  <div class="modal" style="max-width:360px;text-align:center;">
+    <div class="modal-header"><div class="modal-title" id="qr-tit">QR do equipamento</div><button class="modal-close" onclick="closeModal('modal-qr')" aria-label="Fechar">✕</button></div>
+    <div id="qr-box" style="display:flex;justify-content:center;padding:6px 0 10px;"></div>
+    <div id="qr-info" style="font-size:13px;color:var(--ink-2);line-height:1.5;margin-bottom:6px;"></div>
+    <div style="font-size:11.5px;color:var(--ink-4);margin-bottom:14px;">Ao ler, abre o equipamento na Manutenção — o mesmo QR que a Manutenção gera.</div>
+    <div style="display:flex;gap:8px;">
+      <button class="btn btn-secondary" style="flex:1;" onclick="baixarQR()">⬇️ Baixar</button>
+      <button class="btn btn-primary" style="flex:1;" onclick="imprimirEtiquetas(_qrEquipId)">🖨️ Etiqueta</button>
+    </div>
+  </div>
+</div>
+
+<!-- HORÍMETRO -->
 <div id="modal-horimetro" class="modal-overlay hidden">
   <div class="modal" style="max-width:420px;">
-    <div class="modal-header"><div class="modal-title">⏱️ Atualizar Horímetro</div><button class="modal-close" onclick="closeModal('modal-horimetro')">✕</button></div>
-    <div style="display:flex;flex-direction:column;gap:16px;">
-      <div style="background:#f8fafc;border-radius:10px;padding:14px;border:1.2px solid #e2e8f0;"><p style="font-size:12px;color:#64748b;margin-bottom:4px;">Equipamento</p><p style="font-weight:700;color:var(--primary);font-size:15px;" id="hm-nome">—</p></div>
+    <div class="modal-header"><div class="modal-title">Atualizar horímetro</div><button class="modal-close" onclick="closeModal('modal-horimetro')" aria-label="Fechar">✕</button></div>
+    <div style="display:flex;flex-direction:column;gap:14px;">
+      <div style="background:#f8fafc;border-radius:10px;padding:12px;"><div style="font-size:12px;color:var(--ink-3);">Equipamento</div><div style="font-weight:800;color:var(--primary);font-size:15px;" id="hm-nome">—</div></div>
       <div class="form-grid-2">
-        <div class="form-group"><label class="form-label">Horímetro Atual (h)</label><input id="hm-atual" type="number" class="form-input" readonly style="background:#f5f7fa;color:#888;"></div>
-        <div class="form-group"><label class="form-label">Novo Horímetro (h) <span class="req">*</span></label><input id="hm-novo" type="number" class="form-input" placeholder="Ex: 1250" min="0"></div>
+        <div class="form-group"><label class="form-label" for="hm-atual">Atual (h)</label><input id="hm-atual" type="number" class="form-input" readonly style="background:#f5f7fa;color:#888;"></div>
+        <div class="form-group"><label class="form-label" for="hm-novo">Novo (h) <span class="req">*</span></label><input id="hm-novo" type="number" class="form-input" min="0"></div>
       </div>
-      <div class="form-group"><label class="form-label">Motivo</label><input id="hm-motivo" type="text" class="form-input"></div>
+      <div class="form-group"><label class="form-label" for="hm-motivo">Motivo</label><input id="hm-motivo" type="text" class="form-input" placeholder="Ex.: aferição mensal"></div>
       <div id="hm-error" class="hidden alert alert-danger"></div>
     </div>
-    <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('modal-horimetro')">Cancelar</button><button class="btn btn-primary" onclick="salvarHorimetro()">✅ Atualizar</button></div>
-  </div>
-</div>
-
-<!-- MODAL CONFIRMAÇÃO -->
-<div id="modal-confirm" class="modal-overlay hidden">
-  <div class="modal" style="max-width:420px;">
-    <div class="modal-header"><div class="modal-title">⚠️ Confirmar Exclusão</div><button class="modal-close" onclick="closeModal('modal-confirm')">✕</button></div>
-    <p id="confirm-msg" style="font-size:14px;color:#475569;line-height:1.6;"></p>
-    <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('modal-confirm')">Cancelar</button><button class="btn btn-danger" id="confirm-ok-btn">🗑️ Sim, Excluir</button></div>
+    <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('modal-horimetro')">Cancelar</button><button class="btn btn-primary" onclick="salvarHorimetro()">✓ Atualizar</button></div>
   </div>
 </div>
 <div id="toast-container"></div>
-
 <script>
-let _editingEquipId=null, _hmId=null, _equips=[], _eqgFoto=null;
+let _equips=[], _linhas=[], _almox=[], _almoxById={}, _sols=[];
+let _linhaSel='', _filtro='';
+let _editingEquipId=null, _eqlFoto=null, _hmId=null;
+let _comps=[], _dirty=new Map(), _novos=new Set(), _apagados=new Set(), _pedidos=new Set();
+let _pcUid=null, _pcFoto=null, _pcAlmox=null, _pcSol=null, _pcPedir=false, _acSel=-1, _acLista=[];
+const UNIDS=['un','m','m²','kg','litros','pol','mm','par','jg','cj'];
+const CAMPOS_PECA=['nome','codigo','qtd','unidade','fabricante','valor_unitario','horimetro_componente','intervalo_revisao','obs','foto_componente','almox_id','sol_id','grupo_pai','grupo_pai_sig'];
 
 fetch('partials/sidebar.html').then(r=>r.text()).then(html=>{
   document.getElementById('sidebar-container').innerHTML=html;
@@ -156,368 +390,696 @@ fetch('partials/sidebar.html').then(r=>r.text()).then(html=>{
 });
 initSidebar('equip-gerais.html');
 
-async function init(){const{data}=await _supabase.from('equipamentos_gerais').select('*').order('nome');_equips=data||[];renderEquips();}
+const esc=v=>String(v==null?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fN=(v,d=0)=>(Number(v)||0).toLocaleString('pt-BR',{minimumFractionDigits:d,maximumFractionDigits:d});
+const fR=v=>'R$ '+(Number(v)||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+const fD=d=>d?String(d).slice(0,10).split('-').reverse().join('/'):'—';
+const _uid=()=>'c'+Date.now().toString(36)+Math.random().toString(36).slice(2,7);
+const _sig=(n,c,f)=>[n,c,f].map(x=>String(x||'').trim().toLowerCase()).join('|');
+const _vazio=v=>v===undefined||v===null||String(v).trim()==='';
+const _clone=o=>JSON.parse(JSON.stringify(o||null));
+const _norm=s=>String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
 
-function renderEquips(){
-  const busca=(document.getElementById('busca-eqg')?.value||'').toLowerCase();
-  const status=document.getElementById('filtro-status-eqg')?.value||'';
-  const lista=_equips.filter(e=>(!busca||e.nome?.toLowerCase().includes(busca)||(e.codigo||'').toLowerCase().includes(busca)||(e.localizacao||'').toLowerCase().includes(busca))&&(!status||e.status===status));
-  const tbody=document.getElementById('tbody-eqg');const empty=document.getElementById('eqg-empty');
-  tbody.innerHTML='';
-  if(!lista.length){empty.classList.remove('hidden');return;}empty.classList.add('hidden');
-  const stCfg={ativo:{cls:'badge-success',txt:'✅ Ativo'},manutencao:{cls:'badge-warning',txt:'🔧 Manutenção'},inativo:{cls:'badge-gray',txt:'⚫ Inativo'}};
-  lista.forEach(e=>{
-    const sc=stCfg[e.status]||stCfg.inativo;
-    const tr=document.createElement('tr');
-    tr.style.cursor='pointer';
-    tr.title='Clique para visualizar';
-    tr.onclick=(ev)=>{ if(ev.target.closest('button')||ev.target.closest('img')) return; visualizarEquip(e.id); };
-    tr.innerHTML=`<td><div style="display:flex;align-items:center;gap:10px;">
-        ${e.foto?`<img src="${e.foto}" style="width:40px;height:40px;border-radius:6px;object-fit:cover;cursor:pointer;flex-shrink:0;" onclick="verFotoInline('${e.foto}')">`:'<div style="width:40px;height:40px;border-radius:6px;background:#e2e8f0;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;">🔧</div>'}
-        <div><strong style="color:var(--primary);">${e.nome}</strong>${e.obs?`<div style="font-size:11px;color:#94a3b8;">${e.obs}</div>`:''}</div>
-      </div></td>
-      <td><span class="badge badge-gray">${e.codigo||'—'}</span></td>
-      <td>${e.localizacao||'—'}</td>
-      <td style="font-size:12px;">${[e.fabricante,e.modelo].filter(Boolean).join(' / ')||'—'}</td>
-      <td style="font-size:12px;">${[e.serie,e.patrimonio].filter(Boolean).join(' / ')||'—'}</td>
-      <td>${e.horimetro||0} h</td>
-      <td><span class="badge ${sc.cls}">${sc.txt}</span></td>
-      <td><div class="table-actions">
-        <button class="btn btn-secondary btn-sm" onclick="visualizarEquip('${e.id}')">👁️</button>
-        <button class="btn btn-secondary btn-sm" onclick="abrirHorimetro('${e.id}','${e.nome}',${e.horimetro||0})">⏱️</button>
-        <button class="btn btn-secondary btn-sm" onclick="editarEquip('${e.id}')">✏️</button>
-        <button class="btn btn-danger btn-sm" onclick="confirmarExclusao('${e.id}','${e.nome}')">🗑️</button>
-      </div></td>`;
-    tbody.appendChild(tr);
-  });
+/* ═══════════════════════════════════════════
+   SITUAÇÃO DE CADA PEÇA
+   ═══════════════════════════════════════════ */
+// mesma conta da tela antiga: horas = horímetro do equipamento − horímetro na instalação
+function revInfo(c,eqH){
+  const compH=parseFloat(c.horimetro_componente)||0, intv=parseFloat(c.intervalo_revisao)||0;
+  const ht=eqH&&compH?eqH-compH:0, pt=intv&&ht?intv-ht:null;
+  return {ht,pt,intv,k:pt===null?'':pt<=0?'vencida':pt<=intv*0.1?'breve':'ok'};
 }
-
-function openModalEquip(){
-  _editingEquipId=null;
-  document.getElementById('modal-equip-title').textContent='Novo Equipamento Geral';
-  ['equip-nome','equip-codigo','equip-cc','equip-local','equip-fabricante','equip-modelo','equip-serie','equip-patrimonio','equip-obs'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
-  document.getElementById('equip-horimetro').value='';document.getElementById('equip-aquisicao').value='';
-  document.getElementById('equip-status').value='ativo';document.getElementById('equip-componentes-list').innerHTML='';
-  _eqgFoto=null;document.getElementById('eqg-foto-preview').innerHTML='🔧';document.getElementById('eqg-btn-rm-foto').style.display='none';
-  document.getElementById('equip-error').classList.add('hidden');document.getElementById('modal-equip').classList.remove('hidden');
+function almoxInfo(c){
+  if(!_vazio(c.almox_id)) return _almoxById[c.almox_id]?{k:'vinc',item:_almoxById[c.almox_id]}:{k:'quebrado'};
+  if(!_vazio(c.sol_id)) return {k:'aguard'};
+  return {k:'sem'};
 }
-
-function editarEquip(id){
-  const e=_equips.find(x=>x.id===id);if(!e)return;
-  _editingEquipId=id;
-  document.getElementById('modal-equip-title').textContent='Editar Equipamento Geral';
-  document.getElementById('equip-nome').value=e.nome||'';document.getElementById('equip-codigo').value=e.codigo||'';
-  document.getElementById('equip-cc').value=e.centro_custo||'';document.getElementById('equip-local').value=e.localizacao||'';
-  document.getElementById('equip-fabricante').value=e.fabricante||'';document.getElementById('equip-modelo').value=e.modelo||'';
-  document.getElementById('equip-serie').value=e.serie||'';document.getElementById('equip-patrimonio').value=e.patrimonio||'';
-  document.getElementById('equip-horimetro').value=e.horimetro||'';document.getElementById('equip-aquisicao').value=e.aquisicao||'';
-  document.getElementById('equip-status').value=e.status||'ativo';document.getElementById('equip-obs').value=e.obs||'';
-  document.getElementById('equip-componentes-list').innerHTML='';
-  (e.componentes||[]).forEach(c=>addComponente(c));
-  _eqgFoto=e.foto||null;
-  const fp=document.getElementById('eqg-foto-preview');
-  if(e.foto){fp.innerHTML=`<img src="${e.foto}" style="width:80px;height:80px;object-fit:cover;border-radius:10px;">`;document.getElementById('eqg-btn-rm-foto').style.display='inline-flex';}
-  else{fp.innerHTML='🔧';document.getElementById('eqg-btn-rm-foto').style.display='none';}
-  document.getElementById('equip-error').classList.add('hidden');document.getElementById('modal-equip').classList.remove('hidden');
+function chipsPeca(c,eqH){
+  const r=revInfo(c,eqH), a=almoxInfo(c), ch=[];
+  if(r.k==='vencida') ch.push(`<span class="tag bad">Revisão vencida há ${fN(-r.pt)} h</span>`);
+  else if(r.k==='breve') ch.push(`<span class="tag warn">Revisar em ${fN(r.pt)} h</span>`);
+  else if(r.k==='ok') ch.push(`<span class="tag ok">Revisão em dia · faltam ${fN(r.pt)} h</span>`);
+  if(a.k==='vinc') ch.push(`<span class="tag info" title="${esc(a.item.nome)}">📦 ${esc(a.item.codigo||'almox')}</span>`);
+  else if(a.k==='aguard') ch.push('<span class="tag warn">⏳ aguardando almoxarifado</span>');
+  else if(a.k==='quebrado') ch.push('<span class="tag bad">vínculo quebrado</span>');
+  else ch.push('<span class="tag gray">sem vínculo no almoxarifado</span>');
+  const nh=(c.historico_revisoes||[]).length; if(nh) ch.push(`<span class="tag gray">${nh} revisão(ões) no histórico</span>`);
+  return ch.join('');
+}
+// árvore: mesmo critério da Manutenção (grupo_pai_sig; se não houver, grupo_pai pelo nome)
+function ordemArvore(comps){
+  const sigIdx={}, nomeIdx={};
+  comps.forEach((c,i)=>{ const s=_sig(c.nome,c.codigo,c.fabricante); if(sigIdx[s]==null) sigIdx[s]=i; const k=String(c.nome||'').trim().toLowerCase(); if(nomeIdx[k]==null) nomeIdx[k]=i; });
+  const pai=i=>{ const sg=String(comps[i].grupo_pai_sig||'').trim(); if(sg){ const p=sigIdx[sg]; return (p==null||p===i)?-1:p; }
+    const n=String(comps[i].grupo_pai||'').trim().toLowerCase(); const p=nomeIdx[n]; return (n&&p!=null&&p!==i)?p:-1; };
+  const out=[], vis=new Set();
+  const visita=(i,nivel)=>{ if(vis.has(i)) return; vis.add(i); out.push({i,nivel}); comps.forEach((_,j)=>{ if(pai(j)===i) visita(j,nivel+1); }); };
+  comps.forEach((_,i)=>{ if(pai(i)===-1) visita(i,0); });
+  comps.forEach((_,i)=>{ if(!vis.has(i)) visita(i,0); });   // ciclo/sem pai encontrado
+  return out;
+}
+function resumoEquip(e){
+  const eqH=parseFloat(e.horimetro)||0, cs=e.componentes||[];
+  const r={n:cs.length,venc:0,breve:0,sem:0,aguard:0,quebrado:0,vinc:0};
+  cs.forEach(c=>{ const k=revInfo(c,eqH).k; if(k==='vencida') r.venc++; else if(k==='breve') r.breve++;
+    const a=almoxInfo(c).k; r[a]=(r[a]||0)+1; });
+  return r;
 }
 
-function addComponente(comp){
-  const id='comp-'+Date.now()+'-'+Math.floor(Math.random()*9999);const c=comp||{};const div=document.createElement('div');div.id=id;
-  div.style.cssText='background:#fff;border:1.2px solid #e2e8f0;border-radius:10px;padding:12px;margin-bottom:6px;';
-  const eqHorim=parseFloat(document.getElementById('equip-horimetro')?.value)||0;
-  const compHorim=parseFloat(c.horimetro_componente)||0;
-  const htrab=eqHorim&&compHorim?eqHorim-compHorim:0;
-  const revisao=parseFloat(c.intervalo_revisao)||0;
-  const proxTroca=revisao&&htrab?revisao-htrab:null;
-  const statusRev=proxTroca===null?'—':proxTroca<=0?'🔴 EXECUTAR REVISÃO':'✅ EM DIA';
-  const corStatus=proxTroca===null?'#94a3b8':proxTroca<=0?'#dc2626':'#16a34a';
-  // Foto do componente
-  const fotoComp=c.foto_componente||null;
-  div.innerHTML=`
-  <div style="display:grid;grid-template-columns:2fr 1fr 80px 80px 1fr auto;gap:6px;margin-bottom:8px;align-items:center;">
-    <input type="text" class="form-input" placeholder="Nome (Ex: Correia B78)" value="${c.nome||''}" data-field="nome" style="font-size:12px;padding:6px 8px;">
-    <input type="text" class="form-input" placeholder="Código" value="${c.codigo||''}" data-field="codigo" style="font-size:12px;padding:6px 8px;">
-    <input type="number" class="form-input" placeholder="Qtd" value="${c.qtd||1}" min="1" data-field="qtd" style="font-size:12px;padding:6px 8px;" oninput="calcValorTotalComp(this)">
-    <select class="form-input" data-field="unidade" style="font-size:12px;padding:6px 8px;">${['un','m','m²','kg','litros','pol','mm','par'].map(u=>`<option ${c.unidade===u?'selected':''}>${u}</option>`).join('')}</select>
-    <input type="text" class="form-input" placeholder="Fabricante" value="${c.fabricante||''}" data-field="fabricante" style="font-size:12px;padding:6px 8px;">
-    <button onclick="document.getElementById('${id}').remove()" style="background:none;border:none;font-size:18px;cursor:pointer;color:#ff4f64;padding:4px;">✕</button>
-  </div>
-  <div style="display:grid;grid-template-columns:1fr 1fr 1.4fr;gap:6px;margin-bottom:8px;align-items:end;">
-    <div class="form-group" style="margin:0;"><label style="font-size:10px;color:#94a3b8;font-weight:600;text-transform:uppercase;display:block;margin-bottom:3px;">Valor Unitário (R$)</label>
-      <input type="number" class="form-input" placeholder="0,00" value="${c.valor_unitario||''}" min="0" step="0.01" data-field="valor_unitario" style="font-size:12px;padding:6px 8px;" oninput="calcValorTotalComp(this)"></div>
-    <div class="form-group" style="margin:0;"><label style="font-size:10px;color:#94a3b8;font-weight:600;text-transform:uppercase;display:block;margin-bottom:3px;">Valor Total (auto)</label>
-      <div style="padding:6px 8px;background:#f0fdf4;border:1.2px solid #86efac;border-radius:8px;font-size:12px;font-weight:700;color:#16a34a;" data-field-display="valor_total">${(parseFloat(c.valor_unitario)>0?('R$ '+((parseFloat(c.valor_unitario)||0)*(parseFloat(c.qtd)||1)).toLocaleString('pt-BR',{minimumFractionDigits:2})):'—')}</div></div>
-    <div class="form-group" style="margin:0;"><label style="font-size:10px;color:#94a3b8;font-weight:600;text-transform:uppercase;display:block;margin-bottom:3px;">Almoxarifado</label>
-      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
-        <input type="hidden" data-field="almox_id" value="${c.almox_id||''}">
-        <span data-field-display="almox_status" style="font-size:11px;font-weight:700;flex:1 1 100%;"></span>
-        <button class="btn btn-secondary btn-sm b-solicitar" style="font-size:11px;padding:5px 9px;white-space:nowrap;" onclick="cadastrarCompAlmox('${id}')" title="Envia solicitação de cadastro ao almoxarifado">📨 Solicitar Cadastro</button>
-        <button class="btn btn-secondary btn-sm b-vincular" style="font-size:11px;padding:5px 9px;white-space:nowrap;" onclick="abrirVincularAlmox('${id}')" title="Vincular a um produto já cadastrado no almoxarifado">🔗 Vincular existente</button>
-        <button class="btn btn-secondary btn-sm b-desvincular" style="font-size:11px;padding:5px 9px;white-space:nowrap;color:#dc2626;" onclick="desvincularComp('${id}')" title="Desvincular do almoxarifado">🔓 Desvincular</button>
-      </div></div>
-  </div>
-  <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px;margin-bottom:8px;">
-    <div class="form-group" style="margin:0;"><label style="font-size:10px;color:#94a3b8;font-weight:600;text-transform:uppercase;display:block;margin-bottom:3px;">Horímetro Componente (h)</label>
-      <input type="number" class="form-input" placeholder="h" value="${c.horimetro_componente||''}" min="0" data-field="horimetro_componente" style="font-size:12px;padding:6px 8px;" oninput="calcHorasTrab(this)"></div>
-    <div class="form-group" style="margin:0;"><label style="font-size:10px;color:#94a3b8;font-weight:600;text-transform:uppercase;display:block;margin-bottom:3px;">Intervalo Revisão (h)</label>
-      <input type="number" class="form-input" placeholder="h" value="${c.intervalo_revisao||''}" min="0" data-field="intervalo_revisao" style="font-size:12px;padding:6px 8px;" oninput="calcHorasTrab(this)"></div>
-    <div class="form-group" style="margin:0;"><label style="font-size:10px;color:#94a3b8;font-weight:600;text-transform:uppercase;display:block;margin-bottom:3px;">Horas Trab. (auto)</label>
-      <div style="padding:6px 8px;background:#e0f2fe;border:1.2px solid #7dd3fc;border-radius:8px;font-size:12px;font-weight:700;color:#0369a1;" data-field-display="horas_trabalhadas">${htrab>0?htrab.toFixed(1)+'h':'—'}</div></div>
-    <div class="form-group" style="margin:0;"><label style="font-size:10px;color:#94a3b8;font-weight:600;text-transform:uppercase;display:block;margin-bottom:3px;">Próxima Troca (h)</label>
-      <div style="padding:6px 8px;background:${proxTroca!==null&&proxTroca<=0?'#fee2e2':proxTroca!==null?'#dcfce7':'#f8fafc'};border:1.2px solid ${proxTroca!==null&&proxTroca<=0?'#fca5a5':proxTroca!==null?'#86efac':'#e2e8f0'};border-radius:8px;font-size:12px;font-weight:700;color:${corStatus};" data-field-display="proxima_troca">${proxTroca!==null?proxTroca.toFixed(0)+'h':'—'}</div></div>
-  </div>
-  <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
-    <div style="display:flex;align-items:center;gap:8px;">
-      <span style="font-size:11px;font-weight:700;color:${corStatus};" data-field-display="status_revisao">${statusRev}</span>
-    </div>
-    <div style="display:flex;align-items:center;gap:8px;">
-      <div id="${id}-foto-prev" style="width:40px;height:40px;border-radius:6px;background:#e2e8f0;overflow:hidden;cursor:pointer;flex-shrink:0;" onclick="verFotoComp('${id}')" title="Ver foto do componente">${fotoComp?`<img src="${fotoComp}" style="width:100%;height:100%;object-fit:cover;">`:'📷'}</div>
-      <button class="btn btn-secondary btn-sm" onclick="document.getElementById('${id}-foto-input').click()">📷 Foto</button>
-      <input type="file" id="${id}-foto-input" accept="image/*" style="display:none;" onchange="previewFotoComp(this,'${id}')">
-      <input type="hidden" id="${id}-foto-hidden" data-field="foto_componente" value="${fotoComp||''}">
-      <input type="text" class="form-input" placeholder="Observações" value="${c.obs||''}" data-field="obs" style="font-size:12px;padding:6px 8px;min-width:160px;">
-    </div>
-  </div>`;
-  document.getElementById('equip-componentes-list').appendChild(div);
-  atualizarCelAlmox(div);
-  if(c.almox_id)trazerValorAlmox(div); // traz valor unitário do item vinculado
+/* ═══════════════════════════════════════════
+   CARREGAR + VÍNCULO AUTOMÁTICO
+   ═══════════════════════════════════════════ */
+async function recarregarEquips(){
+  const [eq,so]=await Promise.all([
+    _supabase.from('equipamentos_gerais').select('*').order('nome'),
+    _supabase.from('almoxarifado_solicitacoes_cadastro').select('id,status,almox_id,componente_uid,equipamento_id,nome').eq('origem','equip_gerais')]);
+  _equips=eq.data||[]; _sols=so.data||[]; renderEquips();
 }
-
-function calcHorasTrab(inp){
-  const box=inp.closest('[id^="comp-"]');if(!box)return;
-  const eqH=parseFloat(document.getElementById('equip-horimetro')?.value)||0;
-  const compH=parseFloat(box.querySelector('[data-field="horimetro_componente"]')?.value)||0;
-  const intv=parseFloat(box.querySelector('[data-field="intervalo_revisao"]')?.value)||0;
-  const ht=eqH&&compH?eqH-compH:0;
-  const pt=intv&&ht?intv-ht:null;
-  const htEl=box.querySelector('[data-field-display="horas_trabalhadas"]');if(htEl)htEl.textContent=ht>0?ht.toFixed(1)+'h':'—';
-  const ptEl=box.querySelector('[data-field-display="proxima_troca"]');if(ptEl){ptEl.textContent=pt!==null?pt.toFixed(0)+'h':'—';ptEl.style.color=pt!==null&&pt<=0?'#dc2626':pt!==null?'#16a34a':'#94a3b8';}
-  const stEl=box.querySelector('[data-field-display="status_revisao"]');if(stEl){stEl.textContent=pt===null?'—':pt<=0?'🔴 EXECUTAR REVISÃO':'✅ EM DIA';stEl.style.color=pt===null?'#94a3b8':pt<=0?'#dc2626':'#16a34a';}
+async function init(){
+  const [eq,ln,al,so]=await Promise.all([
+    _supabase.from('equipamentos_gerais').select('*').order('nome'),
+    Promise.resolve({data:[]}),   // equipamento geral não pertence a linha
+    _supabase.from('almoxarifado').select('id,nome,codigo,codigo_especificacao,unidade,custo_unitario,status,categoria').order('nome'),
+    _supabase.from('almoxarifado_solicitacoes_cadastro').select('id,status,almox_id,componente_uid,equipamento_id,nome').eq('origem','equip_gerais'),
+  ]);
+  _equips=eq.data||[]; _linhas=ln.data||[]; _almox=al.data||[]; _sols=so.data||[];
+  _almoxById={}; _almox.forEach(a=>_almoxById[a.id]=a);
+  await autoVincular();
+  renderEquips();
 }
-
-function previewFotoComp(input,id){
-  if(!input.files||!input.files[0])return;
-  const r=new FileReader();
-  r.onload=function(e){
-    const prev=document.getElementById(id+'-foto-prev');
-    if(prev)prev.innerHTML='<img src="'+e.target.result+'" style="width:100%;height:100%;object-fit:cover;">';
-    const hidden=document.getElementById(id+'-foto-hidden');
-    if(hidden)hidden.value=e.target.result;
-  };
-  r.readAsDataURL(input.files[0]);
+/* Grava SÓ o que mudou nos componentes de um equipamento: relê a lista do banco
+   (a Manutenção pode ter gravado algo enquanto a tela estava aberta) e aplica. */
+async function gravarComps(equipId, aplicar){
+  const {data,error}=await _supabase.from('equipamentos_gerais').select('componentes').eq('id',equipId).single();
+  if(error) throw error;
+  const novo=aplicar(_clone(data.componentes||[]));
+  const r=await _supabase.from('equipamentos_gerais').update({componentes:novo,atualizado_em:new Date().toISOString()}).eq('id',equipId);
+  if(r.error) throw r.error;
+  const e=_equips.find(x=>x.id===equipId); if(e) e.componentes=novo;
+  return novo;
 }
-function verFotoComp(id){const hidden=document.getElementById(id+'-foto-hidden');verFotoInline(hidden?.value);}
-
-function calcValorTotalComp(inp){
-  const box=inp.closest('[id^="comp-"]');if(!box)return;
-  const vu=parseFloat(box.querySelector('[data-field="valor_unitario"]')?.value)||0;
-  const q=parseFloat(box.querySelector('[data-field="qtd"]')?.value)||1;
-  const el=box.querySelector('[data-field-display="valor_total"]');
-  if(el)el.textContent=vu>0?('R$ '+(vu*q).toLocaleString('pt-BR',{minimumFractionDigits:2})):'—';
-}
-// ── Integração: cadastrar componente como item do almoxarifado ──
-let _almoxCache=null, _vincRowId=null;
-async function garantirAlmoxCache(force){
-  if(_almoxCache&&!force)return _almoxCache;
-  try{const{data}=await _supabase.from('almoxarifado').select('*').order('nome');_almoxCache=data||[];}catch(e){_almoxCache=[];}
-  return _almoxCache;
-}
-function atualizarCelAlmox(box){
-  const idEl=box.querySelector('[data-field="almox_id"]');
-  const st=box.querySelector('[data-field-display="almox_status"]');
-  const bS=box.querySelector('.b-solicitar'), bV=box.querySelector('.b-vincular'), bD=box.querySelector('.b-desvincular');
-  const linked=!!(idEl&&idEl.value);
-  if(bS)bS.style.display=linked?'none':'';
-  if(bV)bV.style.display=linked?'none':'';
-  if(bD)bD.style.display=linked?'':'none';
-  if(st){
-    if(linked){
-      const it=(_almoxCache||[]).find(x=>x.id===idEl.value);
-      st.textContent='✅ Vinculado ao almoxarifado'+(it?': '+it.nome+(it.codigo?' ('+it.codigo+')':''):'');
-      st.style.color='#16a34a';
-    } else { st.textContent='— não vinculado ao almoxarifado'; st.style.color='#94a3b8'; }
-  }
-}
-async function trazerValorAlmox(box){
-  const idEl=box.querySelector('[data-field="almox_id"]'); if(!idEl||!idEl.value)return;
-  await garantirAlmoxCache();
-  const it=_almoxCache.find(x=>x.id===idEl.value); if(!it)return;
-  if(it.custo_unitario!=null){
-    const vuEl=box.querySelector('[data-field="valor_unitario"]');
-    if(vuEl){vuEl.value=it.custo_unitario;calcValorTotalComp(vuEl);}
-  }
-  atualizarCelAlmox(box);
-}
-function desvincularComp(rowId){
-  const box=document.getElementById(rowId); if(!box)return;
-  const idEl=box.querySelector('[data-field="almox_id"]'); if(idEl)idEl.value='';
-  atualizarCelAlmox(box);
-  toast('Componente desvinculado do almoxarifado. Lembre-se de salvar o equipamento.','info');
-}
-async function abrirVincularAlmox(rowId){
-  _vincRowId=rowId;
-  await garantirAlmoxCache(true);
-  document.getElementById('vinc-busca').value='';
-  renderVincLista();
-  document.getElementById('m-vincular-almox').classList.remove('hidden');
-}
-function renderVincLista(){
-  const f=(document.getElementById('vinc-busca')?.value||'').toLowerCase();
-  const lista=(_almoxCache||[]).filter(i=>i.status!=='inativo'&&(!f||(i.nome||'').toLowerCase().includes(f)||(i.codigo||'').toLowerCase().includes(f)));
-  const el=document.getElementById('vinc-lista');
-  el.innerHTML=lista.length?lista.slice(0,200).map(i=>`<div onclick="selecionarItemAlmox('${i.id}')" style="display:flex;justify-content:space-between;gap:10px;padding:9px 12px;border:1px solid #e2e8f0;border-radius:9px;margin-bottom:6px;cursor:pointer;align-items:center;" onmouseover="this.style.background='#f1f5f9'" onmouseout="this.style.background=''">
-    <div><strong>${i.nome}</strong> <span style="font-family:monospace;font-size:11px;color:#64748b;">${i.codigo||'—'}</span><div style="font-size:11px;color:#94a3b8;">${i.categoria||'—'} · ${i.unidade||'un'}</div></div>
-    <div style="text-align:right;font-size:12px;font-weight:700;color:#16a34a;white-space:nowrap;">${i.custo_unitario!=null?'R$ '+parseFloat(i.custo_unitario).toLocaleString('pt-BR',{minimumFractionDigits:2}):'sem valor'}</div>
-  </div>`).join(''):'<p style="color:#94a3b8;font-size:13px;text-align:center;padding:20px;">Nenhum produto encontrado.</p>';
-}
-function selecionarItemAlmox(itemId){
-  const box=document.getElementById(_vincRowId); if(!box)return;
-  const it=(_almoxCache||[]).find(x=>x.id===itemId); if(!it)return;
-  box.querySelector('[data-field="almox_id"]').value=it.id;
-  const nomeEl=box.querySelector('[data-field="nome"]'); if(nomeEl&&!nomeEl.value.trim())nomeEl.value=it.nome;
-  if(it.custo_unitario!=null){const vuEl=box.querySelector('[data-field="valor_unitario"]');if(vuEl){vuEl.value=it.custo_unitario;calcValorTotalComp(vuEl);}}
-  atualizarCelAlmox(box);
-  closeModal('m-vincular-almox');
-  toast('✅ Vinculado a "'+it.nome+'". Valor unitário trazido do almoxarifado.','success');
-  toast('💡 Lembre-se de salvar o equipamento para gravar o vínculo.','info');
-}
-async function cadastrarCompAlmox(rowId){
-  if(!guardAction('almoxarifado','edit')&&!guardAction('equip_gerais','edit'))return;
-  const box=document.getElementById(rowId);if(!box)return;
-  const g=f=>box.querySelector('[data-field="'+f+'"]')?.value||'';
-  const nome=g('nome').trim(), codigo=g('codigo').trim(), unidade=g('unidade')||'un';
-  const vu=parseFloat(g('valor_unitario'))||null;
-  if(!nome){toast('Informe o nome do componente antes de enviar ao almoxarifado.','warning');return;}
-  // O cadastro exige obrigatoriamente Nome + Código de Especificação do produto (ex.: Correia + B-90)
-  if(!codigo){toast('Informe o Código de Especificação do produto (ex.: B-90). A identificação é Nome + Código.','warning');return;}
-  const ident=nome+' '+codigo; // ex.: "Correia B-90"
-  const stEl=box.querySelector('[data-field-display="almox_status"]');
-  try{
-    if(g('almox_id')){toast('Componente já vinculado ao almoxarifado.','info');return;}
-    // 1) Vínculo SOMENTE quando Nome + Código de Especificação forem EXATAMENTE iguais.
-    //    (Correia B-60 e Correia B-90 têm o mesmo nome mas são produtos diferentes → não vinculam.)
-    await garantirAlmoxCache(true);
-    // O produto no almoxarifado é identificado pelo NOME completo (Nome + Código de Especificação),
-    // ex.: "Correia B-90". Vínculo só quando o nome bate exatamente.
-    let existente=(_almoxCache||[]).find(d=>(d.nome||'').trim().toLowerCase()===ident.toLowerCase())||null;
-    if(existente){
-      box.querySelector('[data-field="almox_id"]').value=existente.id;
-      if(existente.custo_unitario!=null){const vuEl=box.querySelector('[data-field="valor_unitario"]');if(vuEl){vuEl.value=existente.custo_unitario;calcValorTotalComp(vuEl);}}
-      atualizarCelAlmox(box);
-      toast('Produto idêntico já cadastrado no almoxarifado — vinculado: '+ident,'success');
-      toast('💡 Valor unitário trazido do almoxarifado. Salve o equipamento para gravar o vínculo.','info');
-      return;
-    }
-    // 2) NÃO cadastra automaticamente. Gera SOLICITAÇÃO de cadastro para o almoxarifado,
-    //    que é onde o cadastro oficial é feito e o código único é gerado.
-    const equipNome=document.getElementById('equip-nome')?.value||'';
-    const sol={id:'sol_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6),nome:ident,nome_base:nome,identificacao:ident,codigo_especificacao:codigo,codigo_sugerido:codigo,unidade,custo_unitario:vu,origem:'equip_gerais',equipamento:equipNome,data:new Date().toISOString(),status:'pendente',motivo:vu?'Aguardando cadastro oficial e definição de estoque no almoxarifado':'Aguardando cadastro oficial — falta valor unitário e dados completos'};
+// peças que pediram cadastro: o almoxarifado cadastrou → vincula sozinho
+async function autoVincular(){
+  let n=0;
+  for(const e of _equips){
+    const pend=(e.componentes||[]).filter(c=>_vazio(c.almox_id)&&!_vazio(c.sol_id));
+    if(!pend.length) continue;
+    const acoes={};
+    pend.forEach(c=>{
+      const s=_sols.find(x=>x.id===c.sol_id); if(!s) return;
+      let item=s.almox_id?_almoxById[s.almox_id]:null;
+      if(!item&&s.status==='cadastrada') item=_almox.find(a=>_norm(a.nome).trim()===_norm(s.nome).trim())||null;   // solicitações antigas, sem o id
+      if(item) acoes[c.sol_id]={item};
+      else if(s.status==='descartada') acoes[c.sol_id]={descartada:true};
+    });
+    if(!Object.keys(acoes).length) continue;
     try{
-      const {data:_pend}=await _supabase.from('almoxarifado_solicitacoes_cadastro')
-        .select('id').eq('status','pendente').eq('codigo_especificacao',codigo)
-        .eq('origem','equip_gerais').eq('equipamento',equipNome).ilike('nome_base',nome);
-      if(_pend&&_pend.length){
-        toast('Já existe uma solicitação pendente para "'+ident+'".','info');
-      } else {
-        const {error:_e}=await _supabase.from('almoxarifado_solicitacoes_cadastro').insert(sol);
-        if(_e)throw _e;
-      }
-    }catch(e){toast('Erro ao enviar solicitação ao almoxarifado: '+(e.message||e),'warning');return;}
-    if(stEl){stEl.textContent='⏳ Solicitado ao almoxarifado: '+ident;stEl.style.color='#b45309';}
-    toast('📨 Solicitação enviada. O cadastro oficial (com código único) deve ser concluído no módulo Almoxarifado.','success');
-    toast('⚠️ Item NÃO utilizável definitivamente até o almoxarifado finalizar o cadastro.','warning');
-  }catch(e){toast('Erro ao solicitar cadastro: '+e.message,'warning');}
+      await gravarComps(e.id, lista=>lista.map(c=>{
+        const a=acoes[c.sol_id]; if(!a||!_vazio(c.almox_id)) return c;
+        const r={...c}; delete r.sol_id;
+        if(a.item){ r.almox_id=a.item.id; if(a.item.custo_unitario!=null) r.valor_unitario=a.item.custo_unitario; n++; }
+        return r;
+      }));
+    }catch(err){ console.warn('[auto-vínculo]',e.nome,err); }
+  }
+  if(n) toast(`🔗 ${n} peça(s) vinculada(s) automaticamente — o almoxarifado concluiu o cadastro.`,'success');
 }
 
-function getComponentesFromForm(){
-  const comps=[];
-  document.querySelectorAll('#equip-componentes-list > [id^="comp-"]').forEach(div=>{
-    const comp={};
-    div.querySelectorAll('[data-field]').forEach(el=>{comp[el.dataset.field]=el.value||null;});
-    if(comp.nome){comps.push(comp);}
-  });
-  return comps;
-}
+/* ═══════════════════════════════════════════
+   LISTA
+   ═══════════════════════════════════════════ */
+function _tagsDup(){ const m={}; _equips.forEach(e=>{ const k=_norm(e.codigo).trim(); if(k) (m[k]=m[k]||[]).push(e); }); return Object.values(m).filter(a=>a.length>1).flat(); }
+function setLinha(l){ _linhaSel=l; renderEquips(); }
+function setFiltro(f){ _filtro=_filtro===f?'':f; renderEquips(); }
+function renderEquips(){
+  const R=_equips.map(e=>({e,r:resumoEquip(e)}));
+  const tot=R.reduce((a,{r})=>{ ['n','venc','breve','sem','aguard','quebrado','vinc'].forEach(k=>a[k]+=r[k]||0); return a; },{n:0,venc:0,breve:0,sem:0,aguard:0,quebrado:0,vinc:0});
+  const dup=_tagsDup();
+  document.getElementById('eq-sub').textContent=`${_equips.length} equipamento(s) em ${new Set(_equips.map(e=>e.localizacao).filter(Boolean)).size} local(is) · ${tot.n} peça(s)`;
+  document.getElementById('eq-pend').innerHTML=
+    (dup.length?`<button type="button" class="pi${_filtro==='tag'?' on':''}" onclick="setFiltro('tag')"><b>${dup.length}</b> equipamentos com TAG repetida</button>`:'')+
+    (tot.quebrado?`<button type="button" class="pi${_filtro==='quebrado'?' on':''}" onclick="setFiltro('quebrado')"><b>${tot.quebrado}</b> peça(s) com vínculo quebrado no almoxarifado</button>`:'');
+  const tile=(f,l,v,s,cls)=>`<button type="button" class="tile ${cls||''}${_filtro===f&&f?' on':''}" ${f?`onclick="setFiltro('${f}')"`:''}><div class="tile-l">${l}</div><div class="tile-v">${v}</div><div class="tile-s">${s}</div></button>`;
+  document.getElementById('eq-tiles').innerHTML=
+    tile('','Equipamentos',_equips.length,`${_equips.filter(e=>e.status==='manutencao').length} em manutenção`,'hero')+
+    `<button type="button" class="tile" onclick="abrirPecas()"><div class="tile-l">Peças cadastradas</div><div class="tile-v">${tot.n}</div><div class="tile-s">${tot.n?Math.round(tot.vinc/tot.n*100):0}% vinculadas · ver onde cada uma é usada</div></button>`+
+    tile('rev','Revisão vencida',tot.venc,tot.breve?`${tot.breve} vencendo em breve`:'pelo horímetro',tot.venc?'ruim':tot.breve?'atencao':'')+
+    tile('sem','Sem vínculo',tot.sem,'peças fora do almoxarifado',tot.sem?'atencao':'')+
+    tile('aguard','Aguardando almoxarifado',tot.aguard,'cadastro pedido');
+  const linhasUsadas=[...new Set([..._linhas.map(l=>l.nome),..._equips.map(e=>e.localizacao).filter(Boolean)])];
+  document.getElementById('seg-linha').innerHTML=[['','Todas',_equips.length],...linhasUsadas.map(l=>[l,l,_equips.filter(e=>e.localizacao===l).length])]
+    .filter(([,,n],i)=>i===0||n).map(([k,r,n])=>`<button type="button" class="${_linhaSel===k?'on':''}" onclick="setLinha('${esc(k)}')">${esc(r)}<b>${n}</b></button>`).join('');
 
-async function salvarEquip(){
-  if (!guardAction('equip_gerais', 'edit')) return;
-  const nome=document.getElementById('equip-nome').value.trim();const codigo=document.getElementById('equip-codigo').value.trim();
-  const errEl=document.getElementById('equip-error');const btn=document.getElementById('btn-salvar-equip');
-  if(!nome||!codigo){errEl.textContent='Nome e Código são obrigatórios!';errEl.classList.remove('hidden');return;}
-  if(_eqgFoto&&_eqgFoto.startsWith('data:')){const _u=await subirFotoStorage(_eqgFoto,'equipamentos_gerais',_editingEquipId);if(_u)_eqgFoto=_u;} // foto nova → Storage
-  const dados={nome,codigo,foto:_eqgFoto||null,centro_custo:document.getElementById('equip-cc').value,localizacao:document.getElementById('equip-local').value,fabricante:document.getElementById('equip-fabricante').value,modelo:document.getElementById('equip-modelo').value,serie:document.getElementById('equip-serie').value,patrimonio:document.getElementById('equip-patrimonio').value,horimetro:parseFloat(document.getElementById('equip-horimetro').value)||0,aquisicao:document.getElementById('equip-aquisicao').value||null,status:document.getElementById('equip-status').value,obs:document.getElementById('equip-obs').value||null,componentes:getComponentesFromForm(),atualizado_em:new Date().toISOString()};
-  btn.innerHTML='<span class="spin"></span>';btn.disabled=true;
-  try{
-    if(_editingEquipId){const{error:ue}=await _supabase.from('equipamentos_gerais').update(dados).eq('id',_editingEquipId);if(ue)throw ue;await addLog('UPDATE','EQUIPAMENTOS',_editingEquipId,'Atualizado: '+nome);toast('Equipamento atualizado!','success');}
-    else{const{data,error:ie}=await _supabase.from('equipamentos_gerais').insert(dados).select().single();if(ie)throw ie;await addLog('CREATE','EQUIPAMENTOS',data.id,'Novo equip. geral: '+nome);toast('Equipamento cadastrado!','success');}
-    closeModal('modal-equip');await init();
-  }catch(e){console.error('Erro salvar equip-geral:',e);errEl.textContent='Erro: '+(e.message||JSON.stringify(e));errEl.classList.remove('hidden');}
-  btn.innerHTML='💾 Salvar Equipamento';btn.disabled=false;
+  const busca=_norm(document.getElementById('busca-eql').value).trim();
+  const dupIds=new Set(dup.map(e=>e.id));
+  const lista=R.filter(({e,r})=>(!_linhaSel||e.localizacao===_linhaSel)&&
+    (!_filtro||(_filtro==='rev'&&r.venc)||(_filtro==='sem'&&r.sem)||(_filtro==='aguard'&&r.aguard)||(_filtro==='quebrado'&&r.quebrado)||(_filtro==='tag'&&dupIds.has(e.id)))&&
+    (!busca||[e.nome,e.codigo,e.fabricante,e.modelo,...(e.componentes||[]).flatMap(c=>[c.nome,c.codigo])].some(v=>_norm(v).includes(busca))));
+  const el=document.getElementById('eq-lista');
+  if(!lista.length){ el.innerHTML=`<div class="vazio"><div style="font-size:34px;">⚙️</div><b>Nenhum equipamento neste filtro</b></div>`; return; }
+  const grupos=_linhaSel?[_linhaSel]:[...new Set(lista.map(x=>x.e.localizacao||'Sem local definido'))];
+  el.innerHTML=grupos.map(g=>{
+    const it=lista.filter(x=>(x.e.localizacao||'Sem local definido')===g);
+    const ln=_linhas.find(l=>l.nome===g);
+    return `<div class="grp-ln">${esc(g)} <small>${it.length} equipamento(s)</small></div><div class="cards">${it.map(cardEquip).join('')}</div>`;
+  }).join('');
 }
-
-function visualizarEquip(id){
-  const e=_equips.find(x=>x.id===id);if(!e)return;
-  const stCfg={ativo:{cls:'badge-success',txt:'✅ Ativo'},manutencao:{cls:'badge-warning',txt:'🔧 Manutenção'},inativo:{cls:'badge-gray',txt:'⚫ Inativo'}};
-  const sc=stCfg[e.status]||stCfg.inativo;
-  document.getElementById('modal-view-equip-title').textContent=`⚙️ ${e.nome}`;
-  const comps=e.componentes||[];
-  const compsHtml=comps.length?comps.map(c=>{
-    const eqH=parseFloat(e.horimetro)||0;
-    const compH=parseFloat(c.horimetro_componente)||0;
-    const intv=parseFloat(c.intervalo_revisao)||0;
-    const ht=eqH&&compH?eqH-compH:0;
-    const pt=intv&&ht?intv-ht:null;
-    const stRev=pt===null?'—':pt<=0?'🔴 EXECUTAR REVISÃO':'✅ EM DIA';
-    const corRev=pt===null?'#94a3b8':pt<=0?'#dc2626':'#16a34a';
-    return `<div style="background:#fff;border:1.2px solid #e2e8f0;border-radius:10px;padding:12px;margin-bottom:8px;">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;margin-bottom:8px;">
-        <div>
-          <span style="font-weight:700;color:var(--primary);">${c.nome}</span>
-          ${c.codigo?`<span class="badge badge-gray" style="margin-left:6px;font-size:10px;">${c.codigo}</span>`:''}
-          <div style="font-size:12px;color:#64748b;margin-top:2px;">${c.qtd||1} ${c.unidade||'un'}${c.fabricante?' — '+c.fabricante:''}</div>
-          ${c.obs?`<div style="font-size:11px;color:#94a3b8;margin-top:2px;">${c.obs}</div>`:''}
-        </div>
-        ${c.foto_componente?`<img src="${c.foto_componente}" style="width:50px;height:50px;border-radius:6px;object-fit:cover;cursor:pointer;flex-shrink:0;" onclick="verFotoInline('${c.foto_componente}')">`:
-          '<div style="width:50px;height:50px;border-radius:6px;background:#f1f5f9;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;">📷</div>'}
-      </div>
-      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;">
-        ${compH?`<div style="padding:6px 8px;background:#f8fafc;border-radius:6px;border:1px solid #e2e8f0;"><p style="font-size:9px;color:#94a3b8;font-weight:700;text-transform:uppercase;">Horímetro Comp.</p><p style="font-size:12px;font-weight:700;color:var(--primary);">${compH}h</p></div>`:''}
-        ${intv?`<div style="padding:6px 8px;background:#f8fafc;border-radius:6px;border:1px solid #e2e8f0;"><p style="font-size:9px;color:#94a3b8;font-weight:700;text-transform:uppercase;">Intervalo</p><p style="font-size:12px;font-weight:700;color:var(--primary);">${intv}h</p></div>`:''}
-        ${ht?`<div style="padding:6px 8px;background:#e0f2fe;border-radius:6px;border:1px solid #7dd3fc;"><p style="font-size:9px;color:#0369a1;font-weight:700;text-transform:uppercase;">Horas Trab.</p><p style="font-size:12px;font-weight:700;color:#0369a1;">${ht.toFixed(1)}h</p></div>`:''}
-        <div style="padding:6px 8px;background:${pt!==null&&pt<=0?'#fee2e2':pt!==null?'#dcfce7':'#f8fafc'};border-radius:6px;border:1px solid ${pt!==null&&pt<=0?'#fca5a5':pt!==null?'#86efac':'#e2e8f0'};"><p style="font-size:9px;font-weight:700;text-transform:uppercase;color:${corRev};">Status</p><p style="font-size:11px;font-weight:700;color:${corRev};">${stRev}</p></div>
-      </div>
-    </div>`;
-  }).join(''):'<p style="color:#94a3b8;font-size:13px;">Nenhum componente cadastrado.</p>';
-  document.getElementById('modal-view-equip-body').innerHTML=`
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px;">
-      ${[['Código/TAG',e.codigo],['Centro de Custo',e.centro_custo||'—'],['Localização',e.localizacao||'—'],['Fabricante',e.fabricante||'—'],['Modelo',e.modelo||'—'],['Nº Série',e.serie||'—'],['Patrimônio',e.patrimonio||'—'],['Horímetro',(e.horimetro||0)+'h'],['Aquisição',e.aquisicao||'—'],['Status','']].map(([l,v])=>`<div style="padding:10px 14px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;"><p style="font-size:11px;color:#94a3b8;font-weight:600;text-transform:uppercase;">${l}</p>${l==='Status'?`<span class="badge ${sc.cls}">${sc.txt}</span>`:`<p style="font-size:13px;font-weight:600;color:var(--primary);margin-top:2px;">${v||'—'}</p>`}</div>`).join('')}
+function cardEquip({e,r}){
+  const id=esc(e.id);
+  const st=e.status==='manutencao'?'<span class="tag warn">Em manutenção</span>':e.status==='inativo'?'<span class="tag gray">Inativo</span>':'';
+  return `<div class="eqc${e.status==='inativo'?' inat':''}">
+    <div class="eqc-top" role="button" tabindex="0" onclick="visualizarEquip('${id}')" onkeydown="if(event.key==='Enter')visualizarEquip('${id}')">
+      <div class="eqc-ft">${e.foto?`<img src="${esc(e.foto)}" alt="">`:'⚙️'}</div>
+      <div class="eqc-n"><b>${esc(e.nome)}</b><small>${esc(e.codigo||'sem TAG')}${e.fabricante||e.modelo?' · '+esc([e.fabricante,e.modelo].filter(Boolean).join(' ')):''}</small>
+        <small>${fN(e.horimetro)} h</small></div>
     </div>
-    ${e.foto?`<div style="margin-bottom:16px;"><img src="${e.foto}" style="max-width:200px;border-radius:10px;cursor:pointer;" onclick="verFotoInline('${e.foto}')"><p style="font-size:11px;color:#94a3b8;margin-top:4px;">Clique para ampliar</p></div>`:''}
-    <div style="font-weight:700;color:var(--primary);text-transform:uppercase;font-size:12px;margin-bottom:10px;">⚙️ Conjunto de Componentes</div>
-    ${compsHtml}`;
+    <div class="chips">${st}<span class="tag gray">${r.n} peça(s)</span>
+      ${r.venc?`<span class="tag bad">${r.venc} revisão vencida</span>`:''}${r.breve?`<span class="tag warn">${r.breve} vencendo</span>`:''}
+      ${r.sem?`<span class="tag gray">${r.sem} sem vínculo</span>`:''}${r.aguard?`<span class="tag warn">${r.aguard} aguardando almox.</span>`:''}${r.quebrado?`<span class="tag bad">${r.quebrado} vínculo quebrado</span>`:''}</div>
+    <div class="eqc-a">
+      <button type="button" class="b sm" onclick="visualizarEquip('${id}')">Ficha</button>
+      <button type="button" class="b sm" onclick="editarEquip('${id}')">✏️ Editar</button>
+      <button type="button" class="b sm" onclick="abrirQR('${id}')" aria-label="QR do equipamento">📱</button>
+      <button type="button" class="b sm" onclick="abrirHorimetro('${id}')" aria-label="Atualizar horímetro">⏱️</button>
+    </div></div>`;
+}
+
+/* ═══════════════════════════════════════════
+   EDITOR DO EQUIPAMENTO
+   ═══════════════════════════════════════════ */
+function edTab(t){
+  document.getElementById('p-dados').style.display=t==='dados'?'flex':'none';
+  document.getElementById('p-comp').style.display=t==='comp'?'block':'none';
+  document.getElementById('t-dados').classList.toggle('on',t==='dados');
+  document.getElementById('t-comp').classList.toggle('on',t==='comp');
+}
+function _selLinhas(v){   // localização: texto livre, sugerindo as que já existem (evita "Pátio" e "patio")
+  document.getElementById('dl-locais').innerHTML=[...new Set(_equips.map(e=>String(e.localizacao||'').trim()).filter(Boolean))].sort().map(l=>`<option value="${esc(l)}">`).join('');
+  document.getElementById('equip-linha').value=v||''; }
+function _resetEditor(){
+  _comps=[]; _dirty=new Map(); _novos=new Set(); _apagados=new Set(); _pedidos=new Set();
+  document.getElementById('equip-error').classList.add('hidden'); document.getElementById('tag-msg').textContent='';
+}
+function openModalEquip(){
+  _editingEquipId=null; _resetEditor();
+  document.getElementById('modal-equip-title').textContent='Novo equipamento';
+  ['equip-nome','equip-codigo','equip-cc','equip-fabricante','equip-modelo','equip-serie','equip-patrimonio','equip-obs','equip-horimetro','equip-aquisicao'].forEach(i=>document.getElementById(i).value='');
+  document.getElementById('equip-status').value='ativo';
+  _selLinhas(_linhaSel);
+  _setFotoEquip(null); renderCompsEditor(); edTab('dados');
+  document.getElementById('modal-equip').classList.remove('hidden');
+  setTimeout(()=>document.getElementById('equip-nome').focus(),50);
+}
+function editarEquip(id,aba){
+  const e=_equips.find(x=>x.id===id); if(!e) return;
+  closeModal('modal-view-equip');
+  _editingEquipId=id; _resetEditor();
+  document.getElementById('modal-equip-title').textContent='Editar — '+(e.nome||'');
+  const set=(i,v)=>document.getElementById(i).value=v==null?'':v;
+  set('equip-nome',e.nome); set('equip-codigo',e.codigo); set('equip-cc',e.centro_custo); set('equip-fabricante',e.fabricante);
+  set('equip-modelo',e.modelo); set('equip-serie',e.serie); set('equip-patrimonio',e.patrimonio); set('equip-horimetro',e.horimetro);
+  set('equip-aquisicao',e.aquisicao); set('equip-obs',e.obs); document.getElementById('equip-status').value=e.status||'ativo';
+  _selLinhas(e.localizacao); _setFotoEquip(e.foto||null);
+  // cópia de trabalho: TODOS os campos do componente (inclusive os da Manutenção)
+  _comps=(e.componentes||[]).map((c,i)=>{ const w=_clone(c); w.__orig={idx:i,sig:_sig(c.nome,c.codigo,c.fabricante),temUid:!!c.uid}; if(!w.uid) w.uid=_uid(); return w; });
+  renderCompsEditor(); checarTag(); edTab(aba||'dados');
+  document.getElementById('modal-equip').classList.remove('hidden');
+}
+function _alterado(){ return _dirty.size||_novos.size||_apagados.size; }
+function fecharEditor(){
+  if(_alterado()&&!confirm('Há mudanças nas peças que ainda não foram salvas. Sair mesmo assim?')) return;
+  closeModal('modal-equip');
+}
+function preencherHorimetroLinha(){ renderCompsEditor(); }
+function checarTag(){
+  const v=_norm(document.getElementById('equip-codigo').value).trim(), m=document.getElementById('tag-msg');
+  const outro=v&&_equips.find(e=>e.id!==_editingEquipId&&_norm(e.codigo).trim()===v);
+  m.textContent=outro?`Esta TAG já está em "${outro.nome}" (${outro.localizacao||'sem local'}).`:'';
+  return !outro;
+}
+function renderCompsEditor(){
+  const eqH=parseFloat(document.getElementById('equip-horimetro').value)||0;
+  const vis=_comps.filter(c=>!_apagados.has(c.uid));
+  document.getElementById('t-comp-n').textContent=vis.length?`(${vis.length})`:'';
+  const r={venc:0,sem:0}; vis.forEach(c=>{ if(revInfo(c,eqH).k==='vencida') r.venc++; if(almoxInfo(c).k==='sem') r.sem++; });
+  document.getElementById('cp-resumo').textContent=vis.length?`${vis.length} peça(s)${r.venc?` · ${r.venc} com revisão vencida`:''}${r.sem?` · ${r.sem} sem vínculo`:''}`:'';
+  const el=document.getElementById('cp-lista');
+  if(!vis.length){ el.innerHTML=`<div class="cp-vazio">Nenhuma peça ainda.<br>Use <b>+ Adicionar peça</b> ou <b>Copiar conjunto</b> de um equipamento parecido.</div>`; return; }
+  el.innerHTML=ordemArvore(vis).map(({i,nivel})=>{
+    const c=vis[i], u=esc(c.uid), mud=_dirty.has(c.uid);
+    const pedir=_pedidos.has(c.uid)?'<span class="tag warn">vai pedir cadastro ao salvar</span>':'';
+    return `<div class="cp${_novos.has(c.uid)?' novo':mud?' mudou':''}${nivel?' filho':''}" style="${nivel>1?`margin-left:${22*nivel}px;`:''}">
+      <div class="cp-n"><b>${esc(c.nome)}</b>${c.codigo?`<span class="cod">${esc(c.codigo)}</span>`:''}
+        <span class="sub">${fN(c.qtd||1)} ${esc(c.unidade||'un')}${c.fabricante?' · '+esc(c.fabricante):''}${c.obs?' · '+esc(c.obs):''}</span>
+        <div class="chips">${_novos.has(c.uid)?'<span class="tag ok">nova</span>':mud?'<span class="tag info">alterada</span>':''}${pedir}${chipsPeca(c,eqH)}</div></div>
+      <div class="cp-a"><button type="button" class="ib" onclick="abrirPeca('${u}')" aria-label="Editar ${esc(c.nome)}">✏️</button>
+        <button type="button" class="ib x" onclick="removerPeca('${u}')" aria-label="Remover ${esc(c.nome)}">✕</button></div></div>`;
+  }).join('');
+}
+function removerPeca(uid){
+  const c=_comps.find(x=>x.uid===uid); if(!c) return;
+  const filhos=_comps.filter(x=>!_apagados.has(x.uid)&&x.uid!==uid&&((x.grupo_pai_sig&&x.grupo_pai_sig===_sig(c.nome,c.codigo,c.fabricante))||(!x.grupo_pai_sig&&_norm(x.grupo_pai).trim()===_norm(c.nome).trim()))).length;
+  const nh=(c.historico_revisoes||[]).length;
+  const avisos=[nh?`tem ${nh} revisão(ões) no histórico, que serão perdidas`:'',filhos?`${filhos} peça(s) estão ligadas a ela e ficarão soltas`:''].filter(Boolean);
+  if(!confirm(`Remover "${c.nome}${c.codigo?' '+c.codigo:''}"?`+(avisos.length?'\n\nAtenção: '+avisos.join('; ')+'.':''))) return;
+  if(_novos.has(uid)){ _novos.delete(uid); _comps=_comps.filter(x=>x.uid!==uid); } else _apagados.add(uid);
+  _pedidos.delete(uid); renderCompsEditor();
+}
+
+/* ═══════════════════════════════════════════
+   PEÇA — busca no almoxarifado
+   ═══════════════════════════════════════════ */
+function abrirPeca(uid){
+  _pcUid=uid; const c=uid?_comps.find(x=>x.uid===uid):{};
+  document.getElementById('pc-tit').textContent=uid?'Editar peça':'Adicionar peça';
+  const set=(i,v)=>document.getElementById(i).value=v==null?'':v;
+  set('pc-busca',''); set('pc-nome',c.nome); set('pc-codigo',c.codigo); set('pc-qtd',c.qtd||1); set('pc-fab',c.fabricante);
+  set('pc-valor',c.valor_unitario); set('pc-hinst',c.horimetro_componente); set('pc-intv',c.intervalo_revisao); set('pc-obs',c.obs);
+  const un=document.getElementById('pc-un'); const u=c.unidade||'un';
+  un.innerHTML=[...new Set([...UNIDS,u])].map(x=>`<option>${esc(x)}</option>`).join(''); un.value=u;
+  if(!uid&&!document.getElementById('pc-hinst').value) set('pc-hinst',document.getElementById('equip-horimetro').value);
+  _pcAlmox=c.almox_id||null; _pcSol=c.sol_id||null; _pcPedir=uid?_pedidos.has(uid):false;
+  _pcFoto=c.foto_componente||null; document.getElementById('pc-foto').innerHTML=_pcFoto?`<img src="${esc(_pcFoto)}" alt="">`:'📷';
+  // "faz parte de": qualquer outra peça, menos ela mesma e as que estão abaixo dela
+  const vis=_comps.filter(x=>!_apagados.has(x.uid)&&x.uid!==uid);
+  const desc=new Set(); if(uid){ const ord=ordemArvore(_comps.filter(x=>!_apagados.has(x.uid))); const lista=_comps.filter(x=>!_apagados.has(x.uid));
+    const pos=ord.findIndex(o=>lista[o.i].uid===uid); if(pos>=0){ const nv=ord[pos].nivel; for(let k=pos+1;k<ord.length&&ord[k].nivel>nv;k++) desc.add(lista[ord[k].i].uid); } }
+  const paiAtual=_paiDe(c);
+  document.getElementById('pc-pai').innerHTML='<option value="">— nenhuma (peça principal)</option>'+
+    vis.filter(x=>!desc.has(x.uid)).map(x=>`<option value="${esc(x.uid)}"${paiAtual&&paiAtual.uid===x.uid?' selected':''}>${esc(x.nome)}${x.codigo?' '+esc(x.codigo):''}</option>`).join('');
+  const nh=(c.historico_revisoes||[]);
+  document.getElementById('pc-hist').innerHTML=(nh.length||c.ultima_os||c.ultima_revisao)?`<div class="hist"><b>Vem da Manutenção (não muda aqui):</b>
+    ${c.ultima_revisao?` última revisão ${esc(fD(c.ultima_revisao))}`:''}${c.ultima_os?` · última OS ${esc(c.ultima_os)}`:''}${c.ultimo_responsavel?` · ${esc(c.ultimo_responsavel)}`:''}${nh.length?` · ${nh.length} registro(s) no histórico`:''}</div>`:'';
+  document.getElementById('pc-err').classList.add('hidden');
+  renderVincPeca(); calcRevPeca(); fecharAc();
+  document.getElementById('modal-peca').classList.remove('hidden');
+  setTimeout(()=>document.getElementById(uid?'pc-nome':'pc-busca').focus(),60);
+}
+function _paiDe(c){
+  if(!c||(!c.grupo_pai_sig&&!c.grupo_pai)) return null;
+  const vis=_comps.filter(x=>!_apagados.has(x.uid)&&x.uid!==c.uid);
+  if(c.grupo_pai_sig) return vis.find(x=>_sig(x.nome,x.codigo,x.fabricante)===c.grupo_pai_sig)||null;
+  return vis.find(x=>_norm(x.nome).trim()===_norm(c.grupo_pai).trim())||null;
+}
+function renderVincPeca(){
+  const el=document.getElementById('pc-vinc'), dica=document.getElementById('pc-valor-dica');
+  const it=_pcAlmox?_almoxById[_pcAlmox]:null;
+  if(it){ el.innerHTML=`<div class="vinc">✅ Vinculada ao almoxarifado: <b>${esc(it.nome)}</b> <span>${esc(it.codigo||'')}</span>
+      <button type="button" class="b sm" onclick="desvincularPeca()">Desvincular</button></div>`;
+    dica.textContent=it.custo_unitario!=null?`Valor do almoxarifado: ${fR(it.custo_unitario)}`:''; return; }
+  dica.textContent='';
+  if(_pcAlmox) el.innerHTML=`<div class="vinc aguard">⚠️ O item vinculado não existe mais no almoxarifado. Busque a peça acima para vincular de novo.</div>`;
+  else if(_pcSol) el.innerHTML=`<div class="vinc aguard">⏳ Cadastro pedido ao almoxarifado. Quando ele cadastrar, a peça se vincula sozinha.</div>`;
+  else if(_pcPedir) el.innerHTML=`<div class="vinc aguard">📨 O pedido de cadastro será enviado ao almoxarifado quando você salvar o equipamento.
+      <button type="button" class="b sm" onclick="_pcPedir=false;renderVincPeca()">Não pedir</button></div>`;
+  else el.innerHTML=`<div class="vinc sem">Sem vínculo com o almoxarifado. Busque a peça acima — se não existir, dá para pedir o cadastro.</div>`;
+}
+function desvincularPeca(){ _pcAlmox=null; renderVincPeca(); }
+function buscarPeca(){
+  const q=_norm(document.getElementById('pc-busca').value).trim(), el=document.getElementById('pc-ac');
+  if(q.length<2){ fecharAc(); return; }
+  const tk=q.split(/\s+/);
+  _acLista=_almox.filter(a=>a.status!=='inativo').map(a=>({a,t:_norm([a.nome,a.codigo,a.codigo_especificacao].join(' '))}))
+    .filter(x=>tk.every(t=>x.t.includes(t))).slice(0,30).map(x=>x.a);
+  _acSel=_acLista.length?0:-1;
+  const txt=document.getElementById('pc-busca').value.trim();
+  el.innerHTML=_acLista.map((a,i)=>`<div class="ac-i${i===_acSel?' sel':''}" role="option" onmousedown="event.preventDefault();escolherAlmox('${esc(a.id)}')">
+      <div><b>${esc(a.nome)}</b><small>${esc(a.codigo||'')}${a.categoria?' · '+esc(a.categoria):''} · ${esc(a.unidade||'un')}</small></div>
+      <span class="v">${a.custo_unitario!=null?fR(a.custo_unitario):''}</span></div>`).join('')+
+    `<div class="ac-novo">${_acLista.length?'Não é nenhuma dessas?':'Nada encontrado no almoxarifado.'}
+      <button type="button" class="b sm" style="margin-left:8px;" onmousedown="event.preventDefault();pedirCadastro()">📨 Pedir cadastro de “${esc(txt)}”</button></div>`;
+  el.classList.add('on');
+}
+function teclaBusca(ev){
+  const el=document.getElementById('pc-ac'); if(!el.classList.contains('on')) return;
+  if(ev.key==='ArrowDown'||ev.key==='ArrowUp'){ ev.preventDefault(); if(!_acLista.length) return; _acSel=(_acSel+(ev.key==='ArrowDown'?1:-1)+_acLista.length)%_acLista.length;
+    el.querySelectorAll('.ac-i').forEach((n,i)=>n.classList.toggle('sel',i===_acSel)); }
+  else if(ev.key==='Enter'){ ev.preventDefault(); if(_acSel>=0) escolherAlmox(_acLista[_acSel].id); }
+  else if(ev.key==='Escape'){ ev.stopPropagation(); fecharAc(); }
+}
+function fecharAc(){ const el=document.getElementById('pc-ac'); el.classList.remove('on'); el.innerHTML=''; }
+document.addEventListener('click',e=>{ if(!e.target.closest('.ac')) fecharAc(); });
+// "Rolamento 6311ZZ" → nome "Rolamento", código "6311ZZ" (padrão já usado nos componentes)
+function _separar(nomeItem, espec){
+  const n=String(nomeItem||'').trim();
+  if(espec&&n.toLowerCase().endsWith(String(espec).toLowerCase())) return {nome:n.slice(0,n.length-String(espec).length).trim()||n,codigo:espec};
+  const p=n.split(/\s+/); const ult=p[p.length-1]||'';
+  if(p.length>1&&/\d/.test(ult)) return {nome:p.slice(0,-1).join(' '),codigo:ult};
+  return {nome:n,codigo:espec||''};
+}
+function escolherAlmox(id){
+  const a=_almoxById[id]; if(!a) return;
+  _pcAlmox=a.id; _pcSol=null; _pcPedir=false;
+  const nm=document.getElementById('pc-nome'), cd=document.getElementById('pc-codigo');
+  if(!nm.value.trim()){ const s=_separar(a.nome,a.codigo_especificacao); nm.value=s.nome; if(!cd.value.trim()) cd.value=s.codigo; }
+  if(a.custo_unitario!=null) document.getElementById('pc-valor').value=a.custo_unitario;
+  const un=document.getElementById('pc-un'); if(a.unidade&&[...un.options].some(o=>o.value===a.unidade)) un.value=a.unidade;
+  document.getElementById('pc-busca').value=''; fecharAc(); renderVincPeca();
+}
+function pedirCadastro(){
+  const txt=document.getElementById('pc-busca').value.trim();
+  const nm=document.getElementById('pc-nome'), cd=document.getElementById('pc-codigo');
+  if(!nm.value.trim()&&txt){ const s=_separar(txt,''); nm.value=s.nome.charAt(0).toUpperCase()+s.nome.slice(1); if(!cd.value.trim()) cd.value=s.codigo; }
+  _pcAlmox=null; _pcPedir=true; fecharAc(); renderVincPeca();
+  if(!cd.value.trim()) setTimeout(()=>cd.focus(),30);
+}
+function calcRevPeca(){
+  const eqH=parseFloat(document.getElementById('equip-horimetro').value)||0;
+  const r=revInfo({horimetro_componente:document.getElementById('pc-hinst').value,intervalo_revisao:document.getElementById('pc-intv').value},eqH);
+  document.getElementById('pc-rev').innerHTML=`<div><span>Horas trabalhando</span><b>${r.ht>0?fN(r.ht)+' h':'—'}</b></div>
+    <div><span>Próxima revisão em</span><b style="color:${r.pt==null?'inherit':r.pt<=0?'var(--bad)':'var(--ok)'};">${r.pt==null?'—':r.pt<=0?'vencida há '+fN(-r.pt)+' h':fN(r.pt)+' h'}</b></div>
+    <div><span>Situação</span><b>${r.k==='vencida'?'🔴 revisar':r.k==='breve'?'🟡 revisar em breve':r.k==='ok'?'✅ em dia':'—'}</b></div>`;
+}
+function fotoPeca(input){
+  if(!input.files||!input.files[0]) return;
+  const r=new FileReader(); r.onload=e=>{ _pcFoto=e.target.result; document.getElementById('pc-foto').innerHTML=`<img src="${e.target.result}" alt="">`; }; r.readAsDataURL(input.files[0]);
+}
+async function confirmarPeca(){
+  const g=i=>document.getElementById(i).value.trim();
+  const err=document.getElementById('pc-err');
+  if(!g('pc-nome')){ err.textContent='Informe o nome da peça.'; err.classList.remove('hidden'); return; }
+  if(_pcPedir&&!g('pc-codigo')){ err.textContent='Para pedir o cadastro, informe o código/especificação (ex.: 6205ZZ, B-90).'; err.classList.remove('hidden'); return; }
+  const uid=_pcUid||_uid();
+  if(_pcFoto&&_pcFoto.startsWith('data:')){ try{ const u=await subirFotoStorage(_pcFoto,'equipamentos_gerais',uid); if(u) _pcFoto=u; }catch(e){} }
+  const num=v=>v===''?null:parseFloat(v);
+  const paiUid=document.getElementById('pc-pai').value, pai=paiUid?_comps.find(x=>x.uid===paiUid):null;
+  const val={nome:g('pc-nome'),codigo:g('pc-codigo')||null,qtd:num(g('pc-qtd'))||1,unidade:document.getElementById('pc-un').value||'un',
+    fabricante:g('pc-fab')||null,valor_unitario:num(g('pc-valor')),horimetro_componente:num(g('pc-hinst')),intervalo_revisao:num(g('pc-intv')),
+    obs:g('pc-obs')||null,foto_componente:_pcFoto||null,almox_id:_pcAlmox||null,sol_id:_pcAlmox?null:(_pcSol||null),
+    grupo_pai:pai?pai.nome:null,grupo_pai_sig:pai?_sig(pai.nome,pai.codigo,pai.fabricante):null};
+  if(!_pcUid){ _comps.push({uid,...val}); _novos.add(uid); }
+  else{
+    const c=_comps.find(x=>x.uid===uid);
+    const antes={nome:c.nome,codigo:c.codigo,fabricante:c.fabricante};
+    // o pai já apontava para esta peça? não reescreve à toa (preserva o vínculo antigo por nome)
+    const paiAntes=_paiDe(c);
+    const f=_dirty.get(uid)||new Set();
+    CAMPOS_PECA.forEach(k=>{
+      if((k==='grupo_pai'||k==='grupo_pai_sig')&&((paiAntes&&pai&&paiAntes.uid===pai.uid)||(!paiAntes&&!pai))) return;
+      const a=_vazio(c[k])?'':String(c[k]), b=_vazio(val[k])?'':String(val[k]);
+      if(a!==b){ c[k]=val[k]; f.add(k); }
+    });
+    if(f.size&&!_novos.has(uid)) _dirty.set(uid,f);
+    // renomeou a peça: as que fazem parte dela continuam penduradas nela (no banco, a mescla faz o mesmo)
+    if(f.has('nome')||f.has('codigo')||f.has('fabricante')){
+      const de=_sig(antes.nome,antes.codigo,antes.fabricante), para=_sig(c.nome,c.codigo,c.fabricante);
+      _comps.forEach(x=>{ if(x.uid===uid) return;
+        if(x.grupo_pai_sig&&x.grupo_pai_sig===de){ x.grupo_pai_sig=para; x.grupo_pai=c.nome; }
+        else if(!x.grupo_pai_sig&&x.grupo_pai&&_norm(x.grupo_pai).trim()===_norm(antes.nome).trim()) x.grupo_pai=c.nome; });
+    }
+  }
+  if(_pcPedir&&!_pcAlmox) _pedidos.add(uid); else _pedidos.delete(uid);
+  closeModal('modal-peca'); renderCompsEditor();
+}
+
+/* ═══════════════════════════════════════════
+   COPIAR CONJUNTO
+   ═══════════════════════════════════════════ */
+const CAMPOS_COPIA=['nome','codigo','qtd','unidade','fabricante','valor_unitario','intervalo_revisao','almox_id','grupo_pai','grupo_pai_sig','obs','foto_componente'];
+function abrirCopia(){ document.getElementById('copia-busca').value=''; renderCopia(); document.getElementById('modal-copia').classList.remove('hidden'); }
+function renderCopia(){
+  const nome=_norm(document.getElementById('equip-nome').value).trim(), q=_norm(document.getElementById('copia-busca').value).trim();
+  const lista=_equips.filter(e=>e.id!==_editingEquipId&&(e.componentes||[]).length&&(!q||_norm(e.nome+' '+e.localizacao+' '+e.codigo).includes(q)))
+    .sort((a,b)=>((_norm(b.nome).trim()===nome)-(_norm(a.nome).trim()===nome))||String(a.nome).localeCompare(b.nome));
+  document.getElementById('copia-lista').innerHTML=lista.map(e=>`<div class="copia-i" role="button" tabindex="0" onclick="copiarDe('${esc(e.id)}')">
+    <div><b>${esc(e.nome)}</b> <span style="color:var(--ink-3);font-size:12.5px;">· ${esc(e.localizacao||'')} · ${esc(e.codigo||'')}</span></div>
+    <span class="tag ${nome&&_norm(e.nome).trim()===nome?'ok':'gray'}">${(e.componentes||[]).length} peça(s)</span></div>`).join('')||'<p style="color:var(--ink-4);text-align:center;">Nenhum equipamento com peças.</p>';
+}
+function copiarDe(id){
+  const e=_equips.find(x=>x.id===id); if(!e) return;
+  const ja=new Set(_comps.filter(x=>!_apagados.has(x.uid)).map(x=>_sig(x.nome,x.codigo,x.fabricante)));
+  const novas=(e.componentes||[]).filter(c=>!ja.has(_sig(c.nome,c.codigo,c.fabricante)));
+  if(!novas.length){ toast('Todas as peças desse equipamento já estão aqui.','info'); return; }
+  const eqH=parseFloat(document.getElementById('equip-horimetro').value)||null;
+  novas.forEach(c=>{ const w={uid:_uid()}; CAMPOS_COPIA.forEach(k=>{ if(!_vazio(c[k])) w[k]=_clone(c[k]); }); _comps.push(w); _novos.add(w.uid); });
+  closeModal('modal-copia'); renderCompsEditor(); edTab('comp');
+  toast(`${novas.length} peça(s) copiada(s) de ${e.nome} (${e.localizacao}). Confira e salve.`,'success');
+}
+
+/* ═══════════════════════════════════════════
+   SALVAR — mescla com o que está no banco
+   ═══════════════════════════════════════════ */
+const _limpo=w=>{ const r={...w}; delete r.__orig; Object.keys(r).forEach(k=>{ if(r[k]===null||r[k]===undefined||r[k]==='') delete r[k]; }); return r; };
+function mesclar(banco){
+  const usados=new Set(), posDe=new Map();
+  banco.forEach((c,i)=>{ if(c.uid&&!usados.has(i)){ posDe.set(c.uid,i); usados.add(i); } });
+  // peças antigas (sem uid no banco): acha pela posição original + nome/código/fabricante
+  _comps.forEach(w=>{
+    if(_novos.has(w.uid)||posDe.has(w.uid)||!w.__orig) return;
+    const o=w.__orig, ok=j=>j>=0&&j<banco.length&&!usados.has(j)&&!banco[j].uid&&_sig(banco[j].nome,banco[j].codigo,banco[j].fabricante)===o.sig;
+    let j=ok(o.idx)?o.idx:banco.findIndex((_,k)=>ok(k));
+    if(j>=0){ posDe.set(w.uid,j); usados.add(j); }
+  });
+  const uidDaPos=new Map([...posDe].map(([u,j])=>[j,u]));
+  const renomes=[];
+  const out=[];
+  banco.forEach((c,j)=>{
+    const uid=uidDaPos.get(j);
+    if(!uid){ out.push(c); return; }                     // peça que esta tela não conhece (ex.: criada agora pela Manutenção)
+    if(_apagados.has(uid)) return;
+    const w=_comps.find(x=>x.uid===uid), r={...c,uid};   // parte do BANCO: histórico, OS, pai… ficam como estão
+    const f=_dirty.get(uid);
+    if(f){
+      if(f.has('nome')||f.has('codigo')||f.has('fabricante')) renomes.push({de:_sig(c.nome,c.codigo,c.fabricante),deNome:c.nome,para:_sig(w.nome,w.codigo,w.fabricante),paraNome:w.nome});
+      f.forEach(k=>{ if(_vazio(w[k])) delete r[k]; else r[k]=w[k]; });
+    }
+    out.push(r);
+  });
+  _comps.filter(w=>_novos.has(w.uid)).forEach(w=>out.push(_limpo(w)));
+  // peça renomeada: as que fazem parte dela continuam ligadas
+  renomes.forEach(rn=>out.forEach(c=>{
+    if(c.grupo_pai_sig&&c.grupo_pai_sig===rn.de){ c.grupo_pai_sig=rn.para; c.grupo_pai=rn.paraNome; }
+    else if(!c.grupo_pai_sig&&c.grupo_pai&&_norm(c.grupo_pai).trim()===_norm(rn.deNome).trim()&&rn.deNome!==rn.paraNome){ c.grupo_pai=rn.paraNome; }
+  }));
+  return out;
+}
+async function salvarEquip(){
+  if(!guardAction('equip_gerais','edit')) return;
+  const errEl=document.getElementById('equip-error'), btn=document.getElementById('btn-salvar-equip');
+  const erro=m=>{ errEl.textContent=m; errEl.classList.remove('hidden'); };
+  const g=i=>document.getElementById(i).value.trim();
+  const nome=g('equip-nome'), codigo=g('equip-codigo');
+  // mesma grafia de um local que já existe (ex.: "patio" → "Pátio")
+  const _loc=g('equip-linha'); const linha=[...new Set(_equips.map(e=>String(e.localizacao||'').trim()))].find(l=>l&&_norm(l)===_norm(_loc))||_loc;
+  const falta=[!nome&&'nome',!codigo&&'TAG'].filter(Boolean);
+  if(falta.length){ edTab('dados'); return erro('Preencha: '+falta.join(', ')+'.'); }
+  const atual=_editingEquipId?_equips.find(x=>x.id===_editingEquipId):null;
+  if(!checarTag()&&(!atual||_norm(atual.codigo).trim()!==_norm(codigo).trim())){ edTab('dados'); return erro('Esta TAG já está em outro equipamento.'); }
+  btn.disabled=true; btn.innerHTML='<span class="spin"></span>';
+  try{
+    if(_eqlFoto&&_eqlFoto.startsWith('data:')){ const u=await subirFotoStorage(_eqlFoto,'equipamentos_gerais',_editingEquipId); if(u) _eqlFoto=u; }
+    const hor=g('equip-horimetro');
+    const dados={nome,codigo,localizacao:linha||null,foto:_eqlFoto||null,centro_custo:g('equip-cc')||null,fabricante:g('equip-fabricante')||null,modelo:g('equip-modelo')||null,
+      serie:g('equip-serie')||null,patrimonio:g('equip-patrimonio')||null,horimetro:hor===''?null:parseFloat(hor),aquisicao:g('equip-aquisicao')||null,
+      status:document.getElementById('equip-status').value,obs:g('equip-obs')||null,atualizado_em:new Date().toISOString()};
+    // pedidos de cadastro: o id da solicitação já vai junto na peça
+    const pedidos=[..._pedidos].map(uid=>({uid,sol:'sol_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6)}));
+    pedidos.forEach(p=>{ const w=_comps.find(x=>x.uid===p.uid); if(!w) return; w.sol_id=p.sol; if(!_novos.has(p.uid)){ const f=_dirty.get(p.uid)||new Set(); f.add('sol_id'); _dirty.set(p.uid,f); } });
+    let id=_editingEquipId;
+    if(id){
+      await db(_supabase.from('equipamentos_gerais').update(dados).eq('id',id),'atualizar equipamento');   // sem a coluna componentes
+      const precisaComps=_alterado()||_comps.some(w=>w.__orig&&!w.__orig.temUid);   // também grava o uid das peças antigas
+      if(precisaComps) await gravarComps(id,mesclar);
+      await addLog('UPDATE','EQUIPAMENTOS',id,`Atualizado: ${nome}${_alterado()?` (peças: +${_novos.size} −${_apagados.size} ~${_dirty.size})`:''}`);
+    }else{
+      const{data}=await db(_supabase.from('equipamentos_gerais').insert({...dados,componentes:_comps.filter(w=>!_apagados.has(w.uid)).map(_limpo)}).select().single(),'cadastrar equipamento');
+      id=data.id; await addLog('CREATE','EQUIPAMENTOS',id,'Novo equip.: '+nome);
+    }
+    let falhou=0;
+    for(const p of pedidos){
+      const w=_comps.find(x=>x.uid===p.uid); if(!w) continue;
+      const ident=[w.nome,w.codigo].filter(Boolean).join(' ');
+      const {error}=await _supabase.from('almoxarifado_solicitacoes_cadastro').insert({id:p.sol,nome:ident,nome_base:w.nome,identificacao:ident,
+        codigo_especificacao:w.codigo,codigo_sugerido:w.codigo,unidade:w.unidade||'un',custo_unitario:w.valor_unitario||null,origem:'equip_gerais',
+        equipamento:nome+(linha?' — '+linha:''),equipamento_id:id,componente_uid:p.uid,data:new Date().toISOString(),status:'pendente',
+        motivo:'Pedido pelo cadastro do equipamento; o vínculo volta sozinho quando o cadastro for concluído'});
+      if(error){ falhou++; console.warn('[pedido de cadastro]',error); }
+    }
+    toast(_editingEquipId?'Equipamento atualizado!':'Equipamento cadastrado!','success');
+    if(pedidos.length) toast(falhou?`${falhou} pedido(s) de cadastro não foram enviados — tente de novo.`:`📨 ${pedidos.length} pedido(s) de cadastro enviados ao almoxarifado.`,falhou?'warning':'success');
+    _resetEditor(); closeModal('modal-equip'); await recarregarEquips();
+  }catch(e){ erro('Erro: '+(e.message||e)); }
+  btn.disabled=false; btn.innerHTML='💾 Salvar';
+}
+
+/* ═══════════════════════════════════════════
+   TODAS AS PEÇAS — onde cada peça é usada
+   ═══════════════════════════════════════════ */
+let _pzFiltro='', _pzAberta=null, _pzGrupos=[];
+function abrirPecas(){ document.getElementById('pz-busca').value=''; _pzFiltro=''; _pzAberta=null; renderPecas(); document.getElementById('modal-pecas').classList.remove('hidden'); setTimeout(()=>document.getElementById('pz-busca').focus(),50); }
+function setPzFiltro(f){ _pzFiltro=_pzFiltro===f?'':f; renderPecas(); }
+function togPz(i){ _pzAberta=_pzAberta===i?null:i; renderPecas(); }
+function renderPecas(){
+  // agrupa pela peça (vínculo do almoxarifado; sem vínculo, por nome+código)
+  const g=new Map();
+  _equips.forEach(e=>{ const eqH=parseFloat(e.horimetro)||0;
+    (e.componentes||[]).forEach(c=>{
+      const a=almoxInfo(c), k=a.k==='vinc'?'a:'+c.almox_id:'n:'+_norm(c.nome).trim()+'|'+_norm(c.codigo).trim();
+      if(!g.has(k)) g.set(k,{nome:a.k==='vinc'?a.item.nome:[String(c.nome||'').trim(),c.codigo].filter(Boolean).join(' '),alm:a,usos:[],qtd:0,venc:0});
+      const x=g.get(k); x.usos.push({e,c,r:revInfo(c,eqH)}); x.qtd+=parseFloat(c.qtd)||1; if(revInfo(c,eqH).k==='vencida') x.venc++;
+    }); });
+  const todos=[...g.values()].sort((a,b)=>b.usos.length-a.usos.length||a.nome.localeCompare(b.nome,'pt-BR'));
+  const n={todos:todos.length,sem:todos.filter(x=>x.alm.k!=='vinc').length,venc:todos.filter(x=>x.venc).length};
+  document.getElementById('pz-seg').innerHTML=[['','Todas',n.todos],['sem','Sem vínculo',n.sem],['venc','Com revisão vencida',n.venc]]
+    .map(([k,r,q])=>`<button type="button" class="${_pzFiltro===k?'on':''}" onclick="setPzFiltro('${k}')">${r}<b>${q}</b></button>`).join('');
+  const q=_norm(document.getElementById('pz-busca').value).trim(), tk=q?q.split(/\s+/):[];
+  _pzGrupos=todos.filter(x=>(!_pzFiltro||(_pzFiltro==='sem'&&x.alm.k!=='vinc')||(_pzFiltro==='venc'&&x.venc))&&
+    (!tk.length||tk.every(t=>_norm(x.nome+' '+(x.alm.item?x.alm.item.codigo:'')+' '+x.usos.map(u=>u.c.codigo).join(' ')).includes(t))));
+  document.getElementById('pz-resumo').textContent=`${_pzGrupos.length} peça(s) diferente(s) · ${_pzGrupos.reduce((s,x)=>s+x.usos.length,0)} uso(s) em equipamentos`;
+  const LIM=150;
+  document.getElementById('pz-lista').innerHTML=_pzGrupos.slice(0,LIM).map((x,i)=>{
+    const almTag=x.alm.k==='vinc'?`<span class="tag info">📦 ${esc(x.alm.item.codigo||'almox')}</span>`:x.alm.k==='aguard'?'<span class="tag warn">aguardando almox.</span>':x.alm.k==='quebrado'?'<span class="tag bad">vínculo quebrado</span>':'<span class="tag gray">sem vínculo</span>';
+    const linhas=[...new Set(x.usos.map(u=>u.e.localizacao))].join(', ');
+    return `<div class="pz-row" role="button" tabindex="0" onclick="togPz(${i})" onkeydown="if(event.key==='Enter')togPz(${i})" aria-expanded="${_pzAberta===i}">
+      <div><b>${esc(x.nome)}</b><span class="sub">${x.usos.length} equipamento(s) · ${fN(x.qtd)} un no total · ${esc(linhas)}</span></div>
+      <div class="chips">${x.venc?`<span class="tag bad">${x.venc} revisão vencida</span>`:''}${almTag}</div></div>`+
+      (_pzAberta===i?`<div class="pz-det">${x.usos.map(u=>`<div class="pz-eq"><span><b>${esc(u.e.nome)}</b> · ${esc(u.e.localizacao||'')}${u.c.grupo_pai?' · no '+esc(u.c.grupo_pai):''} · ${fN(u.c.qtd||1)} un</span>
+        <span style="display:flex;gap:6px;align-items:center;">${u.r.k==='vencida'?'<span class="tag bad">vencida</span>':u.r.k==='breve'?'<span class="tag warn">vencendo</span>':''}
+        <button type="button" class="b sm" onclick="event.stopPropagation();closeModal('modal-pecas');editarEquip('${esc(u.e.id)}','comp')">Abrir</button></span></div>`).join('')}</div>`:'');
+  }).join('')+(_pzGrupos.length>LIM?`<div style="padding:12px;text-align:center;font-size:12.5px;color:var(--ink-3);">Mostrando ${LIM} de ${_pzGrupos.length} — refine a busca.</div>`:'')
+  ||'<div style="padding:24px;text-align:center;color:var(--ink-4);">Nenhuma peça neste filtro.</div>';
+}
+
+/* ═══════════════════════════════════════════
+   FICHA
+   ═══════════════════════════════════════════ */
+function visualizarEquip(id){
+  const e=_equips.find(x=>x.id===id); if(!e) return;
+  const eqH=parseFloat(e.horimetro)||0, cs=e.componentes||[], r=resumoEquip(e);
+  document.getElementById('modal-view-equip-title').textContent=e.nome+(e.codigo?' · '+e.codigo:'');
+  const cel=(l,v)=>`<div class="ficha-c"><span>${l}</span><b>${v||'—'}</b></div>`;
+  const temHist=cs.some(c=>(c.historico_revisoes||[]).length||c.ultima_os);
+  document.getElementById('modal-view-equip-body').innerHTML=`
+    <div style="display:flex;gap:16px;align-items:center;margin-bottom:14px;">
+      <div class="eqc-ft" style="width:84px;height:84px;font-size:32px;${e.foto?'cursor:pointer;':''}" ${e.foto?`onclick="verFotoInline('${esc(e.foto)}')"`:''}>${e.foto?`<img src="${esc(e.foto)}" alt="">`:'⚙️'}</div>
+      <div class="chips"><span class="tag ${e.status==='manutencao'?'warn':e.status==='inativo'?'gray':'ok'}">${e.status==='manutencao'?'Em manutenção':e.status==='inativo'?'Inativo':'Ativo'}</span>
+        <span class="tag gray">${r.n} peça(s)</span>${r.venc?`<span class="tag bad">${r.venc} revisão vencida</span>`:''}${r.sem?`<span class="tag gray">${r.sem} sem vínculo</span>`:''}</div>
+    </div>
+    <div class="ficha-g">${cel('Localização',esc(e.localizacao))}${cel('Horímetro',fN(e.horimetro)+' h')}${cel('Centro de custo',esc(e.centro_custo))}
+      ${cel('Fabricante / modelo',esc([e.fabricante,e.modelo].filter(Boolean).join(' ')))}${cel('Nº de série',esc(e.serie))}${cel('Patrimônio',esc(e.patrimonio))}
+      ${cel('Aquisição',fD(e.aquisicao))}${e.obs?cel('Observações',esc(e.obs)):''}</div>
+    <div style="font-size:14px;font-weight:800;color:var(--primary);margin:6px 0 8px;">Conjunto de componentes</div>
+    <div class="cp-l">${cs.length?ordemArvore(cs).map(({i,nivel})=>{ const c=cs[i];
+      return `<div class="cp${nivel?' filho':''}" style="${nivel>1?`margin-left:${22*nivel}px;`:''}"><div class="cp-n"><b>${esc(c.nome)}</b>${c.codigo?`<span class="cod">${esc(c.codigo)}</span>`:''}
+        <span class="sub">${fN(c.qtd||1)} ${esc(c.unidade||'un')}${c.fabricante?' · '+esc(c.fabricante):''}${c.ultima_revisao?' · última revisão '+esc(fD(c.ultima_revisao)):''}${c.ultima_os?' · OS '+esc(c.ultima_os):''}</span>
+        <div class="chips">${chipsPeca(c,eqH)}</div></div><div></div></div>`; }).join(''):'<div class="cp-vazio">Nenhuma peça cadastrada.</div>'}</div>`;
+  const i2=esc(e.id);
+  document.getElementById('modal-view-equip-foot').innerHTML=
+    `<button class="btn btn-secondary" style="color:#dc2626;margin-right:auto;" onclick="excluirEquip('${i2}')" ${temHist?'title="Tem histórico de manutenção — use a situação Inativo"':''}>Excluir</button>
+     <button class="btn btn-secondary" onclick="abrirQR('${i2}')">📱 QR</button>
+     <button class="btn btn-secondary" onclick="abrirHorimetro('${i2}')">⏱️ Horímetro</button>
+     <button class="btn btn-secondary" onclick="editarEquip('${i2}','comp')">⚙️ Peças</button>
+     <button class="btn btn-primary" onclick="editarEquip('${i2}')">✏️ Editar</button>`;
   document.getElementById('modal-view-equip').classList.remove('hidden');
 }
+async function excluirEquip(id){
+  if(!guardAction('equip_gerais','delete')) return;
+  const e=_equips.find(x=>x.id===id); if(!e) return;
+  const nh=(e.componentes||[]).filter(c=>(c.historico_revisoes||[]).length||c.ultima_os).length;
+  if(nh){ alert(`"${e.nome}" tem ${nh} peça(s) com histórico de manutenção e não pode ser excluído.\n\nSe ele saiu de uso, edite e mude a situação para Inativo — o histórico fica guardado.`); return; }
+  if(!confirm(`Excluir "${e.nome}" (${e.localizacao})? Isto não pode ser desfeito.`)) return;
+  try{ await db(_supabase.from('equipamentos_gerais').delete().eq('id',id),'excluir equipamento'); await addLog('DELETE','EQUIPAMENTOS',id,'Excluído: '+e.nome);
+    toast('Equipamento excluído.','warning'); closeModal('modal-view-equip'); await recarregarEquips(); }catch(err){ toast('Erro: '+err.message,'danger'); }
+}
 
-function abrirHorimetro(id,nome,atual){_hmId=id;document.getElementById('hm-nome').textContent=nome;document.getElementById('hm-atual').value=atual||0;document.getElementById('hm-novo').value='';document.getElementById('hm-motivo').value='';document.getElementById('hm-error').classList.add('hidden');document.getElementById('modal-horimetro').classList.remove('hidden');}
+/* ═══════════════════════════════════════════
+   QR — mesmo endereço que a Manutenção usa (manutencao.html?equip=…&tabela=gerais),
+   para que etiquetas antigas e novas abram o mesmo lugar
+   ═══════════════════════════════════════════ */
+let _qrEquipId=null;
+function urlQR(e){ const base=location.origin+location.pathname.replace(/[^/]*$/,''); return `${base}manutencao.html?equip=${encodeURIComponent(e.id)}&tabela=gerais`; }
+function _qrDataURL(texto,tam){
+  const box=document.createElement('div');
+  new QRCode(box,{text:texto,width:tam,height:tam,colorDark:'#042D4D',colorLight:'#ffffff',correctLevel:QRCode.CorrectLevel.M});
+  const cv=box.querySelector('canvas'); return cv?cv.toDataURL('image/png'):(box.querySelector('img')||{}).src||'';
+}
+function abrirQR(id){
+  const e=_equips.find(x=>x.id===id); if(!e) return;
+  if(typeof QRCode==='undefined'){ toast('Não foi possível carregar o gerador de QR (sem internet?).','warning'); return; }
+  _qrEquipId=id;
+  document.getElementById('qr-tit').textContent='QR — '+e.nome;
+  document.getElementById('qr-box').innerHTML=`<img src="${_qrDataURL(urlQR(e),220)}" alt="QR de ${esc(e.nome)}" style="width:220px;height:220px;border-radius:10px;border:1px solid var(--wd-line);padding:8px;background:#fff;">`;
+  document.getElementById('qr-info').innerHTML=`<b style="color:var(--primary);">${esc(e.nome)}</b><br>${esc(e.codigo||'sem TAG')} · ${esc(e.localizacao||'')}`;
+  document.getElementById('modal-qr').classList.remove('hidden');
+}
+function baixarQR(){
+  const e=_equips.find(x=>x.id===_qrEquipId); if(!e) return;
+  const a=document.createElement('a'); a.href=_qrDataURL(urlQR(e),600);
+  a.download=('QR-'+(e.localizacao||'')+'-'+(e.codigo||e.nome)).replace(/[^a-zA-Z0-9-]+/g,'-')+'.png';
+  document.body.appendChild(a); a.click(); a.remove();
+}
+// etiquetas para colar na máquina: um equipamento, ou todos do local selecionado
+function imprimirEtiquetas(id){
+  if(typeof QRCode==='undefined'){ toast('Não foi possível carregar o gerador de QR (sem internet?).','warning'); return; }
+  const lista=id?_equips.filter(e=>e.id===id):_equips.filter(e=>(!_linhaSel||e.localizacao===_linhaSel)&&e.status!=='inativo')
+    .sort((a,b)=>String(a.localizacao).localeCompare(b.localizacao)||String(a.nome).localeCompare(b.nome));
+  if(!lista.length){ toast('Nenhum equipamento para imprimir.','warning'); return; }
+  if(!id&&lista.length>1&&!confirm(`Imprimir ${lista.length} etiqueta(s)${_linhaSel?' de '+_linhaSel:' de todos os locais'}?`)) return;
+  const w=window.open('','_blank'); if(!w){ toast('Libere as janelas pop-up para imprimir.','warning'); return; }
+  const et=lista.map(e=>`<div class="et"><img src="${_qrDataURL(urlQR(e),300)}" alt=""><div class="tx"><b>${esc(e.nome)}</b><span class="tag">${esc(e.codigo||'')}</span><span>${esc(e.localizacao||'')}</span><small>Ler para abrir na Manutenção</small></div></div>`).join('');
+  w.document.write(`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8"><title>Etiquetas QR</title><style>
+    @page{size:A4;margin:10mm;} body{font-family:Arial,Helvetica,sans-serif;margin:0;color:#042D4D;}
+    .g{display:grid;grid-template-columns:repeat(2,1fr);gap:6mm;}
+    .et{display:flex;align-items:center;gap:4mm;border:1.5px solid #042D4D;border-radius:3mm;padding:4mm;break-inside:avoid;height:38mm;box-sizing:border-box;}
+    .et img{width:30mm;height:30mm;} .tx{display:flex;flex-direction:column;gap:1.2mm;min-width:0;}
+    .tx b{font-size:14pt;line-height:1.1;} .tx .tag{font-size:13pt;font-weight:700;background:#C9FF64;padding:0.5mm 2mm;border-radius:1.5mm;align-self:flex-start;}
+    .tx span{font-size:10pt;} .tx small{font-size:7.5pt;color:#64748b;}
+    *{-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+  </style></head><body><div class="g">${et}</div><script>window.onload=()=>setTimeout(()=>window.print(),200);<\/script></body></html>`);
+  w.document.close();
+}
 
+/* ═══════════════════════════════════════════
+   HORÍMETRO
+   ═══════════════════════════════════════════ */
+function abrirHorimetro(id){
+  const e=_equips.find(x=>x.id===id); if(!e) return; _hmId=id;
+  document.getElementById('hm-nome').textContent=e.nome+' — '+(e.localizacao||'');
+  document.getElementById('hm-atual').value=e.horimetro||0; document.getElementById('hm-novo').value=''; document.getElementById('hm-motivo').value='';
+  document.getElementById('hm-error').classList.add('hidden'); document.getElementById('modal-horimetro').classList.remove('hidden');
+  setTimeout(()=>document.getElementById('hm-novo').focus(),50);
+}
 async function salvarHorimetro(){
-  if (!guardAction('equip_gerais', 'edit')) return;
-  const novo=parseFloat(document.getElementById('hm-novo').value);const atual=parseFloat(document.getElementById('hm-atual').value)||0;
-  const motivo=document.getElementById('hm-motivo').value.trim();const errEl=document.getElementById('hm-error');
-  if(isNaN(novo)||novo<0){errEl.textContent='Informe um horímetro válido!';errEl.classList.remove('hidden');return;}
-  try{await _supabase.from('equipamentos_gerais').update({horimetro:novo,atualizado_em:new Date().toISOString()}).eq('id',_hmId);await addLog('UPDATE','HORIMETRO',_hmId,`${atual}h → ${novo}h${motivo?' ('+motivo+')':''}`);toast(`Horímetro atualizado para ${novo}h!`,'success');closeModal('modal-horimetro');await init();}
-  catch(e){errEl.textContent='Erro: '+e.message;errEl.classList.remove('hidden');}
+  if(!guardAction('equip_gerais','edit')) return;
+  const novo=parseFloat(document.getElementById('hm-novo').value), atual=parseFloat(document.getElementById('hm-atual').value)||0;
+  const motivo=document.getElementById('hm-motivo').value.trim(), errEl=document.getElementById('hm-error');
+  if(isNaN(novo)||novo<0){ errEl.textContent='Informe um horímetro válido.'; errEl.classList.remove('hidden'); return; }
+  if(novo<atual&&!confirm(`O novo valor (${fN(novo)} h) é MENOR que o atual (${fN(atual)} h). Confirmar mesmo assim?`)) return;
+  try{ const r=await _supabase.from('equipamentos_gerais').update({horimetro:novo,atualizado_em:new Date().toISOString()}).eq('id',_hmId); if(r.error) throw r.error;
+    await addLog('UPDATE','HORIMETRO',_hmId,`${atual}h → ${novo}h${motivo?' ('+motivo+')':''}`); toast(`Horímetro atualizado para ${fN(novo)} h.`,'success');
+    closeModal('modal-horimetro'); await recarregarEquips(); }
+  catch(e){ errEl.textContent='Erro: '+e.message; errEl.classList.remove('hidden'); }
 }
 
-function confirmarExclusao(id,nome){
-  document.getElementById('confirm-msg').innerHTML=`Deseja excluir o equipamento <strong>${nome}</strong>?`;
-  document.getElementById('confirm-ok-btn').onclick=async()=>{await db(_supabase.from('equipamentos_gerais').delete().eq('id',id),'excluir equipamento');await addLog('DELETE','EQUIPAMENTOS',id,'Excluído: '+nome);toast('Equipamento excluído.','warning');closeModal('modal-confirm');await init();};
-  document.getElementById('modal-confirm').classList.remove('hidden');
+/* ═══════════════════════════════════════════
+   FOTOS / EXPORTAR / TECLADO
+   ═══════════════════════════════════════════ */
+function _setFotoEquip(f){ _eqlFoto=f; document.getElementById('eql-foto-preview').innerHTML=f?`<img src="${esc(f)}" alt="">`:'⚙️'; document.getElementById('eql-btn-rm-foto').style.display=f?'inline-flex':'none'; }
+function previewFotoEQL(input){ if(!input.files||!input.files[0]) return; const r=new FileReader(); r.onload=e=>_setFotoEquip(e.target.result); r.readAsDataURL(input.files[0]); }
+function removerFotoEQL(){ _setFotoEquip(null); }
+function exportarLista(tipo){
+  const lista=_equips.filter(e=>!_linhaSel||e.localizacao===_linhaSel);
+  if(tipo==='csv'){
+    const rows=[]; lista.forEach(e=>{ const eqH=parseFloat(e.horimetro)||0; const cs=e.componentes||[];
+      if(!cs.length) rows.push([e.localizacao||'',e.nome,e.codigo||'',fN(e.horimetro),'','','','','','']);
+      ordemArvore(cs).forEach(({i,nivel})=>{ const c=cs[i], r=revInfo(c,eqH), a=almoxInfo(c);
+        rows.push([e.localizacao||'',e.nome,e.codigo||'',fN(e.horimetro),'  '.repeat(nivel)+c.nome,c.codigo||'',(c.qtd||1)+' '+(c.unidade||'un'),
+          a.k==='vinc'?a.item.codigo||'vinculado':a.k==='aguard'?'aguardando':a.k==='quebrado'?'vínculo quebrado':'sem vínculo',
+          c.intervalo_revisao||'',r.pt==null?'':r.pt<=0?'vencida':fN(r.pt)+' h']); }); });
+    exportarCSV(['Local','Equipamento','TAG','Horímetro','Peça','Código','Qtd','Almoxarifado','Revisar a cada (h)','Próxima revisão'],rows,'equipamentos-gerais');
+  } else exportarPDF('Equipamentos Gerais',['Local','Equipamento','TAG','Horímetro','Peças','Revisão vencida'],
+    lista.map(e=>{ const r=resumoEquip(e); return [e.localizacao||'—',e.nome,e.codigo||'—',fN(e.horimetro)+' h',r.n,r.venc||'—']; }));
 }
-
-function previewFotoEQG(input){if(input.files&&input.files[0]){const r=new FileReader();r.onload=e=>{_eqgFoto=e.target.result;document.getElementById('eqg-foto-preview').innerHTML=`<img src="${e.target.result}" style="width:80px;height:80px;object-fit:cover;border-radius:10px;">`;document.getElementById('eqg-btn-rm-foto').style.display='inline-flex';};r.readAsDataURL(input.files[0]);}}
-function removerFotoEQG(){_eqgFoto=null;document.getElementById('eqg-foto-preview').innerHTML='🔧';document.getElementById('eqg-btn-rm-foto').style.display='none';}
-function verFotoEQG(){verFotoInline(_eqgFoto);}
+document.addEventListener('keydown',e=>{
+  if(e.key!=='Escape') return;
+  for(const m of ['modal-qr','modal-copia','modal-peca','modal-pecas','modal-horimetro','modal-view-equip']){ const el=document.getElementById(m); if(el&&!el.classList.contains('hidden')){ closeModal(m); return; } }
+  const ed=document.getElementById('modal-equip'); if(ed&&!ed.classList.contains('hidden')) fecharEditor();
+});
+document.getElementById('equip-horimetro').addEventListener('input',()=>renderCompsEditor());
+// clique fora do editor/peça não fecha sem querer (perderia as peças em edição)
+['modal-equip','modal-peca'].forEach(id=>document.getElementById(id).addEventListener('click',e=>{
+  if(e.target.id!==id) return; e.stopImmediatePropagation(); if(id==='modal-equip') fecharEditor();
+},true));
 
 init();
 </script>
