@@ -4,11 +4,140 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ERP Industrial — Funcionários</title>
-<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/style.css">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="js/supabase.js"></script>
 <script src="js/utils.js"></script>
+<style>
+/* ══════════════════════════════════════════════════════════════════════════
+   FUNCIONÁRIOS (out/2026) — mesmo desenho do Painel da fábrica
+   • Ninguém é excluído: desligar = status Inativo + data de demissão. Excluir
+     apagava em cascata as fichas de EPI, escala e férias da pessoa.
+   • Aba Custos (salário) só aparece para quem tem a permissão "Custos".
+   • CPF validado (dígitos) e único. O genérico 000.000.000-00 só é aceito em
+     quem já está com ele — aparece como pendência até ser corrigido.
+   • Setor e função escolhidos de lista (com "Outro…"), para não nascer
+     "Produção" e "produçao" lado a lado.
+   • "Em férias" vem do módulo de Férias, não de um status digitado.
+   ══════════════════════════════════════════════════════════════════════════ */
+:root{
+  --ok:#16a34a; --ok-bg:#dcfce7; --ok-line:#22c55e;
+  --warn:#b45309; --warn-bg:#fef3c7; --warn-line:#f59e0b;
+  --bad:#dc2626; --bad-bg:#fee2e2; --bad-line:#ef4444;
+  --info:#2563eb; --info-bg:#dbeafe;
+  --wd-line:#e3e9f0; --line-soft:#f1f5f9;
+  --ink-2:#475569; --ink-3:#64748b; --ink-4:#94a3b8; --ink-5:#cbd5e1;
+  --wd-shadow:0 1px 2px rgba(4,45,77,.05);
+}
+button:focus-visible,a:focus-visible,[role="button"]:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--primary);outline-offset:2px;}
+
+.fu-head{display:flex;justify-content:space-between;align-items:flex-end;gap:14px;flex-wrap:wrap;margin-bottom:16px;}
+.fu-head h1{margin:0;font-size:26px;font-weight:800;color:var(--primary);letter-spacing:-.4px;}
+.fu-head p{margin:3px 0 0;font-size:13px;color:var(--ink-3);}
+.fu-acts{display:flex;gap:8px;flex-wrap:wrap;}
+.fu-btn{height:44px;padding:0 15px;border-radius:12px;border:1.5px solid var(--wd-line);background:#fff;font:inherit;font-size:13.5px;
+  font-weight:700;color:var(--primary);cursor:pointer;display:inline-flex;align-items:center;gap:7px;white-space:nowrap;}
+.fu-btn:hover{border-color:var(--primary);}
+.fu-btn.pri{background:var(--primary);border-color:var(--primary);color:var(--accent);}
+.fu-btn.perigo{color:var(--bad);}
+.fu-btn.perigo:hover{border-color:var(--bad);}
+
+/* pendências */
+.pend{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;}
+.pend button{display:inline-flex;align-items:center;gap:8px;border:1.5px solid #fcd34d;background:var(--warn-bg);color:#7c2d12;
+  border-radius:10px;padding:8px 12px;font:inherit;font-size:13px;font-weight:700;cursor:pointer;}
+.pend button.on{background:#7c2d12;border-color:#7c2d12;color:#fff;}
+.pend button b{font-size:15px;}
+
+/* tiles */
+.tiles{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;margin-bottom:16px;}
+.tile{background:#fff;border:1px solid var(--wd-line);border-radius:14px;padding:14px 16px;box-shadow:var(--wd-shadow);text-align:left;font:inherit;cursor:pointer;min-width:0;}
+.tile:hover{border-color:#b9c8d8;}
+.tile.on{border-color:var(--primary);box-shadow:0 0 0 1px var(--primary);}
+.tile.hero{background:var(--primary);border-color:var(--primary);}
+.tile-l{font-size:12.5px;font-weight:700;color:var(--ink-2);}
+.tile-v{font-size:28px;font-weight:800;color:var(--primary);letter-spacing:-.5px;line-height:1.1;margin-top:6px;font-variant-numeric:tabular-nums;}
+.tile-s{font-size:11.5px;color:var(--ink-3);margin-top:3px;}
+.tile.hero .tile-l{color:rgba(255,255,255,.8);} .tile.hero .tile-v{color:var(--accent);} .tile.hero .tile-s{color:rgba(255,255,255,.6);}
+.tile.ruim .tile-v{color:var(--bad);} .tile.atencao .tile-v{color:var(--warn);}
+
+/* filtros */
+.fu-filtros{display:flex;gap:10px;flex-wrap:wrap;align-items:center;background:#fff;border:1px solid var(--wd-line);border-radius:14px;padding:10px 12px;margin-bottom:12px;box-shadow:var(--wd-shadow);}
+.fu-busca{flex:1 1 240px;position:relative;}
+.fu-busca input{width:100%;height:40px;padding-left:36px;}
+.fu-busca span{position:absolute;left:12px;top:50%;transform:translateY(-50%);font-size:14px;opacity:.6;}
+.seg{display:flex;gap:3px;background:var(--line-soft);padding:3px;border-radius:10px;flex-wrap:wrap;}
+.seg button{border:0;background:transparent;font:inherit;font-size:13px;font-weight:700;color:var(--ink-3);padding:7px 12px;border-radius:7px;cursor:pointer;white-space:nowrap;}
+.seg button.on{background:#fff;color:var(--primary);box-shadow:0 1px 2px rgba(4,45,77,.12);}
+.seg button b{font-weight:700;color:var(--ink-4);margin-left:4px;}
+.fu-filtros select{height:40px;width:170px;}
+.fu-cont{font-size:12.5px;color:var(--ink-3);margin:0 2px 8px;}
+
+/* tabela */
+.wd{background:#fff;border:1px solid var(--wd-line);border-radius:14px;padding:6px 8px;box-shadow:var(--wd-shadow);}
+.tb-wrap{overflow-x:auto;}
+.tb{width:100%;border-collapse:separate;border-spacing:0;font-size:13px;}
+.tb thead th{padding:9px 11px;font-size:11px;white-space:nowrap;}
+.tb thead th:first-child{border-radius:8px 0 0 8px;} .tb thead th:last-child{border-radius:0 8px 8px 0;}
+.tb td{padding:10px 11px;border-bottom:1px solid var(--line-soft);color:var(--ink-2);vertical-align:middle;}
+.tb tbody tr:last-child td{border-bottom:0;}
+.tb tbody tr:hover td{background:#f8fafc;}
+.tb tr.desl td{color:var(--ink-4);}
+.pes{display:flex;align-items:center;gap:11px;min-width:220px;cursor:pointer;}
+.av{width:40px;height:40px;border-radius:50%;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;
+  font-size:13px;font-weight:800;flex-shrink:0;overflow:hidden;}
+.av img{width:100%;height:100%;object-fit:cover;}
+tr.desl .av{background:var(--ink-5);}
+.pes b{display:block;color:var(--primary);font-size:14px;}
+.pes small{display:block;color:var(--ink-3);font-size:12px;margin-top:1px;}
+tr.desl .pes b{color:var(--ink-3);}
+.tag{display:inline-flex;align-items:center;gap:4px;font-size:11.5px;font-weight:700;padding:3px 9px;border-radius:20px;white-space:nowrap;}
+.tag.ok{background:var(--ok-bg);color:#166534;} .tag.warn{background:var(--warn-bg);color:#92400e;}
+.tag.bad{background:var(--bad-bg);color:#991b1b;} .tag.info{background:var(--info-bg);color:#1e40af;}
+.tag.gray{background:var(--line-soft);color:var(--ink-3);}
+.tag.esc{background:#eff6ff;color:#1e40af;font-size:10.5px;padding:2px 7px;}
+.mini{font-size:11.5px;color:var(--ink-4);display:block;margin-top:2px;}
+.acoes{display:flex;gap:6px;justify-content:flex-end;}
+.ab{height:36px;min-width:36px;padding:0 10px;border-radius:9px;border:1.5px solid var(--wd-line);background:#fff;font:inherit;font-size:12.5px;font-weight:700;color:var(--primary);cursor:pointer;white-space:nowrap;}
+.ab:hover{border-color:var(--primary);}
+.ab.desl{color:var(--bad);} .ab.desl:hover{border-color:var(--bad);}
+.vazio{text-align:center;padding:40px 16px;color:var(--ink-3);}
+.vazio b{display:block;color:var(--primary);font-size:15px;margin-top:6px;}
+
+/* modais (reaproveita .modal do sistema; só ajusta) */
+.f-tabs{display:flex;gap:3px;background:var(--line-soft);padding:3px;border-radius:10px;margin-bottom:16px;width:fit-content;max-width:100%;overflow-x:auto;}
+.f-tab{border:0;background:transparent;font:inherit;font-size:13px;font-weight:700;color:var(--ink-3);padding:8px 14px;border-radius:8px;cursor:pointer;white-space:nowrap;}
+.f-tab.on{background:#fff;color:var(--primary);box-shadow:0 1px 2px rgba(4,45,77,.12);}
+.cpf-msg{font-size:11.5px;margin-top:4px;line-height:1.4;}
+.cpf-msg.erro{color:var(--bad);} .cpf-msg.aviso{color:var(--warn);}
+.form-input.invalido{border-color:var(--bad-line) !important;}
+.outro-wrap{margin-top:6px;}
+.ficha-h{display:flex;align-items:center;gap:16px;padding:16px;background:#f8fafc;border-radius:14px;margin-bottom:16px;}
+.ficha-h .av{width:72px;height:72px;font-size:22px;}
+.ficha-h h3{margin:0;font-size:20px;font-weight:800;color:var(--primary);}
+.ficha-h p{margin:2px 0 6px;font-size:13px;color:var(--ink-3);}
+.ficha-g{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px;}
+.ficha-c{background:#f8fafc;border-radius:10px;padding:10px 12px;}
+.ficha-c span{display:block;font-size:11px;font-weight:700;color:var(--ink-4);}
+.ficha-c b{display:block;font-size:13.5px;color:var(--primary);margin-top:2px;word-break:break-word;}
+.ficha-sec{font-size:13px;font-weight:800;color:var(--ink-2);margin:16px 0 8px;}
+.cert-l{display:flex;flex-direction:column;gap:6px;}
+.cert-i{display:flex;justify-content:space-between;align-items:center;gap:10px;background:#f8fafc;border-radius:10px;padding:9px 12px;font-size:13px;}
+.cert-i b{color:var(--primary);}
+
+@media (max-width:1200px){ .tiles{grid-template-columns:repeat(3,minmax(0,1fr));} }
+@media (max-width:760px){
+  .tiles{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;}
+  .fu-acts{width:100%;} .fu-acts .fu-btn{flex:1;justify-content:center;padding:0 8px;}
+  .fu-filtros select{flex:1 1 45%;width:auto;}
+  .seg{width:100%;} .seg button{flex:1;padding:7px 6px;}
+  .tb .m-hide{display:none;}
+  .pes{min-width:0;}
+  .acoes .ab span{display:none;}
+  .topbar-user > div:last-child{display:none;}
+}
+</style>
 </head>
 <body>
 <div id="sidebar-container"></div>
@@ -23,133 +152,144 @@
     <button class="btn btn-ghost btn-sm" onclick="doLogout()" style="color:#64748b;">Sair</button>
   </div>
 </header>
+
 <main class="main-content" id="main-content">
-  <div class="page-header">
-    <div class="page-header-left"><h1>Funcionários</h1><p>Cadastro completo de colaboradores da fábrica</p></div>
-    <div style="display:flex;gap:10px;">
-      <button class="btn btn-secondary" onclick="exportarCSV(['Nome','CPF','Função','Setor','Turno','Admissão','Status'],_funcionarios.map(f=>[f.nome,f.cpf||'—',f.funcao||'—',f.setor||'—',turnoDoFuncionario(f).valor||'—',fmtDataBR(f.admissao),f.status]),'funcionarios')">⬇️ CSV</button>
-      <button class="btn btn-secondary" onclick="exportarPDF('Funcionários',['Nome','CPF','Função','Setor','Admissão','Status'],_funcionarios.map(f=>[f.nome,f.cpf||'—',f.funcao||'—',f.setor||'—',fmtDataBR(f.admissao),f.status]))">📄 PDF</button>
-      <button class="btn btn-primary" onclick="openModalFuncionario()">+ Novo Funcionário</button>
+  <div class="fu-head">
+    <div><h1>Funcionários</h1><p id="fu-sub">Cadastro dos colaboradores da fábrica</p></div>
+    <div class="fu-acts">
+      <button class="fu-btn" onclick="exportarLista('csv')">📊 CSV</button>
+      <button class="fu-btn" onclick="exportarLista('pdf')">📄 PDF</button>
+      <button class="fu-btn pri" onclick="openModalFuncionario()">+ Novo funcionário</button>
     </div>
   </div>
+
   <div id="func-aviso-escala"></div>
-  <div id="kpis-cert" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px;margin-bottom:14px;"></div>
-  <div class="card">
-    <div class="search-bar">
-      <div class="search-input-wrap" style="flex:1;"><span class="search-icon">🔍</span><input type="text" class="form-input" id="busca-func" placeholder="Buscar por nome, CPF, função ou setor..." oninput="renderFuncionarios()"></div>
-      <select class="form-input" id="filtro-status-func" style="width:140px;" onchange="renderFuncionarios()">
-        <option value="">Todos</option><option value="ativo">Ativo</option><option value="inativo">Inativo</option><option value="afastado">Afastado</option><option value="ferias">Férias</option>
-      </select>
-      <select class="form-input" id="filtro-setor-func" style="width:160px;" onchange="renderFuncionarios()"><option value="">Todos os setores</option></select>
-    </div>
-    <div class="table-wrap">
-      <table><thead><tr><th>Funcionário</th><th>CPF</th><th>Função</th><th>Setor</th><th>Turno</th><th>🎓 Certificações</th><th>Admissão</th><th>Status</th><th>Ações</th></tr></thead>
-      <tbody id="tbody-funcionarios"></tbody></table>
-    </div>
-    <div id="func-empty" class="empty-state hidden"><div class="empty-icon">👷</div><h3>Nenhum funcionário cadastrado</h3><p>Clique em "+ Novo Funcionário" para começar.</p></div>
+  <div class="pend" id="fu-pend"></div>
+  <div class="tiles" id="fu-tiles"></div>
+
+  <div class="fu-filtros">
+    <label class="fu-busca"><span aria-hidden="true">🔍</span><input type="search" class="form-input" id="busca-func" placeholder="Buscar por nome, função, setor ou CPF" oninput="renderFuncionarios()" aria-label="Buscar funcionário"></label>
+    <div class="seg" id="fu-seg" role="group" aria-label="Situação"></div>
+    <select class="form-input" id="filtro-setor-func" onchange="renderFuncionarios()" aria-label="Setor"><option value="">Todos os setores</option></select>
+    <select class="form-input" id="filtro-funcao-func" onchange="renderFuncionarios()" aria-label="Função"><option value="">Todas as funções</option></select>
+  </div>
+  <div class="fu-cont" id="fu-cont"></div>
+  <div class="wd"><div class="tb-wrap"><table class="tb">
+    <thead><tr><th>Funcionário</th><th class="m-hide">Setor</th><th class="m-hide">Turno</th><th class="m-hide">Certificações</th><th class="m-hide">Admissão</th><th>Situação</th><th style="text-align:right;">Ações</th></tr></thead>
+    <tbody id="tbody-funcionarios"></tbody></table></div>
+    <div id="func-empty" class="vazio hidden"><div style="font-size:34px;">👷</div><b>Ninguém neste filtro</b><span>Ajuste a busca ou a situação acima.</span></div>
   </div>
 </main>
 
-<!-- MODAL FUNCIONÁRIO -->
+<!-- MODAL CADASTRO -->
 <div id="modal-funcionario" class="modal-overlay hidden">
   <div class="modal modal-lg">
-    <div class="modal-header"><div class="modal-title" id="modal-func-title">Novo Funcionário</div><button class="modal-close" onclick="closeModal('modal-funcionario')">✕</button></div>
-    <div style="display:flex;gap:6px;border-bottom:2px solid #e2e8f0;margin-bottom:16px;">
-      <button class="func-tab-btn" id="ftab-btn-cad" onclick="funcTab('cad')" style="padding:9px 16px;border:none;background:none;font-weight:800;font-size:13px;color:var(--primary);border-bottom:3px solid var(--primary);cursor:pointer;">📋 Cadastro</button>
-      <button class="func-tab-btn" id="ftab-btn-cert" onclick="funcTab('cert')" style="padding:9px 16px;border:none;background:none;font-weight:700;font-size:13px;color:#94a3b8;border-bottom:3px solid transparent;cursor:pointer;">🎓 Capacitações / Certificações</button>
-      <button class="func-tab-btn" id="ftab-btn-custo" onclick="funcTab('custo')" style="padding:9px 16px;border:none;background:none;font-weight:700;font-size:13px;color:#94a3b8;border-bottom:3px solid transparent;cursor:pointer;">💰 Custos</button>
+    <div class="modal-header"><div class="modal-title" id="modal-func-title">Novo funcionário</div><button class="modal-close" onclick="closeModal('modal-funcionario')" aria-label="Fechar">✕</button></div>
+    <div class="f-tabs" role="tablist">
+      <button type="button" class="f-tab on" id="ftab-btn-cad" onclick="funcTab('cad')">📋 Cadastro</button>
+      <button type="button" class="f-tab" id="ftab-btn-cert" onclick="funcTab('cert')">🎓 Certificações</button>
+      <button type="button" class="f-tab" id="ftab-btn-custo" onclick="funcTab('custo')">💰 Custos</button>
     </div>
-    <div id="ftab-cad" style="display:flex;flex-direction:column;gap:16px;">
-      <div style="display:flex;align-items:center;gap:20px;padding:16px;background:#f8fafc;border-radius:12px;border:1.2px solid #e2e8f0;">
-        <div id="func-foto-preview" style="width:80px;height:80px;border-radius:50%;background:#e2e8f0;display:flex;align-items:center;justify-content:center;font-size:32px;overflow:hidden;flex-shrink:0;">👤</div>
-        <div><p style="font-size:13px;font-weight:600;color:var(--primary);margin-bottom:6px;">Foto do Funcionário</p><button class="btn btn-secondary btn-sm" onclick="document.getElementById('func-foto-input').click()">📷 Selecionar Foto</button><input type="file" id="func-foto-input" accept="image/*" style="display:none;" onchange="previewFuncFoto(this)"></div>
+    <div id="ftab-cad" style="display:flex;flex-direction:column;gap:14px;">
+      <div style="display:flex;align-items:center;gap:18px;padding:14px;background:#f8fafc;border-radius:12px;">
+        <div id="func-foto-preview" class="av" style="width:72px;height:72px;font-size:28px;background:#e2e8f0;">👤</div>
+        <div><div style="font-size:13px;font-weight:700;color:var(--primary);margin-bottom:6px;">Foto</div>
+          <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('func-foto-input').click()">📷 Escolher foto</button>
+          <input type="file" id="func-foto-input" accept="image/*" style="display:none;" onchange="previewFuncFoto(this)"></div>
       </div>
       <div class="form-grid-2">
-        <div class="form-group"><label class="form-label">Nome Completo <span class="req">*</span></label><input id="func-nome" type="text" class="form-input" placeholder="Nome completo"></div>
-        <div class="form-group"><label class="form-label">CPF <span class="req">*</span></label><input id="func-cpf" type="text" class="form-input" placeholder="000.000.000-00" maxlength="14" oninput="mascaraCPF(this)"></div>
+        <div class="form-group"><label class="form-label" for="func-nome">Nome completo <span class="req">*</span></label><input id="func-nome" type="text" class="form-input" autocomplete="off"></div>
+        <div class="form-group"><label class="form-label" for="func-cpf">CPF <span class="req">*</span></label><input id="func-cpf" type="text" inputmode="numeric" class="form-input" placeholder="000.000.000-00" maxlength="14" oninput="mascaraCPF(this);checarCPF()"><div class="cpf-msg" id="cpf-msg"></div></div>
       </div>
       <div class="form-grid-2">
-        <div class="form-group"><label class="form-label">RG</label><input id="func-rg" type="text" class="form-input"></div>
-        <div class="form-group"><label class="form-label">Data de Nascimento</label><input id="func-nascimento" type="date" class="form-input"></div>
+        <div class="form-group"><label class="form-label" for="func-rg">RG</label><input id="func-rg" type="text" class="form-input"></div>
+        <div class="form-group"><label class="form-label" for="func-nascimento">Data de nascimento</label><input id="func-nascimento" type="date" class="form-input"></div>
       </div>
       <div class="form-grid-2">
-        <div class="form-group"><label class="form-label">Telefone / WhatsApp</label><input id="func-tel" type="text" class="form-input" placeholder="(00) 00000-0000" oninput="mascaraTel(this)"></div>
-        <div class="form-group"><label class="form-label">E-mail</label><input id="func-email" type="email" class="form-input"></div>
+        <div class="form-group"><label class="form-label" for="func-tel">Telefone / WhatsApp</label><input id="func-tel" type="tel" class="form-input" placeholder="(00) 00000-0000" oninput="mascaraTel(this)"></div>
+        <div class="form-group"><label class="form-label" for="func-email">E-mail</label><input id="func-email" type="email" class="form-input"></div>
       </div>
       <div class="form-grid-2">
-        <div class="form-group"><label class="form-label">Função / Cargo <span class="req">*</span></label><input id="func-funcao" type="text" class="form-input" placeholder="Ex: Operador de Máquina"></div>
-        <div class="form-group"><label class="form-label">Setor <span class="req">*</span></label><input id="func-setor" type="text" class="form-input" placeholder="Ex: Produção"></div>
+        <div class="form-group"><label class="form-label" for="func-funcao-sel">Função <span class="req">*</span></label>
+          <select id="func-funcao-sel" class="form-input" onchange="toggleOutro('funcao')"></select>
+          <div class="outro-wrap" id="func-funcao-outro-wrap" style="display:none;"><input id="func-funcao-outro" type="text" class="form-input" placeholder="Nome da nova função"></div></div>
+        <div class="form-group"><label class="form-label" for="func-setor-sel">Setor <span class="req">*</span></label>
+          <select id="func-setor-sel" class="form-input" onchange="toggleOutro('setor')"></select>
+          <div class="outro-wrap" id="func-setor-outro-wrap" style="display:none;"><input id="func-setor-outro" type="text" class="form-input" placeholder="Nome do novo setor"></div></div>
       </div>
       <div class="form-grid-2">
-        <div class="form-group"><label class="form-label">Turno Padrão</label><select id="func-turno" class="form-input"><option value="">Selecione...</option></select>
-          <div id="func-turno-dica" style="font-size:11px;color:#94a3b8;margin-top:4px;line-height:1.45;"></div></div>
-        <div class="form-group"><label class="form-label">Linha de Atuação</label><select id="func-linha" class="form-input"><option value="">Nenhuma / Geral</option></select></div>
+        <div class="form-group"><label class="form-label" for="func-turno">Turno padrão</label><select id="func-turno" class="form-input"><option value="">Selecione…</option></select>
+          <div id="func-turno-dica" style="font-size:11.5px;color:var(--ink-4);margin-top:4px;line-height:1.45;"></div></div>
+        <div class="form-group"><label class="form-label" for="func-linha">Linha de atuação</label><select id="func-linha" class="form-input"><option value="">Nenhuma / geral</option></select></div>
       </div>
       <div class="form-grid-2">
-        <div class="form-group"><label class="form-label">Data de Admissão <span class="req">*</span></label><input id="func-admissao" type="date" class="form-input"></div>
-        <div class="form-group"><label class="form-label">Data de Demissão</label><input id="func-demissao" type="date" class="form-input"></div>
+        <div class="form-group"><label class="form-label" for="func-admissao">Data de admissão <span class="req">*</span></label><input id="func-admissao" type="date" class="form-input"></div>
+        <div class="form-group"><label class="form-label" for="func-status">Situação</label>
+          <select id="func-status" class="form-input" onchange="toggleDemissao()"><option value="ativo">Ativo</option><option value="afastado">Afastado</option><option value="inativo">Desligado</option></select>
+          <div style="font-size:11.5px;color:var(--ink-4);margin-top:4px;">Férias vêm do módulo de Férias, não daqui.</div></div>
       </div>
-      <div class="form-group"><label class="form-label">Status</label>
-        <select id="func-status" class="form-input"><option value="ativo">✅ Ativo</option><option value="ferias">🏖️ Férias</option><option value="afastado">⚠️ Afastado</option><option value="inativo">⚫ Inativo</option></select>
+      <div class="form-grid-2" id="func-demissao-wrap" style="display:none;">
+        <div class="form-group"><label class="form-label" for="func-demissao">Data de desligamento <span class="req">*</span></label><input id="func-demissao" type="date" class="form-input"></div>
       </div>
-      <div class="form-group"><label class="form-label">Observações</label><input id="func-obs" type="text" class="form-input"></div>
+      <div class="form-group"><label class="form-label" for="func-obs">Observações</label><input id="func-obs" type="text" class="form-input"></div>
     </div>
-    <!-- ABA CERTIFICAÇÕES -->
     <div id="ftab-cert" style="display:none;flex-direction:column;gap:12px;">
-      <div style="display:flex;justify-content:space-between;align-items:center;">
-        <div style="font-size:13px;color:#64748b;">Treinamentos e certificações do colaborador. O status é calculado automaticamente pela data de validade (vence em breve = 30 dias).</div>
-        <button class="btn btn-secondary btn-sm" onclick="addCertificacao()">➕ Adicionar Certificação</button>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
+        <div style="font-size:13px;color:var(--ink-3);">Treinamentos e certificações. A situação sai da validade (vence em breve = 30 dias).</div>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="addCertificacao()">➕ Adicionar</button>
       </div>
       <div id="func-cert-list" style="display:flex;flex-direction:column;gap:10px;"></div>
-      <p id="func-cert-empty" style="color:#94a3b8;font-size:13px;text-align:center;padding:14px;">Nenhuma certificação cadastrada.</p>
+      <p id="func-cert-empty" style="color:var(--ink-4);font-size:13px;text-align:center;padding:14px;">Nenhuma certificação cadastrada.</p>
     </div>
-    <!-- ABA CUSTOS -->
     <div id="ftab-custo" style="display:none;flex-direction:column;gap:14px;">
-      <div style="font-size:13px;color:#64748b;">Custo de mão de obra utilizado nas Ordens de Serviço e nos custos de manutenção. <strong>Custo Hora = ((Salário Base + Adicional Fixo + Insalubridade) × (1 + Encargos%)) ÷ Horas Mensais.</strong></div>
+      <div style="font-size:13px;color:var(--ink-3);line-height:1.5;">Custo de mão de obra usado nas OS e nos custos de manutenção. <b>Custo hora = ((salário + adicional + insalubridade) × (1 + encargos%)) ÷ horas mensais</b></div>
       <div class="form-grid-2">
-        <div class="form-group"><label class="form-label">Salário Base (R$)</label><input id="fc-salario" type="number" min="0" step="0.01" class="form-input" placeholder="Ex: 2500,00" oninput="calcCustoHora()"></div>
-        <div class="form-group"><label class="form-label">Adicional Fixo (R$)</label><input id="fc-adicional" type="number" min="0" step="0.01" class="form-input" placeholder="Ex: 300,00" oninput="calcCustoHora()"></div>
+        <div class="form-group"><label class="form-label" for="fc-salario">Salário base (R$)</label><input id="fc-salario" type="number" min="0" step="0.01" class="form-input" oninput="calcCustoHora()"></div>
+        <div class="form-group"><label class="form-label" for="fc-adicional">Adicional fixo (R$)</label><input id="fc-adicional" type="number" min="0" step="0.01" class="form-input" oninput="calcCustoHora()"></div>
       </div>
       <div class="form-grid-2">
-        <div class="form-group"><label class="form-label">Insalubridade (R$)</label><input id="fc-insalubridade" type="number" min="0" step="0.01" class="form-input" placeholder="Ex: 280,00" oninput="calcCustoHora()"></div>
-        <div class="form-group"><label class="form-label">Fator de Encargos (%)</label><input id="fc-encargos" type="number" min="0" step="0.1" class="form-input" placeholder="Ex: 70" oninput="calcCustoHora()"></div>
+        <div class="form-group"><label class="form-label" for="fc-insalubridade">Insalubridade (R$)</label><input id="fc-insalubridade" type="number" min="0" step="0.01" class="form-input" oninput="calcCustoHora()"></div>
+        <div class="form-group"><label class="form-label" for="fc-encargos">Encargos (%)</label><input id="fc-encargos" type="number" min="0" step="0.1" class="form-input" oninput="calcCustoHora()"></div>
       </div>
       <div class="form-grid-2">
-        <div class="form-group"><label class="form-label">Horas Mensais</label><input id="fc-horas-mes" type="number" min="1" step="1" class="form-input" value="220" oninput="calcCustoHora()"></div>
-        <div class="form-group"><label class="form-label">💰 Custo Hora (automático)</label>
-          <div id="fc-custo-hora" style="padding:10px 12px;background:#f0fdf4;border:1.5px solid #86efac;border-radius:10px;font-size:16px;font-weight:800;color:#16a34a;">R$ 0,00</div>
-        </div>
+        <div class="form-group"><label class="form-label" for="fc-horas-mes">Horas mensais</label><input id="fc-horas-mes" type="number" min="1" step="1" class="form-input" value="220" oninput="calcCustoHora()"></div>
+        <div class="form-group"><label class="form-label">Custo hora (automático)</label>
+          <div id="fc-custo-hora" style="padding:10px 12px;background:var(--ok-bg);border-radius:10px;font-size:16px;font-weight:800;color:#166534;">R$ 0,00</div></div>
       </div>
     </div>
     <div id="func-error" class="hidden alert alert-danger"></div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal('modal-funcionario')">Cancelar</button>
-      <button class="btn btn-primary" id="btn-salvar-func" onclick="salvarFuncionario()">💾 Salvar Funcionário</button>
+      <button class="btn btn-primary" id="btn-salvar-func" onclick="salvarFuncionario()">💾 Salvar</button>
     </div>
   </div>
 </div>
 
-<!-- MODAL VISUALIZAR -->
+<!-- FICHA -->
 <div id="modal-view-func" class="modal-overlay hidden">
   <div class="modal modal-lg">
-    <div class="modal-header"><div class="modal-title">👷 Funcionário</div><button class="modal-close" onclick="closeModal('modal-view-func')">✕</button></div>
+    <div class="modal-header"><div class="modal-title">Ficha do funcionário</div><button class="modal-close" onclick="closeModal('modal-view-func')" aria-label="Fechar">✕</button></div>
     <div id="modal-view-func-body"></div>
-    <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('modal-view-func')">Fechar</button></div>
+    <div class="modal-footer" id="modal-view-func-foot"></div>
   </div>
 </div>
 
-<!-- MODAL CONFIRMAÇÃO -->
-<div id="modal-confirm" class="modal-overlay hidden">
-  <div class="modal" style="max-width:420px;">
-    <div class="modal-header"><div class="modal-title">⚠️ Confirmar Exclusão</div><button class="modal-close" onclick="closeModal('modal-confirm')">✕</button></div>
-    <p id="confirm-msg" style="font-size:14px;color:#475569;line-height:1.6;"></p>
-    <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('modal-confirm')">Cancelar</button><button class="btn btn-danger" id="confirm-ok-btn">🗑️ Sim, Excluir</button></div>
+<!-- DESLIGAR -->
+<div id="modal-desligar" class="modal-overlay hidden">
+  <div class="modal" style="max-width:440px;">
+    <div class="modal-header"><div class="modal-title" id="desl-tit">Desligar funcionário</div><button class="modal-close" onclick="closeModal('modal-desligar')" aria-label="Fechar">✕</button></div>
+    <p style="font-size:13.5px;color:var(--ink-2);line-height:1.55;margin:0 0 12px;">A pessoa sai das listas de ativos, mas <b>o histórico continua</b> (EPI, escala, férias, OPs). Dá para reativar depois.</p>
+    <div class="form-group"><label class="form-label" for="desl-data">Data de desligamento <span class="req">*</span></label><input id="desl-data" type="date" class="form-input"></div>
+    <div class="form-group"><label class="form-label" for="desl-motivo">Motivo (opcional)</label><input id="desl-motivo" type="text" class="form-input" placeholder="Ex.: pedido de demissão"></div>
+    <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('modal-desligar')">Cancelar</button><button class="btn btn-danger" id="desl-ok">Desligar</button></div>
   </div>
 </div>
 <div id="toast-container"></div>
 
 <script>
-let _editingFuncId=null, _funcFoto=null, _funcionarios=[], _turnos=[], _linhas=[];
+let _editingFuncId=null, _funcFoto=null, _funcionarios=[], _turnos=[], _linhas=[], _ferias=[];
+let _sit='ativos', _pend='';
+const CPF_GENERICO='00000000000';
 
 fetch('partials/sidebar.html').then(r=>r.text()).then(html=>{
   document.getElementById('sidebar-container').innerHTML=html;
@@ -158,29 +298,35 @@ fetch('partials/sidebar.html').then(r=>r.text()).then(html=>{
 });
 initSidebar('funcionarios.html');
 
+function _isoLocal(d){ return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+/* permissões das abas do cadastro (Perfis → Funcionários) */
+const podeCusto = () => typeof canTab!=='function' || canTab('funcionarios','custo');
+const podeCert  = () => typeof canTab!=='function' || canTab('funcionarios','cert');
+
 async function init(){
-  await Promise.all([loadFuncionarios(),loadTurnos(),loadLinhas(),loadEscalas()]);
-  renderFuncionarios();renderKpisCert();alertarCertVencidos();
-  sincronizarTurnosPelaEscala();   // não trava a tela: acerta e re-renderiza
+  await Promise.all([loadFuncionarios(),loadTurnos(),loadLinhas(),loadEscalas(),loadFerias()]);
+  document.getElementById('ftab-btn-custo').style.display=podeCusto()?'':'none';
+  document.getElementById('ftab-btn-cert').style.display=podeCert()?'':'none';
+  renderFuncionarios();
+  sincronizarTurnosPelaEscala();
 }
 
 // ─── ABAS DO MODAL ───
 function funcTab(t){
+  if(t==='custo'&&!podeCusto()) t='cad';
+  if(t==='cert'&&!podeCert()) t='cad';
   ['cad','cert','custo'].forEach(x=>{
     document.getElementById('ftab-'+x).style.display=x===t?'flex':'none';
-    const btn=document.getElementById('ftab-btn-'+x);
-    btn.style.color=x===t?'var(--primary)':'#94a3b8';
-    btn.style.borderBottom=x===t?'3px solid var(--primary)':'3px solid transparent';
-    btn.style.fontWeight=x===t?'800':'700';
+    document.getElementById('ftab-btn-'+x).classList.toggle('on',x===t);
   });
 }
 
 // ─── CERTIFICAÇÕES ───
 function statusCert(c){
   if(!c.validade)return{k:'vigente',txt:'✅ Vigente (sem validade)',cor:'#16a34a',bg:'#f0fdf4',bd:'#86efac'};
-  const hoje=new Date().toISOString().split('T')[0];
+  const hoje=_isoLocal(new Date());
   const lim=new Date();lim.setDate(lim.getDate()+30);
-  const lim30=lim.toISOString().split('T')[0];
+  const lim30=_isoLocal(lim);
   if(c.validade<hoje)return{k:'vencido',txt:'🔴 Vencido',cor:'#dc2626',bg:'#fef2f2',bd:'#fca5a5'};
   if(c.validade<=lim30)return{k:'vence_breve',txt:'🟡 Vence em Breve',cor:'#b45309',bg:'#fffbeb',bd:'#fcd34d'};
   return{k:'vigente',txt:'✅ Vigente',cor:'#16a34a',bg:'#f0fdf4',bd:'#86efac'};
@@ -329,7 +475,7 @@ async function loadEscalas(){
 // A escala que cobre HOJE. Sem nenhuma cobrindo, usa a mais recente já
 // começada — melhor mostrar a última semana trabalhada do que nada.
 function escalaVigente(){
-  const hoje=new Date().toISOString().slice(0,10);
+  const hoje=_isoLocal(new Date());
   const ativas=_escalas.filter(e=>e.status!=='cancelada');
   return ativas.find(e=>String(e.periodo_inicio||'')<=hoje && hoje<=String(e.periodo_fim||''))
       || ativas.find(e=>String(e.periodo_inicio||'')<=hoje)
@@ -421,77 +567,216 @@ function esc2(v){ return String(v==null?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;
 function fmtDataBR(d){ return d?String(d).slice(0,10).split('-').reverse().join('/'):'—'; }
 
 async function loadFuncionarios(){const{data}=await _supabase.from('funcionarios').select('*').order('nome');_funcionarios=data||[];}
+async function loadFerias(){const{data}=await _supabase.from('rh_ferias').select('funcionario_id,data_inicio,data_fim,status').gte('data_fim',_isoLocal(new Date())).limit(500);_ferias=data||[];}
 async function loadTurnos(){const{data}=await _supabase.from('turnos').select('id,nome').eq('status','ativo');_turnos=data||[];}
 async function loadLinhas(){const{data}=await _supabase.from('linhas_producao').select('id,nome').eq('status','ativo');_linhas=data||[];}
 
+/* ═══════════════════════════════════════════
+   CPF
+   ═══════════════════════════════════════════ */
+const _soDig = v => String(v||'').replace(/\D/g,'');
+function cpfValido(v){
+  const c=_soDig(v); if(c.length!==11||/^(\d)\1{10}$/.test(c)) return false;
+  let s=0; for(let i=0;i<9;i++) s+=+c[i]*(10-i); let d=(s*10)%11; if(d===10) d=0; if(d!==+c[9]) return false;
+  s=0; for(let i=0;i<10;i++) s+=+c[i]*(11-i); d=(s*10)%11; if(d===10) d=0; return d===+c[10];
+}
+const cpfGenerico = v => _soDig(v)===CPF_GENERICO;
+const cpfMascarado = v => { const c=_soDig(v); return c.length===11?`•••.${c.slice(3,6)}.${c.slice(6,9)}-••`:'—'; };
+// devolve {ok, msg, aviso}
+function avaliarCPF(v, idAtual){
+  const c=_soDig(v);
+  if(!c) return {ok:false,msg:'Informe o CPF.'};
+  const atual=idAtual?_funcionarios.find(x=>x.id===idAtual):null;
+  if(cpfGenerico(c)){
+    if(atual&&cpfGenerico(atual.cpf)) return {ok:true,aviso:'CPF genérico — fica como pendência até ser corrigido.'};
+    return {ok:false,msg:'000.000.000-00 não é aceito em cadastro novo. Informe o CPF real.'};
+  }
+  if(!cpfValido(c)) return {ok:false,msg:'CPF inválido — confira os dígitos.'};
+  const dono=_funcionarios.find(x=>x.id!==idAtual&&_soDig(x.cpf)===c);
+  if(dono) return {ok:false,msg:`Este CPF já está no cadastro de ${dono.nome}.`};
+  return {ok:true};
+}
+function checarCPF(){
+  const el=document.getElementById('func-cpf'), m=document.getElementById('cpf-msg');
+  if(_soDig(el.value).length<11){ el.classList.remove('invalido'); m.textContent=''; m.className='cpf-msg'; return; }
+  const r=avaliarCPF(el.value,_editingFuncId);
+  el.classList.toggle('invalido',!r.ok);
+  m.className='cpf-msg '+(!r.ok?'erro':r.aviso?'aviso':'');
+  m.textContent=!r.ok?r.msg:(r.aviso||'');
+}
+
+/* ═══════════════════════════════════════════
+   SITUAÇÃO — férias vêm do módulo de Férias
+   ═══════════════════════════════════════════ */
+function emFeriasHoje(f){
+  const h=_isoLocal(new Date());
+  return _ferias.some(x=>x.funcionario_id===f.id&&!/cancel/i.test(x.status||'')&&x.data_inicio<=h&&x.data_fim>=h);
+}
+function feriasAte(f){ const h=_isoLocal(new Date()); const x=_ferias.find(y=>y.funcionario_id===f.id&&!/cancel/i.test(y.status||'')&&y.data_inicio<=h&&y.data_fim>=h); return x?x.data_fim:null; }
+function situacao(f){
+  if(f.status==='inativo') return {k:'desligado',tag:'gray',txt:'Desligado'};
+  if(emFeriasHoje(f)||f.status==='ferias') return {k:'ferias',tag:'info',txt:'Em férias'};
+  if(f.status==='afastado') return {k:'afastado',tag:'warn',txt:'Afastado'};
+  return {k:'ativo',tag:'ok',txt:'Ativo'};
+}
+const _ativo = f => f.status!=='inativo';
+function pendencias(f){
+  const p=[];
+  if(!_ativo(f)) return p;
+  if(cpfGenerico(f.cpf)||!cpfValido(f.cpf)) p.push('cpf');
+  if(!_soDig(f.telefone)) p.push('tel');
+  if(getCerts(f).some(c=>statusCert(c).k==='vencido')) p.push('cert');
+  return p;
+}
+function tempoDeCasa(adm){
+  if(!adm) return '';
+  const a=new Date(adm+'T12:00:00'), h=new Date(); let m=(h.getFullYear()-a.getFullYear())*12+(h.getMonth()-a.getMonth()); if(h.getDate()<a.getDate()) m--;
+  if(m<1) return 'menos de 1 mês'; if(m<12) return m+(m===1?' mês':' meses');
+  const y=Math.floor(m/12), r=m%12; return y+(y===1?' ano':' anos')+(r?` e ${r} ${r===1?'mês':'meses'}`:'');
+}
+const _ini = n => (n||'?').trim().split(/\s+/).filter(Boolean).map((x,i,a)=>i===0||i===a.length-1?x[0]:'').join('').slice(0,2).toUpperCase();
+const _avatar = f => f.foto?`<div class="av"><img src="${esc2(f.foto)}" alt="" onerror="this.parentNode.textContent='${_ini(f.nome)}'"></div>`:`<div class="av">${esc2(_ini(f.nome))}</div>`;
+
+/* ═══════════════════════════════════════════
+   LISTA
+   ═══════════════════════════════════════════ */
+function setSit(s){ _sit=s; renderFuncionarios(); }
+function setPend(p){ _pend=_pend===p?'':p; if(_pend) _sit='ativos'; renderFuncionarios(); }
+function _opcoes(sel,valores,rotTodos){
+  const cur=sel.value; sel.innerHTML=`<option value="">${rotTodos}</option>`+valores.map(v=>`<option value="${esc2(v)}">${esc2(v)}</option>`).join('');
+  sel.value=valores.includes(cur)?cur:'';
+}
 function renderFuncionarios(){
-  const busca=(document.getElementById('busca-func')?.value||'').toLowerCase();
-  const status=document.getElementById('filtro-status-func')?.value||'';
-  const setor=document.getElementById('filtro-setor-func')?.value||'';
-  const setores=[...new Set(_funcionarios.map(f=>f.setor).filter(Boolean))];
-  const sel=document.getElementById('filtro-setor-func');
-  if(sel){const cur=sel.value;sel.innerHTML='<option value="">Todos os setores</option>';setores.forEach(s=>{const o=document.createElement('option');o.value=s;o.textContent=s;sel.appendChild(o);});sel.value=cur;}
-  const lista=_funcionarios.filter(f=>(!busca||f.nome?.toLowerCase().includes(busca)||(f.cpf||'').includes(busca)||(f.funcao||'').toLowerCase().includes(busca)||(f.setor||'').toLowerCase().includes(busca))&&(!status||f.status===status)&&(!setor||f.setor===setor));
-  const tbody=document.getElementById('tbody-funcionarios');const empty=document.getElementById('func-empty');
-  tbody.innerHTML='';
-  if(!lista.length){empty.classList.remove('hidden');return;}empty.classList.add('hidden');
-  const scCfg={ativo:{cls:'badge-success',txt:'✅ Ativo'},ferias:{cls:'badge-info',txt:'🏖️ Férias'},afastado:{cls:'badge-warning',txt:'⚠️ Afastado'},inativo:{cls:'badge-gray',txt:'⚫ Inativo'}};
-  lista.forEach(f=>{
-    const sc=scCfg[f.status]||scCfg.inativo;
-    const ini=(f.nome||'?').split(' ').map(x=>x[0]).join('').substring(0,2).toUpperCase();
-    const tr=document.createElement('tr');
-    tr.innerHTML=`<td><div style="display:flex;align-items:center;gap:10px;">
-        ${f.foto?`<img src="${f.foto}" style="width:38px;height:38px;border-radius:50%;object-fit:cover;cursor:pointer;flex-shrink:0;" onclick="verFotoInline('${f.foto}')">`:
-        `<div style="width:38px;height:38px;border-radius:50%;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;flex-shrink:0;">${ini}</div>`}
-        <div><div style="font-weight:700;color:var(--primary);">${f.nome}</div><div style="font-size:11px;color:#94a3b8;">${f.email||'—'}</div></div></div></td>
-      <td style="font-size:12px;">${f.cpf||'—'}</td><td>${f.funcao||'—'}</td><td>${f.setor||'—'}</td>
-      <td>${(()=>{const t=turnoDoFuncionario(f);
-        if(!t.valor) return '<span style="color:#cbd5e1;">—</span>';
-        return t.auto
-          ? `<span title="Vem da escala ${esc2(rotuloPeriodoEscala(t.escala))} — ${esc2(t.papel||'')}">${esc2(t.valor)}
-             <span class="badge" style="background:#eff6ff;color:#1e40af;font-size:9.5px;font-weight:800;">📅 escala</span></span>`
-          : esc2(t.valor);})()}</td>
-      <td>${(()=>{const cs=getCerts(f);if(!cs.length)return'<span style="font-size:11px;color:#cbd5e1;">—</span>';let v=0,b2=0,x=0;cs.forEach(c=>{const k=statusCert(c).k;if(k==='vigente')v++;else if(k==='vence_breve')b2++;else x++;});return[v?`<span class="badge badge-success" style="font-size:10px;">✅ ${v}</span>`:'',b2?`<span class="badge badge-warning" style="font-size:10px;">🟡 ${b2}</span>`:'',x?`<span class="badge badge-danger" style="font-size:10px;">🔴 ${x}</span>`:''].filter(Boolean).join(' ');})()}</td>
-      <td style="font-size:12px;color:#64748b;">${fmtDataBR(f.admissao)}</td>
-      <td><span class="badge ${sc.cls}">${sc.txt}</span></td>
-      <td><div class="table-actions"><button class="btn btn-secondary btn-sm" onclick="visualizarFuncionario('${f.id}')">👁️</button><button class="btn btn-secondary btn-sm" onclick="editarFuncionario('${f.id}')">✏️</button><button class="btn btn-danger btn-sm" onclick="confirmarExclusao('${f.id}','${f.nome}')">🗑️</button></div></td>`;
-    tbody.appendChild(tr);
-  });
+  const F=_funcionarios, ativos=F.filter(_ativo);
+  const nSit={ativos:ativos.length, afastado:F.filter(f=>situacao(f).k==='afastado').length, ferias:F.filter(f=>situacao(f).k==='ferias').length, desligados:F.length-ativos.length, todos:F.length};
+  document.getElementById('fu-sub').textContent=`${ativos.length} ativo(s) · ${nSit.desligados} desligado(s)`;
+
+  // pendências (só de quem está ativo)
+  const pCpf=ativos.filter(f=>pendencias(f).includes('cpf')).length;
+  const pTel=ativos.filter(f=>pendencias(f).includes('tel')).length;
+  document.getElementById('fu-pend').innerHTML=
+    (pCpf?`<button type="button" class="${_pend==='cpf'?'on':''}" onclick="setPend('cpf')"><b>${pCpf}</b> com CPF genérico ou inválido</button>`:'')+
+    (pTel?`<button type="button" class="${_pend==='tel'?'on':''}" onclick="setPend('tel')"><b>${pTel}</b> sem telefone</button>`:'');
+
+  // tiles
+  let cv=0,cb=0; ativos.forEach(f=>getCerts(f).forEach(c=>{const k=statusCert(c).k; if(k==='vencido')cv++; else if(k==='vence_breve')cb++;}));
+  const tile=(k,l,v,s,cls)=>`<button type="button" class="tile ${cls||''}${_sit===k&&!_pend?' on':''}" onclick="${k?`setSit('${k}')`:`relatorioCert('')`}"><div class="tile-l">${l}</div><div class="tile-v">${v}</div><div class="tile-s">${s}</div></button>`;
+  document.getElementById('fu-tiles').innerHTML=
+    tile('ativos','Ativos',nSit.ativos,`${[...new Set(ativos.map(f=>f.setor).filter(Boolean))].length} setor(es)`,'hero')+
+    tile('ferias','Em férias hoje',nSit.ferias,'pelo módulo de Férias')+
+    tile('afastado','Afastados',nSit.afastado,'afastamento registrado',nSit.afastado?'atencao':'')+
+    tile('','Certificações',cv?cv:cb,cv?`vencida(s)${cb?` · ${cb} vencendo em 30 dias`:''} — baixar relatório`:cb?'vencendo em 30 dias — baixar relatório':'nenhuma vencida — baixar relatório',cv?'ruim':cb?'atencao':'')+
+    tile('desligados','Desligados',nSit.desligados,'histórico preservado');
+
+  // segmentos
+  document.getElementById('fu-seg').innerHTML=[['ativos','Ativos'],['afastado','Afastados'],['ferias','Em férias'],['desligados','Desligados'],['todos','Todos']]
+    .map(([k,r])=>`<button type="button" class="${_sit===k?'on':''}" onclick="setSit('${k}')">${r}<b>${nSit[k]}</b></button>`).join('');
+
+  // filtros setor/função (a partir de quem está na situação escolhida)
+  const base=F.filter(f=>_sit==='todos'||(_sit==='ativos'?_ativo(f):_sit==='desligados'?!_ativo(f):situacao(f).k===_sit));
+  _opcoes(document.getElementById('filtro-setor-func'),[...new Set(base.map(f=>f.setor).filter(Boolean))].sort(),'Todos os setores');
+  _opcoes(document.getElementById('filtro-funcao-func'),[...new Set(base.map(f=>f.funcao).filter(Boolean))].sort(),'Todas as funções');
+  const busca=(document.getElementById('busca-func').value||'').toLowerCase().trim();
+  const setor=document.getElementById('filtro-setor-func').value, funcao=document.getElementById('filtro-funcao-func').value;
+  const bDig=_soDig(busca);
+  const lista=base.filter(f=>(!_pend||pendencias(f).includes(_pend))&&(!setor||f.setor===setor)&&(!funcao||f.funcao===funcao)&&
+    (!busca||(f.nome||'').toLowerCase().includes(busca)||(f.funcao||'').toLowerCase().includes(busca)||(f.setor||'').toLowerCase().includes(busca)||(bDig.length>=3&&_soDig(f.cpf).includes(bDig))));
+
+  document.getElementById('fu-cont').textContent=`${lista.length} de ${F.length} funcionário(s)`+(_pend?' · filtrando pendência':'');
+  const tbody=document.getElementById('tbody-funcionarios'), empty=document.getElementById('func-empty');
+  if(!lista.length){ tbody.innerHTML=''; empty.classList.remove('hidden'); return; }
+  empty.classList.add('hidden');
+  tbody.innerHTML=lista.map(f=>{
+    const sit=situacao(f), id=esc2(f.id), t=turnoDoFuncionario(f), pend=pendencias(f);
+    const cs=getCerts(f); let v=0,b=0,x=0; cs.forEach(c=>{const k=statusCert(c).k; if(k==='vigente')v++; else if(k==='vence_breve')b++; else x++;});
+    const certs=cs.length?[x?`<span class="tag bad">${x} vencida(s)</span>`:'',b?`<span class="tag warn">${b} vencendo</span>`:'',v?`<span class="tag ok">${v} em dia</span>`:''].filter(Boolean).join(' '):'<span class="mini">—</span>';
+    const fer=sit.k==='ferias'&&feriasAte(f)?`<span class="mini">até ${fmtDataBR(feriasAte(f))}</span>`:'';
+    const desl=!_ativo(f);
+    return `<tr class="${desl?'desl':''}">
+      <td><div class="pes" role="button" tabindex="0" onclick="visualizarFuncionario('${id}')" onkeydown="if(event.key==='Enter')visualizarFuncionario('${id}')">${_avatar(f)}
+        <div><b>${esc2(f.nome)}</b><small>${esc2(f.funcao||'—')}${pend.includes('cpf')?' · <span style="color:var(--warn);font-weight:700;">CPF pendente</span>':''}</small></div></div></td>
+      <td class="m-hide">${esc2(f.setor||'—')}${f.linha?`<span class="mini">${esc2(f.linha)}</span>`:''}</td>
+      <td class="m-hide">${t.valor?esc2(t.valor)+(t.auto?` <span class="tag esc" title="Vem da escala ${esc2(rotuloPeriodoEscala(t.escala))}">escala</span>`:''):'<span class="mini">—</span>'}</td>
+      <td class="m-hide">${certs}</td>
+      <td class="m-hide">${fmtDataBR(f.admissao)}<span class="mini">${desl&&f.demissao?'saiu em '+fmtDataBR(f.demissao):tempoDeCasa(f.admissao)}</span></td>
+      <td><span class="tag ${sit.tag}">${sit.txt}</span>${fer}</td>
+      <td><div class="acoes">
+        <button type="button" class="ab" onclick="editarFuncionario('${id}')" aria-label="Editar ${esc2(f.nome)}">✏️<span> Editar</span></button>
+        ${desl?`<button type="button" class="ab" onclick="reativar('${id}')" aria-label="Reativar">↩<span> Reativar</span></button>`
+              :`<button type="button" class="ab desl" onclick="desligar('${id}')" aria-label="Desligar ${esc2(f.nome)}">⏏<span> Desligar</span></button>`}
+      </div></td></tr>`;
+  }).join('');
 }
 
+/* ═══════════════════════════════════════════
+   FORMULÁRIO
+   ═══════════════════════════════════════════ */
+function _preencherLista(tipo, valor){
+  const sel=document.getElementById(`func-${tipo}-sel`);
+  const vals=[...new Set(_funcionarios.map(f=>f[tipo]).filter(Boolean).map(v=>String(v).trim()))].sort((a,b)=>a.localeCompare(b,'pt-BR'));
+  if(valor&&!vals.includes(valor)) vals.push(valor);
+  sel.innerHTML=`<option value="">Selecione…</option>`+vals.map(v=>`<option value="${esc2(v)}">${esc2(v)}</option>`).join('')+`<option value="__outro">+ Outro…</option>`;
+  sel.value=valor||'';
+  document.getElementById(`func-${tipo}-outro`).value='';
+  toggleOutro(tipo);
+}
+function toggleOutro(tipo){
+  const on=document.getElementById(`func-${tipo}-sel`).value==='__outro';
+  document.getElementById(`func-${tipo}-outro-wrap`).style.display=on?'':'none';
+  if(on) setTimeout(()=>document.getElementById(`func-${tipo}-outro`).focus(),30);
+}
+function _valorLista(tipo){
+  const v=document.getElementById(`func-${tipo}-sel`).value;
+  if(v!=='__outro') return v.trim();
+  const novo=document.getElementById(`func-${tipo}-outro`).value.trim();
+  // se digitou algo que já existe com outra grafia, usa o que existe
+  const ex=_funcionarios.map(f=>f[tipo]).filter(Boolean).find(x=>String(x).trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'')===novo.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,''));
+  return ex||novo;
+}
+function toggleDemissao(){
+  const desl=document.getElementById('func-status').value==='inativo';
+  document.getElementById('func-demissao-wrap').style.display=desl?'':'none';
+  if(desl&&!document.getElementById('func-demissao').value) document.getElementById('func-demissao').value=_isoLocal(new Date());
+}
+function _limparForm(){
+  ['func-nome','func-cpf','func-rg','func-tel','func-email','func-obs','fc-salario','fc-adicional','fc-insalubridade','fc-encargos','func-nascimento','func-demissao'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+  document.getElementById('fc-horas-mes').value='220'; calcCustoHora();
+  document.getElementById('func-cert-list').innerHTML=''; checkCertEmpty();
+  document.getElementById('func-error').classList.add('hidden');
+  document.getElementById('func-cpf').classList.remove('invalido'); document.getElementById('cpf-msg').textContent='';
+}
 function openModalFuncionario(){
-  _editingFuncId=null;_funcFoto=null;
-  document.getElementById('modal-func-title').textContent='Novo Funcionário';
-  ['func-nome','func-cpf','func-rg','func-tel','func-email','func-funcao','func-setor','func-obs','fc-salario','fc-adicional','fc-insalubridade','fc-encargos'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
-  document.getElementById('fc-horas-mes').value='220';calcCustoHora();
-  document.getElementById('func-cert-list').innerHTML='';checkCertEmpty();funcTab('cad');
-  document.getElementById('func-nascimento').value='';document.getElementById('func-admissao').value=new Date().toISOString().split('T')[0];
-  document.getElementById('func-demissao').value='';document.getElementById('func-status').value='ativo';
-  document.getElementById('func-foto-preview').innerHTML='👤';document.getElementById('func-error').classList.add('hidden');
-  populateFuncSelects(null);document.getElementById('modal-funcionario').classList.remove('hidden');
+  _editingFuncId=null; _funcFoto=null; _limparForm();
+  document.getElementById('modal-func-title').textContent='Novo funcionário';
+  document.getElementById('func-admissao').value=_isoLocal(new Date());
+  document.getElementById('func-status').value='ativo'; toggleDemissao();
+  document.getElementById('func-foto-preview').innerHTML='👤';
+  _preencherLista('funcao',''); _preencherLista('setor','');
+  populateFuncSelects(null); funcTab('cad');
+  document.getElementById('modal-funcionario').classList.remove('hidden');
+  setTimeout(()=>document.getElementById('func-nome').focus(),50);
 }
-
 function editarFuncionario(id){
-  const f=_funcionarios.find(x=>x.id===id);if(!f)return;
-  _editingFuncId=id;_funcFoto=f.foto||null;
-  document.getElementById('modal-func-title').textContent='Editar Funcionário';
-  document.getElementById('func-nome').value=f.nome||'';document.getElementById('func-cpf').value=f.cpf||'';
-  document.getElementById('func-rg').value=f.rg||'';document.getElementById('func-nascimento').value=f.nascimento||'';
-  document.getElementById('func-tel').value=f.telefone||'';document.getElementById('func-email').value=f.email||'';
-  document.getElementById('func-funcao').value=f.funcao||'';document.getElementById('func-setor').value=f.setor||'';
-  document.getElementById('func-admissao').value=f.admissao||'';document.getElementById('func-demissao').value=f.demissao||'';
-  document.getElementById('func-status').value=f.status||'ativo';document.getElementById('func-obs').value=f.obs||'';
-  document.getElementById('func-cert-list').innerHTML='';
-  getCerts(f).forEach(c=>addCertificacao(c));checkCertEmpty();
-  const cst=getCustos(f)||{};
-  document.getElementById('fc-salario').value=cst.salario_base||'';
-  document.getElementById('fc-adicional').value=cst.adicional_fixo||'';
-  document.getElementById('fc-insalubridade').value=cst.insalubridade||'';
-  document.getElementById('fc-encargos').value=cst.encargos_pct||'';
-  document.getElementById('fc-horas-mes').value=cst.horas_mensais||220;
-  calcCustoHora();funcTab('cad');
-  document.getElementById('func-foto-preview').innerHTML=f.foto?`<img src="${f.foto}" style="width:80px;height:80px;object-fit:cover;border-radius:50%;">`:'👤';
-  document.getElementById('func-error').classList.add('hidden');populateFuncSelects(f);document.getElementById('modal-funcionario').classList.remove('hidden');
+  const f=_funcionarios.find(x=>x.id===id); if(!f) return;
+  closeModal('modal-view-func');
+  _editingFuncId=id; _funcFoto=f.foto||null; _limparForm();
+  document.getElementById('modal-func-title').textContent='Editar — '+(f.nome||'');
+  const set=(i,v)=>{document.getElementById(i).value=v||'';};
+  set('func-nome',f.nome); set('func-cpf',f.cpf); set('func-rg',f.rg); set('func-nascimento',f.nascimento);
+  set('func-tel',f.telefone); set('func-email',f.email); set('func-admissao',f.admissao); set('func-demissao',f.demissao); set('func-obs',f.obs);
+  document.getElementById('func-status').value=f.status==='ferias'?'ativo':(f.status||'ativo'); toggleDemissao();
+  _preencherLista('funcao',f.funcao); _preencherLista('setor',f.setor);
+  if(podeCert()) getCerts(f).forEach(c=>addCertificacao(c)); checkCertEmpty();
+  if(podeCusto()){ const c=getCustos(f)||{}; set('fc-salario',c.salario_base); set('fc-adicional',c.adicional_fixo); set('fc-insalubridade',c.insalubridade); set('fc-encargos',c.encargos_pct); document.getElementById('fc-horas-mes').value=c.horas_mensais||220; calcCustoHora(); }
+  document.getElementById('func-foto-preview').innerHTML=f.foto?`<img src="${esc2(f.foto)}" alt="" style="width:100%;height:100%;object-fit:cover;">`:'👤';
+  populateFuncSelects(f); funcTab('cad'); checarCPF();
+  document.getElementById('modal-funcionario').classList.remove('hidden');
+}
+function previewFuncFoto(input){
+  if(!input.files||!input.files[0]) return;
+  const r=new FileReader();
+  r.onload=e=>{ _funcFoto=e.target.result; document.getElementById('func-foto-preview').innerHTML=`<img src="${e.target.result}" alt="" style="width:100%;height:100%;object-fit:cover;">`; };
+  r.readAsDataURL(input.files[0]);
 }
 
 function populateFuncSelects(f){
@@ -513,126 +798,126 @@ function populateFuncSelects(f){
   _linhas.forEach(l=>{const o=document.createElement('option');o.value=l.nome;o.textContent=l.nome;selL.appendChild(o);});if(f)selL.value=f.linha||'';
 }
 
-function previewFuncFoto(input){if(input.files&&input.files[0]){const r=new FileReader();r.onload=e=>{_funcFoto=e.target.result;document.getElementById('func-foto-preview').innerHTML=`<img src="${e.target.result}" style="width:80px;height:80px;object-fit:cover;border-radius:50%;">`;};r.readAsDataURL(input.files[0]);}}
-
 async function salvarFuncionario(){
-  if (!guardAction('funcionarios', 'edit')) return;
-  const nome=document.getElementById('func-nome').value.trim();const cpf=document.getElementById('func-cpf').value.trim();
-  const funcao=document.getElementById('func-funcao').value.trim();const setor=document.getElementById('func-setor').value.trim();
+  if(!guardAction('funcionarios','edit')) return;
+  const errEl=document.getElementById('func-error'), btn=document.getElementById('btn-salvar-func');
+  const erro=m=>{ errEl.textContent=m; errEl.classList.remove('hidden'); funcTab('cad'); };
+  const nome=document.getElementById('func-nome').value.trim().replace(/\s+/g,' ');
+  const cpf=document.getElementById('func-cpf').value.trim();
+  const funcao=_valorLista('funcao'), setor=_valorLista('setor');
   const admissao=document.getElementById('func-admissao').value;
-  const errEl=document.getElementById('func-error');const btn=document.getElementById('btn-salvar-func');
-  if(!nome||!cpf||!funcao||!setor||!admissao){errEl.textContent='Preencha: Nome, CPF, Função, Setor e Admissão!';errEl.classList.remove('hidden');return;}
-  if(_funcFoto&&_funcFoto.startsWith('data:')){const _u=await subirFotoStorage(_funcFoto,'funcionarios',_editingFuncId);if(_u)_funcFoto=_u;} // foto nova → Storage
-  // Escalado grava o turno da escala, não o que estiver na tela: o select fica
-  // travado e um formulário travado não pode desfazer o que a escala definiu.
+  const status=document.getElementById('func-status').value;
+  const demissao=status==='inativo'?(document.getElementById('func-demissao').value||null):null;
+  const falta=[!nome&&'nome',!cpf&&'CPF',!funcao&&'função',!setor&&'setor',!admissao&&'admissão',status==='inativo'&&!demissao&&'data de desligamento'].filter(Boolean);
+  if(falta.length) return erro('Preencha: '+falta.join(', ')+'.');
+  const rc=avaliarCPF(cpf,_editingFuncId); if(!rc.ok) return erro(rc.msg);
+  if(demissao&&demissao<admissao) return erro('A data de desligamento é anterior à admissão.');
   const _fEdit=_editingFuncId?_funcionarios.find(x=>x.id===_editingFuncId):null;
-  const _t=_fEdit?turnoDoFuncionario(_fEdit):{auto:false};
-  const turnoFinal=_t.auto?_t.valor:(document.getElementById('func-turno').value||null);
-  const dados={nome,cpf,funcao,setor,admissao,rg:document.getElementById('func-rg').value||null,nascimento:document.getElementById('func-nascimento').value||null,telefone:document.getElementById('func-tel').value||null,email:document.getElementById('func-email').value||null,turno:turnoFinal,linha:document.getElementById('func-linha').value||null,demissao:document.getElementById('func-demissao').value||null,status:document.getElementById('func-status').value,obs:document.getElementById('func-obs').value||null,foto:_funcFoto||null,atualizado_em:new Date().toISOString()};
-  const extrasFunc={certificacoes:getCertificacoesFromForm(),custos:getCustosFromForm()};
-  btn.innerHTML='<span class="spin"></span>';btn.disabled=true;
+  if(!_fEdit||_fEdit.nome!==nome){ const hom=_funcionarios.find(x=>x.id!==_editingFuncId&&(x.nome||'').trim().toLowerCase()===nome.toLowerCase());
+    if(hom&&!confirm(`Já existe "${hom.nome}" no cadastro. Salvar mesmo assim?`)) return; }
+  btn.disabled=true; btn.innerHTML='<span class="spin"></span>';
   try{
-    let funcId=_editingFuncId;
+    if(_funcFoto&&_funcFoto.startsWith('data:')){ const u=await subirFotoStorage(_funcFoto,'funcionarios',_editingFuncId); if(u) _funcFoto=u; }
+    const _t=_fEdit?turnoDoFuncionario(_fEdit):{auto:false};
+    const turnoFinal=_t.auto?_t.valor:(document.getElementById('func-turno').value||null);
+    const dados={nome,cpf,funcao,setor,admissao,status,demissao,
+      rg:document.getElementById('func-rg').value.trim()||null, nascimento:document.getElementById('func-nascimento').value||null,
+      telefone:document.getElementById('func-tel').value.trim()||null, email:document.getElementById('func-email').value.trim()||null,
+      turno:turnoFinal, linha:document.getElementById('func-linha').value||null, obs:document.getElementById('func-obs').value.trim()||null,
+      foto:_funcFoto||null, atualizado_em:new Date().toISOString()};
+    // aba sem permissão não grava: o valor que já está no banco fica intacto
+    if(podeCert()) dados.certificacoes=getCertificacoesFromForm();
+    if(podeCusto()) dados.custos=getCustosFromForm();
     if(_editingFuncId){
-      // Tentar gravar com as colunas novas (certificacoes/custos); fallback sem elas + espelho local
-      await db(_supabase.from('funcionarios').update({...dados,...extrasFunc}).eq('id',_editingFuncId),'atualizar funcionário');
-      await addLog('UPDATE','FUNCIONARIOS',_editingFuncId,'Atualizado: '+nome);toast('Funcionário atualizado!','success');
+      await db(_supabase.from('funcionarios').update(dados).eq('id',_editingFuncId),'atualizar funcionário');
+      await addLog('UPDATE','FUNCIONARIOS',_editingFuncId,'Atualizado: '+nome); toast('Funcionário atualizado!','success');
+    }else{
+      const{data}=await db(_supabase.from('funcionarios').insert(dados).select().single(),'cadastrar funcionário');
+      await addLog('CREATE','FUNCIONARIOS',data?.id,'Novo: '+nome); toast('Funcionário cadastrado!','success');
     }
-    else{
-      const{data}=await db(_supabase.from('funcionarios').insert({...dados,...extrasFunc}).select().single(),'cadastrar funcionário');
-      funcId=data?.id;
-      await addLog('CREATE','FUNCIONARIOS',funcId,'Novo: '+nome);toast('Funcionário cadastrado!','success');
-    }
-    closeModal('modal-funcionario');await loadFuncionarios();renderFuncionarios();renderKpisCert();
-  }catch(e){errEl.textContent='Erro: '+e.message;errEl.classList.remove('hidden');}
-  btn.innerHTML='💾 Salvar Funcionário';btn.disabled=false;
+    closeModal('modal-funcionario'); await loadFuncionarios(); renderFuncionarios();
+  }catch(e){ erro('Erro: '+e.message); }
+  btn.disabled=false; btn.innerHTML='💾 Salvar';
 }
 
+/* ═══════════════════════════════════════════
+   DESLIGAR / REATIVAR — nunca exclui
+   ═══════════════════════════════════════════ */
+function desligar(id){
+  if(!guardAction('funcionarios','edit')) return;
+  const f=_funcionarios.find(x=>x.id===id); if(!f) return;
+  closeModal('modal-view-func');
+  document.getElementById('desl-tit').textContent='Desligar '+f.nome;
+  document.getElementById('desl-data').value=_isoLocal(new Date());
+  document.getElementById('desl-motivo').value='';
+  document.getElementById('desl-ok').onclick=async()=>{
+    const d=document.getElementById('desl-data').value, mot=document.getElementById('desl-motivo').value.trim();
+    if(!d){ toast('Informe a data de desligamento.','warning'); return; }
+    if(f.admissao&&d<f.admissao){ toast('A data é anterior à admissão.','warning'); return; }
+    const obs=mot?[f.obs,`Desligado em ${fmtDataBR(d)}: ${mot}`].filter(Boolean).join(' · '):f.obs||null;
+    try{
+      await db(_supabase.from('funcionarios').update({status:'inativo',demissao:d,obs,atualizado_em:new Date().toISOString()}).eq('id',id),'desligar funcionário');
+      await addLog('UPDATE','FUNCIONARIOS',id,`Desligado em ${d}: ${f.nome}${mot?' — '+mot:''}`);
+      toast(f.nome+' desligado. O histórico foi mantido.','success');
+      closeModal('modal-desligar'); await loadFuncionarios(); renderFuncionarios();
+    }catch(e){ toast('Erro: '+e.message,'danger'); }
+  };
+  document.getElementById('modal-desligar').classList.remove('hidden');
+}
+async function reativar(id){
+  if(!guardAction('funcionarios','edit')) return;
+  const f=_funcionarios.find(x=>x.id===id); if(!f) return;
+  if(!confirm(`Reativar ${f.nome}? A data de desligamento será apagada.`)) return;
+  try{
+    await db(_supabase.from('funcionarios').update({status:'ativo',demissao:null,atualizado_em:new Date().toISOString()}).eq('id',id),'reativar funcionário');
+    await addLog('UPDATE','FUNCIONARIOS',id,'Reativado: '+f.nome);
+    toast(f.nome+' reativado.','success'); await loadFuncionarios(); renderFuncionarios();
+  }catch(e){ toast('Erro: '+e.message,'danger'); }
+}
+
+/* ═══════════════════════════════════════════
+   FICHA
+   ═══════════════════════════════════════════ */
 function visualizarFuncionario(id){
-  const f=_funcionarios.find(x=>x.id===id);if(!f)return;
-  const scCfg={ativo:{cls:'badge-success',txt:'✅ Ativo'},ferias:{cls:'badge-info',txt:'🏖️ Férias'},afastado:{cls:'badge-warning',txt:'⚠️ Afastado'},inativo:{cls:'badge-gray',txt:'⚫ Inativo'}};
-  const sc=scCfg[f.status]||scCfg.inativo;
-  const ini=(f.nome||'?').split(' ').map(x=>x[0]).join('').substring(0,2).toUpperCase();
-  const body=document.getElementById('modal-view-func-body');
-  body.innerHTML='';
-
-  // Avatar
-  const avatarDiv=document.createElement('div');
-  avatarDiv.style.cssText='width:72px;height:72px;border-radius:50%;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:800;flex-shrink:0;overflow:hidden;';
-  if(f.foto){
-    const img=document.createElement('img');
-    img.src=f.foto;
-    img.alt=f.nome||'Foto';
-    img.style.cssText='width:100%;height:100%;object-fit:cover;';
-    img.onerror=function(){avatarDiv.innerHTML=ini;};
-    avatarDiv.appendChild(img);
-    avatarDiv.style.cursor='pointer';
-    avatarDiv.title='Clique para ampliar';
-    avatarDiv.onclick=function(){verFotoInline(f.foto);};
-  }else{
-    avatarDiv.textContent=ini;
-  }
-
-  // Info
-  const infoDiv=document.createElement('div');
-  const nomeLine=document.createElement('div');
-  nomeLine.style.cssText='font-size:20px;font-weight:800;color:var(--primary);';
-  nomeLine.textContent=f.nome||'';
-  const cargoLine=document.createElement('div');
-  cargoLine.style.cssText='font-size:13px;color:#64748b;';
-  cargoLine.textContent=(f.funcao||'—')+' — '+(f.setor||'—');
-  const badge=document.createElement('span');
-  badge.className='badge '+sc.cls;
-  badge.style.cssText='margin-top:6px;display:inline-block;';
-  badge.textContent=sc.txt;
-  infoDiv.appendChild(nomeLine);
-  infoDiv.appendChild(cargoLine);
-  if(f.foto){
-    const btnFoto=document.createElement('button');
-    btnFoto.className='btn btn-secondary btn-sm';
-    btnFoto.style.cssText='margin-top:8px;margin-right:6px;';
-    btnFoto.textContent='🔍 Ver foto';
-    btnFoto.onclick=function(){verFotoInline(f.foto);};
-    infoDiv.appendChild(btnFoto);
-  }
-  infoDiv.appendChild(badge);
-
-  // Header
-  const headerDiv=document.createElement('div');
-  headerDiv.style.cssText='display:flex;align-items:center;gap:16px;padding:16px;background:#f8fafc;border-radius:12px;margin-bottom:20px;';
-  headerDiv.appendChild(avatarDiv);
-  headerDiv.appendChild(infoDiv);
-
-  // Grid de campos
-  const grid=document.createElement('div');
-  grid.style.cssText='display:grid;grid-template-columns:1fr 1fr;gap:12px;';
-  const _certs=getCerts(f);
-  const _cst=getCustos(f);
-  [['CPF',f.cpf],['RG',f.rg],['Nascimento',fmtDataBR(f.nascimento)],['Telefone',f.telefone],['E-mail',f.email],['Turno',(()=>{const t=turnoDoFuncionario(f);return (t.valor||'—')+(t.auto?' (pela escala '+rotuloPeriodoEscala(t.escala)+')':'');})()],['Linha',f.linha],['Admissão',fmtDataBR(f.admissao)],['Demissão',f.demissao?fmtDataBR(f.demissao):'—'],['Custo Hora',_cst?.custo_hora?('R$ '+_cst.custo_hora.toLocaleString('pt-BR',{minimumFractionDigits:2})):'—'],['Certificações',_certs.length?_certs.map(c=>{const st=statusCert(c);return c.nome+' ('+st.txt+(c.validade?' — val. '+new Date(c.validade+'T00:00:00').toLocaleDateString('pt-BR'):'')+')';}).join(' · '):'—'],['Observações',f.obs||'—']].forEach(function(pair){
-    const cell=document.createElement('div');
-    cell.style.cssText='padding:10px 14px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;';
-    const lbl=document.createElement('p');
-    lbl.style.cssText='font-size:11px;color:#94a3b8;font-weight:600;text-transform:uppercase;';
-    lbl.textContent=pair[0];
-    const val=document.createElement('p');
-    val.style.cssText='font-size:13px;font-weight:600;color:var(--primary);margin-top:2px;';
-    val.textContent=pair[1]||'—';
-    cell.appendChild(lbl);
-    cell.appendChild(val);
-    grid.appendChild(cell);
-  });
-
-  body.appendChild(headerDiv);
-  body.appendChild(grid);
+  const f=_funcionarios.find(x=>x.id===id); if(!f) return;
+  const sit=situacao(f), t=turnoDoFuncionario(f), cst=podeCusto()?getCustos(f):null;
+  const cel=(l,v)=>`<div class="ficha-c"><span>${l}</span><b>${v||'—'}</b></div>`;
+  const certs=podeCert()?getCerts(f):[];
+  document.getElementById('modal-view-func-body').innerHTML=`
+    <div class="ficha-h">${_avatar(f).replace('class="av"','class="av" style="width:72px;height:72px;font-size:22px;'+(f.foto?'cursor:pointer;':'')+'"'+(f.foto?` onclick="verFotoInline('${esc2(f.foto)}')"`:''))}
+      <div><h3>${esc2(f.nome)}</h3><p>${esc2(f.funcao||'—')} · ${esc2(f.setor||'—')}</p><span class="tag ${sit.tag}">${sit.txt}</span>
+        ${sit.k==='ferias'&&feriasAte(f)?`<span class="mini">em férias até ${fmtDataBR(feriasAte(f))}</span>`:''}</div></div>
+    ${pendencias(f).length?`<div class="pend" style="margin-bottom:12px;">${pendencias(f).map(p=>`<button type="button" onclick="editarFuncionario('${esc2(f.id)}')">${{cpf:'CPF genérico ou inválido',tel:'Sem telefone',cert:'Certificação vencida'}[p]} — corrigir</button>`).join('')}</div>`:''}
+    <div class="ficha-g">
+      ${cel('CPF',_soDig(f.cpf).length===11?esc2(f.cpf):'—')}${cel('RG',esc2(f.rg))}${cel('Nascimento',fmtDataBR(f.nascimento))}
+      ${cel('Telefone',f.telefone?`<a href="https://wa.me/55${_soDig(f.telefone)}" target="_blank" rel="noopener" style="color:inherit;">${esc2(f.telefone)}</a>`:'')}${cel('E-mail',esc2(f.email))}
+      ${cel('Turno',t.valor?esc2(t.valor)+(t.auto?` <span class="tag esc">escala ${esc2(rotuloPeriodoEscala(t.escala))}</span>`:''):'')}${cel('Linha',esc2(f.linha))}
+      ${cel('Admissão',fmtDataBR(f.admissao)+(f.admissao?`<span class="mini">${tempoDeCasa(f.admissao)}</span>`:''))}
+      ${f.demissao?cel('Desligamento',fmtDataBR(f.demissao)):''}
+      ${cst&&cst.custo_hora?cel('Custo hora','R$ '+Number(cst.custo_hora).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})):''}
+    </div>
+    ${podeCert()?`<div class="ficha-sec">Certificações</div><div class="cert-l">${certs.length?certs.map(c=>{const st=statusCert(c);
+      return `<div class="cert-i"><span><b>${esc2(c.nome)}</b>${c.validade?` · validade ${fmtDataBR(c.validade)}`:''}</span><span class="tag ${st.k==='vencido'?'bad':st.k==='vence_breve'?'warn':'ok'}">${st.k==='vencido'?'Vencida':st.k==='vence_breve'?'Vence em breve':'Em dia'}</span></div>`;}).join(''):'<div class="mini">Nenhuma certificação cadastrada.</div>'}</div>`:''}
+    ${f.obs?`<div class="ficha-sec">Observações</div><div style="font-size:13px;color:var(--ink-2);background:#f8fafc;border-radius:10px;padding:10px 12px;">${esc2(f.obs)}</div>`:''}`;
+  const id2=esc2(f.id);
+  document.getElementById('modal-view-func-foot').innerHTML=
+    (_ativo(f)?`<button class="btn btn-secondary" style="color:var(--bad);" onclick="desligar('${id2}')">Desligar</button>`:`<button class="btn btn-secondary" onclick="closeModal('modal-view-func');reativar('${id2}')">Reativar</button>`)+
+    `<button class="btn btn-primary" onclick="editarFuncionario('${id2}')">✏️ Editar</button>`;
   document.getElementById('modal-view-func').classList.remove('hidden');
 }
 
-
-function confirmarExclusao(id,nome){
-  document.getElementById('confirm-msg').innerHTML=`Deseja excluir o funcionário <strong>${nome}</strong>?`;
-  document.getElementById('confirm-ok-btn').onclick=async()=>{await db(_supabase.from('funcionarios').delete().eq('id',id),'excluir funcionário');await addLog('DELETE','FUNCIONARIOS',id,'Excluído: '+nome);toast('Funcionário excluído.','warning');closeModal('modal-confirm');await loadFuncionarios();renderFuncionarios();};
-  document.getElementById('modal-confirm').classList.remove('hidden');
+/* ═══════════════════════════════════════════
+   EXPORTAR — a lista como está filtrada na tela; CPF mascarado
+   ═══════════════════════════════════════════ */
+function exportarLista(tipo){
+  const rows=[...document.querySelectorAll('#tbody-funcionarios tr .pes')].map(el=>el.getAttribute('onclick').match(/'([^']+)'/)[1])
+    .map(id=>_funcionarios.find(f=>f.id===id)).filter(Boolean);
+  if(!rows.length){ toast('Nada para exportar neste filtro.','warning'); return; }
+  const cab=['Nome','CPF','Função','Setor','Turno','Admissão','Situação'];
+  const lin=rows.map(f=>[f.nome,cpfMascarado(f.cpf),f.funcao||'—',f.setor||'—',turnoDoFuncionario(f).valor||'—',fmtDataBR(f.admissao),situacao(f).txt]);
+  if(tipo==='csv') exportarCSV(cab,lin,'funcionarios'); else exportarPDF('Funcionários',cab,lin);
 }
+document.addEventListener('keydown',e=>{ if(e.key==='Escape'){ ['modal-desligar','modal-view-func','modal-funcionario'].some(m=>{const el=document.getElementById(m); if(el&&!el.classList.contains('hidden')){closeModal(m);return true;}return false;}); } });
 
 init();
 </script>
