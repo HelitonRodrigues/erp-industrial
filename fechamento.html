@@ -3,43 +3,145 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ERP Industrial — Fechamento Diário</title>
-<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&display=swap" rel="stylesheet">
+<title>ERP Industrial — Fechamento diário</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/style.css">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="js/supabase.js"></script>
 <script src="js/utils.js"></script>
+<script src="js/regras.js"></script>
 <style>
-  /* ── impressão: só o relatório, em preto no branco ── */
-  @media print {
-    .sidebar, .topbar, .no-print, #sidebar-container { display:none !important; }
-    .main-content { margin:0 !important; padding:0 !important; }
-    body { background:#fff !important; }
-    .card { box-shadow:none !important; border:none !important; padding:0 !important; }
-    .fx-quebra { page-break-before: always; }
-  }
-  .fx-cab { display:flex; align-items:center; gap:14px; border-bottom:3px solid var(--primary); padding-bottom:12px; margin-bottom:16px; }
-  .fx-cab img { height:52px; object-fit:contain; }
-  .fx-cab .t { font-size:19px; font-weight:800; color:var(--primary); }
-  .fx-cab .d { font-size:13px; color:#64748b; font-weight:700; }
-  .fx-sec { background:var(--primary); color:#fff; font-weight:800; font-size:13px; letter-spacing:.4px;
-            padding:8px 12px; border-radius:8px 8px 0 0; margin-top:18px; }
-  table.fx { width:100%; border-collapse:collapse; font-size:12.5px; }
-  table.fx th { background:#f1f5f9; color:var(--primary); font-weight:800; padding:7px 10px; text-align:left; border-bottom:2px solid #e2e8f0; }
-  table.fx td { padding:6px 10px; border-bottom:1px solid #f1f5f9; }
-  table.fx .num { text-align:right; font-variant-numeric:tabular-nums; }
-  table.fx tr.total td { background:#eef4f9; font-weight:800; color:var(--primary); border-top:2px solid var(--primary); }
-  .st-ok { background:#dcfce7; color:#166534; font-weight:800; padding:2px 10px; border-radius:99px; font-size:11px; }
-  .st-comprar { background:#fee2e2; color:#b91c1c; font-weight:800; padding:2px 10px; border-radius:99px; font-size:11px; }
-  .fx-aviso { background:#f0f9ff; border:1.5px solid #bae6fd; color:#075985; border-radius:10px;
-              padding:10px 14px; font-size:12px; margin-top:14px; }
+/* ══════════════════════════════════════════════════════════════════════════
+   FECHAMENTO DIÁRIO (out/2026) — mesmo desenho do Painel da fábrica
+   Abre no dia de ONTEM (D-1). Cada produto na sua unidade: sacos, bags e
+   granel em t (a OP do granel é lançada em kg). Totais por unidade — nunca
+   somando saco com bag com tonelada. Fonte: rpc_fechamento_dia (migração 008).
+   ══════════════════════════════════════════════════════════════════════════ */
+:root{
+  --ok:#16a34a; --ok-bg:#dcfce7; --ok-line:#22c55e;
+  --warn:#b45309; --warn-bg:#fef3c7; --warn-line:#f59e0b;
+  --bad:#dc2626; --bad-bg:#fee2e2; --bad-line:#ef4444;
+  --wd-line:#e3e9f0; --line-soft:#f1f5f9;
+  --ink-2:#475569; --ink-3:#64748b; --ink-4:#94a3b8; --ink-5:#cbd5e1;
+  --wd-shadow:0 1px 2px rgba(4,45,77,.05);
+}
+button:focus-visible,a:focus-visible,[role="button"]:focus-visible{outline:2px solid var(--primary);outline-offset:2px;}
+
+/* cabeçalho e dia de referência (igual ao Painel) */
+.fx-head{display:flex;justify-content:space-between;align-items:flex-end;gap:14px;flex-wrap:wrap;margin-bottom:18px;}
+.fx-head h1{margin:0;font-size:26px;font-weight:800;color:var(--primary);letter-spacing:-.4px;}
+.fx-head p{margin:3px 0 0;font-size:13px;color:var(--ink-3);}
+.fx-r{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.ref-ctl{display:flex;align-items:stretch;background:#fff;border:1.5px solid var(--wd-line);border-radius:12px;overflow:hidden;height:48px;}
+.ref-btn{width:40px;border:0;background:transparent;font-size:22px;line-height:1;color:var(--primary);cursor:pointer;}
+.ref-btn:hover:not(:disabled){background:var(--line-soft);}
+.ref-btn:disabled{color:var(--ink-5);cursor:default;}
+.ref-main{position:relative;display:flex;flex-direction:column;justify-content:center;padding:0 14px;min-width:210px;
+  border-left:1px solid var(--wd-line);border-right:1px solid var(--wd-line);cursor:pointer;}
+.ref-main:hover{background:#fafcfe;}
+.ref-tag{font-size:10.5px;font-weight:800;color:var(--primary);background:var(--accent);align-self:flex-start;padding:1px 7px;border-radius:5px;margin-bottom:2px;}
+.ref-tag.parcial{background:var(--warn-bg);color:var(--warn);}
+.ref-tag.outro{background:var(--line-soft);color:var(--ink-2);}
+.ref-dia{font-size:14px;font-weight:700;color:var(--primary);white-space:nowrap;}
+.ref-dia::first-letter{text-transform:uppercase;}
+.ref-main input{position:absolute;inset:0;opacity:0;pointer-events:none;width:100%;}
+.fx-btn{height:48px;padding:0 16px;border-radius:12px;border:1.5px solid var(--wd-line);background:#fff;font:inherit;font-size:13.5px;
+  font-weight:700;color:var(--primary);cursor:pointer;display:inline-flex;align-items:center;gap:8px;white-space:nowrap;}
+.fx-btn:hover{border-color:var(--primary);}
+.fx-btn.pri{background:var(--primary);border-color:var(--primary);color:var(--accent);}
+
+/* avisos de saúde dos dados */
+.fx-avisos{display:flex;flex-direction:column;gap:8px;margin-bottom:14px;}
+.fx-av{display:flex;gap:10px;align-items:flex-start;background:var(--warn-bg);color:#7c2d12;border-radius:12px;padding:10px 14px;font-size:13px;line-height:1.45;}
+.fx-av b{color:#7c2d12;}
+.fx-av .ic{font-size:18px;line-height:1.2;}
+
+/* folha do relatório */
+.fx-folha{background:#fff;border:1px solid var(--wd-line);border-radius:16px;padding:22px 24px;box-shadow:var(--wd-shadow);}
+.fx-cab{display:flex;align-items:center;gap:14px;padding-bottom:14px;margin-bottom:18px;border-bottom:3px solid var(--primary);}
+.fx-cab img{height:48px;object-fit:contain;}
+.fx-cab .logo-ph{width:48px;height:48px;border-radius:12px;background:var(--line-soft);display:flex;align-items:center;justify-content:center;font-size:24px;}
+.fx-cab .t{font-size:18px;font-weight:800;color:var(--primary);}
+.fx-cab .d{font-size:13.5px;color:var(--ink-2);font-weight:700;margin-top:1px;}
+.fx-cab .d::first-letter{text-transform:uppercase;}
+.fx-cab .g{margin-left:auto;text-align:right;font-size:11px;color:var(--ink-4);}
+
+/* tiles */
+.tiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:22px;}
+.tile{border:1px solid var(--wd-line);border-radius:14px;padding:14px 16px;min-width:0;}
+.tile.hero{background:var(--primary);border-color:var(--primary);}
+.tile-l{font-size:12.5px;font-weight:700;color:var(--ink-2);}
+.tile-v{font-size:clamp(20px,1.8vw,27px);font-weight:800;color:var(--primary);letter-spacing:-.5px;line-height:1.15;margin-top:6px;font-variant-numeric:tabular-nums;}
+.tile-v small{font-size:12.5px;font-weight:700;color:var(--ink-3);letter-spacing:0;margin-left:2px;}
+.tile-s{font-size:11.5px;color:var(--ink-3);margin-top:4px;line-height:1.4;}
+.tile.hero .tile-l{color:rgba(255,255,255,.8);} .tile.hero .tile-v{color:var(--accent);}
+.tile.hero .tile-v small{color:rgba(255,255,255,.6);} .tile.hero .tile-s{color:rgba(255,255,255,.62);}
+.tile.alerta .tile-v{color:var(--bad);}
+
+/* seções */
+.fx-sec{display:flex;justify-content:space-between;align-items:flex-end;gap:10px;flex-wrap:wrap;margin:6px 0 10px;}
+.fx-sec h2{margin:0;font-size:16px;font-weight:800;color:var(--primary);}
+.fx-sec p{margin:2px 0 0;font-size:12px;color:var(--ink-3);}
+.seg{display:flex;gap:3px;background:var(--line-soft);padding:3px;border-radius:10px;}
+.seg button{border:0;background:transparent;font:inherit;font-size:12.5px;font-weight:700;color:var(--ink-3);padding:6px 12px;border-radius:7px;cursor:pointer;}
+.seg button.on{background:#fff;color:var(--primary);box-shadow:0 1px 2px rgba(4,45,77,.12);}
+.fx-quebra{margin-top:26px;}
+
+/* tabela */
+.tb-wrap{overflow-x:auto;margin:0 -2px;}
+table.fx{width:100%;border-collapse:separate;border-spacing:0;font-size:13px;}
+table.fx thead th{padding:9px 11px;font-size:11px;white-space:nowrap;}
+table.fx thead th:first-child{border-radius:8px 0 0 8px;}
+table.fx thead th:last-child{border-radius:0 8px 8px 0;}
+table.fx td{padding:9px 11px;border-bottom:1px solid var(--line-soft);color:var(--ink-2);vertical-align:middle;}
+table.fx .num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;}
+table.fx .nome{font-weight:700;color:var(--primary);}
+table.fx tr.grp td{background:#f8fafc;font-size:12px;font-weight:800;color:var(--ink-2);padding:8px 11px;border-bottom:1px solid var(--wd-line);}
+table.fx tr.sub td{font-weight:800;color:var(--primary);border-top:1.5px solid var(--wd-line);border-bottom:0;padding-bottom:14px;}
+table.fx tr.parado td{color:var(--ink-4);}
+table.fx tr.parado .nome{color:var(--ink-3);font-weight:600;}
+table.fx .mov{font-weight:800;color:var(--primary);}
+table.fx .neg{color:var(--bad);font-weight:800;}
+table.fx .zero{color:var(--ink-5);}
+.un{font-size:11px;font-weight:600;color:var(--ink-4);margin-left:3px;}
+.pill{display:inline-block;font-size:11.5px;font-weight:800;padding:3px 10px;border-radius:20px;white-space:nowrap;}
+.pill.ok{background:var(--ok-bg);color:#166534;} .pill.comprar{background:var(--bad-bg);color:#991b1b;}
+.sb-cell{display:flex;align-items:center;gap:8px;min-width:120px;}
+.sb{flex:1;height:7px;background:var(--line-soft);border-radius:6px;overflow:hidden;min-width:50px;position:relative;}
+.sb>span{display:block;height:100%;border-radius:6px;}
+.sb>i{position:absolute;top:-2px;bottom:-2px;width:2px;background:var(--ink-3);border-radius:2px;}
+.fx-vazio{text-align:center;color:var(--ink-4);padding:22px;font-size:13px;}
+.fx-como{margin-top:20px;background:var(--line-soft);border-radius:12px;padding:12px 14px;font-size:12.5px;color:var(--ink-2);line-height:1.55;}
+
+@media (max-width:900px){ .tiles{grid-template-columns:repeat(2,minmax(0,1fr));} }
+@media (max-width:640px){
+  .fx-r{width:100%;flex-direction:column;align-items:stretch;} .ref-main{flex:1;min-width:0;} .fx-btn{justify-content:center;}
+  .fx-folha{padding:14px;border-radius:14px;}
+  .fx-cab .g{display:none;}
+  .topbar-user > div:last-child{display:none;}
+}
+@media print{
+  @page{size:A4 portrait;margin:10mm 12mm;}
+  .sidebar,.topbar,.no-print,#sidebar-container,#toast-container{display:none !important;}
+  .main-content{margin:0 !important;padding:0 !important;}
+  body{background:#fff !important;}
+  .fx-folha{box-shadow:none !important;border:none !important;padding:0 !important;}
+  .tiles{grid-template-columns:repeat(4,1fr) !important;gap:6px !important;margin-bottom:14px !important;}
+  .tile{padding:8px 10px !important;}
+  .tile-v{font-size:17px !important;}
+  table.fx{font-size:10px !important;}
+  table.fx td,table.fx thead th{padding:4px 6px !important;}
+  .fx-quebra{page-break-before:always;margin-top:0 !important;}
+  tr{page-break-inside:avoid;}
+  *{-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;}
+}
 </style>
 </head>
 <body>
 <div id="sidebar-container"></div>
 <header class="topbar" id="topbar">
   <button class="topbar-open-sidebar" onclick="toggleSidebar()">☰</button>
-  <div class="topbar-title">Fechamento Diário</div>
+  <div class="topbar-title">Fechamento diário</div>
   <div class="topbar-right">
     <div class="topbar-user">
       <div class="user-avatar" style="width:32px;height:32px;font-size:12px;" id="top-avatar">SA</div>
@@ -48,107 +150,211 @@
     <button class="btn btn-ghost btn-sm" onclick="doLogout()" style="color:#64748b;">Sair</button>
   </div>
 </header>
+
 <main class="main-content" id="main-content">
-  <div class="page-header no-print">
-    <div class="page-header-left"><h1>Fechamento Diário da Fábrica</h1>
-      <p>Gerado direto dos lançamentos — substitui a montagem manual do PDF</p></div>
-    <div style="display:flex;gap:10px;align-items:flex-end;">
-      <div class="form-group" style="margin:0;"><label class="form-label">Data</label>
-        <input type="date" id="fx-data" class="form-input" onchange="gerar()"></div>
-      <button class="btn btn-secondary" onclick="gerar()">🔄 Atualizar</button>
-      <button class="btn btn-primary" onclick="window.print()">🖨️ Imprimir / PDF</button>
+  <div class="fx-head no-print">
+    <div>
+      <h1>Fechamento diário</h1>
+      <p>Produto acabado e insumos no fim do dia — direto dos lançamentos</p>
+    </div>
+    <div class="fx-r">
+      <div class="ref-ctl">
+        <button type="button" class="ref-btn" onclick="mudarDia(-1)" aria-label="Dia anterior">‹</button>
+        <div class="ref-main" role="button" tabindex="0" onclick="abrirCalendario()" onkeydown="if(event.key==='Enter')abrirCalendario()" title="Escolher o dia">
+          <span class="ref-tag" id="ref-tag">Fechamento de ontem</span>
+          <span class="ref-dia" id="ref-dia">—</span>
+          <input type="date" id="fx-data" onchange="escolherDia(this.value)" tabindex="-1" aria-label="Dia do fechamento">
+        </div>
+        <button type="button" class="ref-btn" id="ref-next" onclick="mudarDia(1)" aria-label="Próximo dia">›</button>
+      </div>
+      <button type="button" class="fx-btn pri" onclick="window.print()">🖨️ Imprimir / PDF</button>
     </div>
   </div>
 
-  <div class="card">
+  <div class="fx-avisos no-print" id="fx-avisos"></div>
+
+  <div class="fx-folha" id="fx-folha">
     <div class="fx-cab">
-      <div id="fx-logo">🏭</div>
-      <div style="flex:1;">
-        <div class="t">FECHAMENTO DIÁRIO DA FÁBRICA</div>
+      <div id="fx-logo"><div class="logo-ph">🏭</div></div>
+      <div>
+        <div class="t" id="fx-empresa">Fechamento diário da fábrica</div>
         <div class="d" id="fx-cab-data">—</div>
       </div>
-      <div style="text-align:right;font-size:11px;color:#94a3b8;" id="fx-gerado"></div>
+      <div class="g" id="fx-gerado"></div>
     </div>
 
-    <div class="fx-sec">ESTOQUE DE PRODUTO ACABADO</div>
-    <div class="table-wrap"><table class="fx" id="fx-pa"><tbody></tbody></table></div>
+    <div class="tiles" id="fx-tiles"></div>
 
-    <div class="fx-sec">ESTOQUE DE INSUMOS</div>
-    <div class="table-wrap"><table class="fx" id="fx-ins"><tbody></tbody></table></div>
+    <div class="fx-sec">
+      <div><h2>Produto acabado</h2><p>Na unidade de cada produto · granel em toneladas</p></div>
+      <div class="seg no-print" id="seg-pa">
+        <button type="button" class="on" data-v="mov" onclick="setFiltroPA('mov')">Com movimento</button>
+        <button type="button" data-v="todos" onclick="setFiltroPA('todos')">Todos</button>
+      </div>
+    </div>
+    <div class="tb-wrap"><table class="fx" id="fx-pa"></table></div>
 
-    <div class="fx-aviso no-print">
-      ℹ️ <strong>Como ler:</strong> <em>Em análise</em> = produção de OPs que o laboratório ainda não liberou.
-      <em>Estoque liberado</em> = estoque total − em análise. O estoque de produto acabado parte do que foi
-      produzido e carregado <strong>dentro do ERP</strong> — a carga inicial (contagem física) entra pela
-      tabela de ajustes quando for feita, e aí os números passam a incluir o estoque anterior ao sistema.
+    <div class="fx-sec fx-quebra">
+      <div><h2>Insumos</h2><p>Saldo no fim do dia contra o estoque mínimo</p></div>
+      <div class="seg no-print" id="seg-ins">
+        <button type="button" class="on" data-v="todos" onclick="setFiltroIns('todos')">Todos</button>
+        <button type="button" data-v="comprar" onclick="setFiltroIns('comprar')">Comprar</button>
+      </div>
+    </div>
+    <div class="tb-wrap"><table class="fx" id="fx-ins"></table></div>
+
+    <div class="fx-como no-print">
+      <b>Como ler:</b> <i>Em análise</i> é a produção de OPs que o laboratório ainda não liberou.
+      <i>Estoque liberado</i> = estoque total − em análise. O estoque de produto acabado parte do que foi produzido e
+      carregado <b>dentro do ERP</b>; a contagem física inicial entra pela tabela de ajustes (<code>pa_ajustes</code>).
     </div>
   </div>
 </main>
-<div id="toast-container" style="position:fixed;bottom:20px;right:20px;z-index:9999;display:flex;flex-direction:column;gap:8px;"></div>
+<div id="toast-container"></div>
+
 <script>
 fetch('partials/sidebar.html').then(r=>r.text()).then(html=>{
   document.getElementById('sidebar-container').innerHTML=html;
+  document.querySelector('[href="fechamento.html"]')?.classList.add('active');
+  if(typeof openGroup==='function') openGroup('principal');
+  initSidebar('fechamento.html');
 }).catch(e=>console.warn('[sidebar]',e));
-initSidebar('fechamento.html');
 
-function hojeISO(){const d=new Date();return [d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-');}
-function fmtN(v,dec){const x=Number(v)||0;return x.toLocaleString('pt-BR',{minimumFractionDigits:dec??((Math.abs(x%1)>0.0001)?2:0),maximumFractionDigits:dec??3});}
-function esc(s){return String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
-function fmtData(d){const s=String(d).slice(0,10).split('-');return s.length===3?`${s[2]}/${s[1]}/${s[0]}`:String(d);}
+/* ── datas no fuso local ── */
+function _iso(d){ return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+function _hoje(){ return _iso(new Date()); }
+function _somaDias(iso,n){ const d=new Date(iso+'T12:00:00'); d.setDate(d.getDate()+n); return _iso(d); }
+function _ontem(){ return _somaDias(_hoje(),-1); }
+const fN=(v,d=0)=>(Number(v)||0).toLocaleString('pt-BR',{minimumFractionDigits:d,maximumFractionDigits:d});
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const dataLonga=iso=>new Date(iso+'T12:00:00').toLocaleDateString('pt-BR',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
 
-async function carregarCabecalho(){
-  try{
-    const{data:emp}=await _supabase.from('empresa_config').select('nome_fantasia,logo').limit(1).maybeSingle();
-    if(emp&&emp.logo)document.getElementById('fx-logo').innerHTML='<img src="'+emp.logo+'" style="height:52px;object-fit:contain;">';
-  }catch(e){}
+/* ── dia de referência: padrão ONTEM ── */
+let _dia=_ontem();
+function syncDia(){
+  const h=_hoje(), o=_ontem();
+  const inp=document.getElementById('fx-data'); inp.value=_dia; inp.max=h;
+  const tag=document.getElementById('ref-tag');
+  tag.className='ref-tag'+(_dia===h?' parcial':_dia===o?'':' outro');
+  tag.textContent=_dia===o?'Fechamento de ontem':_dia===h?'Hoje — ainda aberto':'Fechamento do dia';
+  document.getElementById('ref-dia').textContent=new Date(_dia+'T12:00:00').toLocaleDateString('pt-BR',{weekday:'long',day:'numeric',month:'long'});
+  document.getElementById('ref-next').disabled=_dia>=h;
+}
+function mudarDia(n){ const x=_somaDias(_dia,n); if(x>_hoje()) return; _dia=x; syncDia(); gerar(); }
+function escolherDia(v){ if(!v) return; _dia=v>_hoje()?_hoje():v; syncDia(); gerar(); }
+function abrirCalendario(){ const i=document.getElementById('fx-data'); try{ i.showPicker(); }catch(e){ i.style.pointerEvents='auto'; i.focus(); } }
+
+/* ── unidade de cada produto (cadastro) ──
+   sacos → sc · unidades → bags · toneladas → t (o RPC devolve o granel em kg, como a OP lança) */
+let _PRODS=[], _FX=null, _filtroPA='mov', _filtroIns='todos', _ultCarga=null;
+const GRUPOS=[['sc','Sacos','sc',0],['bags','Bags','bags',0],['t','Granel','t',1]];
+function _unidadeDe(nome){
+  const un=(window.Regras?Regras.unidadeDoProduto(nome,_PRODS):'')||'';
+  return { k:/unid/i.test(un)?'bags':/ton/i.test(un)?'t':'sc', un };
+}
+const _conv=(v,un)=>window.Regras?Regras.qtdNaUnidadeDoProduto(v,un):(Number(v)||0);
+
+async function carregarBase(){
+  const [emp,pr,cg]=await Promise.all([
+    _supabase.from('empresa_config').select('nome_fantasia,razao_social,logo').limit(1).maybeSingle(),
+    _supabase.from('produtos').select('nome,unidade'),
+    _supabase.from('carregamentos').select('data').order('data',{ascending:false}).limit(1),
+  ]);
+  const e=emp&&emp.data;
+  if(e){
+    if(e.logo) document.getElementById('fx-logo').innerHTML='<img src="'+esc(e.logo)+'" alt="">';
+    const nm=e.nome_fantasia||e.razao_social; if(nm) document.getElementById('fx-empresa').textContent='Fechamento diário — '+nm;
+  }
+  _PRODS=(pr&&pr.data)||[];
+  _ultCarga=cg&&cg.data&&cg.data[0]?String(cg.data[0].data).slice(0,10):null;
 }
 
 async function gerar(){
-  const d=document.getElementById('fx-data').value||hojeISO();
-  document.getElementById('fx-cab-data').textContent=fmtData(d);
-  document.getElementById('fx-gerado').textContent='gerado pelo sistema em '+new Date().toLocaleString('pt-BR');
-  const{data:fx,error}=await _supabase.rpc('rpc_fechamento_dia',{p_data:d});
-  if(error){toast('Erro ao gerar: '+(error.message||error),'danger');return;}
-
-  /* ── produto acabado ── */
-  const pa=document.querySelector('#fx-pa tbody');
-  const prods=(fx.produtos||[]);
-  const t=fx.totais||{};
-  pa.innerHTML='<tr><th>PRODUTO</th><th class="num">PRODUÇÃO</th><th class="num">EM ANÁLISE</th>'+
-    '<th class="num">CARREGAMENTO</th><th class="num">ESTOQUE LIBERADO</th><th class="num">ESTOQUE TOTAL</th></tr>'+
-    (prods.length?prods.map(p=>
-      '<tr><td><strong>'+esc(p.produto)+'</strong></td>'+
-      '<td class="num">'+(p.producao_dia?fmtN(p.producao_dia,0):'')+'</td>'+
-      '<td class="num">'+(p.em_analise?fmtN(p.em_analise,0):'')+'</td>'+
-      '<td class="num">'+(p.carregado_dia?fmtN(p.carregado_dia,0):'')+'</td>'+
-      '<td class="num"><strong>'+fmtN(p.estoque_liberado,0)+'</strong></td>'+
-      '<td class="num">'+fmtN(p.estoque_total,0)+'</td></tr>').join('')
-    :'<tr><td colspan="6" style="color:#94a3b8;">Sem produção, carga ou ajuste até esta data.</td></tr>')+
-    '<tr class="total"><td>TOTAL</td>'+
-    '<td class="num">'+fmtN(t.producao_dia||0,0)+'</td>'+
-    '<td class="num">'+fmtN(t.em_analise||0,0)+'</td>'+
-    '<td class="num">'+fmtN(t.carregado_dia||0,0)+'</td>'+
-    '<td class="num">'+fmtN(t.estoque_liberado||0,0)+'</td>'+
-    '<td class="num">'+fmtN(t.estoque_total||0,0)+'</td></tr>';
-
-  /* ── insumos, agrupados ── */
-  const ins=document.querySelector('#fx-ins tbody');
-  const porGrupo={};
-  (fx.insumos||[]).forEach(i=>{(porGrupo[i.grupo]=porGrupo[i.grupo]||[]).push(i);});
-  ins.innerHTML='<tr><th>INSUMO</th><th>UN.</th><th class="num">ESTOQUE ATUAL</th><th class="num">MÍNIMO</th><th>STATUS</th></tr>'+
-    Object.keys(porGrupo).map(g=>
-      '<tr><td colspan="5" style="background:#f8fafc;font-weight:800;color:#64748b;font-size:11px;letter-spacing:.4px;">'+esc(g).toUpperCase()+'</td></tr>'+
-      porGrupo[g].map(i=>
-        '<tr><td>'+esc(i.nome)+'</td><td>'+esc(i.unidade)+'</td>'+
-        '<td class="num" style="'+(i.saldo<0?'color:#b91c1c;font-weight:800;':'')+'"><strong>'+fmtN(i.saldo)+'</strong></td>'+
-        '<td class="num">'+fmtN(i.minimo)+'</td>'+
-        '<td><span class="'+(i.status==='Comprar'?'st-comprar':'st-ok')+'">'+i.status+'</span></td></tr>').join('')
-    ).join('');
+  document.getElementById('fx-cab-data').textContent=dataLonga(_dia)+(_dia===_hoje()?' (parcial)':'');
+  document.getElementById('fx-gerado').textContent='Gerado pelo sistema em '+new Date().toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
+  document.getElementById('fx-pa').innerHTML='<tbody><tr><td class="fx-vazio">Carregando…</td></tr></tbody>';
+  const {data:fx,error}=await _supabase.rpc('rpc_fechamento_dia',{p_data:_dia});
+  if(error){ toast('Erro ao gerar: '+(error.message||error),'danger'); document.getElementById('fx-pa').innerHTML='<tbody><tr><td class="fx-vazio">Não foi possível gerar o fechamento.</td></tr></tbody>'; return; }
+  // converte cada produto para a unidade dele
+  const prods=(fx.produtos||[]).map(p=>{
+    const u=_unidadeDe(p.produto);
+    const c=k=>_conv(p[k],u.un);
+    return { nome:p.produto, k:u.k, prod:c('producao_dia'), anal:c('em_analise'), carr:c('carregado_dia'), lib:c('estoque_liberado'), tot:c('estoque_total') };
+  });
+  _FX={ prods, insumos:fx.insumos||[] };
+  renderTiles(); renderPA(); renderIns(); renderAvisos();
 }
 
-document.getElementById('fx-data').value=hojeISO();
-carregarCabecalho();
-gerar();
+/* ── tiles ── */
+function _somaPor(campo){ const o={sc:0,bags:0,t:0}; (_FX.prods||[]).forEach(p=>{ o[p.k]+=p[campo]; }); return o; }
+function _fQ(o,sep){ const p=GRUPOS.filter(([k])=>Math.abs(o[k])>0.0001).map(([k,,u,d])=>fN(o[k],d)+'<small>'+u+'</small>'); return p.length?p.join(sep||'<br>'):'0'; }
+function renderTiles(){
+  const prod=_somaPor('prod'), carr=_somaPor('carr'), lib=_somaPor('lib'), tot=_somaPor('tot');
+  const comprar=(_FX.insumos||[]).filter(i=>i.status==='Comprar');
+  const zerados=comprar.filter(i=>(Number(i.saldo)||0)<=0).length;
+  const tile=(l,v,s,cls)=>`<div class="tile ${cls||''}"><div class="tile-l">${l}</div><div class="tile-v">${v}</div><div class="tile-s">${s||''}</div></div>`;
+  document.getElementById('fx-tiles').innerHTML=
+    tile('Produção do dia',_fQ(prod),`${_FX.prods.filter(p=>p.prod>0).length} produto(s)`,'hero')+
+    tile('Carregado no dia',_fQ(carr),_ultCarga?`último carregamento registrado: ${new Date(_ultCarga+'T12:00:00').toLocaleDateString('pt-BR')}`:'nenhum carregamento registrado')+
+    tile('Estoque liberado',_fQ(lib),'pelo laboratório, no fim do dia')+
+    tile('Insumos para comprar',`${comprar.length}<small>de ${(_FX.insumos||[]).length}</small>`,zerados?`${zerados} zerado(s)`:'abaixo do mínimo',comprar.length?'alerta':'');
+}
+
+/* ── produto acabado, agrupado por unidade com subtotal ── */
+function setFiltroPA(v){ _filtroPA=v; document.querySelectorAll('#seg-pa button').forEach(b=>b.classList.toggle('on',b.dataset.v===v)); renderPA(); }
+function renderPA(){
+  const el=document.getElementById('fx-pa');
+  const mov=p=>p.prod>0||p.carr>0;
+  const cel=(v,d,cls)=>{ if(Math.abs(v)<0.0001) return `<td class="num zero">—</td>`; return `<td class="num ${cls||''}${v<0?' neg':''}">${fN(v,d)}</td>`; };
+  let corpo='';
+  GRUPOS.forEach(([k,rot,u,d])=>{
+    const todos=_FX.prods.filter(p=>p.k===k);
+    const lista=(_filtroPA==='mov'?todos.filter(mov):todos).sort((a,b)=>(mov(b)-mov(a))||a.nome.localeCompare(b.nome));
+    if(!lista.length) return;
+    const s=f=>todos.reduce((a,p)=>a+p[f],0);
+    corpo+=`<tr class="grp"><td colspan="6">${rot} <span class="un">em ${u==='t'?'toneladas':u}</span></td></tr>`+
+      lista.map(p=>`<tr class="${mov(p)?'':'parado'}"><td class="nome">${esc(p.nome)}</td>${cel(p.prod,d,'mov')}${cel(p.carr,d,'mov')}${cel(p.anal,d)}${cel(p.lib,d)}${cel(p.tot,d)}</tr>`).join('')+
+      `<tr class="sub"><td>Total ${rot.toLowerCase()}${_filtroPA==='mov'&&lista.length<todos.length?' <span class="un">(todos os produtos)</span>':''}</td>${cel(s('prod'),d)}${cel(s('carr'),d)}${cel(s('anal'),d)}${cel(s('lib'),d)}${cel(s('tot'),d)}</tr>`;
+  });
+  el.innerHTML=`<thead><tr><th>Produto</th><th class="num">Produção do dia</th><th class="num">Carregado no dia</th><th class="num">Em análise</th><th class="num">Estoque liberado</th><th class="num">Estoque total</th></tr></thead>
+    <tbody>${corpo||`<tr><td colspan="6" class="fx-vazio">${_filtroPA==='mov'?'Nenhum produto produzido ou carregado neste dia. Toque em "Todos" para ver o estoque.':'Sem produção, carga ou ajuste até esta data.'}</td></tr>`}</tbody>`;
+}
+
+/* ── insumos, agrupados, com barra saldo × mínimo ── */
+function setFiltroIns(v){ _filtroIns=v; document.querySelectorAll('#seg-ins button').forEach(b=>b.classList.toggle('on',b.dataset.v===v)); renderIns(); }
+function renderIns(){
+  const lista=(_FX.insumos||[]).filter(i=>_filtroIns==='todos'||i.status==='Comprar');
+  const porGrupo={}; lista.forEach(i=>{ (porGrupo[i.grupo||'Outros']=porGrupo[i.grupo||'Outros']||[]).push(i); });
+  const dec=v=>Math.abs(v%1)>0.0001?2:0;
+  const barra=(s,m)=>{ s=Number(s)||0; m=Number(m)||0; if(m<=0) return ''; const esc2=Math.max(s,m*1.6,1);
+    const c=s<=0?'var(--bad-line)':s<=m?'var(--warn-line)':'var(--ok-line)';
+    return `<div class="sb" title="mínimo ${fN(m,dec(m))}"><span style="width:${Math.max(0,Math.min(100,s/esc2*100)).toFixed(1)}%;background:${c};"></span><i style="left:${(m/esc2*100).toFixed(1)}%;"></i></div>`; };
+  document.getElementById('fx-ins').innerHTML=`<thead><tr><th>Insumo</th><th class="num">Saldo</th><th class="num">Mínimo</th><th>Saldo × mínimo</th><th>Situação</th></tr></thead><tbody>`+
+    (Object.keys(porGrupo).length?Object.keys(porGrupo).map(g=>
+      `<tr class="grp"><td colspan="5">${esc(g)}</td></tr>`+
+      porGrupo[g].map(i=>{ const s=Number(i.saldo)||0, m=Number(i.minimo)||0;
+        return `<tr><td class="nome">${esc(i.nome)}</td>
+          <td class="num ${s<0?'neg':''}"><b style="color:${s<=0?'var(--bad)':'var(--primary)'};">${fN(s,dec(s))}</b><span class="un">${esc(i.unidade||'')}</span></td>
+          <td class="num">${m?fN(m,dec(m)):'—'}<span class="un">${m?esc(i.unidade||''):''}</span></td>
+          <td><div class="sb-cell">${barra(s,m)}</div></td>
+          <td><span class="pill ${i.status==='Comprar'?'comprar':'ok'}">${i.status==='Comprar'?'Comprar':'OK'}</span></td></tr>`; }).join('')
+    ).join(''):`<tr><td colspan="5" class="fx-vazio">${_filtroIns==='comprar'?'Nenhum insumo abaixo do mínimo. ✅':'Nenhum insumo cadastrado.'}</td></tr>`)+'</tbody>';
+}
+
+/* ── avisos sobre os dados (não imprimem) ── */
+function renderAvisos(){
+  const av=[];
+  const tot=_somaPor('tot'), anal=_somaPor('anal');
+  const pct=k=>tot[k]>0?anal[k]/tot[k]*100:0;
+  const altos=GRUPOS.filter(([k])=>tot[k]>0&&pct(k)>=80).map(([,r])=>r.toLowerCase());
+  if(altos.length) av.push(`<b>Quase todo o estoque está "em análise"</b> (${altos.join(', ')}). A OP só sai de análise quando o laboratório aprova todos os pallets dela — enquanto isso, o estoque liberado fica perto de zero.`);
+  const dias=_ultCarga?Math.round((new Date(_dia+'T12:00:00')-new Date(_ultCarga+'T12:00:00'))/86400000):null;
+  if(!_ultCarga) av.push('<b>Nenhum carregamento registrado no sistema.</b> O estoque total só desconta o que sai pela tela de Carregamento.');
+  else if(dias>3) av.push(`<b>Último carregamento registrado há ${dias} dias</b> (${new Date(_ultCarga+'T12:00:00').toLocaleDateString('pt-BR')}). Se houve carga depois disso fora do sistema, o estoque total está acima do real.`);
+  document.getElementById('fx-avisos').innerHTML=av.map(t=>`<div class="fx-av"><span class="ic">⚠️</span><span>${t}</span></div>`).join('');
+}
+
+(async()=>{ syncDia(); await carregarBase(); gerar(); })();
 </script>
 </body>
 </html>
