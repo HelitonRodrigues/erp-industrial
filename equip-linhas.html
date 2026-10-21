@@ -9,6 +9,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="js/supabase.js"></script>
 <script src="js/utils.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <style>
 /* ══════════════════════════════════════════════════════════════════════════
    EQUIPAMENTOS DAS LINHAS (out/2026) — mesmo desenho do Painel da fábrica
@@ -190,6 +191,7 @@ button:focus-visible,a:focus-visible,[role="button"]:focus-visible,input:focus-v
     <div class="eq-acts">
       <button class="b" onclick="exportarLista('csv')">📊 CSV</button>
       <button class="b" onclick="exportarLista('pdf')">📄 PDF</button>
+      <button class="b" onclick="imprimirEtiquetas()" title="Etiquetas com QR dos equipamentos da linha selecionada">🏷️ Etiquetas QR</button>
       <button class="b pri" onclick="openModalEquip()">+ Novo equipamento</button>
     </div>
   </div>
@@ -337,6 +339,20 @@ button:focus-visible,a:focus-visible,[role="button"]:focus-visible,input:focus-v
     <div class="modal-header"><div class="modal-title" id="modal-view-equip-title">Equipamento</div><button class="modal-close" onclick="closeModal('modal-view-equip')" aria-label="Fechar">✕</button></div>
     <div id="modal-view-equip-body"></div>
     <div class="modal-footer" id="modal-view-equip-foot"></div>
+  </div>
+</div>
+
+<!-- QR DO EQUIPAMENTO -->
+<div id="modal-qr" class="modal-overlay hidden" style="z-index:30070;">
+  <div class="modal" style="max-width:360px;text-align:center;">
+    <div class="modal-header"><div class="modal-title" id="qr-tit">QR do equipamento</div><button class="modal-close" onclick="closeModal('modal-qr')" aria-label="Fechar">✕</button></div>
+    <div id="qr-box" style="display:flex;justify-content:center;padding:6px 0 10px;"></div>
+    <div id="qr-info" style="font-size:13px;color:var(--ink-2);line-height:1.5;margin-bottom:6px;"></div>
+    <div style="font-size:11.5px;color:var(--ink-4);margin-bottom:14px;">Ao ler, abre o equipamento na Manutenção — o mesmo QR que a Manutenção gera.</div>
+    <div style="display:flex;gap:8px;">
+      <button class="btn btn-secondary" style="flex:1;" onclick="baixarQR()">⬇️ Baixar</button>
+      <button class="btn btn-primary" style="flex:1;" onclick="imprimirEtiquetas(_qrEquipId)">🖨️ Etiqueta</button>
+    </div>
   </div>
 </div>
 
@@ -542,6 +558,7 @@ function cardEquip({e,r}){
     <div class="eqc-a">
       <button type="button" class="b sm" onclick="visualizarEquip('${id}')">Ficha</button>
       <button type="button" class="b sm" onclick="editarEquip('${id}')">✏️ Editar</button>
+      <button type="button" class="b sm" onclick="abrirQR('${id}')" aria-label="QR do equipamento">📱</button>
       <button type="button" class="b sm" onclick="abrirHorimetro('${id}')" aria-label="Atualizar horímetro">⏱️</button>
     </div></div>`;
 }
@@ -944,6 +961,7 @@ function visualizarEquip(id){
   const i2=esc(e.id);
   document.getElementById('modal-view-equip-foot').innerHTML=
     `<button class="btn btn-secondary" style="color:#dc2626;margin-right:auto;" onclick="excluirEquip('${i2}')" ${temHist?'title="Tem histórico de manutenção — use a situação Inativo"':''}>Excluir</button>
+     <button class="btn btn-secondary" onclick="abrirQR('${i2}')">📱 QR</button>
      <button class="btn btn-secondary" onclick="abrirHorimetro('${i2}')">⏱️ Horímetro</button>
      <button class="btn btn-secondary" onclick="editarEquip('${i2}','comp')">⚙️ Peças</button>
      <button class="btn btn-primary" onclick="editarEquip('${i2}')">✏️ Editar</button>`;
@@ -957,6 +975,53 @@ async function excluirEquip(id){
   if(!confirm(`Excluir "${e.nome}" (${e.linha})? Isto não pode ser desfeito.`)) return;
   try{ await db(_supabase.from('equipamentos_linhas').delete().eq('id',id),'excluir equipamento'); await addLog('DELETE','EQUIPAMENTOS',id,'Excluído: '+e.nome);
     toast('Equipamento excluído.','warning'); closeModal('modal-view-equip'); await recarregarEquips(); }catch(err){ toast('Erro: '+err.message,'danger'); }
+}
+
+/* ═══════════════════════════════════════════
+   QR — mesmo endereço que a Manutenção usa (manutencao.html?equip=…&tabela=linhas),
+   para que etiquetas antigas e novas abram o mesmo lugar
+   ═══════════════════════════════════════════ */
+let _qrEquipId=null;
+function urlQR(e){ const base=location.origin+location.pathname.replace(/[^/]*$/,''); return `${base}manutencao.html?equip=${encodeURIComponent(e.id)}&tabela=linhas`; }
+function _qrDataURL(texto,tam){
+  const box=document.createElement('div');
+  new QRCode(box,{text:texto,width:tam,height:tam,colorDark:'#042D4D',colorLight:'#ffffff',correctLevel:QRCode.CorrectLevel.M});
+  const cv=box.querySelector('canvas'); return cv?cv.toDataURL('image/png'):(box.querySelector('img')||{}).src||'';
+}
+function abrirQR(id){
+  const e=_equips.find(x=>x.id===id); if(!e) return;
+  if(typeof QRCode==='undefined'){ toast('Não foi possível carregar o gerador de QR (sem internet?).','warning'); return; }
+  _qrEquipId=id;
+  document.getElementById('qr-tit').textContent='QR — '+e.nome;
+  document.getElementById('qr-box').innerHTML=`<img src="${_qrDataURL(urlQR(e),220)}" alt="QR de ${esc(e.nome)}" style="width:220px;height:220px;border-radius:10px;border:1px solid var(--wd-line);padding:8px;background:#fff;">`;
+  document.getElementById('qr-info').innerHTML=`<b style="color:var(--primary);">${esc(e.nome)}</b><br>${esc(e.codigo||'sem TAG')} · ${esc(e.linha||'')}`;
+  document.getElementById('modal-qr').classList.remove('hidden');
+}
+function baixarQR(){
+  const e=_equips.find(x=>x.id===_qrEquipId); if(!e) return;
+  const a=document.createElement('a'); a.href=_qrDataURL(urlQR(e),600);
+  a.download=('QR-'+(e.linha||'')+'-'+(e.codigo||e.nome)).replace(/[^a-zA-Z0-9-]+/g,'-')+'.png';
+  document.body.appendChild(a); a.click(); a.remove();
+}
+// etiquetas para colar na máquina: um equipamento, ou todos da linha selecionada
+function imprimirEtiquetas(id){
+  if(typeof QRCode==='undefined'){ toast('Não foi possível carregar o gerador de QR (sem internet?).','warning'); return; }
+  const lista=id?_equips.filter(e=>e.id===id):_equips.filter(e=>(!_linhaSel||e.linha===_linhaSel)&&e.status!=='inativo')
+    .sort((a,b)=>String(a.linha).localeCompare(b.linha)||String(a.nome).localeCompare(b.nome));
+  if(!lista.length){ toast('Nenhum equipamento para imprimir.','warning'); return; }
+  if(!id&&lista.length>1&&!confirm(`Imprimir ${lista.length} etiqueta(s)${_linhaSel?' da '+_linhaSel:' de todas as linhas'}?`)) return;
+  const w=window.open('','_blank'); if(!w){ toast('Libere as janelas pop-up para imprimir.','warning'); return; }
+  const et=lista.map(e=>`<div class="et"><img src="${_qrDataURL(urlQR(e),300)}" alt=""><div class="tx"><b>${esc(e.nome)}</b><span class="tag">${esc(e.codigo||'')}</span><span>${esc(e.linha||'')}</span><small>Ler para abrir na Manutenção</small></div></div>`).join('');
+  w.document.write(`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8"><title>Etiquetas QR</title><style>
+    @page{size:A4;margin:10mm;} body{font-family:Arial,Helvetica,sans-serif;margin:0;color:#042D4D;}
+    .g{display:grid;grid-template-columns:repeat(2,1fr);gap:6mm;}
+    .et{display:flex;align-items:center;gap:4mm;border:1.5px solid #042D4D;border-radius:3mm;padding:4mm;break-inside:avoid;height:38mm;box-sizing:border-box;}
+    .et img{width:30mm;height:30mm;} .tx{display:flex;flex-direction:column;gap:1.2mm;min-width:0;}
+    .tx b{font-size:14pt;line-height:1.1;} .tx .tag{font-size:13pt;font-weight:700;background:#C9FF64;padding:0.5mm 2mm;border-radius:1.5mm;align-self:flex-start;}
+    .tx span{font-size:10pt;} .tx small{font-size:7.5pt;color:#64748b;}
+    *{-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+  </style></head><body><div class="g">${et}</div><script>window.onload=()=>setTimeout(()=>window.print(),200);<\/script></body></html>`);
+  w.document.close();
 }
 
 /* ═══════════════════════════════════════════
@@ -1002,7 +1067,7 @@ function exportarLista(tipo){
 }
 document.addEventListener('keydown',e=>{
   if(e.key!=='Escape') return;
-  for(const m of ['modal-copia','modal-peca','modal-pecas','modal-horimetro','modal-view-equip']){ const el=document.getElementById(m); if(el&&!el.classList.contains('hidden')){ closeModal(m); return; } }
+  for(const m of ['modal-qr','modal-copia','modal-peca','modal-pecas','modal-horimetro','modal-view-equip']){ const el=document.getElementById(m); if(el&&!el.classList.contains('hidden')){ closeModal(m); return; } }
   const ed=document.getElementById('modal-equip'); if(ed&&!ed.classList.contains('hidden')) fecharEditor();
 });
 document.getElementById('equip-horimetro').addEventListener('input',()=>renderCompsEditor());
