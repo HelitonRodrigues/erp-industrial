@@ -538,5 +538,63 @@
     var opTail = opNumero ? String(opNumero).split('-').pop() : '0000';
     return lin3 + '-' + String(data || '').replace(/-/g, '') + '-' + opTail + '-' + (sufixo || '') + 'P' + String(numero || 0).padStart(3, '0');
   };
+  /* ── META DE UM TURNO (OP) ───────────────────────────────────────────────────
+   * Usada pelo Painel de Metas (TV) e pela tela "Conferir" do modo pátio.
+   * Regra combinada (out/2026):
+   *   • horas-meta do turno = horas disponíveis/dia do planejamento daquela linha e
+   *     turno (dispH ÷ diasTrabalho — já com a eficiência do plano, ex.: 85%);
+   *   • meta de produção de cada produto = média/h da linha de produto × horas-meta,
+   *     rateada pelas horas que cada produto rodou na OP (quando a OP tem vários);
+   *   • "bateu" = soma, em horas de média/h (real ÷ média/h), ≥ horas-meta;
+   *   • máquina rodando: real = H.T da OP, meta = horas-meta do turno.
+   * A média/h vem do planejamento do mês (seção da linha/turno); se não houver,
+   * do cadastro da linha. Nome casado ignorando espaço/acento/maiúscula.
+   * Devolve { turno, producao:{bateu,horasReal,horasMeta,itens[]}, disponibilidade:{real,meta}, semCap[] }.
+   */
+  Regras.metaDaOP = function (op, secoes, linhaCad, produtos) {
+    op = op || {};
+    var norm = function (x) { return String(x || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, ''); };
+    var daLinha = (secoes || []).filter(function (s) { return s && s.linha === op.linha; });
+    var sec = daLinha.filter(function (s) { return s.turno === op.turno; })[0] || daLinha[0] || null;
+    var horasMeta = sec ? (parseFloat(sec.dispH) || 0) / (parseInt(sec.diasTrabalho, 10) || 1) : 0;
+    // candidatos de média/h: seção do turno, demais seções da linha, cadastro da linha
+    var cands = [];
+    if (sec) cands = cands.concat(sec.produtos || []);
+    daLinha.forEach(function (s) { if (s !== sec) cands = cands.concat(s.produtos || []); });
+    cands = cands.concat((linhaCad && linhaCad.produtos) || []);
+    cands = cands.filter(function (c) { return c && c.nome && (parseFloat(c.capHora) || 0) > 0; });
+    var capDe = function (lp) {
+      var k = norm(lp); if (!k) return 0;
+      var ex = cands.filter(function (c) { return norm(c.nome) === k; })[0];
+      if (ex) return parseFloat(ex.capHora) || 0;
+      var ap = cands.filter(function (c) { var n = norm(c.nome); return n.indexOf(k) === 0 || k.indexOf(n) === 0; });
+      var nomes = ap.map(function (c) { return norm(c.nome); }).filter(function (v, i, a) { return a.indexOf(v) === i; });
+      return nomes.length === 1 ? (parseFloat(ap[0].capHora) || 0) : 0;
+    };
+    var itensOP = (Array.isArray(op.produtos_op) && op.produtos_op.length) ? op.produtos_op
+      : [{ produto: op.produto, total_sacos: op.total_sacos, ht: op.ht }];
+    var htItens = itensOP.reduce(function (s, it) { return s + (Number(it.ht) || 0); }, 0);
+    var itens = [], semCap = [], hReal = 0, hMeta = 0;
+    itensOP.forEach(function (it) {
+      var un = Regras.unidadeDoProduto(it.produto, produtos);
+      var qtd = (it.total_sacos != null && it.total_sacos !== '') ? it.total_sacos : it.sacos_pallets;
+      var real = Regras.qtdNaUnidadeDoProduto(qtd, un) || 0;
+      var cadP = (produtos || []).filter(function (p) { return p && p.nome === it.produto; })[0];
+      var lp = it.linha_produto || (cadP && cadP.linhas && cadP.linhas[0]) || it.produto || '';
+      var cap = capDe(lp);
+      if (!cap) { if (lp && semCap.indexOf(lp) < 0) semCap.push(lp); return; }
+      var parte = htItens > 0 ? (Number(it.ht) || 0) / htItens : 1 / itensOP.length;
+      var meta = cap * horasMeta * parte;
+      itens.push({ produto: it.produto, linha_produto: lp, unidade: un, real: real, meta: meta, capHora: cap });
+      hReal += real / cap; hMeta += meta / cap;
+    });
+    return {
+      turno: op.turno,
+      producao: { bateu: hMeta > 0 ? hReal >= hMeta - 1e-9 : null, horasReal: hReal, horasMeta: hMeta, itens: itens },
+      disponibilidade: { real: Number(op.ht) || htItens || 0, meta: horasMeta },
+      semCap: semCap
+    };
+  };
+
   global.Regras = Regras;
 })(typeof window !== 'undefined' ? window : this);
