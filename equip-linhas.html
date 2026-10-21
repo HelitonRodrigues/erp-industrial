@@ -59,6 +59,14 @@ button:focus-visible,a:focus-visible,[role="button"]:focus-visible,input:focus-v
 .tile{background:#fff;border:1px solid var(--wd-line);border-radius:14px;padding:14px 16px;box-shadow:var(--wd-shadow);text-align:left;font:inherit;cursor:pointer;min-width:0;}
 .tile:hover{border-color:#b9c8d8;} .tile.on{border-color:var(--primary);box-shadow:0 0 0 1px var(--primary);}
 .tile.hero{background:var(--primary);border-color:var(--primary);cursor:default;}
+.tile:not([onclick]){cursor:default;}
+.pz-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;padding:10px 12px;border-bottom:1px solid var(--line-soft);cursor:pointer;}
+.pz-row:hover{background:#f8fafc;}
+.pz-row b{color:var(--primary);} .pz-row .cod{font-family:ui-monospace,Menlo,monospace;font-size:12px;color:var(--ink-3);margin-left:6px;}
+.pz-row .sub{display:block;font-size:11.5px;color:var(--ink-4);margin-top:2px;}
+.pz-det{padding:4px 12px 12px 24px;border-bottom:1px solid var(--line-soft);background:#fafcfe;}
+.pz-eq{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;font-size:13px;border-bottom:1px dashed var(--line-soft);}
+.pz-eq:last-child{border-bottom:0;}
 .tile-l{font-size:12.5px;font-weight:700;color:var(--ink-2);}
 .tile-v{font-size:28px;font-weight:800;color:var(--primary);letter-spacing:-.5px;line-height:1.1;margin-top:6px;font-variant-numeric:tabular-nums;}
 .tile-s{font-size:11.5px;color:var(--ink-3);margin-top:3px;}
@@ -71,7 +79,9 @@ button:focus-visible,a:focus-visible,[role="button"]:focus-visible,input:focus-v
 .busca span{position:absolute;left:12px;top:50%;transform:translateY(-50%);font-size:14px;opacity:.6;}
 .seg{display:flex;gap:3px;background:var(--line-soft);padding:3px;border-radius:10px;flex-wrap:wrap;}
 .seg button{border:0;background:transparent;font:inherit;font-size:13px;font-weight:700;color:var(--ink-3);padding:7px 12px;border-radius:7px;cursor:pointer;white-space:nowrap;}
-.seg button.on{background:#fff;color:var(--primary);box-shadow:0 1px 2px rgba(4,45,77,.12);}
+.seg button.on{background:var(--accent);color:var(--primary);box-shadow:0 1px 3px rgba(4,45,77,.18);}
+.seg button.on b{color:var(--primary);opacity:.65;}
+.seg button:not(.on):hover{color:var(--primary);background:rgba(255,255,255,.6);}
 .seg button b{font-weight:700;color:var(--ink-4);margin-left:4px;}
 
 /* cartões de equipamento */
@@ -308,6 +318,19 @@ button:focus-visible,a:focus-visible,[role="button"]:focus-visible,input:focus-v
   </div>
 </div>
 
+<!-- TODAS AS PEÇAS -->
+<div id="modal-pecas" class="modal-overlay hidden">
+  <div class="modal modal-xl" style="max-height:88vh;display:flex;flex-direction:column;">
+    <div class="modal-header" style="flex-shrink:0;"><div class="modal-title">Peças cadastradas</div><button class="modal-close" onclick="closeModal('modal-pecas')" aria-label="Fechar">✕</button></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;flex-shrink:0;">
+      <input id="pz-busca" type="search" class="form-input" placeholder="Buscar peça ou código (ex.: 6206)" oninput="renderPecas()" style="flex:1 1 240px;">
+      <div class="seg" id="pz-seg"></div>
+    </div>
+    <div id="pz-resumo" style="font-size:12px;color:var(--ink-3);margin:0 2px 6px;flex-shrink:0;"></div>
+    <div id="pz-lista" style="overflow-y:auto;flex:1;border:1px solid var(--wd-line);border-radius:12px;"></div>
+  </div>
+</div>
+
 <!-- FICHA -->
 <div id="modal-view-equip" class="modal-overlay hidden">
   <div class="modal modal-xl">
@@ -409,6 +432,12 @@ function resumoEquip(e){
 /* ═══════════════════════════════════════════
    CARREGAR + VÍNCULO AUTOMÁTICO
    ═══════════════════════════════════════════ */
+async function recarregarEquips(){
+  const [eq,so]=await Promise.all([
+    _supabase.from('equipamentos_linhas').select('*').order('nome'),
+    _supabase.from('almoxarifado_solicitacoes_cadastro').select('id,status,almox_id,componente_uid,equipamento_id,nome').eq('origem','equip_linhas')]);
+  _equips=eq.data||[]; _sols=so.data||[]; renderEquips();
+}
 async function init(){
   const [eq,ln,al,so]=await Promise.all([
     _supabase.from('equipamentos_linhas').select('*').order('nome'),
@@ -476,7 +505,7 @@ function renderEquips(){
   const tile=(f,l,v,s,cls)=>`<button type="button" class="tile ${cls||''}${_filtro===f&&f?' on':''}" ${f?`onclick="setFiltro('${f}')"`:''}><div class="tile-l">${l}</div><div class="tile-v">${v}</div><div class="tile-s">${s}</div></button>`;
   document.getElementById('eq-tiles').innerHTML=
     tile('','Equipamentos',_equips.length,`${_equips.filter(e=>e.status==='manutencao').length} em manutenção`,'hero')+
-    tile('','Peças cadastradas',tot.n,`${tot.n?Math.round(tot.vinc/tot.n*100):0}% vinculadas ao almoxarifado`)+
+    `<button type="button" class="tile" onclick="abrirPecas()"><div class="tile-l">Peças cadastradas</div><div class="tile-v">${tot.n}</div><div class="tile-s">${tot.n?Math.round(tot.vinc/tot.n*100):0}% vinculadas · ver onde cada uma é usada</div></button>`+
     tile('rev','Revisão vencida',tot.venc,tot.breve?`${tot.breve} vencendo em breve`:'pelo horímetro',tot.venc?'ruim':tot.breve?'atencao':'')+
     tile('sem','Sem vínculo',tot.sem,'peças fora do almoxarifado',tot.sem?'atencao':'')+
     tile('aguard','Aguardando almoxarifado',tot.aguard,'cadastro pedido');
@@ -846,9 +875,47 @@ async function salvarEquip(){
     }
     toast(_editingEquipId?'Equipamento atualizado!':'Equipamento cadastrado!','success');
     if(pedidos.length) toast(falhou?`${falhou} pedido(s) de cadastro não foram enviados — tente de novo.`:`📨 ${pedidos.length} pedido(s) de cadastro enviados ao almoxarifado.`,falhou?'warning':'success');
-    _resetEditor(); closeModal('modal-equip'); await init();
+    _resetEditor(); closeModal('modal-equip'); await recarregarEquips();
   }catch(e){ erro('Erro: '+(e.message||e)); }
   btn.disabled=false; btn.innerHTML='💾 Salvar';
+}
+
+/* ═══════════════════════════════════════════
+   TODAS AS PEÇAS — onde cada peça é usada
+   ═══════════════════════════════════════════ */
+let _pzFiltro='', _pzAberta=null, _pzGrupos=[];
+function abrirPecas(){ document.getElementById('pz-busca').value=''; _pzFiltro=''; _pzAberta=null; renderPecas(); document.getElementById('modal-pecas').classList.remove('hidden'); setTimeout(()=>document.getElementById('pz-busca').focus(),50); }
+function setPzFiltro(f){ _pzFiltro=_pzFiltro===f?'':f; renderPecas(); }
+function togPz(i){ _pzAberta=_pzAberta===i?null:i; renderPecas(); }
+function renderPecas(){
+  // agrupa pela peça (vínculo do almoxarifado; sem vínculo, por nome+código)
+  const g=new Map();
+  _equips.forEach(e=>{ const eqH=parseFloat(e.horimetro)||0;
+    (e.componentes||[]).forEach(c=>{
+      const a=almoxInfo(c), k=a.k==='vinc'?'a:'+c.almox_id:'n:'+_norm(c.nome).trim()+'|'+_norm(c.codigo).trim();
+      if(!g.has(k)) g.set(k,{nome:a.k==='vinc'?a.item.nome:[String(c.nome||'').trim(),c.codigo].filter(Boolean).join(' '),alm:a,usos:[],qtd:0,venc:0});
+      const x=g.get(k); x.usos.push({e,c,r:revInfo(c,eqH)}); x.qtd+=parseFloat(c.qtd)||1; if(revInfo(c,eqH).k==='vencida') x.venc++;
+    }); });
+  const todos=[...g.values()].sort((a,b)=>b.usos.length-a.usos.length||a.nome.localeCompare(b.nome,'pt-BR'));
+  const n={todos:todos.length,sem:todos.filter(x=>x.alm.k!=='vinc').length,venc:todos.filter(x=>x.venc).length};
+  document.getElementById('pz-seg').innerHTML=[['','Todas',n.todos],['sem','Sem vínculo',n.sem],['venc','Com revisão vencida',n.venc]]
+    .map(([k,r,q])=>`<button type="button" class="${_pzFiltro===k?'on':''}" onclick="setPzFiltro('${k}')">${r}<b>${q}</b></button>`).join('');
+  const q=_norm(document.getElementById('pz-busca').value).trim(), tk=q?q.split(/\s+/):[];
+  _pzGrupos=todos.filter(x=>(!_pzFiltro||(_pzFiltro==='sem'&&x.alm.k!=='vinc')||(_pzFiltro==='venc'&&x.venc))&&
+    (!tk.length||tk.every(t=>_norm(x.nome+' '+(x.alm.item?x.alm.item.codigo:'')+' '+x.usos.map(u=>u.c.codigo).join(' ')).includes(t))));
+  document.getElementById('pz-resumo').textContent=`${_pzGrupos.length} peça(s) diferente(s) · ${_pzGrupos.reduce((s,x)=>s+x.usos.length,0)} uso(s) em equipamentos`;
+  const LIM=150;
+  document.getElementById('pz-lista').innerHTML=_pzGrupos.slice(0,LIM).map((x,i)=>{
+    const almTag=x.alm.k==='vinc'?`<span class="tag info">📦 ${esc(x.alm.item.codigo||'almox')}</span>`:x.alm.k==='aguard'?'<span class="tag warn">aguardando almox.</span>':x.alm.k==='quebrado'?'<span class="tag bad">vínculo quebrado</span>':'<span class="tag gray">sem vínculo</span>';
+    const linhas=[...new Set(x.usos.map(u=>u.e.linha))].join(', ');
+    return `<div class="pz-row" role="button" tabindex="0" onclick="togPz(${i})" onkeydown="if(event.key==='Enter')togPz(${i})" aria-expanded="${_pzAberta===i}">
+      <div><b>${esc(x.nome)}</b><span class="sub">${x.usos.length} equipamento(s) · ${fN(x.qtd)} un no total · ${esc(linhas)}</span></div>
+      <div class="chips">${x.venc?`<span class="tag bad">${x.venc} revisão vencida</span>`:''}${almTag}</div></div>`+
+      (_pzAberta===i?`<div class="pz-det">${x.usos.map(u=>`<div class="pz-eq"><span><b>${esc(u.e.nome)}</b> · ${esc(u.e.linha||'')}${u.c.grupo_pai?' · no '+esc(u.c.grupo_pai):''} · ${fN(u.c.qtd||1)} un</span>
+        <span style="display:flex;gap:6px;align-items:center;">${u.r.k==='vencida'?'<span class="tag bad">vencida</span>':u.r.k==='breve'?'<span class="tag warn">vencendo</span>':''}
+        <button type="button" class="b sm" onclick="event.stopPropagation();closeModal('modal-pecas');editarEquip('${esc(u.e.id)}','comp')">Abrir</button></span></div>`).join('')}</div>`:'');
+  }).join('')+(_pzGrupos.length>LIM?`<div style="padding:12px;text-align:center;font-size:12.5px;color:var(--ink-3);">Mostrando ${LIM} de ${_pzGrupos.length} — refine a busca.</div>`:'')
+  ||'<div style="padding:24px;text-align:center;color:var(--ink-4);">Nenhuma peça neste filtro.</div>';
 }
 
 /* ═══════════════════════════════════════════
@@ -889,7 +956,7 @@ async function excluirEquip(id){
   if(nh){ alert(`"${e.nome}" tem ${nh} peça(s) com histórico de manutenção e não pode ser excluído.\n\nSe ele saiu de uso, edite e mude a situação para Inativo — o histórico fica guardado.`); return; }
   if(!confirm(`Excluir "${e.nome}" (${e.linha})? Isto não pode ser desfeito.`)) return;
   try{ await db(_supabase.from('equipamentos_linhas').delete().eq('id',id),'excluir equipamento'); await addLog('DELETE','EQUIPAMENTOS',id,'Excluído: '+e.nome);
-    toast('Equipamento excluído.','warning'); closeModal('modal-view-equip'); await init(); }catch(err){ toast('Erro: '+err.message,'danger'); }
+    toast('Equipamento excluído.','warning'); closeModal('modal-view-equip'); await recarregarEquips(); }catch(err){ toast('Erro: '+err.message,'danger'); }
 }
 
 /* ═══════════════════════════════════════════
@@ -910,7 +977,7 @@ async function salvarHorimetro(){
   if(novo<atual&&!confirm(`O novo valor (${fN(novo)} h) é MENOR que o atual (${fN(atual)} h). Confirmar mesmo assim?`)) return;
   try{ const r=await _supabase.from('equipamentos_linhas').update({horimetro:novo,atualizado_em:new Date().toISOString()}).eq('id',_hmId); if(r.error) throw r.error;
     await addLog('UPDATE','HORIMETRO',_hmId,`${atual}h → ${novo}h${motivo?' ('+motivo+')':''}`); toast(`Horímetro atualizado para ${fN(novo)} h.`,'success');
-    closeModal('modal-horimetro'); await init(); }
+    closeModal('modal-horimetro'); await recarregarEquips(); }
   catch(e){ errEl.textContent='Erro: '+e.message; errEl.classList.remove('hidden'); }
 }
 
@@ -935,7 +1002,7 @@ function exportarLista(tipo){
 }
 document.addEventListener('keydown',e=>{
   if(e.key!=='Escape') return;
-  for(const m of ['modal-copia','modal-peca','modal-horimetro','modal-view-equip']){ const el=document.getElementById(m); if(el&&!el.classList.contains('hidden')){ closeModal(m); return; } }
+  for(const m of ['modal-copia','modal-peca','modal-pecas','modal-horimetro','modal-view-equip']){ const el=document.getElementById(m); if(el&&!el.classList.contains('hidden')){ closeModal(m); return; } }
   const ed=document.getElementById('modal-equip'); if(ed&&!ed.classList.contains('hidden')) fecharEditor();
 });
 document.getElementById('equip-horimetro').addEventListener('input',()=>renderCompsEditor());
