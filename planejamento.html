@@ -9,6 +9,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="js/supabase.js"></script>
 <script src="js/utils.js"></script>
+<script src="js/regras.js"></script>
 <style>
 /* ── Resumo do Mês ── */
 .plan-resumo-mes {
@@ -120,6 +121,48 @@
 .plan-turno-subheader {
   display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;
 }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   ACOMPANHAMENTO DO MÊS (out/2026) — planejado × realizado, até ONTEM (D-1)
+   • Cada linha de produto na sua unidade (sacos, bags, granel em t).
+   • O cadastro do plano (formulário) e o formato salvo NÃO mudaram.
+   ══════════════════════════════════════════════════════════════════════════ */
+.ac{background:#fff;border:1px solid #e3e9f0;border-radius:16px;padding:16px 18px;margin-bottom:18px;box-shadow:0 1px 2px rgba(4,45,77,.05);}
+.ac-h{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap;margin-bottom:14px;}
+.ac-h h2{margin:0;font-size:18px;font-weight:800;color:var(--primary);}
+.ac-h h2::first-letter{text-transform:uppercase;}
+.ac-h p{margin:3px 0 0;font-size:12.5px;color:#64748b;}
+.ac-nav{display:flex;align-items:center;gap:3px;background:#f1f5f9;border-radius:10px;padding:3px;}
+.ac-nav button{border:0;background:transparent;font:inherit;font-size:13px;font-weight:700;color:#64748b;padding:7px 12px;border-radius:7px;cursor:pointer;text-transform:capitalize;}
+.ac-nav button.on{background:var(--accent);color:var(--primary);box-shadow:0 1px 3px rgba(4,45,77,.18);}
+.ac-nav button:disabled{opacity:.35;cursor:default;}
+.ac-kpi{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:14px;}
+.ac-kpi>div{background:#f8fafc;border-radius:12px;padding:11px 13px;}
+.ac-kpi>div.hero{background:var(--primary);}
+.ac-kpi span{display:block;font-size:11.5px;font-weight:700;color:#64748b;}
+.ac-kpi b{display:block;font-size:22px;font-weight:800;color:var(--primary);letter-spacing:-.4px;font-variant-numeric:tabular-nums;margin-top:3px;}
+.ac-kpi small{display:block;font-size:11.5px;color:#94a3b8;margin-top:2px;}
+.ac-kpi .hero span{color:rgba(255,255,255,.75);} .ac-kpi .hero b{color:var(--accent);} .ac-kpi .hero small{color:rgba(255,255,255,.6);}
+.ac-bar{height:8px;background:#e2e8f0;border-radius:6px;overflow:visible;margin-top:6px;position:relative;}
+.ac-bar>span{display:block;height:100%;border-radius:6px;}
+.ac-bar>i{position:absolute;top:-4px;bottom:-4px;width:2px;background:var(--primary);border-radius:2px;}
+.ac-wrap{overflow-x:auto;}
+.ac-tb{width:100%;border-collapse:separate;border-spacing:0;font-size:13px;}
+.ac-tb th{padding:9px 10px;font-size:11px;white-space:nowrap;text-align:left;}
+.ac-tb th:first-child{border-radius:8px 0 0 8px;} .ac-tb th:last-child{border-radius:0 8px 8px 0;}
+.ac-tb td{padding:10px;border-bottom:1px solid #f1f5f9;color:#475569;vertical-align:middle;}
+.ac-tb .n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;}
+.ac-tb .nome b{color:var(--primary);font-size:13.5px;} .ac-tb .nome small{display:block;font-size:11.5px;color:#94a3b8;margin-top:2px;}
+.ac-tb tr.fora td{background:#fffbeb;}
+.ac-pct{display:flex;align-items:center;gap:8px;min-width:150px;}
+.ac-pct .ac-bar{flex:1;margin:0;}
+.ac-pct b{min-width:40px;text-align:right;font-variant-numeric:tabular-nums;color:var(--primary);}
+.ac-st{display:inline-block;font-size:11.5px;font-weight:700;padding:3px 9px;border-radius:20px;white-space:nowrap;}
+.ac-st.ok{background:#dcfce7;color:#166534;} .ac-st.warn{background:#fef3c7;color:#92400e;} .ac-st.bad{background:#fee2e2;color:#991b1b;} .ac-st.gray{background:#f1f5f9;color:#64748b;}
+.ac-av{display:flex;flex-direction:column;gap:6px;margin-top:12px;}
+.ac-av div{font-size:12.5px;border-radius:10px;padding:8px 11px;line-height:1.45;}
+.ac-av .warn{background:#fef3c7;color:#7c2d12;} .ac-av .info{background:#eff6ff;color:#1e40af;}
+@media (max-width:900px){ .ac-kpi{grid-template-columns:repeat(2,minmax(0,1fr));} .ac-tb .m-hide{display:none;} }
 </style>
 </head>
 <body>
@@ -360,6 +403,9 @@ async function init(){
       }catch(e3){ _produtosTabela=[]; }
     }
     _sincronizarProdutosLinhas();
+    // produtos com unidade, só para o acompanhamento do mês (converter o granel de kg para t).
+    // Variável separada: _produtosTabela continua como antes para não mexer no formulário.
+    try{ const{data:pa}=await _supabase.from('produtos').select('nome,linhas,unidade,peso_unidade_kg'); _acProdutos=pa||[]; }catch(e4){ _acProdutos=[]; }
   }catch(e){
     console.error('Erro no init planejamento:',e);
   }
@@ -1064,100 +1110,118 @@ function calcularResumoMes(planos){
          linhasCriticas,totalProdPlan,totalReal,pctReal,saldoReal,mes,_cal,_secoes};
 }
 
+/* ══════════════════════════════════════════════════════════════════════════
+   ACOMPANHAMENTO DO MÊS — planejado × realizado até ONTEM (D-1)
+   Substitui o antigo resumo, que: somava sacos + bags + toneladas num total só;
+   somava o granel em kg contra um plano em toneladas; e abria no plano mais
+   novo (ex.: o mês que vem) em vez do mês corrente.
+   ══════════════════════════════════════════════════════════════════════════ */
+let _acMes=null, _acMeses=[], _acProdutos=[];
+function _acIso(d){ return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+function _acDia(n){ const d=new Date(); d.setDate(d.getDate()+n); return d; }
+const _acNorm=s=>String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]/g,'');
+const _acEsc=v=>String(v==null?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const _acUn=u=>({sacos:'sc',unidades:'un',toneladas:'t'}[u]||u||'');
+const _acDec=u=>u==='toneladas'?1:0;
+const _acF=(v,u)=>(Number(v)||0).toLocaleString('pt-BR',{minimumFractionDigits:_acDec(u),maximumFractionDigits:_acDec(u)})+' '+_acUn(u);
+function acMudar(d){ const i=_acMeses.indexOf(_acMes)+d; if(i>=0&&i<_acMeses.length){ _acMes=_acMeses[i]; renderPlanejamento(); } }
+// quantidade do item da OP na unidade do produto (o granel vem em kg na OP → t)
+function _acQtdItem(it){
+  const v=parseFloat(it.total_sacos??it.sacos??it.sacos_pallets)||0;
+  if(!window.Regras) return v;
+  return Regras.qtdNaUnidadeDoProduto(v,Regras.unidadeDoProduto(it.produto,_acProdutos));
+}
+// linha de produto do item: a gravada na OP; se não tiver, a do cadastro do produto
+function _acLinhaItem(it){
+  if(it.linha_produto) return it.linha_produto;
+  const p=(_acProdutos||[]).find(x=>x.nome===it.produto);
+  return (p&&p.linhas&&p.linhas[0])||it.produto||'';
+}
 function renderResumoMes(resumo,mes){
   const cont=document.getElementById('plan-resumo-container');
-  const kpisEl=document.getElementById('plan-resumo-kpis');
-  // store for modal onclick access
-  window._ultimoResumo=resumo;window._ultimoMes=mes;
-  const alertasEl=document.getElementById('plan-alertas-lista');
-  if(!resumo){cont.style.display='none';return;}
+  window._ultimoResumo=resumo; window._ultimoMes=mes;
+  if(!resumo||!mes){ cont.style.display='none'; return; }
   cont.style.display='block';
+  const planos=_planejamentos.filter(p=>p.mes===mes), cal=(planos[0]&&planos[0].calendario)||{};
+  const ontem=_acIso(_acDia(-1)), mesOntem=ontem.slice(0,7);
+  const futuro=mes>mesOntem, fechado=mes<mesOntem;
+  const diasTrab=Object.keys(cal).filter(d=>cal[d]==='trabalha'||cal[d]==='domingo-especial').sort();
+  const total=diasTrab.length, passados=futuro?0:diasTrab.filter(d=>d<=ontem).length, restantes=Math.max(0,total-passados);
 
-  const ocupClass=resumo.ocupacaoPct>100?'alert-red':resumo.ocupacaoPct>85?'alert-yellow':'alert-green';
-  const criticasTxt=resumo.linhasCriticas.length?resumo.linhasCriticas.join(', '):'Nenhuma';
-
-  // KPI de realizado
-  const temReal=resumo.pctReal!==null;
-  const realClass=!temReal?'':resumo.pctReal>=100?'alert-green':resumo.pctReal>=80?'alert-yellow':'alert-red';
-  const realLabel=!temReal?'Sem lançamentos':resumo.pctReal>=100?'✅ Meta atingida':resumo.pctReal>=80?'⚠️ Em andamento':'🔴 Abaixo do esperado';
-  const barReal=temReal?Math.min(100,resumo.pctReal):0;
-  const corBar=!temReal?'#e2e8f0':resumo.pctReal>=100?'#22c55e':resumo.pctReal>=80?'#f59e0b':'#ef4444';
-
-  // Barra de ocupação
-  const barOcup=Math.min(100,resumo.ocupacaoPct);
-  const corOcup=resumo.ocupacaoPct>100?'#ef4444':resumo.ocupacaoPct>85?'#f59e0b':'#22c55e';
-
-  const _r=resumo; // closure ref for onclick
-  kpisEl.innerHTML=`
-    <div class="plan-kpi" style="cursor:pointer;" onclick="abrirKpiModal('dias',_ultimoResumo,_ultimoMes)" title="Ver detalhes">
-      <div class="plan-kpi-label">📅 Dias Úteis <span style="float:right;font-size:10px;color:#cbd5e1;">↗</span></div>
-      <div class="plan-kpi-value">${resumo.diasUteis}</div>
-      <div class="plan-kpi-sub">dias de trabalho no mês</div>
-    </div>
-    <div class="plan-kpi" style="cursor:pointer;" onclick="abrirKpiModal('horas',_ultimoResumo,_ultimoMes)" title="Ver detalhes">
-      <div class="plan-kpi-label">⏱️ Cap. Disponível <span style="float:right;font-size:10px;color:#cbd5e1;">↗</span></div>
-      <div class="plan-kpi-value">${resumo.horasDispTotal.toFixed(0)}h</div>
-      <div class="plan-kpi-sub">${resumo.horasPlanTotal.toFixed(0)}h planejadas</div>
-    </div>
-    <div class="plan-kpi ${ocupClass}" style="cursor:pointer;" onclick="abrirKpiModal('ocupacao',_ultimoResumo,_ultimoMes)" title="Ver detalhes">
-      <div class="plan-kpi-label">📊 Ocupação <span style="float:right;font-size:10px;color:#cbd5e1;">↗</span></div>
-      <div class="plan-kpi-value">${resumo.ocupacaoPct}%</div>
-      <div style="height:4px;background:#e2e8f0;border-radius:4px;margin:4px 0;overflow:hidden;">
-        <div style="height:100%;width:${barOcup}%;background:${corOcup};border-radius:4px;transition:width .4s;"></div>
-      </div>
-      <div class="plan-kpi-sub">${resumo.ocupacaoPct>100?'⚠️ Capacidade excedida':resumo.ocupacaoPct>85?'Alta utilização':'Dentro do limite'}</div>
-    </div>
-    <div class="plan-kpi" style="cursor:pointer;" onclick="abrirKpiModal('producao',_ultimoResumo,_ultimoMes)" title="Ver detalhes">
-      <div class="plan-kpi-label">📦 Produção Planejada <span style="float:right;font-size:10px;color:#cbd5e1;">↗</span></div>
-      <div class="plan-kpi-value">${resumo.totalProdPlan.toLocaleString('pt-BR')}</div>
-      <div class="plan-kpi-sub">${Object.keys(resumo.produtosPlan).length} produto(s) no plano</div>
-    </div>
-    <div class="plan-kpi ${realClass}" style="cursor:pointer;" onclick="abrirKpiModal('realizado',_ultimoResumo,_ultimoMes)" title="Ver detalhes">
-      <div class="plan-kpi-label">🏭 Produção Realizada <span style="float:right;font-size:10px;color:#cbd5e1;">↗</span></div>
-      <div class="plan-kpi-value">${temReal?resumo.totalReal.toLocaleString('pt-BR'):'—'}</div>
-      <div style="height:4px;background:#e2e8f0;border-radius:4px;margin:4px 0;overflow:hidden;">
-        <div style="height:100%;width:${barReal}%;background:${corBar};border-radius:4px;transition:width .4s;"></div>
-      </div>
-      <div class="plan-kpi-sub">${temReal?resumo.pctReal+'% do planejado':realLabel}</div>
-    </div>
-    <div class="plan-kpi ${resumo.linhasCriticas.length?'alert-red':temReal&&resumo.saldoReal>0?'alert-yellow':'alert-green'}" style="cursor:pointer;" onclick="abrirKpiModal('saldo',_ultimoResumo,_ultimoMes)" title="Ver detalhes">
-      <div class="plan-kpi-label">${temReal?'📉 Saldo / Faltante':'🚨 Linhas Críticas'} <span style="float:right;font-size:10px;color:#cbd5e1;">↗</span></div>
-      <div class="plan-kpi-value" style="font-size:18px;">${temReal?(resumo.saldoReal>0?'-':'')+Math.abs(resumo.saldoReal).toLocaleString('pt-BR'):resumo.linhasCriticas.length}</div>
-      <div class="plan-kpi-sub">${temReal?(resumo.saldoReal>0?'ainda a produzir':'superou o planejado em '+Math.abs(resumo.saldoReal).toLocaleString('pt-BR')):criticasTxt}</div>
-    </div>`;
-
-  // Alertas
-  const alertas=[];
-  if(resumo.ocupacaoPct>100)alertas.push({cls:'red',txt:`🚫 Capacidade excedida: ${resumo.ocupacaoPct}% de utilização. Revise quantidades ou adicione turnos.`});
-  else if(resumo.ocupacaoPct>90)alertas.push({cls:'yellow',txt:`⚠️ Alta utilização: ${resumo.ocupacaoPct}%. Pouca margem para imprevistos.`});
-  else if(resumo.ocupacaoPct<60&&resumo.ocupacaoPct>0)alertas.push({cls:'blue',txt:`ℹ️ Capacidade subutilizada: ${resumo.ocupacaoPct}%. Folga de ${(resumo.horasDispTotal-resumo.horasPlanTotal).toFixed(0)}h disponíveis.`});
-
-  if(resumo.linhasCriticas.length)alertas.push({cls:'red',txt:`🚨 Linhas com déficit de capacidade: ${resumo.linhasCriticas.join(', ')}.`});
-
-  Object.entries(resumo.produtosPlan).forEach(([nome,v])=>{
-    const real=v.realizado||0;
-    const pctProd=v.qtdPlan>0?Math.round((real/v.qtdPlan)*100):null;
-    if(v.demanda>0&&v.qtdPlan<v.demanda)
-      alertas.push({cls:'yellow',txt:`⚠️ Déficit de capacidade em "${nome}": planejado ${v.qtdPlan.toLocaleString('pt-BR')} de ${v.demanda.toLocaleString('pt-BR')} ${v.unid} (faltam ${(v.demanda-v.qtdPlan).toLocaleString('pt-BR')}).`});
-    else if(v.demanda>0&&v.qtdPlan>=v.demanda)
-      alertas.push({cls:'green',txt:`✅ "${nome}": demanda atendida. Sobra de capacidade: ${(v.qtdPlan-v.demanda).toLocaleString('pt-BR')} ${v.unid}.`});
-    if(pctProd!==null&&pctProd<80)
-      alertas.push({cls:'red',txt:`📉 Realizado de "${nome}": ${pctProd}% (${real.toLocaleString('pt-BR')} de ${v.qtdPlan.toLocaleString('pt-BR')} ${v.unid}). Saldo: ${(v.qtdPlan-real).toLocaleString('pt-BR')}.`});
-    else if(pctProd!==null&&pctProd<100)
-      alertas.push({cls:'yellow',txt:`📊 "${nome}": ${pctProd}% realizado. Faltam ${(v.qtdPlan-real).toLocaleString('pt-BR')} ${v.unid}.`});
-    else if(pctProd!==null&&pctProd>=100)
-      alertas.push({cls:'green',txt:`🏆 "${nome}": meta superada! ${real.toLocaleString('pt-BR')} produzidos (${pctProd}%).`});
+  // plano por linha de produto
+  const plan={};
+  planos.forEach(p=>(p.secoes||[]).forEach(s=>(s.produtos||[]).forEach(pr=>{
+    const k=_acNorm(pr.nome); if(!k) return;
+    const x=plan[k]||(plan[k]={nome:pr.nome,unid:pr.unid||'sacos',plan:0,demanda:0,linhas:{},real:0,realLinhas:{},aprox:new Set()});
+    const q=Number(pr.qtdPlan)||0; x.plan+=q; x.demanda+=Number(pr.demanda)||0; x.linhas[s.linha]=(x.linhas[s.linha]||0)+q;
+  })));
+  const chaves=Object.keys(plan);
+  const casar=nome=>{ const k=_acNorm(nome); if(plan[k]) return {k,aprox:false};
+    const c=chaves.filter(pk=>pk.startsWith(k)||k.startsWith(pk)); return c.length===1?{k:c[0],aprox:true}:null; };
+  // realizado até ontem
+  const fora={};
+  if(!futuro) (_realizado||[]).forEach(r=>{
+    if(!r.data||!r.data.startsWith(mes)||r.data>ontem||r.status==='parada') return;
+    const itens=(r.produtos_op&&r.produtos_op.length)?r.produtos_op:[{produto:r.produto,total_sacos:r.total_sacos}];
+    itens.forEach(it=>{
+      const q=_acQtdItem(it); if(!q) return; const lp=_acLinhaItem(it), m=casar(lp);
+      if(m){ const x=plan[m.k]; x.real+=q; x.realLinhas[r.linha]=(x.realLinhas[r.linha]||0)+q; if(m.aprox) x.aprox.add(lp); }
+      else{ const un=window.Regras?Regras.unidadeDoProduto(it.produto,_acProdutos):''; const k=_acNorm(lp);
+        const f=fora[k]||(fora[k]={nome:lp,q:0,unid:/ton/i.test(un)?'toneladas':/unid/i.test(un)?'unidades':'sacos'}); f.q+=q; }
+    });
   });
 
-  if(temReal&&!Object.values(resumo.produtosPlan).some(v=>v.realizado>0)){
-    const pct=resumo.pctReal;
-    if(pct<80)alertas.push({cls:'red',txt:`📉 Produção total: ${pct}% do planejado (${resumo.totalReal.toLocaleString('pt-BR')} de ${resumo.totalProdPlan.toLocaleString('pt-BR')}). Déficit: ${resumo.saldoReal.toLocaleString('pt-BR')}.`});
-    else if(pct<100)alertas.push({cls:'yellow',txt:`📊 Produção total: ${pct}% do planejado. Faltam ${resumo.saldoReal.toLocaleString('pt-BR')}.`});
-  }
+  // linhas da tabela
+  const fracMes=total?passados/total:0;
+  const rows=Object.values(plan).sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR')).map(x=>{
+    const pct=x.plan?x.real/x.plan*100:null;
+    const ritmo=passados?x.real/passados:0, proj=fechado?x.real:(passados?ritmo*total:0);
+    const precisa=restantes?Math.max(0,x.plan-x.real)/restantes:0;
+    let st;
+    if(futuro) st=['gray','não começou'];
+    else if(!x.plan) st=['gray','sem meta'];
+    else if(fechado) st=pct>=100?['ok','meta batida']:pct>=90?['warn','quase']:['bad','abaixo da meta'];
+    else if(!passados) st=['gray','começando'];
+    else st=proj>=x.plan?['ok','no ritmo']:proj>=x.plan*0.9?['warn','um pouco atrás']:['bad','atrasado'];
+    return {...x,pct,ritmo,proj,precisa,st};
+  });
+  const noRitmo=rows.filter(r=>r.st[0]==='ok').length;
+  const horasDisp=resumo.horasDispTotal, horasPlan=resumo.horasPlanTotal, ocup=horasDisp?horasPlan/horasDisp*100:0;
+  const nomeMes=new Date(mes+'-15T12:00:00').toLocaleDateString('pt-BR',{month:'long',year:'numeric'});
+  const i=_acMeses.indexOf(mes);
+  const cor=p=>p==null?'#cbd5e1':p>=100?'#22c55e':p>=90?'#f59e0b':'#ef4444';
 
-  alertasEl.innerHTML=alertas.length
-    ? alertas.map(a=>`<div class="plan-alerta ${a.cls}">${a.txt}</div>`).join('')
-    : '';
+  cont.innerHTML=`<section class="ac">
+    <div class="ac-h">
+      <div><h2>${_acEsc(nomeMes)}</h2>
+        <p>${futuro?'Plano do mês que vem — o realizado começa a contar no dia 1.':fechado?'Mês fechado — planejado × realizado.':`Planejado × realizado até ontem (${ontem.slice(8,10)}/${ontem.slice(5,7)}) · ${passados} de ${total} dias de trabalho`}</p></div>
+      <div class="ac-nav"><button type="button" onclick="acMudar(-1)" ${i<=0?'disabled':''} aria-label="Mês anterior">‹</button>
+        ${_acMeses.slice(Math.max(0,i-1),i+2).map(m=>`<button type="button" class="${m===mes?'on':''}" onclick="_acMes='${m}';renderPlanejamento()">${new Date(m+'-15T12:00:00').toLocaleDateString('pt-BR',{month:'short'}).replace('.','')}</button>`).join('')}
+        <button type="button" onclick="acMudar(1)" ${i>=_acMeses.length-1?'disabled':''} aria-label="Próximo mês">›</button></div>
+    </div>
+    <div class="ac-kpi">
+      <div class="hero"><span>Dias de trabalho</span><b>${passados} / ${total}</b><small>${futuro?'mês ainda não começou':fechado?'mês encerrado':`faltam ${restantes} dia(s)`}</small>
+        <div class="ac-bar" style="background:rgba(255,255,255,.18);"><span style="width:${(fracMes*100).toFixed(1)}%;background:var(--accent);"></span></div></div>
+      <div><span>Linhas de produto no ritmo</span><b>${futuro?'—':`${noRitmo} / ${rows.length}`}</b><small>${futuro?'—':'projeção até o fim do mês ≥ planejado'}</small></div>
+      <div><span>Ocupação planejada</span><b style="color:${ocup>100?'#dc2626':ocup>90?'#b45309':'var(--primary)'};">${ocup.toFixed(0)}%</b><small>${horasPlan.toFixed(0)} h de ${horasDisp.toFixed(0)} h disponíveis</small></div>
+      <div><span>Produzido fora do plano</span><b>${Object.keys(fora).length}</b><small>${Object.keys(fora).length?'linha(s) de produto sem meta no mês':'tudo o que rodou estava no plano'}</small></div>
+    </div>
+    <div class="ac-wrap"><table class="ac-tb"><thead><tr><th>Linha de produto</th><th class="n">Planejado</th><th class="n">Realizado</th><th>Atingido <span style="font-weight:500;opacity:.7;">(| = mês decorrido)</span></th><th class="n m-hide">Fazendo / dia</th><th class="n m-hide">Precisa / dia</th><th class="n">Projeção</th><th></th></tr></thead><tbody>
+      ${rows.map(r=>`<tr><td class="nome"><b>${_acEsc(r.nome)}</b><small>${Object.entries(r.linhas).map(([l,q])=>`${_acEsc(l)}: ${futuro?_acF(q,r.unid):`${_acF(r.realLinhas[l]||0,r.unid)} de ${_acF(q,r.unid)}`}`).join(' · ')}</small></td>
+        <td class="n">${_acF(r.plan,r.unid)}</td><td class="n"><b style="color:var(--primary);">${futuro?'—':_acF(r.real,r.unid)}</b></td>
+        <td>${futuro||r.pct==null?'—':`<div class="ac-pct"><div class="ac-bar"><span style="width:${Math.min(100,r.pct).toFixed(1)}%;background:${cor(r.pct>=fracMes*100?100:r.pct>=fracMes*90?95:50)};"></span>${fechado?'':`<i style="left:${(fracMes*100).toFixed(1)}%;"></i>`}</div><b>${r.pct.toFixed(0)}%</b></div>`}</td>
+        <td class="n m-hide">${passados&&!futuro?_acF(r.ritmo,r.unid):'—'}</td>
+        <td class="n m-hide">${restantes&&!futuro&&!fechado?_acF(r.precisa,r.unid):'—'}</td>
+        <td class="n">${futuro||(!passados&&!fechado)?'—':_acF(r.proj,r.unid)}</td>
+        <td><span class="ac-st ${r.st[0]}">${r.st[1]}</span></td></tr>`).join('')}
+      ${Object.values(fora).map(f=>`<tr class="fora"><td class="nome"><b>${_acEsc(f.nome)}</b><small>produzido sem meta no plano</small></td><td class="n">—</td><td class="n"><b style="color:var(--primary);">${_acF(f.q,f.unid)}</b></td><td>—</td><td class="n m-hide">—</td><td class="n m-hide">—</td><td class="n">—</td><td><span class="ac-st warn">fora do plano</span></td></tr>`).join('')}
+    </tbody></table></div>
+    <div class="ac-av">${[
+      ...rows.filter(r=>r.aprox.size).map(r=>`<div class="info">ℹ️ “${_acEsc(r.nome)}” no plano foi casado com “${[...r.aprox].map(_acEsc).join('”, “')}” lançado nas OPs (nome parecido). Use o mesmo nome nos dois para não depender de aproximação.</div>`),
+      ...rows.filter(r=>r.demanda>0&&r.plan<r.demanda).map(r=>`<div class="warn">⚠️ “${_acEsc(r.nome)}”: a capacidade planejada (${_acF(r.plan,r.unid)}) não cobre a demanda (${_acF(r.demanda,r.unid)}).</div>`),
+      ocup>100?`<div class="warn">⚠️ O plano pede ${horasPlan.toFixed(0)} h, mas só há ${horasDisp.toFixed(0)} h disponíveis (${ocup.toFixed(0)}%).</div>`:''
+    ].join('')}</div>
+  </section>`;
 }
 
 // ── Modal de detalhe dos KPIs ───────────────────────────────────────────────
@@ -1326,7 +1390,11 @@ function renderPlanejamento(){
   empty.classList.add('hidden');
 
   // Resumo do mês (só quando filtro de mês ativo, ou pega o mais recente)
-  const mesFoco=filtroMes||lista[0]?.mes;
+  const mesesComPlano=[...new Set(lista.map(p=>p.mes))];
+  const mesAtual=_acIso(_acDia(-1)).slice(0,7);   // mês de ONTEM (fechamento D-1)
+  if(_acMes&&!mesesComPlano.includes(_acMes)) _acMes=null;
+  const mesFoco=filtroMes||_acMes||(mesesComPlano.includes(mesAtual)?mesAtual:lista[0]?.mes);
+  _acMes=mesFoco; _acMeses=mesesComPlano.sort();
   const planosMesFoco=lista.filter(p=>p.mes===mesFoco);
   const resumo=calcularResumoMes(planosMesFoco);
   renderResumoMes(resumo,mesFoco);
