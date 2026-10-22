@@ -381,7 +381,7 @@ let _editingEquipId=null, _eqlFoto=null, _hmId=null;
 let _comps=[], _dirty=new Map(), _novos=new Set(), _apagados=new Set(), _pedidos=new Set();
 let _pcUid=null, _pcFoto=null, _pcAlmox=null, _pcSol=null, _pcPedir=false, _acSel=-1, _acLista=[];
 const UNIDS=['un','m','m²','kg','litros','pol','mm','par','jg','cj'];
-const CAMPOS_PECA=['nome','codigo','qtd','unidade','fabricante','valor_unitario','horimetro_componente','intervalo_revisao','obs','foto_componente','almox_id','sol_id','grupo_pai','grupo_pai_sig'];
+const CAMPOS_PECA=['nome','codigo','qtd','unidade','fabricante','valor_unitario','horimetro_componente','intervalo_revisao','obs','foto_componente','almox_id','sol_id','grupo_pai','grupo_pai_sig','grupo_pai_uid'];
 
 fetch('partials/sidebar.html').then(r=>r.text()).then(html=>{
   document.getElementById('sidebar-container').innerHTML=html;
@@ -433,7 +433,8 @@ function chipsPeca(c,eqH){
 function ordemArvore(comps){
   const sigIdx={}, nomeIdx={};
   comps.forEach((c,i)=>{ const s=_sig(c.nome,c.codigo,c.fabricante); if(sigIdx[s]==null) sigIdx[s]=i; const k=String(c.nome||'').trim().toLowerCase(); if(nomeIdx[k]==null) nomeIdx[k]=i; });
-  const pai=i=>{ const sg=String(comps[i].grupo_pai_sig||'').trim(); if(sg){ const p=sigIdx[sg]; return (p==null||p===i)?-1:p; }
+  const pai=i=>{ const ug=String(comps[i].grupo_pai_uid||'').trim(); if(ug){ const pu=comps.findIndex(c=>c&&c.uid===ug); if(pu>=0&&pu!==i) return pu; }
+    const sg=String(comps[i].grupo_pai_sig||'').trim(); if(sg){ const p=sigIdx[sg]; return (p==null||p===i)?-1:p; }
     const n=String(comps[i].grupo_pai||'').trim().toLowerCase(); const p=nomeIdx[n]; return (n&&p!=null&&p!==i)?p:-1; };
   const out=[], vis=new Set();
   const visita=(i,nivel)=>{ if(vis.has(i)) return; vis.add(i); out.push({i,nivel}); comps.forEach((_,j)=>{ if(pai(j)===i) visita(j,nivel+1); }); };
@@ -641,7 +642,7 @@ function renderCompsEditor(){
 }
 function removerPeca(uid){
   const c=_comps.find(x=>x.uid===uid); if(!c) return;
-  const filhos=_comps.filter(x=>!_apagados.has(x.uid)&&x.uid!==uid&&((x.grupo_pai_sig&&x.grupo_pai_sig===_sig(c.nome,c.codigo,c.fabricante))||(!x.grupo_pai_sig&&_norm(x.grupo_pai).trim()===_norm(c.nome).trim()))).length;
+  const filhos=_comps.filter(x=>!_apagados.has(x.uid)&&x.uid!==uid&&((x.grupo_pai_uid&&x.grupo_pai_uid===uid)||(x.grupo_pai_sig&&x.grupo_pai_sig===_sig(c.nome,c.codigo,c.fabricante))||(!x.grupo_pai_sig&&_norm(x.grupo_pai).trim()===_norm(c.nome).trim()))).length;
   const nh=(c.historico_revisoes||[]).length;
   const avisos=[nh?`tem ${nh} revisão(ões) no histórico, que serão perdidas`:'',filhos?`${filhos} peça(s) estão ligadas a ela e ficarão soltas`:''].filter(Boolean);
   if(!confirm(`Remover "${c.nome}${c.codigo?' '+c.codigo:''}"?`+(avisos.length?'\n\nAtenção: '+avisos.join('; ')+'.':''))) return;
@@ -679,8 +680,9 @@ function abrirPeca(uid){
   setTimeout(()=>document.getElementById(uid?'pc-nome':'pc-busca').focus(),60);
 }
 function _paiDe(c){
-  if(!c||(!c.grupo_pai_sig&&!c.grupo_pai)) return null;
+  if(!c||(!c.grupo_pai_uid&&!c.grupo_pai_sig&&!c.grupo_pai)) return null;
   const vis=_comps.filter(x=>!_apagados.has(x.uid)&&x.uid!==c.uid);
+  if(c.grupo_pai_uid){ const u=vis.find(x=>x.uid===c.grupo_pai_uid); if(u) return u; }
   if(c.grupo_pai_sig) return vis.find(x=>_sig(x.nome,x.codigo,x.fabricante)===c.grupo_pai_sig)||null;
   return vis.find(x=>_norm(x.nome).trim()===_norm(c.grupo_pai).trim())||null;
 }
@@ -769,7 +771,7 @@ async function confirmarPeca(){
   const val={nome:g('pc-nome'),codigo:g('pc-codigo')||null,qtd:num(g('pc-qtd'))||1,unidade:document.getElementById('pc-un').value||'un',
     fabricante:g('pc-fab')||null,valor_unitario:num(g('pc-valor')),horimetro_componente:num(g('pc-hinst')),intervalo_revisao:num(g('pc-intv')),
     obs:g('pc-obs')||null,foto_componente:_pcFoto||null,almox_id:_pcAlmox||null,sol_id:_pcAlmox?null:(_pcSol||null),
-    grupo_pai:pai?pai.nome:null,grupo_pai_sig:pai?_sig(pai.nome,pai.codigo,pai.fabricante):null};
+    grupo_pai:pai?pai.nome:null,grupo_pai_sig:pai?_sig(pai.nome,pai.codigo,pai.fabricante):null,grupo_pai_uid:pai?pai.uid:null};
   if(!_pcUid){ _comps.push({uid,...val}); _novos.add(uid); }
   else{
     const c=_comps.find(x=>x.uid===uid);
@@ -778,7 +780,7 @@ async function confirmarPeca(){
     const paiAntes=_paiDe(c);
     const f=_dirty.get(uid)||new Set();
     CAMPOS_PECA.forEach(k=>{
-      if((k==='grupo_pai'||k==='grupo_pai_sig')&&((paiAntes&&pai&&paiAntes.uid===pai.uid)||(!paiAntes&&!pai))) return;
+      if((k==='grupo_pai'||k==='grupo_pai_sig'||k==='grupo_pai_uid')&&((paiAntes&&pai&&paiAntes.uid===pai.uid)||(!paiAntes&&!pai))) return;
       const a=_vazio(c[k])?'':String(c[k]), b=_vazio(val[k])?'':String(val[k]);
       if(a!==b){ c[k]=val[k]; f.add(k); }
     });

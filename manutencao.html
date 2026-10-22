@@ -1448,7 +1448,7 @@ function _descendentesComp(comps, idx){
   if(!Array.isArray(comps))return [];
   const sigIdx={};comps.forEach((c,i)=>{const s=_sig(c.nome,c.codigo,c.fabricante);if(sigIdx[s]==null)sigIdx[s]=i;});
   const nameIdx={};comps.forEach((c,i)=>{const k=String(c.nome||'').trim().toLowerCase();if(nameIdx[k]==null)nameIdx[k]=i;});
-  const paiDe=(i)=>{const sg=String(comps[i].grupo_pai_sig||'').trim();if(sg){const pj=sigIdx[sg];return(pj==null||pj===i)?-1:pj;}const p=String(comps[i].grupo_pai||'').trim().toLowerCase();const pi=nameIdx[p];return(p&&pi!=null&&pi!==i)?pi:-1;};
+  const paiDe=(i)=>{const _ug=String(comps[i].grupo_pai_uid||'').trim();if(_ug){const _pu=comps.findIndex(c=>c&&c.uid===_ug);if(_pu>=0&&_pu!==i)return _pu;}const sg=String(comps[i].grupo_pai_sig||'').trim();if(sg){const pj=sigIdx[sg];return(pj==null||pj===i)?-1:pj;}const p=String(comps[i].grupo_pai||'').trim().toLowerCase();const pi=nameIdx[p];return(p&&pi!=null&&pi!==i)?pi:-1;};
   const out=[]; const visit=(parent)=>{ comps.forEach((c,i)=>{ if(i!==parent&&paiDe(i)===parent&&!out.includes(i)){out.push(i);visit(i);} }); };
   visit(idx);
   return out;
@@ -1764,7 +1764,7 @@ function renderComponentes(equip, comps, tabela, idxOffset){
   const _sigIdx={};
   comps.forEach((c,i)=>{const s=_sig(c.nome,c.codigo,c.fabricante);if(_sigIdx[s]==null)_sigIdx[s]=i;});
   // Pai resolvido pela IDENTIDADE estável (nome+código+fabricante); nome só como fallback p/ grupos antigos
-  const _paiDe=(i)=>{const sg=String(comps[i].grupo_pai_sig||'').trim();if(sg){const pj=_sigIdx[sg];return(pj==null||pj===i)?-1:pj;}const p=String(comps[i].grupo_pai||'').trim().toLowerCase();if(!p)return -1;const pi=_nameIdx[p];return(pi==null||pi===i)?-1:pi;};
+  const _paiDe=(i)=>{const _ug=String(comps[i].grupo_pai_uid||'').trim();if(_ug){const _pu=comps.findIndex(c=>c&&c.uid===_ug);if(_pu>=0&&_pu!==i)return _pu;}const sg=String(comps[i].grupo_pai_sig||'').trim();if(sg){const pj=_sigIdx[sg];return(pj==null||pj===i)?-1:pj;}const p=String(comps[i].grupo_pai||'').trim().toLowerCase();if(!p)return -1;const pi=_nameIdx[p];return(pi==null||pi===i)?-1:pi;};
   const _semCiclo=(i)=>{let cur=_paiDe(i),g=0;const seen=new Set([i]);while(cur!==-1&&g++<100){if(seen.has(cur))return false;seen.add(cur);cur=_paiDe(cur);}return true;};
   const _ehFilho=(i)=>{const pi=_paiDe(i);return pi!==-1&&_semCiclo(i);};
   const _filhos={};
@@ -1944,12 +1944,16 @@ async function _setGrupoPai(equipId,tabela,idx,parentIdx){
   let nomePai='';
   const _pi=(parentIdx===''||parentIdx==null)?-1:parseInt(parentIdx);
   if(_pi<0||!comps[_pi]||_pi===idx){
-    delete comps[idx].grupo_pai; delete comps[idx].grupo_pai_sig;
+    delete comps[idx].grupo_pai; delete comps[idx].grupo_pai_sig; delete comps[idx].grupo_pai_uid;
   }else{
     const p=comps[_pi];
     nomePai=p.nome||'';
+    // (out/2026) vínculo pelo uid da peça-pai: dois "Motor 3cv" iguais no mesmo equipamento
+    // tinham a mesma assinatura e o filho ia sempre para o primeiro
+    if(!p.uid) p.uid='c'+Date.now().toString(36)+Math.random().toString(36).slice(2,7);
     comps[idx].grupo_pai=nomePai;                              // compatibilidade/exibição
-    comps[idx].grupo_pai_sig=_sig(p.nome,p.codigo,p.fabricante); // vínculo ESTÁVEL (nome+código+fabricante)
+    comps[idx].grupo_pai_sig=_sig(p.nome,p.codigo,p.fabricante); // reserva (telas antigas)
+    comps[idx].grupo_pai_uid=p.uid;                            // vínculo exato
   }
   // aplica localmente primeiro (resposta imediata) e persiste em seguida
   equip.componentes=comps;
@@ -1962,7 +1966,7 @@ async function _setGrupoPai(equipId,tabela,idx,parentIdx){
 function _criaCicloComp(comps,childIdx,parentIdx){
   const sigIdx={};comps.forEach((c,i)=>{const s=_sig(c.nome,c.codigo,c.fabricante);if(sigIdx[s]==null)sigIdx[s]=i;});
   const nameIdx={};comps.forEach((c,i)=>{const k=String(c.nome||'').trim().toLowerCase();if(nameIdx[k]==null)nameIdx[k]=i;});
-  const paiDe=(i)=>{const sg=String(comps[i].grupo_pai_sig||'').trim();if(sg){const pj=sigIdx[sg];return(pj==null||pj===i)?-1:pj;}const p=String(comps[i].grupo_pai||'').trim().toLowerCase();const pi=nameIdx[p];return(p&&pi!=null&&pi!==i)?pi:-1;};
+  const paiDe=(i)=>{const _ug=String(comps[i].grupo_pai_uid||'').trim();if(_ug){const _pu=comps.findIndex(c=>c&&c.uid===_ug);if(_pu>=0&&_pu!==i)return _pu;}const sg=String(comps[i].grupo_pai_sig||'').trim();if(sg){const pj=sigIdx[sg];return(pj==null||pj===i)?-1:pj;}const p=String(comps[i].grupo_pai||'').trim().toLowerCase();const pi=nameIdx[p];return(p&&pi!=null&&pi!==i)?pi:-1;};
   let cur=parentIdx,g=0;
   while(cur!==-1&&cur!=null&&g++<100){ if(cur===childIdx)return true; cur=paiDe(cur); }
   return false;
