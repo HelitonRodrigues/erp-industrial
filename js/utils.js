@@ -1210,3 +1210,55 @@ async function fotoParaDataUrl(src) {
     return null;
   }
 }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   AVISOS E CONFIRMAÇÕES EM MODAL DO SISTEMA (out/2026)
+   Nada de caixinha do navegador ("site diz…"). Uso:
+     if(!(await erpConfirm('Excluir este item?',{perigo:true,ok:'Excluir'}))) return;
+     erpAlert('Pronto!');
+   O alert() nativo também passa a abrir este modal.
+   ══════════════════════════════════════════════════════════════════════════ */
+(function () {
+  function css() {
+    if (document.getElementById('erp-dlg-css')) return;
+    const st = document.createElement('style'); st.id = 'erp-dlg-css';
+    st.textContent = `.erp-dlg-ov{position:fixed;inset:0;z-index:300000;background:rgba(4,45,77,.55);display:flex;align-items:center;justify-content:center;padding:16px;animation:erpDlgIn .12s ease-out;}
+.erp-dlg{background:#fff;border-radius:18px;max-width:440px;width:100%;box-shadow:0 24px 64px rgba(0,0,0,.35);overflow:hidden;font-family:'Plus Jakarta Sans',system-ui,sans-serif;}
+.erp-dlg-h{display:flex;gap:12px;align-items:flex-start;padding:20px 22px 6px;}
+.erp-dlg-ic{flex-shrink:0;width:40px;height:40px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:20px;background:#eff6ff;}
+.erp-dlg.perigo .erp-dlg-ic{background:#fee2e2;} .erp-dlg.aviso .erp-dlg-ic{background:#fef3c7;} .erp-dlg.ok .erp-dlg-ic{background:#dcfce7;}
+.erp-dlg-t{font-size:16px;font-weight:800;color:#042D4D;margin-top:2px;}
+.erp-dlg-m{padding:4px 22px 18px 74px;font-size:14px;line-height:1.5;color:#334155;white-space:pre-line;}
+.erp-dlg-f{display:flex;justify-content:flex-end;gap:8px;padding:12px 16px;background:#f8fafc;border-top:1px solid #e3e9f0;}
+.erp-dlg-f button{border:0;border-radius:11px;padding:11px 18px;font:inherit;font-size:14px;font-weight:800;cursor:pointer;}
+.erp-dlg-no{background:#fff !important;border:1.5px solid #d6e2ec !important;color:#042D4D;}
+.erp-dlg-sim{background:#C9FF64;color:#042D4D;} .erp-dlg.perigo .erp-dlg-sim{background:#dc2626;color:#fff;}
+@keyframes erpDlgIn{from{opacity:0}to{opacity:1}}
+@media (max-width:520px){.erp-dlg-m{padding-left:22px;}.erp-dlg-f button{flex:1;}}`;
+    document.head.appendChild(st);
+  }
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  window.erpConfirm = function (msg, o) {
+    o = o || {}; css();
+    return new Promise(res => {
+      const tipo = o.perigo ? 'perigo' : o.tipo || (o.soOk ? 'info' : 'aviso');
+      const ic = o.icone || ({ perigo: '⚠️', aviso: '❓', ok: '✅', info: 'ℹ️' }[tipo] || 'ℹ️');
+      const ov = document.createElement('div'); ov.className = 'erp-dlg-ov';
+      ov.innerHTML = `<div class="erp-dlg ${tipo}" role="dialog" aria-modal="true">
+        <div class="erp-dlg-h"><div class="erp-dlg-ic">${ic}</div><div class="erp-dlg-t">${esc(o.titulo || (o.soOk ? 'Aviso' : 'Confirme'))}</div></div>
+        <div class="erp-dlg-m">${esc(msg)}</div>
+        <div class="erp-dlg-f">${o.soOk ? '' : `<button type="button" class="erp-dlg-no">${esc(o.cancelar || 'Cancelar')}</button>`}<button type="button" class="erp-dlg-sim">${esc(o.ok || 'OK')}</button></div></div>`;
+      const fim = v => { document.removeEventListener('keydown', tecla, true); ov.remove(); res(v); };
+      const tecla = e => { if (e.key === 'Escape') { e.preventDefault(); fim(!!o.soOk); } else if (e.key === 'Enter') { e.preventDefault(); fim(true); } };
+      ov.querySelector('.erp-dlg-sim').onclick = () => fim(true);
+      const no = ov.querySelector('.erp-dlg-no'); if (no) no.onclick = () => fim(false);
+      ov.addEventListener('click', e => { if (e.target === ov) fim(!!o.soOk); });
+      document.addEventListener('keydown', tecla, true);
+      document.body.appendChild(ov);
+      setTimeout(() => ov.querySelector(o.soOk ? '.erp-dlg-sim' : (o.perigo ? '.erp-dlg-no' : '.erp-dlg-sim'))?.focus(), 30);
+    });
+  };
+  window.erpAlert = function (msg, o) { return window.erpConfirm(msg, Object.assign({ soOk: true }, o || {})); };
+  // alert() de qualquer tela vira modal do sistema (não trava a página, só informa)
+  window.alert = function (m) { window.erpAlert(String(m == null ? '' : m)); };
+})();
