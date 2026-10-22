@@ -6300,10 +6300,24 @@ function proximoNumeroLoteMP(codigoVariacao){
 // Variação declarada = produto cadastrado em Limites por Produto (caulim, ou
 // com STD/variação configurados). De lá vêm STD, ΔE máx., umidade, dureza,
 // retido #200 e a sigla do número do lote.
+// (out/2026) A lista mostra as VARIAÇÕES DE COR (Branco 1, Creme 2…) vinculadas em
+// Limites por Produto — não os produtos. Cada variação aparece uma vez; por trás,
+// o valor é um produto daquela variação (o que tem STD/limites preenchidos), de
+// onde vêm STD, ΔE máx., umidade, dureza e retido #200 — como antes.
+function _mpVarDoProduto(p){
+  const q=(_produtosQualidade||{})[p.id]; if(!q) return null;
+  if(q.variacao_id) return (_caulimVariacoes||[]).find(x=>String(x.id)===String(q.variacao_id))||null;
+  return (q.std_l!=null||/caulim/.test(_lauNorm(p.nome)))&&typeof variacaoPeloNomeProduto==='function'?variacaoPeloNomeProduto(p.nome):null;
+}
 function mpProdutosVariacao(){
-  return (_prods||[]).filter(p=>{ const q=(_produtosQualidade||{})[p.id];
-    return q && (q.std_l!=null||q.variacao_id||/caulim/.test(_lauNorm(p.nome))); })
-    .sort((a,b)=>String(a.nome).localeCompare(String(b.nome)));
+  const grupos={};
+  (_prods||[]).forEach(p=>{ const q=(_produtosQualidade||{})[p.id]; if(!q) return;
+    const v=_mpVarDoProduto(p); if(!v) return;
+    const pontos=(q.std_l!=null?4:0)+(q.delta_e_max!=null?2:0)+(q.umidade_max!=null||q.dureza_min!=null||q.retido200_max!=null?1:0);
+    const g=grupos[v.id]; if(!g||pontos>g.pontos) grupos[v.id]={id:p.id,vid:v.id,nome:v.codigo?`${v.nome} (${v.codigo})`:v.nome,pontos}; });
+  // variações de cor ativas que ainda não têm produto vinculado também aparecem (dados = STD da própria variação)
+  (_caulimVariacoes||[]).filter(v=>v.ativo!==false&&!grupos[v.id]).forEach(v=>{ grupos[v.id]={id:'v:'+v.id,vid:v.id,nome:v.codigo?`${v.nome} (${v.codigo})`:v.nome,pontos:-1}; });
+  return Object.values(grupos).sort((a,b)=>String(a.nome).localeCompare(String(b.nome)));
 }
 function mpSiglaDoNome(nome){
   const n=_lauNorm(nome).replace(/\b(caulim|big\s*bag|bigbag|bag|granel|\d+\s*kg)\b/g,' ').replace(/[-–—:|/,]+/g,' ').replace(/\s+/g,' ').trim();
@@ -6311,16 +6325,23 @@ function mpSiglaDoNome(nome){
   return (m[1]==='creme'?'CR':m[1].charAt(0).toUpperCase())+(m[2]?String(parseInt(m[2],10)):'');
 }
 function mpCfgProduto(pid){
+  if(pid&&String(pid).startsWith('v:')){   // variação sem produto vinculado: dados da própria variação
+    const v=(_caulimVariacoes||[]).find(x=>String(x.id)===String(pid).slice(2)); if(!v) return null;
+    const vs=stdDaVariacao(v);
+    return {q:{}, v, nome:v.codigo?`${v.nome} (${v.codigo})`:v.nome, std:{l:vs.l??null,a:vs.a??null,b:vs.b??null,max:vs.max??null}, sigla:(v.codigo||'').trim()};
+  }
   const q=pid?(_produtosQualidade||{})[pid]:null; if(!q) return null;
   const prod=(_prods||[]).find(p=>String(p.id)===String(pid))||{};
-  const v=q.variacao_id?(_caulimVariacoes||[]).find(x=>String(x.id)===String(q.variacao_id)):null;
+  const v=q.variacao_id?(_caulimVariacoes||[]).find(x=>String(x.id)===String(q.variacao_id)):_mpVarDoProduto(prod);
   const vs=v?stdDaVariacao(v):{};
-  return {q, v, nome:prod.nome||'—',
+  return {q, v, nome:v?(v.codigo?`${v.nome} (${v.codigo})`:v.nome):(prod.nome||'—'),
     std:{l:q.std_l??vs.l??null, a:q.std_a??vs.a??null, b:q.std_b??vs.b??null, max:q.delta_e_max??vs.max??null},
     sigla:((v&&v.codigo)||mpSiglaDoNome(prod.nome)||'').trim()};
 }
 function variacaoDoMP(mp){
-  if(mp&&mp.produto_id){ const p=(_prods||[]).find(x=>String(x.id)===String(mp.produto_id)); if(p) return p.nome; }
+  // mostra a VARIAÇÃO (cor); o produto só serve de reserva para lotes antigos
+  if(mp&&mp.variacao_declarada_id){ const n=variacaoNome(mp.variacao_declarada_id); if(n&&n!=='—') return n; }
+  if(mp&&mp.produto_id){ const p=(_prods||[]).find(x=>String(x.id)===String(mp.produto_id)); if(p){ const v=_mpVarDoProduto(p); return v?(v.codigo?`${v.nome} (${v.codigo})`:v.nome):p.nome; } }
   return variacaoNome(mp&&mp.variacao_declarada_id);
 }
 function codigoVariacaoSel(){
@@ -6421,7 +6442,7 @@ function sugerirVariacaoPelaCor(){
     if(!st||st.l==null||st.a==null||st.b==null) return null;
     return {v:{id:p.id,nome:p.nome}, de:calcDeltaE(l,a,b,st.l,st.a,st.b), max:st.max};
   }).filter(Boolean).sort((x,y)=>x.de-y.de);
-  if(!cand.length){ box.innerHTML='<span style="color:#b45309;">nenhum produto tem STD em Limites por Produto</span>'; return; }
+  if(!cand.length){ box.innerHTML='<span style="color:#b45309;">nenhuma variação tem STD em Limites por Produto</span>'; return; }
   const melhor=cand[0];
   const sel=document.getElementById('mp-variacao');
   if(sel&&!sel.dataset.tocado) { sel.value=melhor.v.id; mpAoTrocarVariacao(); }
@@ -6481,7 +6502,7 @@ function abrirNovoLoteMP(id){
   const ed=id?(_caulimLotesMP||[]).find(x=>x.id===id):null;
   if(id&&!ed){toast('Lote não encontrado — recarregue a página.','warning');return;}
   if(!guardAction('laboratorio',ed?'edit':'create')) return;
-  if(!mpProdutosVariacao().length){toast('Cadastre os produtos de caulim em Ensaios & Limites → Limites por Produto antes de lançar um lote de MP.','warning');}
+  if(!mpProdutosVariacao().length){toast('Vincule as variações de cor em Ensaios & Limites → Limites por Produto antes de lançar um lote de MP.','warning');}
   const u=getUser()||{};
   _mpEditId=ed?ed.id:null;
   _mpFrentes=[{nome:'',mistura_pct:null}]; _mpFrenteAtiva=0; _mpFotos=[];
@@ -6509,12 +6530,12 @@ function abrirNovoLoteMP(id){
   </div>
 
   <div class="af-box" style="margin-bottom:12px;">
-    <div class="sec-title">Variação Declarada <span style="font-weight:400;text-transform:none;letter-spacing:0;color:#64748b;">— produtos de Limites por Produto</span></div>
+    <div class="sec-title">Variação Declarada <span style="font-weight:400;text-transform:none;letter-spacing:0;color:#64748b;">— variação de cor vinculada em Limites por Produto</span></div>
     <div class="form-grid-2">
       <div class="form-group"><label class="form-label">Variação <span class="req">*</span></label>
         <select id="mp-variacao" class="form-input" onchange="this.dataset.tocado='1';mpAoTrocarVariacao();">
-          <option value="">Selecione...</option>${mpProdutosVariacao().map(p=>`<option value="${esc(p.id)}">${esc(p.nome)}</option>`).join('')}</select>
-        ${mpProdutosVariacao().length?'':'<div style="font-size:11px;color:#b45309;margin-top:3px;">Nenhum produto de caulim em Limites por Produto — cadastre lá (Ensaios &amp; Limites).</div>'}</div>
+          <option value="">Selecione...</option>${mpProdutosVariacao().map(p=>`<option value="${esc(p.id)}" data-vid="${esc(p.vid)}">${esc(p.nome)}</option>`).join('')}</select>
+        ${mpProdutosVariacao().length?'':'<div style="font-size:11px;color:#b45309;margin-top:3px;">Nenhuma variação de cor vinculada em Limites por Produto — vincule lá (Ensaios &amp; Limites).</div>'}</div>
       <div class="form-group"><label class="form-label">Apontamento do sistema</label>
         <div id="mp-variacao-sugestao" style="font-size:12px;color:#475569;padding-top:8px;"><span style="color:#94a3b8;">informe a cor para o sistema apontar a variação</span></div></div>
     </div>
@@ -6585,8 +6606,11 @@ function abrirNovoLoteMP(id){
     pv('mp-umidade',ed.umidade_pct); pv('mp-dureza',ed.dureza); pv('mp-r200',ed.retido_200??(ed.granulometria&&ed.granulometria.retido_200));
     const sel=document.getElementById('mp-variacao');
     if(sel){ sel.dataset.tocado='1';   // a variação gravada manda; a cor não troca sozinha
-      const pid=ed.produto_id||'';
-      if(pid&&![...sel.options].some(o=>o.value===String(pid))) sel.insertAdjacentHTML('beforeend',`<option value="${esc(pid)}">${esc(variacaoDoMP(ed))}</option>`);
+      let pid=ed.produto_id||'';
+      const pEd=(_prods||[]).find(x=>String(x.id)===String(pid)), vEd=ed.variacao_declarada_id||(pEd&&_mpVarDoProduto(pEd)||{}).id;
+      const opV=vEd?[...sel.options].find(o=>o.dataset.vid&&String(o.dataset.vid)===String(vEd)):null;
+      if(opV) pid=opV.value;
+      else if(pid&&![...sel.options].some(o=>o.value===String(pid))) sel.insertAdjacentHTML('beforeend',`<option value="${esc(pid)}">${esc(variacaoDoMP(ed))}</option>`);
       sel.value=pid; }
     pintarFrentesMP(); pintarFotosMP(); mpPintarCor(); atualizarSTDPreview(); sugerirVariacaoPelaCor(); mpAvaliarCaract();
     return;
@@ -6695,7 +6719,7 @@ async function salvarLoteMP(){
     mistura_pct:_mpFrentes.length===1?(principal.mistura_pct!=null?Number(principal.mistura_pct):100):Number(principal.mistura_pct||0),
     montante_t:montanteTotal,
     data:gv('mp-data')||hoje(),
-    produto_id:variacao,
+    produto_id:String(variacao).startsWith('v:')?null:variacao,
     variacao_declarada_id:cfg.v?cfg.v.id:null,
     cor_l:l,cor_a:a,cor_b:b,
     cor_r:numOrNull(gv('mp-r')),cor_g:numOrNull(gv('mp-g')),cor_b_rgb:numOrNull(gv('mp-b-rgb')),
