@@ -2796,7 +2796,8 @@ function configEnsaioPallet(produtoNome,prodCad,q){
   const semAdNome=produtoSemAditivo(produtoNome);
   const aditivo=traco && !semAdNome && !(q&&q.aditivo_padrao==='nenhum') && aplica('aditivo');
   const aditAuto=aditivo?aditivoAutoDoProduto(produtoNome,prodCad?.id):null;
-  const pens=q?Object.keys(q.limites_peneira||{}):[];
+  const pens=q?lpPensMedidas(q):[], pensNA=q?lpPensNA(q):[];
+  const sobra=(_peneiras||[]).filter(p=>p.ativo!==false&&!pensNA.includes(String(p.id))).length;
   const cfg={q, na, traco, aditivo, semAdNome, aditAuto,
     dosAuto: aditAuto?dosagemAutoAditivo(prodCad?.id):'',
     agua:aplica('agua'), densidade:aplica('densidade'), umidade:aplica('umidade'),
@@ -2805,7 +2806,7 @@ function configEnsaioPallet(produtoNome,prodCad,q){
     // sem limites cadastrados: mostra todas as peneiras (não há o que filtrar);
     // com limites: só as peneiras marcadas para o produto.
     // (out/2026) cadastro que só tem a variação de cor (sem nenhum limite) conta como "sem limites"
-    gran: aplica('granulometria') && (!q || pens.length>0 || _qSoVariacao(q)), pensProduto:pens};
+    gran: aplica('granulometria') && sobra>0 && (!q || pens.length>0 || pensNA.length>0 || _qSoVariacao(q)), pensProduto:pens, pensNA};
   cfg.exige=k=>!!cfg[k==='granulometria'?'gran':k] && (obrig.length?obrig.includes(k):ENSAIOS_OBRIG_PADRAO.includes(k));
   return cfg;
 }
@@ -2814,7 +2815,7 @@ function configEnsaioPallet(produtoNome,prodCad,q){
 // não bastam — senão o pallet aprovaria com tudo "sem limite".
 function temLimiteDeEnsaio(q){
   if(!q) return false;
-  if(Object.keys(q.limites_peneira||{}).length) return true;
+  if(lpPensMedidas(q).length) return true;
   if((q.ensaios_obrigatorios||[]).length) return true;
   return ['limite_agua_min_ml','limite_agua_max_ml','limite_densidade_min','limite_densidade_max','limite_umidade_min','limite_umidade_max',
     'limite_total_retido_min','limite_total_retido_max','limite_mm_min','limite_peso_esp_min','limite_peso_esp_max']
@@ -2927,7 +2928,7 @@ function abrirPalletLab(id,idsSelecionados){
       const l=qq.limites_peneira[pe.id];
       return cfg.pensProduto.includes(String(pe.id)) && (!l || l.medido!==false);
     }
-    return pe.ativo!==false;
+    return pe.ativo!==false && !(cfg.pensNA||[]).includes(String(pe.id));
   }).sort((a,b)=>(a.ordem||0)-(b.ordem||0));
   const granExist={};
   if(anBase&&Array.isArray(anBase.granulometria)) anBase.granulometria.forEach(d=>{granExist[String(d.peneira_id)]=d;});
@@ -4766,7 +4767,7 @@ async function montarCertificado(op, existente){
   const an=_lauAnalisesPalletDaOp(op,prod);
 
   // ── ensaios do lote: especificação de Limites por Produto, resultado = média das análises
-  const pensIds=q?Object.keys(q.limites_peneira||{}):[];
+  const pensIds=q?lpPensMedidas(q):[];
   let peneiras=(_peneiras||[]).filter(p=>pensIds.includes(String(p.id)));
   if(!peneiras.length){ // produto sem peneiras cadastradas: as que as análises trouxeram
     const ids=[...new Set(an.lista.flatMap(a=>asArray(a.granulometria).map(g=>String(g.peneira_id))))];
@@ -5660,7 +5661,9 @@ function lpToggleGrupo(chave,na){
   g.ids.forEach(id=>{ const el=document.getElementById(id); if(!el) return;
     el.disabled=na; if(na&&!g.manter) el.value=''; el.style.background=na?'#f1f5f9':''; });
   const box=document.getElementById('lp-grupo-'+chave); if(box) box.style.opacity=na?'.45':'';
-  if(g.todos&&box) box.querySelectorAll('input,select').forEach(el=>{ el.disabled=na; });   // peneiras
+  if(g.todos&&box){ box.querySelectorAll('input,select').forEach(el=>{ el.disabled=na; });   // peneiras
+    if(!na) box.querySelectorAll('.lp-pen-on').forEach(c=>{ const id=c.dataset.pen; lpTogglePeneira(id,c.checked);
+      const n=box.querySelector(`.lp-pen-na[data-pen="${id}"]`); if(n&&n.checked) lpTogglePenNA(id,true); }); }
   if(chave==='aditivo'&&!na&&typeof lpToggleAditivo==='function') lpToggleAditivo();
 }
 function lpGruposNA(){ return Object.keys(LP_GRUPOS).filter(k=>document.getElementById('lp-na-'+k)?.checked); }
@@ -5729,19 +5732,28 @@ function renderProdutosSub(){
 
 // As peneiras vêm da aba Peneiras; aqui o usuário só marca quais valem para
 // este produto. Marcada = medida, reportada no laudo e critério de aprovação.
+// (out/2026) peneira "não se aplica" = gravada com medido:false (sem limite, não aparece na análise)
+function lpPensMedidas(q){ const lp=(q&&q.limites_peneira)||{}; return Object.keys(lp).filter(k=>lp[k]&&lp[k].medido!==false); }
+function lpPensNA(q){ const lp=(q&&q.limites_peneira)||{}; return Object.keys(lp).filter(k=>lp[k]&&lp[k].medido===false); }
+function lpTogglePenNA(penId,na){
+  const on=document.querySelector(`.lp-pen-on[data-pen="${penId}"]`);
+  if(on){ on.disabled=na; if(na){ on.checked=false; lpTogglePeneira(penId,false); } }
+  const tr=document.querySelector(`.lp-pen-na[data-pen="${penId}"]`)?.closest('tr'); if(tr) tr.style.opacity=na?'.5':'';
+}
 function lpLinhasPeneira(q){
   const ativas=(_peneiras||[]).filter(p=>p.ativo).sort((a,b)=>(a.ordem||0)-(b.ordem||0));
   if(!ativas.length) return '<p style="font-size:12px;color:#b45309;">Nenhuma peneira ativa — cadastre na aba <strong>Peneiras</strong>.</p>';
   return `<div class="table-wrap"><table style="font-size:12px;"><thead><tr>
-    <th style="width:40px;"></th><th>Peneira</th><th>Abertura (mm)</th><th>Limite inf. (%)</th><th>Limite sup. (%)</th>
+    <th style="width:40px;"></th><th>Peneira</th><th>Abertura (mm)</th><th>Limite inf. (%)</th><th>Limite sup. (%)</th><th style="text-align:center;">Não se aplica</th>
   </tr></thead><tbody>${ativas.map(pen=>{
-    const l=(q.limites_peneira||{})[pen.id]; const on=!!l;
-    return `<tr>
-      <td><input type="checkbox" class="lp-pen-on" data-pen="${pen.id}" ${on?'checked':''} onchange="lpTogglePeneira('${pen.id}',this.checked)"></td>
+    const l0=(q.limites_peneira||{})[pen.id]; const na=!!(l0&&l0.medido===false); const l=na?null:l0; const on=!!l;
+    return `<tr ${na?'style="opacity:.5;"':''}>
+      <td><input type="checkbox" class="lp-pen-on" data-pen="${pen.id}" ${on?'checked':''} ${na?'disabled':''} onchange="lpTogglePeneira('${pen.id}',this.checked)"></td>
       <td><strong>${esc(pen.codigo)}</strong></td>
       <td style="color:#94a3b8;">${esc(pen.abertura_mm??'—')}</td>
       <td><input type="number" step="0.01" class="form-input lp-pen-inf" data-pen="${pen.id}" style="padding:5px;width:90px;" value="${esc(l?.limite_inf??'')}" ${on?'':'disabled'}></td>
       <td><input type="number" step="0.01" class="form-input lp-pen-sup" data-pen="${pen.id}" style="padding:5px;width:90px;" value="${esc(l?.limite_sup??'')}" ${on?'':'disabled'}></td>
+      <td style="text-align:center;"><input type="checkbox" class="lp-pen-na" data-pen="${pen.id}" ${na?'checked':''} onchange="lpTogglePenNA('${pen.id}',this.checked)" title="Esta peneira não se aplica a este produto — não aparece na análise de pallet"></td>
     </tr>`;}).join('')}</tbody></table></div>`;
 }
 function lpTogglePeneira(penId,on){
@@ -6033,8 +6045,14 @@ async function salvarLimiteProduto(pid){
   const btn=document.getElementById('lp-btn'); if(btn){btn.disabled=true;btn.innerHTML='<span class="spin"></span>';}
   try{
     if(!await persistirQualidade(pid)) throw new Error('não foi possível gravar os limites do produto');
-    // Peneira marcada entra (medida, reportada e com limite); desmarcada sai.
-    const marcadas=pens.map(p=>p.peneira_id);
+    // Peneira marcada entra (medida, reportada e com limite); "não se aplica" entra com medido:false; o resto sai.
+    const pensNA=naSet.includes('granulometria')?[]:[...document.querySelectorAll('.lp-pen-na')].filter(c=>c.checked).map(c=>String(c.dataset.pen));
+    if(pensNA.length){
+      const r=await _supabase.from('lab_produto_limites_peneira').upsert(
+        pensNA.map(id=>({produto_id:pid, peneira_id:id, limite_inf:null, limite_sup:null, medido:false, reportavel_laudo:false, com_limite:false})), {onConflict:'produto_id,peneira_id'});
+      if(r.error) throw r.error;
+    }
+    const marcadas=pens.map(p=>p.peneira_id).concat(pensNA);
     const antes=Object.keys(q.limites_peneira||{});
     const remover=antes.filter(id=>!marcadas.includes(id));
     if(pens.length){
@@ -6049,6 +6067,7 @@ async function salvarLimiteProduto(pid){
     }
     q.limites_peneira={};
     pens.forEach(p=>{ q.limites_peneira[p.peneira_id]={medido:true,reportavel:true,com_limite:true,limite_inf:p.limite_inf,limite_sup:p.limite_sup}; });
+    pensNA.forEach(id=>{ q.limites_peneira[id]={medido:false,reportavel:false,com_limite:false,limite_inf:null,limite_sup:null}; });
     await addLog('UPDATE','LABORATORIO',pid,'Limites do produto '+produtoNomeById(pid));
     closeModal('modal-limite-produto'); toast('Limites salvos.','success'); renderProdutosSub();
   }catch(e){ desfazer(); erro('Erro: '+((e&&e.message)||e)); }
@@ -6061,7 +6080,7 @@ function verLimiteProduto(pid){
   const cel=(l,v)=>`<div style="padding:9px;background:#f8fafc;border-radius:7px;border:1px solid #e2e8f0;">
     <p style="font-size:9px;color:#94a3b8;font-weight:700;text-transform:uppercase;">${esc(l)}</p>
     <p style="font-size:12.5px;font-weight:700;color:var(--primary);">${esc(v)}</p></div>`;
-  const pens=(_peneiras||[]).filter(p=>(q.limites_peneira||{})[p.id]).sort((a,b)=>(a.ordem||0)-(b.ordem||0));
+  const pens=(_peneiras||[]).filter(p=>{ const l=(q.limites_peneira||{})[p.id]; return l&&l.medido!==false; }).sort((a,b)=>(a.ordem||0)-(b.ordem||0));
   const body=`
   <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px;">
     ${cel('Produto',nome)}
