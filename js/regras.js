@@ -608,5 +608,13 @@
     };
   };
 
+  /** Componente já teve manutenção registrada? (data, OS ou histórico). Sem isso não se sabe
+   *  quando vence: não entra como vencido — começa a contar na 1ª manutenção. (out/2026) */
+  Regras.temRegistroRevisao = function (c) {
+    c = c || {};
+    return !!(String(c.ultima_revisao || '').trim() || String(c.ultima_os || '').trim() ||
+      (Array.isArray(c.historico_revisoes) && c.historico_revisoes.length));
+  };
+
   global.Regras = Regras;
 })(typeof window !== 'undefined' ? window : this);
