@@ -5766,6 +5766,22 @@ function variacaoPeloNomeProduto(nome){
 // (out/2026) Ao escolher o produto, a variação de cor vinculada vem sozinha:
 // 1º da VARIAÇÃO DECLARADA no último Lote de MP lançado para este produto;
 // 2º pelo nome do produto ("Caulim 25kg - Creme 02" → Creme 2). Sempre editável.
+// (out/2026) QUEM MANDA É O LOTE DE MP: a variação de cor vinculada só pode ser uma
+// variação que já foi declarada em Lotes de MP, e o STD (L*, a*, b*) vem da cor
+// medida no ÚLTIMO lote de MP daquela variação (o ΔE máx. vem do cadastro da variação).
+function lpUltimoLoteMPDaVar(vid){
+  return (_caulimLotesMP||[]).filter(l=>String(l.variacao_declarada_id)===String(vid))
+    .sort((a,b)=>String(b.data||b.created_at||'').localeCompare(String(a.data||a.created_at||''))||String(b.numero||'').localeCompare(String(a.numero||'')))[0]||null;
+}
+function lpVariacoesDosLotesMP(){
+  const ids=[...new Set((_caulimLotesMP||[]).map(l=>l.variacao_declarada_id).filter(Boolean).map(String))];
+  return (_caulimVariacoes||[]).filter(v=>ids.includes(String(v.id))).sort((a,b)=>String(a.nome).localeCompare(String(b.nome)));
+}
+function lpStdDaVariacao(v){
+  const lote=lpUltimoLoteMPDaVar(v.id), st=stdDaVariacao(v);
+  if(lote&&lote.cor_l!=null&&lote.cor_a!=null&&lote.cor_b!=null) return {l:lote.cor_l,a:lote.cor_a,b:lote.cor_b,max:st.max,lote};
+  return {...st,lote};
+}
 function lpSugerirVariacao(){
   const sel=document.getElementById('lp-variacao'); if(!sel) return;
   if(sel.value&&sel.dataset.auto!=='1') return;   // escolhida à mão: não mexe
@@ -5778,14 +5794,21 @@ function lpSugerirVariacao(){
   let v=lote?(_caulimVariacoes||[]).find(x=>String(x.id)===String(lote.variacao_declarada_id)):null, origem='';
   if(v) origem=`da variação declarada no lote de MP <strong>${esc(lote.numero||'')}</strong>`;
   else { v=variacaoPeloNomeProduto(nome); if(v) origem='pelo nome do produto'; }
+  if(v&&!lpVariacoesDosLotesMP().some(x=>String(x.id)===String(v.id))){
+    if(d) d.innerHTML=`<span style="color:#b45309;">pelo nome seria <strong>${esc(v.nome)}</strong>, mas ainda não há Lote de MP dessa variação — lance o lote em Caulim → Lotes de MP</span>`; return; }
   if(!v){ if(d) d.innerHTML='<span style="color:#b45309;">não achei a variação deste produto — escolha na lista</span>'; return; }
   sel.value=v.id; sel.dataset.auto='1'; lpAplicarVariacao(true);
-  if(d) d.innerHTML=`veio ${origem} — <strong>confira</strong>. STD em branco preenchido com o da variação.`;
+  const _lt=lpUltimoLoteMPDaVar(v.id);
+  if(d) d.innerHTML=`veio ${origem} — <strong>confira</strong>.`+(_lt?` STD do lote de MP <strong>${esc(_lt.numero||'')}</strong>.`:'');
 }
 // Escolher a variação preenche o STD em branco com o STD dela.
 function lpAplicarVariacao(){
   const v=(_caulimVariacoes||[]).find(x=>String(x.id)===String(gv('lp-variacao'))); if(!v) return;
-  const st=stdDaVariacao(v);
+  const st=lpStdDaVariacao(v);
+  const d=document.getElementById('lp-variacao-dica');
+  if(d&&!d.innerHTML.includes('veio')) d.innerHTML=st.lote?`dados do lote de MP <strong>${esc(st.lote.numero||'')}</strong> (${st.lote.data?String(st.lote.data).split('-').reverse().join('/'):''})`:'<span style="color:#b45309;">sem lote de MP desta variação — usando o STD do cadastro</span>';
+  // o que veio de outra variação/lote (preenchido automaticamente) é trocado; o que foi digitado fica
+  ['lp-std-l','lp-std-a','lp-std-b','lp-dE'].forEach(id=>{ const el=document.getElementById(id); if(el&&el.dataset.auto==='1'){ el.value=''; } });
   [['lp-std-l',st.l],['lp-std-a',st.a],['lp-std-b',st.b],['lp-dE',st.max]].forEach(([id,val])=>{
     const el=document.getElementById(id); if(el&&String(el.value).trim()===''&&val!=null){ el.value=val; el.dataset.auto='1'; } });
 }
@@ -5871,14 +5894,16 @@ function abrirLimiteProduto(pid){
   </div>
   <div class="af-box" style="margin-top:10px;">
     <div class="sec-title">🪨 Caulim — Lote de MP (variação, cor e caracterização)</div>
-    <p style="font-size:11.5px;color:#64748b;margin-top:-6px;margin-bottom:10px;">O <strong>Lote de MP</strong> (aba Caulim) lista como Variação Declarada os produtos cadastrados aqui
-      e traz daqui o STD, o ΔE máximo e os limites da caracterização. A umidade é a do grupo <strong>Umidade (%)</strong> acima.</p>
+    <p style="font-size:11.5px;color:#64748b;margin-top:-6px;margin-bottom:10px;">Quem manda é o <strong>Lote de MP</strong> (aba Caulim): aqui só aparecem as variações já declaradas lá,
+      e o STD (L*, a*, b*) vem da cor medida no <strong>último lote</strong> daquela variação. A umidade é a do grupo <strong>Umidade (%)</strong> acima.</p>
     <div class="form-grid-3">
       <div class="form-group"><label class="form-label" style="font-size:11px;">Variação de cor vinculada</label>
         <select id="lp-variacao" class="form-input" onchange="this.dataset.auto='';lpAplicarVariacao()">
-          <option value="">— nenhuma —</option>${(_caulimVariacoes||[]).filter(v=>v.ativo!==false||String(v.id)===String(q.variacao_id)).map(v=>`<option value="${esc(v.id)}" ${String(q.variacao_id||'')===String(v.id)?'selected':''}>${esc(v.nome)} (${esc(v.codigo||'—')})</option>`).join('')}
+          <option value="">— nenhuma —</option>${(()=>{ const lst=lpVariacoesDosLotesMP(); const atual=(_caulimVariacoes||[]).find(v=>String(v.id)===String(q.variacao_id||''));
+            if(atual&&!lst.some(v=>String(v.id)===String(atual.id))) lst.push(Object.assign({},atual,{_semLote:true}));
+            return lst.map(v=>`<option value="${esc(v.id)}" ${String(q.variacao_id||'')===String(v.id)?'selected':''}>${esc(v.nome)} (${esc(v.codigo||'—')})${v._semLote?' — sem lote de MP':''}</option>`).join(''); })()}
         </select>
-        <div id="lp-variacao-dica" style="font-size:10.5px;color:#94a3b8;margin-top:3px;">sigla do nº do lote e as análises externas do laudo</div></div>
+        <div id="lp-variacao-dica" style="font-size:10.5px;color:#94a3b8;margin-top:3px;">só variações declaradas em Lotes de MP · o STD vem do último lote</div></div>
       ${num('lp-dE','ΔE máximo',q.delta_e_max,'0.01')}
       <div></div>
       ${num('lp-std-l','STD L*',q.std_l,'0.01')}${num('lp-std-a','STD a*',q.std_a,'0.01')}${num('lp-std-b','STD b*',q.std_b,'0.01')}
