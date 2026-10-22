@@ -188,6 +188,9 @@
 
 /* ── etapas da aprovação e ficha recolhida (out/2026) ── */
 .pw-etapa{display:inline-block;background:var(--accent);color:var(--primary);font-size:12px;font-weight:800;padding:3px 10px;border-radius:20px;vertical-align:2px;}
+.pw-gravando{position:fixed;inset:0;z-index:100000;background:rgba(4,45,77,.55);display:flex;align-items:center;justify-content:center;}
+.pw-gravando>div{background:#fff;border-radius:16px;padding:22px 28px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.3);}
+.pw-gravando b{display:block;font-size:16px;color:var(--primary);} .pw-gravando span{display:block;font-size:13px;color:#64748b;margin-top:4px;}
 .pw-steps{display:flex;gap:6px;margin-bottom:10px;}
 .pw-st{flex:1;min-width:0;} .pw-st i{display:block;height:6px;border-radius:6px;background:#e2e8f0;}
 .pw-st span{display:block;font-size:11px;font-weight:700;color:#94a3b8;margin-top:5px;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
@@ -8684,8 +8687,11 @@ init().then(()=>abrirLaudoPorLink()).catch(e=>console.error('[laboratorio] link 
    respeita o "Pallets por análise" de Limites por Produto andando em etapas:
    limite 5 e 15 marcados → #1–5, #6–10, #11–15 (limite 3 → de 3 em 3).
    Cada etapa já vem preenchida com o que foi digitado na anterior; mudou algo,
-   vale dali para frente. Cada etapa grava pelo MESMO salvarStatusPallet().
-   Parou no meio: fica pendente (aparece no topo da aba) — continuar ou cancelar.
+   vale dali para frente. "Próximo" NÃO grava nada: só confere a ficha e guarda
+   o que foi digitado. No "Concluir", todas as etapas são gravadas em sequência
+   pelo MESMO salvarStatusPallet() de sempre.
+   Parou no meio: fica pendente (aparece no topo da aba) — continuar ou cancelar
+   (cancelar descarta tudo, porque nada foi gravado).
    E na ficha de quem aprova/reprova em seleção, aparece só de "Ensaios" até
    "Resultado"; o resto fica recolhido (clica para ver).
    ══════════════════════════════════════════════════════════════════════════ */
@@ -8723,9 +8729,11 @@ function _palRecolher(){
   const ini=titulo('Ensaios')||document.getElementById('pl-tab-gran')?.closest('div')&&filhos.find(el=>el.contains(document.getElementById('pl-tab-gran')))||titulo('Resultado');
   const obs=titulo('Observações');
   const iIni=filhos.indexOf(ini), iObs=obs?filhos.indexOf(obs):-1;
-  const mk=(rot)=>{ const d=document.createElement('details'); d.className='pl-recolhe'; d.innerHTML=`<summary>${rot}</summary>`; return d; };
-  if(iIni>0){ const d=mk('▸ Identificação, pallets selecionados, composição e traço (toque para ver)'); corpo.insertBefore(d,filhos[0]); filhos.slice(0,iIni).forEach(el=>d.appendChild(el)); }
-  if(iObs>=0){ const d=mk('▸ Observações e anexos (toque para ver)'); corpo.appendChild(d); filhos.slice(iObs).forEach(el=>d.appendChild(el)); }
+  const mk=(rot)=>{ const d=document.createElement('details'); d.className='pl-recolhe'; d.innerHTML=`<summary></summary>`;
+    const sm=d.querySelector('summary'); const pinta=()=>{ sm.textContent=d.open?`▾ ${rot} (toque para ocultar)`:`▸ ${rot} (toque para ver)`; };
+    d.addEventListener('toggle',pinta); pinta(); return d; };
+  if(iIni>0){ const d=mk('Identificação, pallets selecionados, composição e traço'); corpo.insertBefore(d,filhos[0]); filhos.slice(0,iIni).forEach(el=>d.appendChild(el)); }
+  if(iObs>=0){ const d=mk('Observações e anexos'); corpo.appendChild(d); filhos.slice(iObs).forEach(el=>d.appendChild(el)); }
   corpo.dataset.recolhido='1';
 }
 function _palWizAbrirEtapa(){
@@ -8744,9 +8752,11 @@ function _palWizAbrirEtapa(){
   // barrinhas de progresso: feitas (verde), a atual (destacada) e as que faltam (cinza)
   if(corpo) corpo.insertAdjacentHTML('afterbegin',`<div class="pw-steps">${w.chunks.map((c,k)=>`<div class="pw-st ${k<w.idx?'feita':k===w.idx?'atual':''}"><i></i><span>${k<w.idx?'✓ ':''}${_palNumsTxt(c)}</span></div>`).join('')}</div>
     ${w.idx>0?'<div class="pw-dica">Já vem com o que foi preenchido antes — mudou algo, vale daqui para frente.</div>':''}`);
-  if(w.snap) _palAplicarSnap(w.snap);
+  const snap=(w.snaps&&w.snaps[w.idx])||(w.snaps&&w.snaps[w.idx-1])||w.snap;
+  if(snap) _palAplicarSnap(snap);
   const bt=document.getElementById('btn-salvar-plab');
-  if(bt) bt.textContent=w.idx<w.chunks.length-1?'Próximo ›':'✓ Concluir';
+  if(bt){ const ult=w.idx>=w.chunks.length-1; bt.textContent=ult?'✓ Concluir':'Próximo ›'; bt.setAttribute('onclick',ult?'palWizConcluir()':'palWizProximo()'); }
+  if(w.idx>0){ const ft=m.querySelector('.modal-footer'); if(ft&&!ft.querySelector('.pw-ant')) ft.insertAdjacentHTML('afterbegin','<button class="btn btn-secondary pw-ant" style="margin-right:auto;" onclick="palWizAnterior()">‹ Anterior</button>'); }
 }
 function _palWizBanner(){
   const tab=document.getElementById('tab-pallets'); if(!tab) return;
@@ -8756,12 +8766,61 @@ function _palWizBanner(){
   if(!b){ b=document.createElement('div'); b.id='pw-pendente'; const g=document.getElementById('pal-grupos'); g?g.parentNode.insertBefore(b,g):tab.prepend(b); }
   b.className='pw-pendente';
   b.innerHTML=`<div>⏸️ <b>${w.status==='reprovado'?'Reprovação':'Aprovação'} em etapas parada</b> — ${esc(w.produto||'')}: parou na <b>etapa ${w.idx+1} de ${w.chunks.length}</b> (pallets ${_palNumsTxt(w.chunks[w.idx])}).
-    <span>As etapas anteriores já foram salvas.</span></div>
+    <span>Nada foi gravado ainda — só no "Concluir" da última etapa.</span></div>
     <div style="display:flex;gap:6px;flex-wrap:wrap;"><button class="btn btn-primary btn-sm" onclick="palWizContinuar()">▶ Continuar (salvar ensaio e decidir)</button>
     <button class="btn btn-secondary btn-sm" onclick="palWizCancelar()">✕ Cancelar alterações</button></div>`;
 }
 function palWizContinuar(){ _palWiz=_palWiz||_palWizLer(); if(!_palWiz) return; _palWizAbrirEtapa(); }
-function palWizCancelar(){ if(!confirm('Cancelar as etapas que faltam? O que já foi salvo continua salvo.')) return; _palWiz=null; _palWizSalvar(); _palWizBanner(); }
+function palWizCancelar(){ if(!confirm('Cancelar esta aprovação em etapas? Nada foi gravado — o que foi digitado será descartado.')) return; _palWiz=null; _palWizSalvar(); _palWizBanner(); }
+// mesmas conferências do salvar, sem gravar nada
+function _palValidarEtapa(){
+  const {gran,av}=lerGranPallet(); const v=vereditoPallet(gran,av);
+  const manual=!!document.getElementById('pl-reprova-manual')?.checked; if(manual) v.aprovado=false;
+  if(!v.completo&&!manual){ toast('Ficha incompleta — faltam: '+v.falta.slice(0,4).join(', ')+(v.falta.length>4?` e mais ${v.falta.length-4}`:'')+'.','danger'); document.getElementById('pl-faltando')?.scrollIntoView({behavior:'smooth',block:'center'}); return false; }
+  if(!v.aprovado){
+    const motEl=document.getElementById('pl-motivo'); if(motEl&&!motEl.value.trim()) motEl.value=motivoAutoPallet(v,manual);
+    const bloco=document.getElementById('pl-bloco-reprova'); if(bloco) bloco.style.display='';
+    if(!gv('pl-acao')){ toast('Reprovado: escolha a ação.','warning'); return false; }
+    if(!gv('pl-motivo').trim()){ toast('Reprovado: informe o motivo.','warning'); return false; }
+    if(!gv('pl-justificativa').trim()){ toast('Reprovado: escreva a justificativa.','warning'); return false; }
+  }
+  return true;
+}
+function palWizProximo(){
+  const w=_palWiz; if(!w) return;
+  if(!_palValidarEtapa()) return;
+  w.snaps=w.snaps||[]; w.snaps[w.idx]=_palSnap(); w.idx++; _palWizSalvar();
+  closeModal('modal-pallet-lab'); _palWizBanner(); setTimeout(_palWizAbrirEtapa,150);
+}
+function palWizAnterior(){
+  const w=_palWiz; if(!w||w.idx<=0) return;
+  w.snaps=w.snaps||[]; w.snaps[w.idx]=_palSnap(); w.idx--; _palWizSalvar();
+  closeModal('modal-pallet-lab'); setTimeout(_palWizAbrirEtapa,150);
+}
+// Concluir: grava todas as etapas em sequência, cada uma pelo salvar de sempre
+async function palWizConcluir(){
+  const w=_palWiz; if(!w) return;
+  if(!_palValidarEtapa()) return;
+  w.snaps=w.snaps||[]; w.snaps[w.idx]=_palSnap(); _palWizSalvar();
+  const ov=document.createElement('div'); ov.className='pw-gravando'; document.body.appendChild(ov);
+  const etapas=w.chunks.length; let k=0;
+  try{
+    for(k=0;k<etapas;k++){
+      ov.innerHTML=`<div><b>Gravando etapa ${k+1} de ${etapas}…</b><span>${_palNumsTxt(w.chunks[k])}</span></div>`;
+      w.idx=k; _palWizAbrirEtapa(); await new Promise(r=>setTimeout(r,120));
+      if(w.snaps[k]) _palAplicarSnap(w.snaps[k]);
+      await _palSalvarOriginal();
+      if(document.getElementById('modal-pallet-lab')){ throw new Error('etapa '+(k+1)); }   // não gravou: o salvar avisou o motivo
+      await new Promise(r=>setTimeout(r,150));
+    }
+    toast(`✅ ${etapas} etapa(s) gravada(s).`,'success'); _palWiz=null; _palWizSalvar(); _palWizBanner();
+  }catch(e){
+    w.idx=k; _palWizSalvar(); _palWizBanner();
+    toast(`Parou na ${e.message}: corrija e clique em Concluir de novo. As etapas anteriores a ela já foram gravadas.`,'warning');
+    // o que já foi gravado sai da lista; o que falta continua no assistente
+    w.chunks=w.chunks.slice(k); w.snaps=(w.snaps||[]).slice(k); w.idx=0; _palWizSalvar(); _palWizBanner();
+  }finally{ ov.remove(); }
+}
 
 (function(){
   // 1) marcar: pode marcar TODOS do produto (as etapas respeitam o limite)
@@ -8792,24 +8851,13 @@ function palWizCancelar(){ if(!confirm('Cancelar as etapas que faltam? O que já
     const travados=sel.filter(palletTravadoPorEstoque);
     if(travados.length){ toast(`${travados.length} item(ns) já estão carregados/expedidos e não podem mais ser julgados aqui.`,'danger'); return; }
     const chunks=[]; for(let i=0;i<sel.length;i+=max) chunks.push(sel.slice(i,i+max).map(p=>p.id));
-    _palWiz={produto:sel[0].produto,status,max,chunks,idx:0,snap:null,quando:new Date().toISOString()};
+    _palWiz={produto:sel[0].produto,status,max,chunks,idx:0,snaps:[],quando:new Date().toISOString()};
     _palWizSalvar(); _palWizBanner();
     toast(`${sel.length} pallets de ${sel[0].produto}: ${chunks.length} etapas de até ${max}.`,'info');
     _palWizAbrirEtapa();
   };
-  // 3) salvar: grava a etapa e já abre a próxima com o que foi preenchido
-  const _sv=salvarStatusPallet;
-  salvarStatusPallet=async function(){
-    const emEtapa=!!_palWiz, snap=emEtapa?_palSnap():null;
-    const r=await _sv.apply(this,arguments);
-    const salvou=!document.getElementById('modal-pallet-lab');
-    if(emEtapa&&salvou&&_palWiz){
-      _palWiz.snap=snap; _palWiz.idx++;
-      if(_palWiz.idx>=_palWiz.chunks.length){ toast('✅ Todas as etapas salvas.','success'); _palWiz=null; _palWizSalvar(); _palWizBanner(); }
-      else { _palWizSalvar(); _palWizBanner(); setTimeout(_palWizAbrirEtapa,350); }
-    }
-    return r;
-  };
+  // 3) o Concluir usa o salvar de sempre
+  window._palSalvarOriginal=salvarStatusPallet;
   // 4) ficha aberta por seleção: só "Ensaios … Resultado" à vista
   const _apl=abrirPalletLab;
   abrirPalletLab=function(id,idsSelecionados){
