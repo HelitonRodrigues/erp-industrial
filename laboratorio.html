@@ -848,7 +848,7 @@ async function init(){
     _supabase.from('empresa_config').select('*').limit(1),
     /* escala do período: de onde sai o encarregado e a equipe da análise.
        Sem assinatura_img — são megabytes de base64 que esta tela não usa. */
-    _supabase.from('escalas').select('id,nome,periodo_inicio,periodo_fim,turno_nome,encarregado,linhas,turno2,turno3')
+    _supabase.from('escalas').select('id,nome,status,periodo_inicio,periodo_fim,turno_nome,encarregado,linhas,turno2,turno3')
       .order('periodo_inicio',{ascending:false}).limit(120),
     /* aferições do aferidor: de onde sai o separador */
     _supabase.from('aferidor_aditivacao').select('numero,data,hora,linha,op_numero,itens')
@@ -875,9 +875,17 @@ async function init(){
   const dlf=document.getElementById('dl-func-nomes');
   if(dlf){ dlf.innerHTML=(_funcs||[]).map(x=>`<option value="${esc(x.nome)}">`).join(''); }
 
+  // (out/2026) filtro de turno da Análise de Pallet: só os turnos da ESCALA ATIVA (escala.html);
+  // sem escala ativa, mostra os turnos cadastrados como antes
   const fpT=document.getElementById('fp-turno');
   if(fpT){ const p0=fpT.querySelector('option'); fpT.innerHTML=`<option value="">${p0?p0.textContent:'Todos'}</option>`;
-    _turnos.forEach(t=>{const o=document.createElement('option');o.value=t.nome;o.textContent=t.nome;fpT.appendChild(o);}); }
+    const hj=new Date(), hojeISO=`${hj.getFullYear()}-${String(hj.getMonth()+1).padStart(2,'0')}-${String(hj.getDate()).padStart(2,'0')}`;
+    const ativas=(_escalas||[]).filter(e=>e.status==='ativa');
+    const esc=ativas.find(e=>e.periodo_inicio<=hojeISO&&e.periodo_fim>=hojeISO)||ativas[0]||null;
+    const nomesEsc=esc?[esc.turno_nome,esc.turno2&&esc.turno2.turno_nome,esc.turno3&&esc.turno3.turno_nome].filter(Boolean):[];
+    const nomes=nomesEsc.length?[...new Set(nomesEsc)]:_turnos.map(t=>t.nome);
+    nomes.forEach(n=>{const o=document.createElement('option');o.value=n;o.textContent=n;fpT.appendChild(o);});
+    fpT.title=nomesEsc.length?('Turnos da escala ativa: '+(esc.nome||'')):'Sem escala ativa — todos os turnos cadastrados'; }
 
   renderAlertasLab();
   renderDashLinhas();renderAnalises();renderAfericoes();renderPallets();
