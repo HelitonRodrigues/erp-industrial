@@ -362,12 +362,28 @@
 .col-side .ca-gauge-pct{font-size:30px;}
 
 /* Pendências por área */
-.pd-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px;}
-.pd{background:#f8fafc;border-radius:10px;padding:11px 13px;cursor:pointer;border:1px solid transparent;}
-.pd:hover{border-color:var(--wd-line);background:#fff;}
-.pd-t{font-size:12.5px;font-weight:800;color:var(--primary);margin-bottom:6px;}
-.pd-r{display:flex;justify-content:space-between;gap:8px;font-size:12px;color:var(--ink-3);line-height:1.6;}
-.pd-r b{color:var(--primary);font-variant-numeric:tabular-nums;white-space:nowrap;}
+.pd-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px;}
+.pd{position:relative;background:#fff;border:1px solid var(--wd-line);border-radius:12px;padding:12px 14px 13px;cursor:pointer;
+  overflow:hidden;transition:border-color .15s,box-shadow .15s,transform .15s;}
+.pd::before{content:'';position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--pd);}
+.pd:hover{border-color:#b9c8d8;box-shadow:0 6px 18px rgba(4,45,77,.08);transform:translateY(-1px);}
+.pd-h{display:flex;align-items:center;gap:9px;margin-bottom:10px;}
+.pd-ic{width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:15px;
+  background:color-mix(in srgb,var(--pd) 12%,#fff);flex-shrink:0;}
+.pd-t{font-size:13.5px;font-weight:800;color:var(--primary);flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.pd-sel{font-size:10.5px;font-weight:800;padding:2px 8px;border-radius:20px;text-transform:uppercase;letter-spacing:.3px;white-space:nowrap;}
+.pd-sel.bad{background:var(--bad-bg);color:var(--bad);}
+.pd-sel.warn{background:var(--warn-bg);color:var(--warn);}
+.pd-go{font-size:20px;line-height:1;color:var(--ink-5);transition:color .15s,transform .15s;}
+.pd:hover .pd-go{color:var(--primary);transform:translateX(2px);}
+.pd-st{display:grid;grid-template-columns:1fr 1fr;gap:6px;}
+.pd-s{background:#f8fafc;border-radius:8px;padding:7px 9px;min-width:0;}
+.pd-s b{display:block;font-size:16px;font-weight:800;color:var(--primary);font-variant-numeric:tabular-nums;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis;letter-spacing:-.2px;line-height:1.2;}
+.pd-s span{display:block;font-size:11px;color:var(--ink-3);line-height:1.3;margin-top:1px;}
+.pd-s.zero b{color:var(--ink-4);font-weight:700;}
+.pd-st .pd-s:only-child,.pd-st .pd-s:last-child:nth-child(odd){grid-column:1/-1;}
+@media (max-width:760px){ .pd-grid{grid-template-columns:1fr;} }
 
 /* ── DETALHE EM MODAL — clicar num número abre o detalhe aqui, sem ir ao módulo ── */
 .dash-modal-overlay.det{z-index:520;}
@@ -1214,14 +1230,26 @@ function renderComparativos(){
   </tbody></table></div>`;
 }
 
-/* Card de pendência por área: título + linhas [rótulo, valor, cor?] */
-function miniCard(icon,titulo,linhas,pagina){
+/* Card de pendência por área: cabeçalho (ícone + título) e os números em
+   blocos de 2 colunas — o valor em destaque, o rótulo embaixo. A cor da área
+   vem no 5º parâmetro; o selo "atenção" aparece se algum número está vermelho/amarelo.
+   linhas = [ [rótulo, valor, cor?] ] */
+function miniCard(icon,titulo,linhas,pagina,corArea){
   const vazio=v=>{ const t=String(v==null?'':v).replace(/<[^>]*>/g,'').trim(); return !t||t==='\u2014'||/^(R\$\s*)?0([.,]0+)?\s*(L|%)?$/.test(t); };
   if(linhas.every(l=>vazio(l[1]))) return '';
   _MINI[pagina]={icon,titulo,linhas};   // o modal repete os números do card antes da lista
-  return `<div class="pd" role="button" tabindex="0" aria-label="${titulo} — ver detalhe" onclick="detModulo('${pagina}')">
-    <div class="pd-t">${icon} ${titulo}</div>
-    ${linhas.map(l=>`<div class="pd-r"><span>${l[0]}</span><b${l[2]?` style="color:${l[2]};"`:''}>${l[1]}</b></div>`).join('')}
+  const alerta=linhas.some(l=>(l[2]==='var(--bad)'||l[2]==='var(--warn)')&&!vazio(l[1]));
+  const critico=linhas.some(l=>l[2]==='var(--bad)'&&!vazio(l[1]));
+  return `<div class="pd" style="--pd:${corArea||'var(--primary)'};" role="button" tabindex="0" aria-label="${titulo} — ver detalhe" onclick="detModulo('${pagina}')">
+    <div class="pd-h">
+      <span class="pd-ic">${icon}</span>
+      <span class="pd-t">${titulo}</span>
+      ${alerta?`<span class="pd-sel ${critico?'bad':'warn'}">${critico?'crítico':'atenção'}</span>`:''}
+      <span class="pd-go" aria-hidden="true">›</span>
+    </div>
+    <div class="pd-st">
+      ${linhas.map(l=>`<div class="pd-s${vazio(l[1])?' zero':''}"><b${l[2]&&!vazio(l[1])&&l[2]!=='var(--ok)'?` style="color:${l[2]};"`:''}>${l[1]}</b><span>${l[0]}</span></div>`).join('')}
+    </div>
   </div>`;
 }
 
@@ -1289,7 +1317,7 @@ async function init(opts){
     [_frotaV,_abBombas,_abRegs,_terServ,_lancCusto,_labAmostras,_bpfNcs,_bpfAud,_comprasPedidos,_comprasSol,_almoxSol,
      _expPedidos,_expOrdens,_romaneios,_rhFerias,_aferidor]=await Promise.all([
       safe(_supabase.from('frota_veiculos').select('status,tipo_revisao,proxima_revisao_data,proxima_revisao,revisao_horas,horimetro_atual')),
-      safe(_supabase.from('abastecimento_bombas').select('litros_atual,capacidade_litros,valor_litro,id')),
+      safe(_supabase.from('abastecimento_bombas').select('litros_atual,capacidade_litros,valor_litro,id,ativo')),
       safe(_supabase.from('abastecimento_registros').select('litros,bomba_id,data').gte('data',mIni).lte('data',ref+'T23:59:59.999')),
       safe(_supabase.from('terceiros_servicos').select('valor_total,status,data').gte('data',mIni).lte('data',ref+'T23:59:59.999')),
       safe(_supabase.from('lancamentos_custo').select('valor,data').gte('data',mIni).lte('data',ref)),
@@ -1639,8 +1667,11 @@ function cardsOperacoes(frota,bombas,regs,serv,lancs,hoje,comprasPedidos,compras
   const fAtivos=frota.filter(v=>v.status==='ativo').length;
   const fManut=frota.filter(v=>v.status==='manutencao').length;
   const fVenc=frota.filter(v=>{if(v.tipo_revisao==='data')return v.proxima_revisao_data&&v.proxima_revisao_data<=hoje;return v.revisao_horas>0&&(v.horimetro_atual||0)>=(v.proxima_revisao||Infinity);}).length;
-  const estoqueL=bombas.reduce((s,b)=>s+(parseFloat(b.litros_atual)||0),0);
-  const capL=bombas.reduce((s,b)=>s+(parseFloat(b.capacidade_litros)||0),0);
+  // bomba desativada (ativo=false) não entra no estoque nem na capacidade — havia uma
+  // 'Bomba Diesel S10 Fábrica' antiga, substituída, somando 2.052 L que não existem
+  const bAtivas=bombas.filter(b=>b.ativo!==false);
+  const estoqueL=bAtivas.reduce((s,b)=>s+(parseFloat(b.litros_atual)||0),0);
+  const capL=bAtivas.reduce((s,b)=>s+(parseFloat(b.capacidade_litros)||0),0);
   const pct=capL>0?Math.round(estoqueL/capL*100):0;
   const consumoL=regs.reduce((s,r)=>s+(parseFloat(r.litros)||0),0);
   const vl=id=>{const b=bombas.find(x=>x.id===id);return parseFloat(b?.valor_litro)||0;};
@@ -2280,13 +2311,13 @@ function detModulo(pagina){
           x.tipo_revisao==='data'?_dBRano(x.proxima_revisao_data):(x.proxima_revisao?_n(x.proxima_revisao)+' h (atual '+_n(x.horimetro_atual)+' h)':'—'),venc(x)?_tag('Vencida','bad'):_tag('Em dia','ok')]));
     },
     'abastecimento.html':async()=>{
-      const [b,r]=await Promise.all([_sel(_supabase.from('abastecimento_bombas').select('id,nome,combustivel,litros_atual,capacidade_litros,valor_litro')),
+      const [b,r]=await Promise.all([_sel(_supabase.from('abastecimento_bombas').select('id,nome,combustivel,litros_atual,capacidade_litros,valor_litro,ativo').order('nome')),
         _sel(_supabase.from('abastecimento_registros').select('bomba_id,litros,veiculo_nome,veiculo_placa,terceiro_nome').gte('data',ini).lte('data',fim+'T23:59:59.999'))]);
       const B={}; b.forEach(x=>B[x.id]=x);
       const gv=_agrupar(r,x=>x.veiculo_nome||x.terceiro_nome||x.veiculo_placa||'—');
       const tl=_somar(r,x=>x.litros), tc=_somar(r,x=>(x.litros||0)*((B[x.bomba_id]||{}).valor_litro||0));
       return tab('Bombas',[['Bomba'],['Combustível'],['Estoque',1],['Capacidade',1],['Ocupação',1],['Consumo no mês',1]],
-          b.map(x=>{const p=x.capacidade_litros>0?x.litros_atual/x.capacidade_litros*100:null;
+          b.filter(x=>x.ativo!==false).map(x=>{const p=x.capacidade_litros>0?x.litros_atual/x.capacidade_litros*100:null;
             return [`<b>${_e(x.nome||'—')}</b>`,_e(x.combustivel||'—'),_n(x.litros_atual)+' L',_n(x.capacidade_litros)+' L',p==null?'—':`<b style="color:${p<20?'var(--bad)':p<50?'var(--warn)':'var(--ok)'};">${_n(p)}%</b>`,_n(_somar(r.filter(y=>y.bomba_id===x.id),y=>y.litros))+' L'];}))+
         tab('Consumo no mês por veículo',[['Veículo'],['Abastecimentos',1],['Litros',1],['Custo',1]],
           Object.keys(gv).map(k=>[k,gv[k].length,_somar(gv[k],x=>x.litros),_somar(gv[k],x=>(x.litros||0)*((B[x.bomba_id]||{}).valor_litro||0))]).sort((a,b)=>b[2]-a[2])
