@@ -185,6 +185,22 @@
 /* .qr-box removido: era um xadrez decorativo que fingia ser QR code.
    As unidades agora usam <canvas class="qr-canvas"> com QR real. */
 .modal-overlay .modal{max-height:90vh;overflow-y:auto;}
+
+/* ── etapas da aprovação e ficha recolhida (out/2026) ── */
+.pw-etapa{display:inline-block;background:var(--accent);color:var(--primary);font-size:12px;font-weight:800;padding:3px 10px;border-radius:20px;vertical-align:2px;}
+.pw-steps{display:flex;gap:6px;margin-bottom:10px;}
+.pw-st{flex:1;min-width:0;} .pw-st i{display:block;height:6px;border-radius:6px;background:#e2e8f0;}
+.pw-st span{display:block;font-size:11px;font-weight:700;color:#94a3b8;margin-top:5px;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.pw-st.feita i{background:#16a34a;} .pw-st.feita span{color:#15803d;}
+.pw-st.atual i{background:var(--primary);box-shadow:0 0 0 2px var(--accent);} .pw-st.atual span{color:var(--primary);}
+.pw-dica{font-size:11.5px;color:#64748b;margin:-2px 0 12px;}
+.pw-faixa{background:#f4ffe0;border:1.5px solid #C9FF64;border-radius:10px;padding:9px 13px;font-size:12.5px;color:var(--primary);margin-bottom:12px;}
+.pw-faixa span{color:#475569;}
+.pw-pendente{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;background:#fffbeb;border:1.5px solid #fcd34d;border-radius:12px;padding:11px 14px;margin-bottom:14px;font-size:13px;color:#78350f;}
+.pw-pendente span{display:block;font-size:11.5px;color:#92400e;margin-top:2px;}
+details.pl-recolhe{border:1.2px dashed #cbd5e1;border-radius:10px;padding:8px 12px;margin:0 0 12px;background:#f8fafc;}
+details.pl-recolhe>summary{cursor:pointer;font-size:12.5px;font-weight:700;color:#475569;list-style:none;}
+details.pl-recolhe[open]>summary{margin-bottom:10px;color:var(--primary);}
 </style>
 </head>
 <body>
@@ -2189,8 +2205,8 @@ function renderPallets(){
       return `<div class="pal-prod-head">
         <span class="pal-prod-nome">${nomesProd.length>1||nome!=='—'?chipProduto(nome,{fs:'14px'}):''}</span>
         <span style="font-size:12px;color:#94a3b8;font-weight:700;">${medida}</span>
-        ${maxBloco?`<span class="badge badge-info" title="Limites por Produto">até ${maxBloco} por análise</span>`:''}
-        <button class="pal-btn-todos" onclick='selecionarTodosPal(${gi},${idsJson},this)'>${nSel?'✕ desmarcar':(maxBloco&&pals.length>maxBloco?'☑ marcar '+maxBloco:'☑ marcar todos')}</button>
+        ${maxBloco?`<span class="badge badge-info" title="Limites por Produto — marcando mais, a análise vai em etapas">até ${maxBloco} por análise${pals.length>maxBloco?' · em etapas':''}</span>`:''}
+        <button class="pal-btn-todos" onclick='selecionarTodosPal(${gi},${idsJson},this)'>${nSel?'✕ desmarcar':'☑ marcar todos'}</button>
       </div>
       <div class="pal-grid">${pals.map(p=>cartaoPallet(p,gi)).join('')}</div>`;
     };
@@ -8661,6 +8677,151 @@ function limparAssinatura(id){
 }
 
 init().then(()=>abrirLaudoPorLink()).catch(e=>console.error('[laboratorio] link do laudo:',e));
+
+/* ══════════════════════════════════════════════════════════════════════════
+   APROVAR / REPROVAR EM ETAPAS (out/2026)
+   Pode marcar TODOS os pallets do produto; ao aprovar/reprovar, a análise
+   respeita o "Pallets por análise" de Limites por Produto andando em etapas:
+   limite 5 e 15 marcados → #1–5, #6–10, #11–15 (limite 3 → de 3 em 3).
+   Cada etapa já vem preenchida com o que foi digitado na anterior; mudou algo,
+   vale dali para frente. Cada etapa grava pelo MESMO salvarStatusPallet().
+   Parou no meio: fica pendente (aparece no topo da aba) — continuar ou cancelar.
+   E na ficha de quem aprova/reprova em seleção, aparece só de "Ensaios" até
+   "Resultado"; o resto fica recolhido (clica para ver).
+   ══════════════════════════════════════════════════════════════════════════ */
+const PALWIZ_KEY='lab_pal_wiz_v1';
+let _palWiz=null;
+function _palWizSalvar(){ try{ _palWiz?localStorage.setItem(PALWIZ_KEY,JSON.stringify(_palWiz)):localStorage.removeItem(PALWIZ_KEY); }catch(e){} }
+function _palWizLer(){ try{ return JSON.parse(localStorage.getItem(PALWIZ_KEY)||'null'); }catch(e){ return null; } }
+function _palNumsTxt(ids){ const ns=ids.map(i=>(_pallets||[]).find(x=>x.id===i)).filter(Boolean).map(p=>p.numero).filter(n=>n!=null).sort((a,b)=>a-b);
+  return ns.length?(ns.length>1?`#${ns[0]}–#${ns[ns.length-1]}`:`#${ns[0]}`):`${ids.length} pallet(s)`; }
+
+// fotografia dos campos da ficha (para levar para a etapa seguinte)
+function _palSnap(){
+  const m=document.getElementById('modal-pallet-lab'); if(!m) return null;
+  const f={}, chk={};
+  m.querySelectorAll('input[id],select[id],textarea[id]').forEach(el=>{
+    if(['pl-int-ini','pl-int-fim','pl-resp'].includes(el.id)||el.type==='file'||el.type==='hidden') return;
+    if(el.type==='checkbox'||el.type==='radio') chk[el.id]=el.checked; else f[el.id]=el.value; });
+  const gran={}; m.querySelectorAll('#pl-tab-gran tbody tr[data-pen]').forEach(tr=>{ const i=tr.querySelector('.pl-m3in'); if(i) gran[tr.dataset.pen]=i.value; });
+  return {f,chk,gran};
+}
+function _palAplicarSnap(s){
+  const m=document.getElementById('modal-pallet-lab'); if(!m||!s) return;
+  Object.entries(s.chk||{}).forEach(([id,v])=>{ const el=document.getElementById(id); if(el&&el.checked!==v){ el.checked=v; el.dispatchEvent(new Event('change',{bubbles:true})); } });
+  Object.entries(s.f||{}).forEach(([id,v])=>{ const el=document.getElementById(id); if(!el||el.disabled) return; if(el.value!==v){ el.value=v; el.dispatchEvent(new Event('input',{bubbles:true})); el.dispatchEvent(new Event('change',{bubbles:true})); } });
+  Object.entries(s.gran||{}).forEach(([pen,v])=>{ const i=m.querySelector(`#pl-tab-gran tbody tr[data-pen="${CSS.escape(pen)}"] .pl-m3in`); if(i){ i.value=v; i.dispatchEvent(new Event('input',{bubbles:true})); } });
+  try{ calcPalletGran(); }catch(e){}
+}
+// recolhe o que não é "Ensaios … Resultado"
+function _palRecolher(){
+  const m=document.getElementById('modal-pallet-lab'); if(!m) return;
+  const ver=document.getElementById('pl-veredito'); if(!ver) return;
+  const corpo=ver.parentElement; if(!corpo||corpo.dataset.recolhido) return;
+  const filhos=[...corpo.children];
+  const titulo=t=>filhos.find(el=>el.classList&&el.classList.contains('sec-title')&&(el.textContent||'').trim().startsWith(t));
+  const ini=titulo('Ensaios')||document.getElementById('pl-tab-gran')?.closest('div')&&filhos.find(el=>el.contains(document.getElementById('pl-tab-gran')))||titulo('Resultado');
+  const obs=titulo('Observações');
+  const iIni=filhos.indexOf(ini), iObs=obs?filhos.indexOf(obs):-1;
+  const mk=(rot)=>{ const d=document.createElement('details'); d.className='pl-recolhe'; d.innerHTML=`<summary>${rot}</summary>`; return d; };
+  if(iIni>0){ const d=mk('▸ Identificação, pallets selecionados, composição e traço (toque para ver)'); corpo.insertBefore(d,filhos[0]); filhos.slice(0,iIni).forEach(el=>d.appendChild(el)); }
+  if(iObs>=0){ const d=mk('▸ Observações e anexos (toque para ver)'); corpo.appendChild(d); filhos.slice(iObs).forEach(el=>d.appendChild(el)); }
+  corpo.dataset.recolhido='1';
+}
+function _palWizAbrirEtapa(){
+  const w=_palWiz; if(!w) return;
+  const ids=(w.chunks[w.idx]||[]).filter(id=>(_pallets||[]).some(p=>p.id===id));
+  if(!ids.length){ toast('Os pallets desta etapa não estão mais na lista (já decididos ou fora do filtro).','warning'); _palWiz=null; _palWizSalvar(); _palWizBanner(); return; }
+  const sel=ids.map(i=>(_pallets||[]).find(x=>x.id===i));
+  const comEnsaio=sel.find(p=>analisePropriaDoPallet(p.id));
+  const base=comEnsaio||sel.slice().sort((a,b)=>(a.numero||0)-(b.numero||0))[0];
+  _palIntencao=w.status;
+  abrirPalletLab(base.id, ids);
+  const m=document.getElementById('modal-pallet-lab'); if(!m) return;
+  const tit=m.querySelector('.modal-title'); if(tit) tit.insertAdjacentHTML('afterbegin',`<span class="pw-etapa">Etapa ${w.idx+1} de ${w.chunks.length}</span> `);
+  _palRecolher();   // recolhe antes, para a faixa da etapa ficar à vista
+  const ver=document.getElementById('pl-veredito'), corpo=ver&&ver.parentElement;
+  // barrinhas de progresso: feitas (verde), a atual (destacada) e as que faltam (cinza)
+  if(corpo) corpo.insertAdjacentHTML('afterbegin',`<div class="pw-steps">${w.chunks.map((c,k)=>`<div class="pw-st ${k<w.idx?'feita':k===w.idx?'atual':''}"><i></i><span>${k<w.idx?'✓ ':''}${_palNumsTxt(c)}</span></div>`).join('')}</div>
+    ${w.idx>0?'<div class="pw-dica">Já vem com o que foi preenchido antes — mudou algo, vale daqui para frente.</div>':''}`);
+  if(w.snap) _palAplicarSnap(w.snap);
+  const bt=document.getElementById('btn-salvar-plab');
+  if(bt) bt.textContent=w.idx<w.chunks.length-1?'Próximo ›':'✓ Concluir';
+}
+function _palWizBanner(){
+  const tab=document.getElementById('tab-pallets'); if(!tab) return;
+  let b=document.getElementById('pw-pendente');
+  const w=_palWiz||_palWizLer();
+  if(!w){ if(b) b.remove(); return; }
+  if(!b){ b=document.createElement('div'); b.id='pw-pendente'; const g=document.getElementById('pal-grupos'); g?g.parentNode.insertBefore(b,g):tab.prepend(b); }
+  b.className='pw-pendente';
+  b.innerHTML=`<div>⏸️ <b>${w.status==='reprovado'?'Reprovação':'Aprovação'} em etapas parada</b> — ${esc(w.produto||'')}: parou na <b>etapa ${w.idx+1} de ${w.chunks.length}</b> (pallets ${_palNumsTxt(w.chunks[w.idx])}).
+    <span>As etapas anteriores já foram salvas.</span></div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;"><button class="btn btn-primary btn-sm" onclick="palWizContinuar()">▶ Continuar (salvar ensaio e decidir)</button>
+    <button class="btn btn-secondary btn-sm" onclick="palWizCancelar()">✕ Cancelar alterações</button></div>`;
+}
+function palWizContinuar(){ _palWiz=_palWiz||_palWizLer(); if(!_palWiz) return; _palWizAbrirEtapa(); }
+function palWizCancelar(){ if(!confirm('Cancelar as etapas que faltam? O que já foi salvo continua salvo.')) return; _palWiz=null; _palWizSalvar(); _palWizBanner(); }
+
+(function(){
+  // 1) marcar: pode marcar TODOS do produto (as etapas respeitam o limite)
+  togglePalSel=function(id,gi){
+    const box=document.getElementById('pal-box-'+id); if(!box) return;
+    if(_palSel.has(id)){ _palSel.delete(id); box.classList.remove('sel'); }
+    else { _palSel.add(id); box.classList.add('sel'); }
+    atualizarBarraSelecao(gi);
+  };
+  selecionarTodosPal=function(gi,ids,btn){
+    ids=ids||[];
+    const todos=ids.every(id=>_palSel.has(id));
+    ids.forEach(id=>{ const box=document.getElementById('pal-box-'+id); if(!box) return; if(todos){ _palSel.delete(id); box.classList.remove('sel'); } else { _palSel.add(id); box.classList.add('sel'); } });
+    const p0=(_pallets||[]).find(x=>x.id===ids[0]); const max=limiteSelecao(p0);
+    if(!todos&&max&&ids.length>max) toast(`${p0.produto}: ${ids.length} marcados — a análise vai em ${Math.ceil(ids.length/max)} etapas de até ${max}.`,'info');
+    if(btn) btn.textContent=todos?'☑ marcar todos':'✕ desmarcar';
+    atualizarBarraSelecao(gi);
+  };
+  // 2) aprovar/reprovar: acima do limite, vira etapas
+  const _ab=abrirBulkAcao;
+  abrirBulkAcao=function(status,gi){
+    const g=_palGrupos[gi]||{pallets:[]};
+    const sel=g.pallets.filter(p=>_palSel.has(p.id)).sort((a,b)=>(a.numero||0)-(b.numero||0));
+    const produtos=[...new Set(sel.map(p=>p.produto||'—'))];
+    const max=sel.length&&produtos.length===1?limiteSelecao(sel[0]):null;
+    if(!max||sel.length<=max){ _palWiz=null; return _ab.apply(this,arguments); }
+    if(!guardAction('laboratorio', status==='aprovado'?'aprovar':'edit')) return;
+    const travados=sel.filter(palletTravadoPorEstoque);
+    if(travados.length){ toast(`${travados.length} item(ns) já estão carregados/expedidos e não podem mais ser julgados aqui.`,'danger'); return; }
+    const chunks=[]; for(let i=0;i<sel.length;i+=max) chunks.push(sel.slice(i,i+max).map(p=>p.id));
+    _palWiz={produto:sel[0].produto,status,max,chunks,idx:0,snap:null,quando:new Date().toISOString()};
+    _palWizSalvar(); _palWizBanner();
+    toast(`${sel.length} pallets de ${sel[0].produto}: ${chunks.length} etapas de até ${max}.`,'info');
+    _palWizAbrirEtapa();
+  };
+  // 3) salvar: grava a etapa e já abre a próxima com o que foi preenchido
+  const _sv=salvarStatusPallet;
+  salvarStatusPallet=async function(){
+    const emEtapa=!!_palWiz, snap=emEtapa?_palSnap():null;
+    const r=await _sv.apply(this,arguments);
+    const salvou=!document.getElementById('modal-pallet-lab');
+    if(emEtapa&&salvou&&_palWiz){
+      _palWiz.snap=snap; _palWiz.idx++;
+      if(_palWiz.idx>=_palWiz.chunks.length){ toast('✅ Todas as etapas salvas.','success'); _palWiz=null; _palWizSalvar(); _palWizBanner(); }
+      else { _palWizSalvar(); _palWizBanner(); setTimeout(_palWizAbrirEtapa,350); }
+    }
+    return r;
+  };
+  // 4) ficha aberta por seleção: só "Ensaios … Resultado" à vista
+  const _apl=abrirPalletLab;
+  abrirPalletLab=function(id,idsSelecionados){
+    const r=_apl.apply(this,arguments);
+    try{ if(Array.isArray(idsSelecionados)&&idsSelecionados.length&&!_palWiz) _palRecolher(); }catch(e){ console.warn('[ficha recolhida]',e); }
+    return r;
+  };
+  // 5) pendência aparece no topo da aba
+  const _rp=renderPallets;
+  renderPallets=function(){ const r=_rp.apply(this,arguments); try{ _palWizBanner(); }catch(e){} return r; };
+})();
+
 </script>
 </body>
 </html>
