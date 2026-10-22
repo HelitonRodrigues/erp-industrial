@@ -369,6 +369,33 @@
 .pd-r{display:flex;justify-content:space-between;gap:8px;font-size:12px;color:var(--ink-3);line-height:1.6;}
 .pd-r b{color:var(--primary);font-variant-numeric:tabular-nums;white-space:nowrap;}
 
+/* ── DETALHE EM MODAL — clicar num número abre o detalhe aqui, sem ir ao módulo ── */
+.dash-modal-overlay.det{z-index:520;}
+.dash-modal.det-wide{max-width:860px;}
+.resumo-kpi[role=button]{transition:background .15s;}
+.resumo-kpi[role=button]:hover{background:#e8f0f8;}
+.ca-card[role=button]{cursor:pointer;}
+#comp-el tbody tr[role=button]:hover td{background:#f8fafc;}
+.det-sec{font-size:11px;font-weight:800;color:var(--primary);text-transform:uppercase;letter-spacing:.4px;margin:18px 0 6px;}
+.det-sec:first-child{margin-top:0;}
+.det-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:10px;}
+.det-tab{width:100%;border-collapse:collapse;font-size:13px;}
+.det-tab th{background:#f1f5f9;color:var(--primary);font-weight:800;font-size:10.5px;text-transform:uppercase;letter-spacing:.3px;
+  padding:8px 10px;text-align:left;border-bottom:2px solid #e2e8f0;white-space:nowrap;}
+.det-tab td{padding:7px 10px;border-bottom:1px solid #f1f5f9;color:var(--ink-2);vertical-align:top;}
+.det-tab tr:last-child td{border-bottom:none;}
+.det-tab .n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;}
+.det-tab tr.tot td{background:#eef4f9;font-weight:800;color:var(--primary);border-top:2px solid var(--primary);}
+.det-foot{display:flex;justify-content:flex-end;gap:8px;margin-top:18px;flex-wrap:wrap;}
+.det-vazio{text-align:center;padding:28px;color:var(--ink-4);font-size:13px;}
+.det-nota{font-size:11.5px;color:var(--ink-4);margin-top:6px;}
+.det-tag{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px;white-space:nowrap;}
+.det-tag.ok{background:var(--ok-bg);color:var(--ok);}
+.det-tag.bad{background:var(--bad-bg);color:var(--bad);}
+.det-tag.warn{background:#fef9c3;color:var(--warn);}
+.det-tag.neu{background:var(--line-soft);color:var(--ink-3);}
+@media (max-width:760px){ .dash-modal{padding:18px;} .det-tab{font-size:12px;} .det-tab td,.det-tab th{padding:6px 8px;} }
+
 /* Responsivo */
 @media (max-width:1500px){ .tiles{grid-template-columns:repeat(3,minmax(0,1fr));} .tb .m-hide2{display:none;} }
 @media (max-width:1100px){
@@ -541,7 +568,7 @@
     </div>
 
     <section class="wd" id="sec-resumo">
-      <div class="wd-h"><div><h2>Pendências por área</h2><p>Clique para abrir o módulo</p></div></div>
+      <div class="wd-h"><div><h2>Pendências por área</h2><p>Clique para ver o detalhe</p></div></div>
       <div class="pd-grid" id="resumo-el"></div>
     </section>
 
@@ -562,6 +589,17 @@
   </div>
 </div>
 
+<!-- MODAL: detalhe (abre por cima do modal do dia) -->
+<div class="dash-modal-overlay det" id="modal-det" onclick="if(event.target===this)fecharDet()">
+  <div class="dash-modal det-wide" role="dialog" aria-modal="true" aria-labelledby="modal-det-title">
+    <div class="dash-modal-header">
+      <div class="dash-modal-title" id="modal-det-title">Detalhe</div>
+      <button class="dash-modal-close" onclick="fecharDet()" aria-label="Fechar">✕</button>
+    </div>
+    <div id="modal-det-body"></div>
+  </div>
+</div>
+
 <div id="toast-container"></div>
 
 <script>
@@ -571,6 +609,7 @@
 let _PM=[],_PP=[],_PALL=[],_LN=[],_PLTS=[],_PLTS_PREV=[],_PLANOS=[],_PRODS=[],_CAD_FUNCS=[],_HOJE_ISO='';
 let _CARR=[],_EST={total:0,liberado:0},_PLANO_TON=0;
 let _MES_ATUAL='';
+let _ALMX=[],_M_INI='',_M_FIM='',_PLANO_CUSTO=[],_EPI_PEND={vencidas:[],proximas:[]};   // usados pelos modais de detalhe
 
 /* Dia de corte do comparativo. Comparar um mês em andamento (22 dias) com um
    mês fechado (31 dias) fazia quase todo indicador mostrar ▼ para sempre.
@@ -690,7 +729,9 @@ function applyView(){
 }
 
 /* ── NAVEGAÇÃO ──────────────────────────────────────────────────────────────
-   Todo card clicável usa irPara() com role="button" e tabindex="0". Antes eram
+   Os cards e linhas clicáveis abrem o DETALHE em modal (ver "DETALHE EM MODAL"
+   mais abaixo); o link para o módulo fica no rodapé do modal e nos botões
+   "Abrir" dos quadros. Todos têm role="button" e tabindex="0". Antes eram
    <div onclick>, invisíveis para quem navega pelo teclado (o encarregado no
    galpão usa o dedo, mas o pessoal do escritório usa Tab).                   */
 function irPara(pagina){ window.location.href=pagina; }
@@ -855,7 +896,7 @@ function renderCustoAlvo(planos, prodMes){
     <div class="ca-m-value" ${titulo?`title="${titulo}"`:''} ${cr?`style="color:${cr};"`:''}>${valor}</div>
     ${sub?`<div class="ca-m-sub">${sub}</div>`:''}</div>`;
 
-  el.innerHTML = `<div class="ca-card">
+  el.innerHTML = `<div class="ca-card" role="button" tabindex="0" onclick="detCusto()" title="Clique para ver planejado × produzido">
     <div class="ca-top">
       <div class="ca-metrics">
         ${m('Custo / tonelada', rsFull(cpt), 'planejado para o m\u00eas')}
@@ -872,7 +913,7 @@ function renderCustoAlvo(planos, prodMes){
     </div>
     ${!dentro&&fat>0?`<div class="ca-acao">
       Para chegar no alvo: cortar <b>${rsFull(falta)}</b> de custo <span style="color:#a8a29e;">ou</span> somar <b>${rsFull(receitaNec)}</b> de faturamento.
-      <a href="custo-precificacao.html" style="color:var(--primary);font-weight:700;white-space:nowrap;">ver o plano \u2192</a></div>`:''}
+      <a href="custo-precificacao.html" onclick="event.stopPropagation()" style="color:var(--primary);font-weight:700;white-space:nowrap;">ver o plano \u2192</a></div>`:''}
     <div class="ca-foot">
       <span>Plano: <b>${plano.codigo||'\u2014'}</b>${plano.nome&&plano.nome!==plano.codigo?' \u2014 '+plano.nome:''}</span>
       <span>Produ\u00e7\u00e3o apontada no m\u00eas: <b>${fQ(qReal)}</b></span>
@@ -966,8 +1007,9 @@ function _spark(vals,cor){
     <path d="${d} L${W} ${H} L0 ${H} Z" fill="${cor}" opacity=".13"/>
     <path d="${d}" fill="none" stroke="${cor}" stroke-width="1.8" vector-effect="non-scaling-stroke" stroke-linejoin="round"/></svg>`;
 }
-function _tile({l,v,u,s,dl,extra,href,cls}){
-  return `<div class="tile ${cls||''}" role="button" tabindex="0" onclick="irPara('${href}')">
+function _tile({l,v,u,s,dl,extra,href,cls,det}){
+  // clicar abre o detalhe em modal (det); sem det, mantém o link para o módulo
+  return `<div class="tile ${cls||''}" role="button" tabindex="0" onclick="${det||`irPara('${href}')`}" title="Clique para ver o detalhe">
     <div class="tile-top"><span class="tile-l">${l}</span>${dl||''}</div>
     <div class="tile-v">${v}${u?`<small>${u}</small>`:''}</div>
     <div class="tile-s">${s||''}</div>${extra||''}</div>`;
@@ -995,22 +1037,22 @@ function renderFechamento(){
   const resto=(qq)=>{ const r=_UNS.slice(1).filter(([k])=>qq[k]>0).map(([k,,u,d])=>fN(qq[k],d)+' '+u); return r.length?'+ '+r.join(' · '):''; };
   const diasMes=_dias(ref,parseInt(ref.slice(8,10)));
   document.getElementById('kpis').innerHTML=[
-    _tile({cls:'hero',l:hoje?'Produção até agora':'Produção do dia',v:fN(q('sc')(dia)),u:'sacos',href:'producao.html',
+    _tile({cls:'hero',l:hoje?'Produção até agora':'Produção do dia',v:fN(q('sc')(dia)),u:'sacos',href:'producao.html',det:`det('prod','dia:${ref}')`,
       s:dia.n?`${resto(dia.qtd)||'&nbsp;'}<br>${dia.n} OP(s) · ${linhasDia} linha(s)`:'Nenhuma OP lançada',
       dl:_delta(dia.n?q('sc')(dia):null,medQ('sc'),{titulo:'Sacos '+tit}),extra:_spark(a14.map(q('sc')),'#C9FF64')}),
-    _tile({l:'Acumulado do mês',v:fN(q('sc')(mes)),u:'sacos',href:'producao.html',
+    _tile({l:'Acumulado do mês',v:fN(q('sc')(mes)),u:'sacos',href:'producao.html',det:"det('prod','mes')",
       s:`${resto(mes.qtd)||'&nbsp;'}<br>${_labelPrevCurto()}: ${fN(q('sc')(prevMes))} sc`,
       dl:_delta(q('sc')(mes),q('sc')(prevMes),{titulo:'Sacos — '+_labelPrev()}),extra:_spark(diasMes.map(d=>q('sc')(_agg(por[d]))),'#042D4D')}),
-    _tile({l:'Horas produtivas',v:dia.prod==null?'—':fN(dia.prod,1),u:dia.prod==null?'':'%',href:'producao.html',
+    _tile({l:'Horas produtivas',v:dia.prod==null?'—':fN(dia.prod,1),u:dia.prod==null?'':'%',href:'producao.html',det:`det('horas','dia:${ref}')`,
       s:dia.n?`${fN(dia.ht,1)} h trabalhadas`:'Sem apontamento',
       dl:_delta(dia.prod,med('prod'),{pp:true,titulo:tit}),extra:_spark(a14.filter(a=>a.n).map(a=>a.prod||0),'#16a34a')}),
-    _tile({l:'Horas paradas',v:fN(dia.hp,1),u:'h',href:'producao.html',
+    _tile({l:'Horas paradas',v:fN(dia.hp,1),u:'h',href:'producao.html',det:`det('paradas','dia:${ref}')`,
       s:`${dia.par} parada(s) apontada(s)`,
       dl:_delta(dia.n?dia.hp:null,med('hp'),{inv:true,titulo:tit}),extra:_spark(a14.map(a=>a.hp),'#dc2626')}),
-    _tile({l:'Lenha',v:fN(dia.le,1),u:'m³',href:'lenha.html',
+    _tile({l:'Lenha',v:fN(dia.le,1),u:'m³',href:'lenha.html',det:`det('lenha','dia:${ref}')`,
       s:'consumo apontado nas OPs',
       dl:_delta(dia.n?dia.le:null,med('le'),{inv:true,titulo:tit}),extra:_spark(a14.map(a=>a.le),'#b45309')}),
-    _tile({l:'Carregado',v:fN(carrDia[ref]||0),u:'pallets',href:'carregamento.html',
+    _tile({l:'Carregado',v:fN(carrDia[ref]||0),u:'pallets',href:'carregamento.html',det:'detCarregado()',
       s:`Em estoque agora: <b>${fN(_EST.total)}</b> pallets<br>${fN(_EST.liberado)} liberados pelo laboratório`,
       extra:_spark(d14.map(d=>carrDia[d]||0),'#2563eb')}),
   ].join('');
@@ -1084,10 +1126,10 @@ function renderLinhasDia(){
     const lo=ops.filter(o=>o.linha===n), a=_agg(lo);
     const tMesQ=_agg(_PM.filter(o=>o.linha===n)).qtd;
     const prods=[...new Set(lo.flatMap(o=>_itensOP(o).map(p=>p.produto)).filter(Boolean))];
-    if(!lo.length) return `<tr role="button" tabindex="0" onclick="irPara('producao.html')">
+    if(!lo.length) return `<tr role="button" tabindex="0" onclick="detLinha('${_jsq(n)}')" title="Ver o detalhe da linha">
       <td><span class="ln-dot" style="background:${corLinha(n)};"></span><span class="nome">${escH(n)}</span></td>
       <td class="mut" colspan="3">Sem OP neste dia</td><td class="m-hide m-hide2"></td><td class="n m-hide">${fQ(tMesQ,'<br>')}</td></tr>`;
-    return `<tr role="button" tabindex="0" onclick="irPara('producao.html')">
+    return `<tr role="button" tabindex="0" onclick="detLinha('${_jsq(n)}')" title="Ver o detalhe da linha">
       <td><span class="ln-dot" style="background:${corLinha(n)};"></span><span class="nome">${escH(n)}</span><span class="sub prd" title="${escH(prods.join(', '))}">${lo.length} turno(s) · ${escH(prods.join(', '))||'—'}</span></td>
       <td class="n"><b style="color:var(--primary);">${fQ(a.qtd,'<br>')}</b></td>
       <td class="n m-hide m-hide2">${fN(a.ht,1)} h</td>
@@ -1120,7 +1162,7 @@ function renderOEE(){
     if(o.oeeParcial) parcial=true;
     if(o.oee==null) semBase.push(l.nome+' (falta '+o.faltam.join(' e ')+')');
     o.semCap.forEach(s=>semCap.add(s));
-    return `<div class="oe-row" role="button" tabindex="0" onclick="irPara('producao.html')">
+    return `<div class="oe-row" role="button" tabindex="0" onclick="detLinha('${_jsq(l.nome)}')" title="Ver o detalhe da linha">
       <div class="oe-nome"><span class="ln-dot" style="background:${corLinha(l.nome)};"></span>${escH(l.nome)}<small>${o.nTurnos} turno(s)</small></div>
       <div class="oe-v" style="color:${cor(o.oee)};">${pct(o.oee)}${o.oeeParcial?'*':''}</div>
       ${m('Disponib.',o.disponibilidade,`${fN(o.horimReal,1)}h produzindo / ${fN(o.horasBrutasTotal,1)}h planejadas`)}
@@ -1154,28 +1196,30 @@ function renderComparativos(){
   const PL=_PLTS_PREV.filter(corte);
   const ap=_PLTS.filter(x=>x.status==='aprovado').length, rp=_PLTS.filter(x=>x.status==='reprovado').length;
   const apP=PL.filter(x=>x.status==='aprovado').length, rpP=PL.filter(x=>x.status==='reprovado').length;
-  const linha=(rot,a,b,u,{inv=false,pp=false,d=1}={})=>{
+  const linha=(rot,a,b,u,{inv=false,pp=false,d=1,k=''}={})=>{
     let txt='—',cls='neu';
     if(pp&&a!=null&&b!=null){ const v=a-b; cls=Math.abs(v)<.05?'neu':((inv?v<0:v>0)?'bom':'ruim'); txt=(v>0?'▲ ':v<0?'▼ ':'')+fN(Math.abs(v),1)+' p.p.'; }
     else if(!pp&&b>0){ const v=(a-b)/b*100; cls=Math.abs(v)<.05?'neu':((inv?v<0:v>0)?'bom':'ruim'); txt=(v>0?'▲ ':v<0?'▼ ':'')+fN(Math.abs(v),1)+'%'; }
     const f=x=>x==null?'—':fN(x,d)+(u?' '+u:'');
-    return `<tr><td>${rot}</td><td class="n"><b style="color:var(--primary);">${f(a)}</b></td><td class="n">${f(b)}</td><td class="n var ${cls}">${txt}</td></tr>`;
+    return `<tr${k?` role="button" tabindex="0" onclick="detComp('${k}')" title="Ver por linha"`:''}><td>${rot}</td><td class="n"><b style="color:var(--primary);">${f(a)}</b></td><td class="n">${f(b)}</td><td class="n var ${cls}">${txt}</td></tr>`;
   };
   el.innerHTML=`<div class="tb-wrap"><table class="tb"><thead><tr><th>Indicador</th><th class="n">Este mês</th><th class="n">Mês anterior</th><th class="n">Variação</th></tr></thead><tbody>
-    ${_UNS.filter(([k])=>(c.qtd[k]||0)+(p.qtd[k]||0)>0).map(([k,r,u,d])=>linha('Produção — '+r.toLowerCase(),c.qtd[k]||0,p.qtd[k]||0,u,{d})).join('')}
-    ${linha('Horas trabalhadas',c.ht,p.ht,'h')}
-    ${linha('Horas paradas',c.hp,p.hp,'h',{inv:true})}
-    ${linha('Horas produtivas',c.prod,p.prod,'%',{pp:true})}
-    ${linha('Lenha',c.le,p.le,'m³',{inv:true})}
-    ${linha('Pallets aprovados',ap,apP,'',{d:0})}
-    ${linha('Pallets reprovados',rp,rpP,'',{inv:true,d:0})}
+    ${_UNS.filter(([k])=>(c.qtd[k]||0)+(p.qtd[k]||0)>0).map(([k,r,u,d])=>linha('Produção — '+r.toLowerCase(),c.qtd[k]||0,p.qtd[k]||0,u,{d,k:'q:'+k})).join('')}
+    ${linha('Horas trabalhadas',c.ht,p.ht,'h',{k:'ht'})}
+    ${linha('Horas paradas',c.hp,p.hp,'h',{inv:true,k:'hp'})}
+    ${linha('Horas produtivas',c.prod,p.prod,'%',{pp:true,k:'prod'})}
+    ${linha('Lenha',c.le,p.le,'m³',{inv:true,k:'le'})}
+    ${linha('Pallets aprovados',ap,apP,'',{d:0,k:'palAp'})}
+    ${linha('Pallets reprovados',rp,rpP,'',{inv:true,d:0,k:'palRp'})}
   </tbody></table></div>`;
 }
 
 /* Card de pendência por área: título + linhas [rótulo, valor, cor?] */
 function miniCard(icon,titulo,linhas,pagina){
   const vazio=v=>{ const t=String(v==null?'':v).replace(/<[^>]*>/g,'').trim(); return !t||t==='\u2014'||/^(R\$\s*)?0([.,]0+)?\s*(L|%)?$/.test(t); };
-  if(linhas.every(l=>vazio(l[1]))) return ''; `<div class="pd" role="button" tabindex="0" aria-label="${titulo} — abrir módulo" onclick="irPara('${pagina}')">
+  if(linhas.every(l=>vazio(l[1]))) return '';
+  _MINI[pagina]={icon,titulo,linhas};   // o modal repete os números do card antes da lista
+  return `<div class="pd" role="button" tabindex="0" aria-label="${titulo} — ver detalhe" onclick="detModulo('${pagina}')">
     <div class="pd-t">${icon} ${titulo}</div>
     ${linhas.map(l=>`<div class="pd-r"><span>${l[0]}</span><b${l[2]?` style="color:${l[2]};"`:''}>${l[1]}</b></div>`).join('')}
   </div>`;
@@ -1216,17 +1260,17 @@ async function init(opts){
   try{
     [pAll,pPrev,lns,port,epiV,almx,manut,pals,planos,labAn,planoCusto,palsPrev,afLab,carr,estTot,estLib,prods,funcs]=await Promise.all([
       safe(_supabase.from('producao').select(COLS_OP).gte('data',iniQ).lte('data',ref)),
-      safe(_supabase.from('producao').select('data,total_sacos,consumo_lenha,eficiencia,ht,hp,paradas_op,produtos_op,produto').gte('data',pIni).lte('data',pFim)),
+      safe(_supabase.from('producao').select('data,linha,total_sacos,consumo_lenha,eficiencia,ht,hp,paradas_op,produtos_op,produto').gte('data',pIni).lte('data',pFim)),
       safe(_supabase.from('linhas_producao').select('*').eq('status','ativo').order('nome')),
       safe(_supabase.from('portaria').select('status').in('status',['sem_ordem','aguardando','carregando'])),
       safe(_supabase.from('epi_entregas').select('id,funcionario_id,epi_id,data_entrega,data_prevista_troca,devolvido_em,created_at')),
-      safe(_supabase.from('almoxarifado').select('nome,estoque_atual,estoque_minimo')),
+      safe(_supabase.from('almoxarifado').select('nome,unidade,categoria,estoque_atual,estoque_minimo')),
       safe(_supabase.from('manutencao').select('id,prioridade').in('status',['aberta','em_andamento'])),
       safe(_supabase.from('producao_pallets').select('id,lancamento_id,status,linha,produto,numero').gte('created_at',mIni+'T00:00:00').lte('created_at',ref+'T23:59:59.999')),
       safe(_supabase.from('planejamentos').select('secoes,mes').eq('mes',mes)),
       safe(_supabase.from('laboratorio').select('id,linha,data,hora,status,produto,turno,responsavel,umidade,massa,separador,obs,peneiramento').order('data',{ascending:false}).order('hora',{ascending:false}).limit(300)),
       safe(_supabase.from('planejamentos_custo').select('codigo,nome,mes,ano,totais,estado,status,atualizado_em').eq('mes',m).eq('ano',ano).order('atualizado_em',{ascending:false}).limit(5)),
-      safe(_supabase.from('producao_pallets').select('id,status,created_at').gte('created_at',pIni+'T00:00:00').lte('created_at',pFim+'T23:59:59.999')),
+      safe(_supabase.from('producao_pallets').select('id,status,created_at,linha').gte('created_at',pIni+'T00:00:00').lte('created_at',pFim+'T23:59:59.999')),
       safe(_supabase.from('aferidor_aditivacao').select('numero,data,hora,linha,itens').order('data',{ascending:false}).limit(60)),
       // carregados: janela com 1 dia de folga — o dia é contado no fuso local
       safe(_supabase.from('producao_pallets').select('id,produto,carregado_em').gte('carregado_em',_addDias(iniQ,-1)+'T00:00:00').lte('carregado_em',_addDias(ref,1)+'T23:59:59.999')),
@@ -1273,6 +1317,7 @@ async function init(opts){
   const lancIdsMes=new Set(_PM.map(l=>l.id).filter(Boolean));
   _PLTS=(pals||[]).filter(p=>!p.lancamento_id||lancIdsMes.has(p.lancamento_id));
   _CARR=carr||[]; _EST={total:estTot||0,liberado:estLib||0};
+  _ALMX=almx||[]; _M_INI=mIni; _M_FIM=ref; _PLANO_CUSTO=planoCusto||[];
 
   const passo=(nome,fn)=>{ try{ fn(); }catch(e){ console.error('Erro ao renderizar '+nome+':',e); } };
   passo('linha agora',()=>renderQualidadeLinhas(lns,labAn,afLab));
@@ -1307,6 +1352,7 @@ function renderAlertas(almx,epiV,manut,port){
      módulo mostrava 9 — 33 eram trocas já substituídas por entrega mais nova
      e 6 de gente desligada. Regra única em js/regras.js. */
   const epiP=Regras.epiPendencias(epiV||[],_CAD_FUNCS,_HOJE_ISO);
+  _EPI_PEND=epiP;   // o modal do alerta lista quem e qual EPI
   const almxZ=(almx||[]).filter(i=>(i.estoque_atual||0)<=0&&(i.estoque_minimo||0)>0);
   const almxB=(almx||[]).filter(i=>(i.estoque_atual||0)>0&&(i.estoque_atual||0)<=(i.estoque_minimo||0)&&(i.estoque_minimo||0)>0);
   const manutUrg=(manut||[]).filter(m=>m.prioridade==='urgente');
@@ -1316,21 +1362,21 @@ function renderAlertas(almx,epiV,manut,port){
   const lancAnalise=_PM.filter(l=>l.status==='em_analise').length;
   const semOrdem=(port||[]).filter(p=>p.status==='sem_ordem').length;
 
-  if(palRep2>0)    als.push({tipo:'critico',ic:'🔴',txt:`${palRep2} pallet(s) REPROVADO(S) no período`,href:'laboratorio.html'});
-  if(almxZ.length) als.push({tipo:'critico',ic:'📦',txt:`${almxZ.length} insumo(s) com estoque zerado`,href:'almoxarifado.html'});
-  if(epiP.vencidas.length) als.push({tipo:'critico',ic:'🦺',txt:`${epiP.vencidas.length} EPI(s) com prazo vencido`,href:'epi.html'});
-  if(manutUrg.length)   als.push({tipo:'critico',ic:'🔧',txt:`${manutUrg.length} OS urgente(s) em aberto`,href:'manutencao.html'});
-  if(lancRep>0)    als.push({tipo:'critico',ic:'🏭',txt:`${lancRep} lançamento(s) com status reprovado`,href:'producao.html'});
-  if(epiP.proximas.length) als.push({tipo:'atencao',ic:'🦺',txt:`${epiP.proximas.length} EPI(s) vencendo em até 5 dias`,href:'epi.html'});
-  if(almxB.length) als.push({tipo:'atencao',ic:'⚠️',txt:`${almxB.length} insumo(s) abaixo do estoque mínimo`,href:'almoxarifado.html'});
-  if((manut||[]).length&&!manutUrg.length) als.push({tipo:'atencao',ic:'🔧',txt:`${(manut||[]).length} OS(s) abertas ou em andamento`,href:'manutencao.html'});
-  if(semOrdem)     als.push({tipo:'atencao',ic:'🚛',txt:`${semOrdem} caminhão(ões) sem ordem na portaria`,href:'portaria.html'});
-  if(palPend2>5)   als.push({tipo:'atencao',ic:'🔬',txt:`${palPend2} pallets aguardando análise do laboratório`,href:'laboratorio.html'});
-  if(lancAnalise>0) als.push({tipo:'atencao',ic:'📋',txt:`${lancAnalise} lançamento(s) em análise`,href:'producao.html'});
+  if(palRep2>0)    als.push({tipo:'critico',ic:'🔴',txt:`${palRep2} pallet(s) REPROVADO(S) no período`,href:'laboratorio.html',det:"det('pallets','mes','reprovado')"});
+  if(almxZ.length) als.push({tipo:'critico',ic:'📦',txt:`${almxZ.length} insumo(s) com estoque zerado`,href:'almoxarifado.html',det:"detInsumos('zerado')"});
+  if(epiP.vencidas.length) als.push({tipo:'critico',ic:'🦺',txt:`${epiP.vencidas.length} EPI(s) com prazo vencido`,href:'epi.html',det:"detEPI('vencidas')"});
+  if(manutUrg.length)   als.push({tipo:'critico',ic:'🔧',txt:`${manutUrg.length} OS urgente(s) em aberto`,href:'manutencao.html',det:"detManut(true)"});
+  if(lancRep>0)    als.push({tipo:'critico',ic:'🏭',txt:`${lancRep} lançamento(s) com status reprovado`,href:'producao.html',det:"det('status','reprovado')"});
+  if(epiP.proximas.length) als.push({tipo:'atencao',ic:'🦺',txt:`${epiP.proximas.length} EPI(s) vencendo em até 5 dias`,href:'epi.html',det:"detEPI('proximas')"});
+  if(almxB.length) als.push({tipo:'atencao',ic:'⚠️',txt:`${almxB.length} insumo(s) abaixo do estoque mínimo`,href:'almoxarifado.html',det:"detInsumos('baixo')"});
+  if((manut||[]).length&&!manutUrg.length) als.push({tipo:'atencao',ic:'🔧',txt:`${(manut||[]).length} OS(s) abertas ou em andamento`,href:'manutencao.html',det:"detManut(false)"});
+  if(semOrdem)     als.push({tipo:'atencao',ic:'🚛',txt:`${semOrdem} caminhão(ões) sem ordem na portaria`,href:'portaria.html',det:"detPortaria('sem_ordem')"});
+  if(palPend2>5)   als.push({tipo:'atencao',ic:'🔬',txt:`${palPend2} pallets aguardando análise do laboratório`,href:'laboratorio.html',det:"det('pallets','mes','pendente')"});
+  if(lancAnalise>0) als.push({tipo:'atencao',ic:'📋',txt:`${lancAnalise} lançamento(s) em análise`,href:'producao.html',det:"det('status','em_analise')"});
 
   document.getElementById('alertas-el').innerHTML=als.length
     ?als.slice(0,8).map(a=>`
-      <div class="alerta-item ${a.tipo}" role="button" tabindex="0" onclick="irPara('${a.href}')" title="Abrir ${a.href}">
+      <div class="alerta-item ${a.tipo}" role="button" tabindex="0" onclick="${a.det}" title="Clique para ver o detalhe">
         <span class="alerta-icon">${a.ic}</span>
         <span>${a.txt}</span>
         <span class="alerta-arrow">→</span>
@@ -1344,15 +1390,15 @@ function renderAlertas(almx,epiV,manut,port){
 function renderFila(port){
   const fil=port||[];
   document.getElementById('fila-el').innerHTML=`
-    <div class="fila-item sem-ordem" role="button" tabindex="0" onclick="irPara('portaria.html')" title="Ver portaria">
+    <div class="fila-item sem-ordem" role="button" tabindex="0" onclick="detPortaria('sem_ordem')" title="Ver os caminhões">
       <div class="fila-num">${fil.filter(p=>p.status==='sem_ordem').length}</div>
       <div class="fila-label">Sem Ordem</div>
     </div>
-    <div class="fila-item aguardando" role="button" tabindex="0" onclick="irPara('portaria.html')" title="Ver portaria">
+    <div class="fila-item aguardando" role="button" tabindex="0" onclick="detPortaria('aguardando')" title="Ver os caminhões">
       <div class="fila-num">${fil.filter(p=>p.status==='aguardando').length}</div>
       <div class="fila-label">Aguardando</div>
     </div>
-    <div class="fila-item carregando" role="button" tabindex="0" onclick="irPara('portaria.html')" title="Ver portaria">
+    <div class="fila-item carregando" role="button" tabindex="0" onclick="detPortaria('carregando')" title="Ver os caminhões">
       <div class="fila-num">${fil.filter(p=>p.status==='carregando').length}</div>
       <div class="fila-label">Carregando</div>
     </div>`;
@@ -1378,12 +1424,12 @@ function abrirModalDia(dataStr){
     const dispCor=parseFloat(disp)>=85?'var(--ok)':parseFloat(disp)>=70?'var(--warn)':'var(--bad)';
     document.getElementById('modal-dia-resumo').innerHTML=`
       <div class="resumo-kpi-row">
-        <div class="resumo-kpi"><div class="resumo-kpi-value" style="color:var(--primary);">${totSc.toLocaleString('pt-BR')}</div><div class="resumo-kpi-label">Sacos</div></div>
-        <div class="resumo-kpi"><div class="resumo-kpi-value" style="color:var(--primary);">${totHT.toFixed(1)}h</div><div class="resumo-kpi-label">H. Trabalhadas</div></div>
-        <div class="resumo-kpi"><div class="resumo-kpi-value" style="color:var(--bad-line);">${totHP.toFixed(1)}h</div><div class="resumo-kpi-label">H. Paradas</div></div>
-        <div class="resumo-kpi"><div class="resumo-kpi-value" style="color:${dispCor};">${disp}%</div><div class="resumo-kpi-label">H. Produtivas</div></div>
-        <div class="resumo-kpi"><div class="resumo-kpi-value" style="color:var(--warn);">${totLe.toFixed(1)} m³</div><div class="resumo-kpi-label">Lenha</div></div>
-        <div class="resumo-kpi"><div class="resumo-kpi-value" style="color:var(--primary);">${ops.length}</div><div class="resumo-kpi-label">OPs</div></div>
+        <div class="resumo-kpi" role="button" tabindex="0" onclick="det('prod','dia:${dataStr}')" title="Por linha e por produto"><div class="resumo-kpi-value" style="color:var(--primary);">${totSc.toLocaleString('pt-BR')}</div><div class="resumo-kpi-label">Sacos</div></div>
+        <div class="resumo-kpi" role="button" tabindex="0" onclick="det('horas','dia:${dataStr}')" title="Por linha e turno"><div class="resumo-kpi-value" style="color:var(--primary);">${totHT.toFixed(1)}h</div><div class="resumo-kpi-label">H. Trabalhadas</div></div>
+        <div class="resumo-kpi" role="button" tabindex="0" onclick="det('paradas','dia:${dataStr}')" title="Paradas do dia"><div class="resumo-kpi-value" style="color:var(--bad-line);">${totHP.toFixed(1)}h</div><div class="resumo-kpi-label">H. Paradas</div></div>
+        <div class="resumo-kpi" role="button" tabindex="0" onclick="det('horas','dia:${dataStr}')" title="Por linha e turno"><div class="resumo-kpi-value" style="color:${dispCor};">${disp}%</div><div class="resumo-kpi-label">H. Produtivas</div></div>
+        <div class="resumo-kpi" role="button" tabindex="0" onclick="det('lenha','dia:${dataStr}')" title="Por linha e turno"><div class="resumo-kpi-value" style="color:var(--warn);">${totLe.toFixed(1)} m³</div><div class="resumo-kpi-label">Lenha</div></div>
+        <div class="resumo-kpi" role="button" tabindex="0" onclick="det('ops','dia:${dataStr}')" title="Lista das OPs"><div class="resumo-kpi-value" style="color:var(--primary);">${ops.length}</div><div class="resumo-kpi-label">OPs</div></div>
       </div>`;
   } else {
     document.getElementById('modal-dia-resumo').innerHTML='';
@@ -1503,7 +1549,11 @@ function verAnaliseLinha(linha){
 function fecharModalDia(){
   document.getElementById('modal-dia').classList.remove('open');
 }
-document.addEventListener('keydown',e=>{ if(e.key==='Escape') fecharModalDia(); });
+document.addEventListener('keydown',e=>{
+  if(e.key!=='Escape') return;
+  // o detalhe abre por cima do modal do dia: Esc fecha um de cada vez
+  if(document.getElementById('modal-det').classList.contains('open')) fecharDet(); else fecharModalDia();
+});
 
 
 /* ═══════════════════════════════════════════
@@ -1676,6 +1726,656 @@ function cardsPessoas(rhFerias,aferidor,hoje){
 }
 
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   DETALHE EM MODAL
+   Clicar num número do dashboard abre o detalhe aqui mesmo — por linha, por
+   produto, por turno e o total — em vez de levar para o módulo. O layout da
+   tela não muda; só o que acontece no clique. O modal de detalhe abre POR CIMA
+   do modal do dia (clicar em "Lenha" dentro do dia mostra Linha 2, Linha 3…).
+   ═══════════════════════════════════════════════════════════════════════════ */
+let _MINI={};          // números de cada card do "Resumo por área" (preenchido por miniCard)
+let _detTok=0;         // descarta resposta de consulta antiga se outro detalhe já foi aberto
+
+const _e=v=>String(v==null?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+// texto dentro de onclick="f('...')": escapa para JS e depois para o atributo
+function _jsq(v){ return _e(String(v==null?'':v).replace(/\\/g,'\\\\').replace(/'/g,"\\'")); }
+const _n=(v,d=0)=>(Number(v)||0).toLocaleString('pt-BR',{minimumFractionDigits:d,maximumFractionDigits:d});
+const _brl=v=>'R$ '+_n(v,2);
+const _dBR=iso=>{const p=String(iso||'').slice(0,10).split('-');return p.length===3?`${p[2]}/${p[1]}`:(iso||'—');};
+const _dBRano=iso=>{const p=String(iso||'').slice(0,10).split('-');return p.length===3?`${p[2]}/${p[1]}/${p[0]}`:(iso||'—');};
+const _somar=(arr,f)=>arr.reduce((s,x)=>s+(Number(f(x))||0),0);
+function _mesNome(){
+  if(!_MES_ATUAL) return 'no mês';
+  const[a,m]=_MES_ATUAL.split('-').map(Number);
+  return new Date(a,m-1,1).toLocaleDateString('pt-BR',{month:'long',year:'numeric'});
+}
+
+/* ── abrir / fechar ── */
+function abrirDet(titulo, html, pagina, rotuloLink){
+  _detTok++;
+  document.getElementById('modal-det-title').textContent=titulo;
+  _detCorpo(html, pagina, rotuloLink);
+  document.getElementById('modal-det').classList.add('open');
+  const m=document.querySelector('#modal-det .dash-modal'); if(m) m.scrollTop=0;
+  return _detTok;
+}
+function _detCorpo(html, pagina, rotuloLink){
+  document.getElementById('modal-det-body').innerHTML = html +
+    `<div class="det-foot">
+       <button class="btn btn-secondary btn-sm" onclick="fecharDet()">Fechar</button>
+       ${pagina?`<a class="btn btn-ghost btn-sm" href="${_e(pagina)}" style="color:var(--ink-3);">${_e(rotuloLink||'Abrir o módulo')} →</a>`:''}
+     </div>`;
+}
+function fecharDet(){ document.getElementById('modal-det').classList.remove('open'); }
+
+/* consulta sob demanda (o dashboard não carrega a lista inteira de cada módulo) */
+async function _detLazy(titulo, pagina, rotuloLink, montar){
+  const tok=abrirDet(titulo,'<div class="det-vazio"><span class="spin" style="width:20px;height:20px;border-width:2px;display:inline-block;vertical-align:middle;margin-right:8px;"></span>Carregando…</div>',pagina,rotuloLink);
+  let html;
+  try{ html=await montar(); }
+  catch(e){ console.warn('[detalhe]',e); html='<div class="det-vazio">⚠️ Não foi possível carregar o detalhe agora.</div>'; }
+  if(tok!==_detTok) return;          // outro detalhe foi aberto enquanto carregava
+  _detCorpo(html,pagina,rotuloLink);
+}
+async function _sel(q){ const r=await q; if(r.error) throw r.error; return r.data||[]; }
+
+/* ── blocos de montagem ── */
+function _boxes(itens){   // [[valor, rótulo, cor?]]
+  return `<div class="resumo-kpi-row" style="margin-bottom:6px;">${itens.map(([v,l,c])=>
+    `<div class="resumo-kpi"><div class="resumo-kpi-value" style="color:${c||'var(--primary)'};">${v}</div><div class="resumo-kpi-label">${l}</div></div>`).join('')}</div>`;
+}
+function _sec(t){ return `<div class="det-sec">${t}</div>`; }
+/* cab: [['Linha'],['Sacos',1]] — o 1 alinha à direita (número) */
+function _tab(cab, linhas, total){
+  const td=(v,i)=>`<td${cab[i]&&cab[i][1]?' class="n"':''}>${v==null?'—':v}</td>`;
+  return `<div class="det-wrap"><table class="det-tab"><thead><tr>${cab.map(c=>`<th${c[1]?' class="n"':''}>${c[0]}</th>`).join('')}</tr></thead>
+    <tbody>${linhas.map(r=>`<tr>${r.map(td).join('')}</tr>`).join('')}
+    ${total?`<tr class="tot">${total.map(td).join('')}</tr>`:''}</tbody></table></div>`;
+}
+function _vazio(txt){ return `<div class="det-vazio">📭 ${txt}</div>`; }
+function _tag(txt,cls){ return `<span class="det-tag ${cls||'neu'}">${txt}</span>`; }
+
+/* linhas na ordem do cadastro; as que não estão no cadastro vão para o fim */
+function _ordLinhas(nomes){
+  const ord=(_LN||[]).map(l=>l.nome);
+  return [...new Set(nomes)].sort((a,b)=>{
+    const ia=ord.indexOf(a), ib=ord.indexOf(b);
+    return (ia<0?999:ia)-(ib<0?999:ib) || String(a).localeCompare(String(b),'pt-BR');
+  });
+}
+const _ordTurnos=ts=>[...new Set(ts)].sort((a,b)=>String(a).localeCompare(String(b),'pt-BR',{numeric:true}));
+function _agrupar(lista, chave){ const g={}; lista.forEach(x=>{const k=chave(x)||'—';(g[k]=g[k]||[]).push(x);}); return g; }
+
+/* ── escopo: 'mes' (mês até o dia de referência) | 'dia:AAAA-MM-DD' ── */
+function _opsEscopo(esc){
+  if(esc==='mes') return _PM||[];
+  if(String(esc).startsWith('dia:')){ const d=esc.slice(4); return (_PALL||[]).filter(l=>l.data===d); }
+  return [];
+}
+function _rotEscopo(esc){
+  if(esc==='mes') return _mesNome()+(_REF?' (até '+_dBR(_REF)+')':'');
+  if(String(esc).startsWith('dia:')){ const d=esc.slice(4); return _dBRano(d)+(d===_HOJE_ISO?' · parcial':''); }
+  return '';
+}
+const _ehDia=esc=>esc!=='mes';
+
+/* ── produto da OP → quantidade na unidade dele e toneladas ──
+   Mesma conta do tonOP() do painel: unidade e peso pelo cadastro de produtos
+   (granel lançado em kg vira t pela unidade). Produto sem peso fica fora das t. */
+function _itensDet(l){
+  return _itensOP(l).map(p=>{
+    const un=Regras.unidadeDoProduto(p.produto,_PRODS);
+    const qtd=Regras.qtdNaUnidadeDoProduto(_qtdItem(p),un);
+    const tipo=/unid/i.test(un)?'bag':/ton/i.test(un)?'t':'sc';
+    const peso=Regras.pesoUnidadeKg(p.produto,_PRODS);
+    return {produto:p.produto||'—', linha:l.linha, turno:l.turno, data:l.data, op:l.op_numero, qtd, tipo,
+            kg:peso?Regras.toneladas(qtd,peso)*1000:0, semPeso:!peso&&qtd>0};
+  });
+}
+function _somaItens(itens){
+  const r={sc:0,bag:0,t:0,kg:0,semPeso:false};
+  itens.forEach(i=>{ if(i.tipo==='sc')r.sc+=i.qtd; else if(i.tipo==='bag')r.bag+=i.qtd; else r.t+=i.qtd; r.kg+=i.kg; if(i.semPeso)r.semPeso=true; });
+  return r;
+}
+const _fmtQtd=(q,t)=>t==='t'?_n(q,2)+' t':t==='bag'?_n(q)+(q===1?' bag':' bags'):_n(q)+' sc';
+const _ton=kg=>_n(kg/1000,2)+' t';
+function _fmtMix(r){   // "1.428 sc + 17 bags + 14,70 t"
+  const p=[]; if(r.sc)p.push(_n(r.sc)+' sc'); if(r.bag)p.push(_n(r.bag)+' bags'); if(r.t)p.push(_n(r.t,2)+' t granel');
+  return p.join(' + ')||'0';
+}
+function _prodsTexto(l){ return _e([...new Set(_itensDet(l).map(i=>i.produto))].join(', ')||'—'); }
+
+/* ═══ dispatcher dos números de produção ═══ */
+function det(tipo, esc, extra){
+  if(tipo==='prod')    return detProducao(esc);
+  if(tipo==='lenha')   return detLenha(esc);
+  if(tipo==='horas')   return detHoras(esc);
+  if(tipo==='paradas') return detParadas(esc);
+  if(tipo==='pallets') return detPallets(esc, extra);
+  if(tipo==='ops')     return detOPs(esc);
+  if(tipo==='status')  return detStatusOPs(esc);
+}
+
+/* ── PRODUÇÃO: por linha, por produto e total ── */
+function detProducao(esc){
+  const ops=_opsEscopo(esc), rot=_rotEscopo(esc);
+  const tit='⚙️ Produção — '+rot;
+  if(!ops.length) return abrirDet(tit,_vazio('Nenhum lançamento de produção '+(esc==='mes'?'no mês':'neste dia')+'.'),'producao.html','Abrir Produção');
+  const itens=ops.flatMap(_itensDet), tot=_somaItens(itens);
+  let html=_boxes([
+    [_n(tot.sc),'Sacos'],
+    [_n(tot.bag),'Big Bags'],
+    [_n(tot.t,2)+' t','Granel'],
+    [_n(tot.kg/1000,2)+' t','Total produzido','var(--ok)'],
+    [ops.length,'OPs / turnos'],
+  ]);
+  // por linha
+  const gl=_agrupar(ops,l=>l.linha);
+  const linhasTab=_ordLinhas(Object.keys(gl)).map(ln=>{
+    const r=_somaItens(gl[ln].flatMap(_itensDet));
+    const turnos=_ehDia(esc)?_ordTurnos(gl[ln].map(l=>l.turno)).map(_e).join(', '):gl[ln].length;
+    return [`<b>${_e(ln)}</b>`, turnos, r.sc?_n(r.sc):'', r.bag?_n(r.bag):'', r.t?_n(r.t,2):'', `<b>${_ton(r.kg)}</b>`];
+  });
+  html+=_sec('Por linha')+_tab(
+    [['Linha'],[_ehDia(esc)?'Turnos':'Turnos lançados',_ehDia(esc)?0:1],['Sacos',1],['Big Bags',1],['Granel (t)',1],['Toneladas',1]],
+    linhasTab,
+    ['TOTAL', _ehDia(esc)?'':ops.length, _n(tot.sc), _n(tot.bag), _n(tot.t,2), _ton(tot.kg)]);
+  // por linha e turno (só no dia): quem fez o quê em cada turno
+  if(_ehDia(esc)){
+    const rows=[];
+    _ordLinhas(Object.keys(gl)).forEach(ln=>{
+      gl[ln].slice().sort((a,b)=>String(a.turno).localeCompare(String(b.turno),'pt-BR',{numeric:true})).forEach(l=>{
+        _itensDet(l).forEach((i,k)=>rows.push([k?'':`<b>${_e(ln)}</b>`, k?'':_e(l.turno||'—'), _e(i.produto), _fmtQtd(i.qtd,i.tipo), _ton(i.kg)]));
+      });
+    });
+    html+=_sec('Por linha e turno')+_tab([['Linha'],['Turno'],['Produto'],['Quantidade',1],['Toneladas',1]],rows);
+  }
+  // por produto
+  const gp=_agrupar(itens,i=>i.produto);
+  const prodRows=Object.keys(gp).map(p=>{
+    const r=_somaItens(gp[p]), t=gp[p][0].tipo;
+    const qtd=t==='sc'?r.sc:t==='bag'?r.bag:r.t;
+    return {p, ln:_ordLinhas(gp[p].map(i=>i.linha)).join(', '), qtd, t, kg:r.kg};
+  }).sort((a,b)=>b.kg-a.kg);
+  html+=_sec('Por produto')+_tab([['Produto'],['Linha(s)'],['Quantidade',1],['Toneladas',1]],
+    prodRows.map(r=>[`<b>${_e(r.p)}</b>`, _e(r.ln), _fmtQtd(r.qtd,r.t), _ton(r.kg)]),
+    ['TOTAL','',_fmtMix(tot),_ton(tot.kg)]);
+  if(tot.semPeso) html+='<div class="det-nota">⚠️ Algum produto está sem peso por unidade no cadastro — ele entra nas quantidades, mas não nas toneladas.</div>';
+  abrirDet(tit,html,'producao.html','Abrir Produção');
+}
+
+/* ── LENHA: linha × turno (dia) ou linha + dia a dia (mês) ── */
+function detLenha(esc){
+  const ops=_opsEscopo(esc), rot=_rotEscopo(esc);
+  const tit='🌲 Consumo de lenha — '+rot;
+  const comLenha=ops.filter(l=>(Number(l.consumo_lenha)||0)>0);
+  if(!comLenha.length) return abrirDet(tit,_vazio('Nenhum consumo de lenha lançado '+(esc==='mes'?'no mês':'neste dia')+'.'),'lenha.html','Abrir Lenha');
+  const tot=_somar(ops,l=>l.consumo_lenha);
+  const kg=_somaItens(ops.flatMap(_itensDet)).kg;
+  const gl=_agrupar(ops,l=>l.linha);
+  const linhas=_ordLinhas(Object.keys(gl)).filter(ln=>_somar(gl[ln],l=>l.consumo_lenha)>0);
+  let html=_boxes([
+    [_n(tot,1)+' m³','Lenha total','var(--warn)'],
+    [comLenha.length,'Turnos com lenha'],
+    [kg>0?_n(tot/(kg/1000),3)+' m³':'—','Lenha por tonelada'],
+  ]);
+  if(_ehDia(esc)){
+    const turnos=_ordTurnos(comLenha.map(l=>l.turno));
+    const rows=linhas.map(ln=>[`<b>${_e(ln)}</b>`, ...turnos.map(t=>{const v=_somar(gl[ln].filter(l=>l.turno===t),l=>l.consumo_lenha);return v?_n(v,1)+' m³':'';}),
+      `<b>${_n(_somar(gl[ln],l=>l.consumo_lenha),1)} m³</b>`]);
+    html+=_sec('Por linha e turno')+_tab([['Linha'],...turnos.map(t=>[_e(t),1]),['Total',1]],rows,
+      ['TOTAL',...turnos.map(t=>_n(_somar(comLenha.filter(l=>l.turno===t),l=>l.consumo_lenha),1)+' m³'),_n(tot,1)+' m³']);
+  } else {
+    const rows=linhas.map(ln=>{
+      const v=_somar(gl[ln],l=>l.consumo_lenha), k=_somaItens(gl[ln].flatMap(_itensDet)).kg;
+      const n=gl[ln].filter(l=>(Number(l.consumo_lenha)||0)>0).length;
+      return [`<b>${_e(ln)}</b>`, n, _n(v/(n||1),1)+' m³', k?_n(v/(k/1000),3):'', `<b>${_n(v,1)} m³</b>`];
+    });
+    html+=_sec('Por linha')+_tab([['Linha'],['Turnos',1],['Média / turno',1],['m³ por t',1],['Total',1]],rows,
+      ['TOTAL',comLenha.length,_n(tot/(comLenha.length||1),1)+' m³',kg?_n(tot/(kg/1000),3):'',_n(tot,1)+' m³']);
+    const dias=[...new Set(comLenha.map(l=>l.data))].sort();
+    const rowsD=dias.map(d=>{const od=comLenha.filter(l=>l.data===d);
+      return [_dBR(d), ...linhas.map(ln=>{const v=_somar(od.filter(l=>l.linha===ln),l=>l.consumo_lenha);return v?_n(v,1):'';}), `<b>${_n(_somar(od,l=>l.consumo_lenha),1)}</b>`];});
+    html+=_sec('Dia a dia (m³)')+_tab([['Dia'],...linhas.map(l=>[_e(l),1]),['Total',1]],rowsD,
+      ['TOTAL',...linhas.map(ln=>_n(_somar(gl[ln],l=>l.consumo_lenha),1)),_n(tot,1)]);
+    const ant=_somar(_prev(),l=>l.consumo_lenha);
+    if(ant>0) html+=`<div class="det-nota">${_labelPrev()}: ${_n(ant,1)} m³ (${tot>=ant?'▲':'▼'} ${_n(Math.abs((tot-ant)/ant*100),1)}%).</div>`;
+  }
+  abrirDet(tit,html,'lenha.html','Abrir Lenha');
+}
+
+/* ── HORAS: H.T, H.P, % produtivo e sc/h por linha (e turno no dia) ── */
+function detHoras(esc){
+  const ops=_opsEscopo(esc), rot=_rotEscopo(esc);
+  const tit='⏱️ Horas e desempenho — '+rot;
+  if(!ops.length) return abrirDet(tit,_vazio('Nenhum lançamento '+(esc==='mes'?'no mês':'neste dia')+'.'),'producao.html','Abrir Produção');
+  const pct=(ht,hp)=>ht>0?(ht-hp)/ht*100:null;
+  const cor=v=>v==null?'var(--ink-4)':v>=85?'var(--ok)':v>=70?'var(--warn)':'var(--bad)';
+  const fPct=v=>v==null?'—':`<b style="color:${cor(v)};">${_n(v,1)}%</b>`;
+  const linhaDe=(rotulo,grupo)=>{
+    const ht=_somar(grupo,l=>l.ht), hp=_somar(grupo,l=>l.hp), sc=_somar(grupo,l=>l.total_sacos), t=_somaItens(grupo.flatMap(_itensDet)).kg/1000;
+    return [rotulo, _n(ht,1)+'h', _n(hp,1)+'h', fPct(pct(ht,hp)), _n(sc), ht>0?_n(sc/ht,1):'', ht>0?_n(t/ht,2):''];
+  };
+  const tHT=_somar(ops,l=>l.ht), tHP=_somar(ops,l=>l.hp), tSc=_somar(ops,l=>l.total_sacos);
+  let html=_boxes([
+    [_n(tHT,1)+'h','H. Trabalhadas'],
+    [_n(tHP,1)+'h','H. Paradas','var(--bad-line)'],
+    [pct(tHT,tHP)==null?'—':_n(pct(tHT,tHP),1)+'%','H. Produtivas',cor(pct(tHT,tHP))],
+    [tHT>0?_n(tSc/tHT,1):'—','Média sc/h'],
+  ]);
+  const gl=_agrupar(ops,l=>l.linha);
+  const cab=[['Linha'],['H.T',1],['H.P',1],['% produtivo',1],['Unid.',1],['un/h',1],['t/h',1]];
+  html+=_sec('Por linha')+_tab(cab,_ordLinhas(Object.keys(gl)).map(ln=>linhaDe(`<b>${_e(ln)}</b>`,gl[ln])),linhaDe('TOTAL',ops));
+  if(_ehDia(esc)){
+    const rows=[];
+    _ordLinhas(Object.keys(gl)).forEach(ln=>_ordTurnos(gl[ln].map(l=>l.turno)).forEach(t=>
+      rows.push(linhaDe(`<b>${_e(ln)}</b> <span style="color:var(--ink-4);">· ${_e(t)}</span>`,gl[ln].filter(l=>l.turno===t)))));
+    html+=_sec('Por linha e turno')+_tab([['Linha · turno'],...cab.slice(1)],rows);
+  }
+  html+='<div class="det-nota">% produtivo = (H.T − H.P) ÷ H.T · un/h = unidades apontadas por hora trabalhada (sacos, bags e granel somados como no lançamento).</div>';
+  abrirDet(tit,html,'producao.html','Abrir Produção');
+}
+
+/* ── PARADAS: por motivo, por linha e a lista ── */
+function detParadas(esc){
+  const ops=_opsEscopo(esc), rot=_rotEscopo(esc);
+  const tit='🛑 Paradas — '+rot;
+  const ps=[];
+  ops.forEach(l=>(l.paradas_op||[]).forEach(p=>ps.push({linha:l.linha,turno:l.turno,data:l.data,op:l.op_numero,
+    motivo:p.motivo||'Motivo não informado',h:Number(p.duracao_h||p.duracao_horim)||0,ini:p.h_ini,fim:p.h_fim,obs:p.obs||p.obs_parada_item,trab:!!p.conta_trabalhada})));
+  if(!ps.length) return abrirDet(tit,_vazio('Nenhuma parada lançada '+(esc==='mes'?'no mês':'neste dia')+'.'),'producao.html','Abrir Produção');
+  const tot=_somar(ps,p=>p.h);
+  const fH=h=>h>=1?_n(h,2)+'h':_n(h*60)+' min';
+  let html=_boxes([[ps.length,'Ocorrências','var(--bad)'],[fH(tot),'Tempo parado','var(--bad-line)'],[new Set(ps.map(p=>p.motivo)).size,'Motivos']]);
+  const gm=_agrupar(ps,p=>p.motivo);
+  html+=_sec('Por motivo')+_tab([['Motivo'],['Ocorr.',1],['Tempo',1],['% do tempo',1],['Linhas']],
+    Object.keys(gm).map(m=>({m,h:_somar(gm[m],p=>p.h),n:gm[m].length})).sort((a,b)=>b.h-a.h).map(r=>
+      [`<b>${_e(r.m)}</b>`, r.n, fH(r.h), tot?_n(r.h/tot*100,1)+'%':'', _e(_ordLinhas(gm[r.m].map(p=>p.linha)).join(', '))]),
+    ['TOTAL',ps.length,fH(tot),'100%','']);
+  const gl=_agrupar(ps,p=>p.linha);
+  html+=_sec('Por linha')+_tab([['Linha'],['Ocorr.',1],['Tempo',1]],
+    _ordLinhas(Object.keys(gl)).map(ln=>[`<b>${_e(ln)}</b>`,gl[ln].length,fH(_somar(gl[ln],p=>p.h))]),['TOTAL',ps.length,fH(tot)]);
+  const lista=_ehDia(esc)?ps.slice().sort((a,b)=>String(a.linha+a.ini).localeCompare(String(b.linha+b.ini))):ps.slice().sort((a,b)=>b.h-a.h).slice(0,15);
+  html+=_sec(_ehDia(esc)?'Todas as paradas':'As 15 maiores paradas do mês')+_tab(
+    [...(_ehDia(esc)?[]:[['Dia']]),['Linha'],['Turno'],['Horário'],['Motivo'],['Duração',1]],
+    lista.map(p=>[...(_ehDia(esc)?[]:[_dBR(p.data)]),_e(p.linha),_e(p.turno||'—'),p.ini?_e(p.ini)+(p.fim?' – '+_e(p.fim):''):'—',
+      _e(p.motivo)+(p.trab?' '+_tag('conta trabalhada','warn'):'')+(p.obs?`<div class="det-nota" style="margin:2px 0 0;">${_e(p.obs)}</div>`:''),fH(p.h)]));
+  abrirDet(tit,html,'producao.html','Abrir Produção');
+}
+
+/* ── PALLETS: status por linha e produto; lista dos reprovados/pendentes ── */
+function detPallets(esc, filtro){
+  const ops=_opsEscopo(esc);
+  const ids=new Set(ops.map(l=>l.id));
+  const opDe={}; (_PM||[]).forEach(l=>opDe[l.id]=l);
+  const pals=esc==='mes'?(_PLTS||[]):(_PLTS||[]).filter(p=>ids.has(p.lancamento_id));
+  const tit=(filtro==='reprovado'?'🔴 Pallets reprovados':filtro==='pendente'?'🔬 Pallets aguardando análise':'📦 Pallets')+' — '+_rotEscopo(esc);
+  if(!pals.length) return abrirDet(tit,_vazio('Nenhum pallet no período.'),'laboratorio.html','Abrir Laboratório');
+  const c=st=>pals.filter(p=>p.status===st).length;
+  const ap=c('aprovado'), rp=c('reprovado'), pe=c('pendente');
+  const q=(ap+rp)?ap/(ap+rp)*100:null;
+  let html=_boxes([[ap,'Aprovados','var(--ok)'],[rp,'Reprovados','var(--bad)'],[pe,'Pendentes','var(--warn)'],[q==null?'—':_n(q,1)+'%','Qualidade',q==null?'':q>=90?'var(--ok)':'var(--warn)']]);
+  const linhaPal=p=>p.linha||(opDe[p.lancamento_id]||{}).linha||'—';
+  const linhaRow=(rot,arr)=>{const a=arr.filter(p=>p.status==='aprovado').length,r=arr.filter(p=>p.status==='reprovado').length,pd=arr.filter(p=>p.status==='pendente').length;
+    return [rot,a||'',r?`<b style="color:var(--bad);">${r}</b>`:'',pd||'',arr.length,(a+r)?_n(a/(a+r)*100,1)+'%':'—'];};
+  const gl=_agrupar(pals,linhaPal);
+  html+=_sec('Por linha')+_tab([['Linha'],['Aprov.',1],['Reprov.',1],['Pend.',1],['Total',1],['Qualidade',1]],
+    _ordLinhas(Object.keys(gl)).map(ln=>linhaRow(`<b>${_e(ln)}</b>`,gl[ln])),linhaRow('TOTAL',pals));
+  const gp=_agrupar(pals,p=>p.produto);
+  html+=_sec('Por produto')+_tab([['Produto'],['Aprov.',1],['Reprov.',1],['Pend.',1],['Total',1],['Qualidade',1]],
+    Object.keys(gp).sort().map(p=>linhaRow(`<b>${_e(p)}</b>`,gp[p])));
+  const listar=filtro||(rp?'reprovado':null);
+  if(listar){
+    const lst=pals.filter(p=>p.status===listar);
+    const go=_agrupar(lst,p=>p.lancamento_id||'—');
+    const rows=Object.keys(go).map(id=>{const o=opDe[id]||{};const nums=go[id].map(p=>p.numero).filter(v=>v!=null).sort((a,b)=>a-b);
+      return [o.data?_dBR(o.data):'—',_e(o.linha||linhaPal(go[id][0])),_e(o.turno||'—'),_e(o.op_numero||'—'),_e(go[id][0].produto||'—'),go[id].length,nums.length?nums.join(', '):'—'];})
+      .sort((a,b)=>String(a[0]).localeCompare(String(b[0])));
+    html+=_sec(listar==='reprovado'?'Pallets reprovados':'Pallets aguardando análise')+_tab([['Dia'],['Linha'],['Turno'],['OP'],['Produto'],['Qtd',1],['Pallets nº']],rows);
+  }
+  abrirDet(tit,html,'laboratorio.html','Abrir Laboratório');
+}
+
+/* ── OPs do dia (lista compacta) ── */
+function detOPs(esc){
+  const ops=_opsEscopo(esc).slice().sort((a,b)=>String(a.linha+a.turno).localeCompare(String(b.linha+b.turno),'pt-BR',{numeric:true}));
+  const tit='📋 OPs — '+_rotEscopo(esc);
+  if(!ops.length) return abrirDet(tit,_vazio('Nenhuma OP.'),'producao.html','Abrir Produção');
+  const st={em_analise:_tag('Em análise','warn'),aprovado:_tag('Aprovado','ok'),reprovado:_tag('Reprovado','bad'),parada:_tag('Parada','bad')};
+  const gl=_agrupar(ops,l=>l.linha);
+  let html=_boxes(_ordLinhas(Object.keys(gl)).map(ln=>[gl[ln].length,_e(ln)]).concat([[ops.length,'Total de OPs','var(--ok)']]));
+  html+=_sec('OPs')+_tab([['Linha'],['Turno'],['OP'],['Encarregado'],['Produtos'],['Produzido',1],['Status']],
+    ops.map(l=>{const r=_somaItens(_itensDet(l));return [`<b>${_e(l.linha)}</b>`,_e(l.turno||'—'),_e(l.op_numero||'—'),_e(l.encarregado||'—'),_prodsTexto(l),_fmtMix(r)+`<div class="det-nota" style="margin:0;">${_ton(r.kg)}</div>`,st[l.status]||_tag(_e(l.status||'—'))];}),
+    ['TOTAL','','','','',_ton(_somaItens(ops.flatMap(_itensDet)).kg),'']);
+  abrirDet(tit,html,'producao.html','Abrir Produção');
+}
+
+/* ── OPs por status (em análise / reprovado) ── */
+function detStatusOPs(status){
+  const ops=(_PM||[]).filter(l=>l.status===status).sort((a,b)=>String(a.data+a.linha).localeCompare(String(b.data+b.linha)));
+  const tit=(status==='em_analise'?'🔬 OPs em análise':'🏭 OPs reprovadas')+' — '+_mesNome();
+  if(!ops.length) return abrirDet(tit,_vazio('Nenhuma OP com este status.'),'producao.html','Abrir Produção');
+  const hoje=new Date((_REF||_HOJE_ISO)+'T12:00:00');
+  const dias=d=>Math.round((hoje-new Date(d+'T12:00:00'))/864e5);
+  let html=_boxes([[ops.length,'OPs',status==='em_analise'?'var(--warn)':'var(--bad)'],[_ton(_somaItens(ops.flatMap(_itensDet)).kg),'Produção retida'],[Math.max(...ops.map(l=>dias(l.data)))+' d','Mais antiga']]);
+  html+=_sec('Lista')+_tab([['Dia'],['Linha'],['Turno'],['OP'],['Produtos'],['Produzido',1],['Há',1]],
+    ops.map(l=>[_dBR(l.data),`<b>${_e(l.linha)}</b>`,_e(l.turno||'—'),_e(l.op_numero||'—'),_prodsTexto(l),_fmtMix(_somaItens(_itensDet(l))),dias(l.data)+' d']));
+  abrirDet(tit,html,'producao.html','Abrir Produção');
+}
+
+/* ── LINHA: o dia de referência (turno a turno) e o mês ── */
+function detLinha(nome){
+  const opsDia=(_PALL||[]).filter(l=>l.linha===nome&&l.data===_REF).sort((a,b)=>String(a.turno).localeCompare(String(b.turno),'pt-BR',{numeric:true}));
+  const ops=(_PM||[]).filter(l=>l.linha===nome).sort((a,b)=>String(a.data+a.turno).localeCompare(String(b.data+b.turno),'pt-BR',{numeric:true}));
+  const tit='🏭 '+nome;
+  if(!ops.length&&!opsDia.length) return abrirDet(tit,_vazio('Sem lançamento desta linha no mês.'),'producao.html','Abrir Produção');
+  const pctP=(ht,hp)=>ht>0?(ht-hp)/ht*100:null;
+  const corP=v=>v==null?'':v>=85?'var(--ok)':v>=70?'var(--warn)':'var(--bad)';
+  let html='';
+  // ── no dia
+  html+=_sec('No dia — '+_rotEscopo('dia:'+_REF));
+  if(!opsDia.length) html+=_vazio('Sem OP desta linha neste dia.');
+  else {
+    const itD=opsDia.flatMap(_itensDet), tD=_somaItens(itD), ht=_somar(opsDia,l=>l.ht), hp=_somar(opsDia,l=>l.hp), p=pctP(ht,hp);
+    html+=_boxes([[_fmtMix(tD),'Produção'],[_ton(tD.kg),'Toneladas','var(--ok)'],[p==null?'—':_n(p,1)+'%','H. Produtivas',corP(p)],
+      [_n(hp,1)+'h','H. Paradas','var(--bad-line)'],[_n(_somar(opsDia,l=>l.consumo_lenha),1)+' m³','Lenha','var(--warn)']]);
+    const rows=[];
+    opsDia.forEach(l=>_itensDet(l).forEach((i,k)=>rows.push([k?'':`<b>${_e(l.turno||'—')}</b>`,k?'':_e(l.encarregado||'—'),_e(i.produto),_fmtQtd(i.qtd,i.tipo),_ton(i.kg),
+      k?'':_n(l.ht,1)+'h',k?'':_n(l.hp,1)+'h',k?'':((Number(l.consumo_lenha)||0)?_n(l.consumo_lenha,1)+' m³':'')])));
+    html+=_tab([['Turno'],['Encarregado'],['Produto'],['Quantidade',1],['Toneladas',1],['H.T',1],['H.P',1],['Lenha',1]],rows,
+      ['TOTAL','','',_fmtMix(tD),_ton(tD.kg),_n(ht,1)+'h',_n(hp,1)+'h',_n(_somar(opsDia,l=>l.consumo_lenha),1)+' m³']);
+    const ps=[]; opsDia.forEach(l=>(l.paradas_op||[]).forEach(p=>ps.push([_e(l.turno||'—'),p.h_ini?_e(p.h_ini)+(p.h_fim?' – '+_e(p.h_fim):''):'—',_e(p.motivo||'Motivo não informado'),_n(Number(p.duracao_h||p.duracao_horim)||0,2)+'h'])));
+    if(ps.length) html+=_sec('Paradas no dia')+_tab([['Turno'],['Horário'],['Motivo'],['Duração',1]],ps);
+  }
+  // ── no mês
+  if(ops.length){
+    const itens=ops.flatMap(_itensDet), tot=_somaItens(itens);
+    const ht=_somar(ops,l=>l.ht), hp=_somar(ops,l=>l.hp), le=_somar(ops,l=>l.consumo_lenha), p=pctP(ht,hp);
+    html+=_sec('No mês — '+_rotEscopo('mes'))+_boxes([[ops.length,'Turnos'],[_ton(tot.kg),'Produzido','var(--ok)'],
+      [p==null?'—':_n(p,1)+'%','H. Produtivas',corP(p)],[_n(hp,1)+'h','H. Paradas','var(--bad-line)'],[_n(le,1)+' m³','Lenha','var(--warn)']]);
+    const gp=_agrupar(itens,i=>i.produto);
+    html+=_tab([['Produto'],['Turnos',1],['Quantidade',1],['Toneladas',1]],
+      Object.keys(gp).map(k=>{const r=_somaItens(gp[k]),t=gp[k][0].tipo;return {k,n:gp[k].length,q:t==='sc'?r.sc:t==='bag'?r.bag:r.t,t,kg:r.kg};})
+        .sort((a,b)=>b.kg-a.kg).map(r=>[`<b>${_e(r.k)}</b>`,r.n,_fmtQtd(r.q,r.t),_ton(r.kg)]),
+      ['TOTAL','',_fmtMix(tot),_ton(tot.kg)]);
+    const gd=_agrupar(ops,l=>l.data);
+    html+=_sec('Dia a dia no mês')+_tab([['Dia'],['Turnos',1],['Produção',1],['Toneladas',1],['H.T',1],['H.P',1],['Lenha',1]],
+      Object.keys(gd).sort().map(d=>{const r=_somaItens(gd[d].flatMap(_itensDet));
+        return [d===_REF?`<b>${_dBR(d)}</b>`:_dBR(d),gd[d].length,_fmtMix(r),_ton(r.kg),_n(_somar(gd[d],l=>l.ht),1)+'h',_n(_somar(gd[d],l=>l.hp),1)+'h',_n(_somar(gd[d],l=>l.consumo_lenha),1)+' m³'];}),
+      ['TOTAL',ops.length,_fmtMix(tot),_ton(tot.kg),_n(ht,1)+'h',_n(hp,1)+'h',_n(le,1)+' m³']);
+    const pm=[]; ops.forEach(l=>(l.paradas_op||[]).forEach(x=>pm.push({m:x.motivo||'Motivo não informado',h:Number(x.duracao_h||x.duracao_horim)||0})));
+    if(pm.length){ const gm=_agrupar(pm,x=>x.m);
+      html+=_sec('Paradas no mês por motivo')+_tab([['Motivo'],['Ocorr.',1],['Horas',1]],
+        Object.keys(gm).map(m=>[m,gm[m].length,_somar(gm[m],x=>x.h)]).sort((a,b)=>b[2]-a[2]).map(r=>[`<b>${_e(r[0])}</b>`,r[1],_n(r[2],2)+'h']),
+        ['TOTAL',pm.length,_n(_somar(pm,x=>x.h),2)+'h']); }
+    const ids=new Set(ops.map(l=>l.id)), pals=(_PLTS||[]).filter(x=>ids.has(x.lancamento_id));
+    if(pals.length){ const c=st=>pals.filter(x=>x.status===st).length;
+      html+=_sec('Pallets no mês')+`<div style="display:flex;gap:6px;flex-wrap:wrap;">${_tag('✅ '+c('aprovado')+' aprovados','ok')} ${_tag('🔴 '+c('reprovado')+' reprovados','bad')} ${_tag('🟡 '+c('pendente')+' pendentes','warn')}</div>`; }
+  }
+  abrirDet(tit,html,'producao.html','Abrir Produção');
+}
+
+/* ── COMPARATIVO: cada linha da tabela "Mês atual × anterior" aberta por linha ── */
+function detComp(k){
+  const UNR={sc:['Produção — sacos','sc',0],bags:['Produção — bags','bags',0],t:['Produção — granel','t',1]};
+  const cfg=k.startsWith('q:')?{t:'⚙️ '+UNR[k.slice(2)][0],v:a=>a.qtd[k.slice(2)]||0,fmt:v=>_n(v,UNR[k.slice(2)][2])+' '+UNR[k.slice(2)][1]}:{
+    ht:{t:'⏱️ Horas trabalhadas',v:a=>a.ht,fmt:v=>_n(v,1)+' h'},
+    hp:{t:'🛑 Horas paradas',v:a=>a.hp,fmt:v=>_n(v,1)+' h',inv:true},
+    prod:{t:'✅ Horas produtivas',v:a=>a.prod,fmt:v=>v==null?'—':_n(v,1)+'%',pp:true},
+    le:{t:'🌲 Lenha',v:a=>a.le,fmt:v=>_n(v,1)+' m³',inv:true},
+    palAp:{t:'📦 Pallets aprovados',pal:'aprovado',fmt:v=>_n(v)},
+    palRp:{t:'🔴 Pallets reprovados',pal:'reprovado',fmt:v=>_n(v),inv:true},
+  }[k]; if(!cfg) return;
+  const PP=_prev();
+  const opDe={}; (_PM||[]).forEach(l=>opDe[l.id]=l);
+  const corte=r=>!r.created_at||new Date(r.created_at).getDate()<=_DIA_CORTE;
+  const PL=(_PLTS_PREV||[]).filter(corte);
+  const linhaPal=p=>p.linha||(opDe[p.lancamento_id]||{}).linha||null;
+  const val=(cur,ln)=>{
+    if(cfg.pal) return (cur?_PLTS:PL).filter(p=>p.status===cfg.pal&&(ln==null||linhaPal(p)===ln)).length;
+    return cfg.v(_agg((cur?_PM:PP).filter(l=>ln==null||l.linha===ln)));
+  };
+  const nomes=cfg.pal?_ordLinhas([...(_PLTS||[]),...PL].map(linhaPal).filter(Boolean)):_ordLinhas([...(_PM||[]),...PP].map(l=>l.linha).filter(Boolean));
+  const varia=(a,b)=>{
+    if(a==null||b==null||(!cfg.pp&&!b)) return '—';
+    const v=cfg.pp?a-b:(a-b)/Math.abs(b)*100; if(Math.abs(v)<0.05) return '=';
+    const bom=cfg.inv?v<0:v>0;
+    return `<b style="color:${bom?'var(--ok)':'var(--bad)'};">${v>0?'▲':'▼'} ${_n(Math.abs(v),1)}${cfg.pp?' p.p.':'%'}</b>`;
+  };
+  const row=(rot,ln)=>{const a=val(true,ln),b=val(false,ln);return [rot,cfg.fmt(a),cfg.fmt(b),varia(a,b)];};
+  // linha sem nada nos dois meses não entra (ex.: granel nas linhas de saco)
+  const vivas=nomes.filter(ln=>{const x=val(true,ln),y=val(false,ln);return (x!=null&&x!==0)||(y!=null&&y!==0);});
+  let html=_tab([['Linha'],['Este mês',1],['Mês anterior',1],['Variação',1]],vivas.map(ln=>row(`<b>${_e(ln)}</b>`,ln)),row('TOTAL',null));
+  html+=`<div class="det-nota">Primeiros ${_DIA_CORTE} dias de cada mês.</div>`;
+  if(cfg.pal&&PL.some(p=>!p.linha)) html+='<div class="det-nota">Pallets do mês anterior sem linha gravada entram só no total.</div>';
+  abrirDet(cfg.t+' — por linha',html,'producao.html','Abrir Produção');
+}
+
+/* ── CARREGADO: pallets que saíram no dia e o estoque agora ── */
+function detCarregado(){
+  const ref=_REF;
+  _detLazy('🚚 Carregado — '+_rotEscopo('dia:'+ref),'carregamento.html','Abrir Carregamento',async()=>{
+    const [car,est]=await Promise.all([
+      _sel(_supabase.from('producao_pallets').select('produto,carregado_em,romaneio_numero,ordem_numero,cliente_dest').gte('carregado_em',_addDias(ref,-1)+'T00:00:00').lte('carregado_em',_addDias(ref,1)+'T23:59:59.999')),
+      _sel(_supabase.from('producao_pallets').select('produto,status').eq('estoque_status','estoque'))]);
+    const doDia=car.filter(p=>p.carregado_em&&localISODate(new Date(p.carregado_em))===ref);
+    let html=_boxes([[_n(doDia.length),'Pallets carregados'],[_n(est.length),'Em estoque agora'],[_n(est.filter(p=>p.status==='aprovado').length),'Liberados','var(--ok)']]);
+    const gp=_agrupar(doDia,p=>p.produto);
+    html+=_sec('Carregado no dia por produto')+(doDia.length?_tab([['Produto'],['Pallets',1]],
+      Object.keys(gp).sort((a,b)=>gp[b].length-gp[a].length).map(k=>[`<b>${_e(k)}</b>`,gp[k].length]),['TOTAL',doDia.length]):_vazio('Nenhum pallet carregado neste dia.'));
+    if(doDia.length){
+      const gr=_agrupar(doDia,p=>p.romaneio_numero||p.ordem_numero||'—');
+      html+=_sec('Por carga')+_tab([['Romaneio / ordem'],['Cliente'],['Produtos'],['Pallets',1],['Hora',1]],
+        Object.keys(gr).map(k=>{const g=gr[k];const h=g.map(p=>p.carregado_em).sort().pop();
+          return [`<b>${_e(k)}</b>`,_e([...new Set(g.map(p=>p.cliente_dest).filter(Boolean))].join(', ')||'—'),_e([...new Set(g.map(p=>p.produto))].join(', ')),g.length,
+            new Date(h).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})];}));
+    }
+    const ge=_agrupar(est,p=>p.produto);
+    html+=_sec('Estoque agora por produto')+(est.length?_tab([['Produto'],['Liberados',1],['Em análise',1],['Reprovados',1],['Total',1]],
+      Object.keys(ge).sort((a,b)=>ge[b].length-ge[a].length).map(k=>{const g=ge[k],c=s=>g.filter(p=>p.status===s).length;
+        return [`<b>${_e(k)}</b>`,c('aprovado')||'',c('pendente')||'',c('reprovado')?`<b style="color:var(--bad);">${c('reprovado')}</b>`:'',g.length];}),
+      ['TOTAL',est.filter(p=>p.status==='aprovado').length,est.filter(p=>p.status==='pendente').length,est.filter(p=>p.status==='reprovado').length,est.length]):_vazio('Estoque vazio.'));
+    return html;
+  });
+}
+
+/* ── CUSTO: planejado × realizado ── */
+function detCusto(){
+  const plano=(_PLANO_CUSTO||[]).find(p=>p&&p.totais&&Number(p.totais.total)>0)||(_PLANO_CUSTO||[])[0];
+  if(!plano||!plano.totais) return abrirDet('💰 Custo da fábrica',_vazio('Sem planejamento de custo para este mês.'),'custo-precificacao.html','Abrir Custo & Precificação');
+  const t=plano.totais, custo=Number(t.total)||0, fat=Number(t.faturamento)||0, cpt=Number(t.custoPorTon)||0;
+  const alvo=(plano.estado&&Number(plano.estado.alvoMaximoPct))||Number(t.alvoPct)||38;
+  const tonPlan=cpt>0?custo/cpt:0;
+  const itens=(_PM||[]).flatMap(_itensDet), real=_somaItens(itens).kg/1000;
+  const pctReal=tonPlan>0?real/tonPlan*100:null;
+  let html=_boxes([
+    [_brl(cpt),'Custo / tonelada'],
+    [_n(tonPlan,0)+' t','Planejado'],
+    [_n(real,2)+' t','Produzido',pctReal!=null&&pctReal>=100?'var(--ok)':'var(--warn)'],
+    [pctReal==null?'—':_n(pctReal,1)+'%','Do plano'],
+  ]);
+  html+=_sec('Planejamento '+_e(plano.codigo||''))+_tab([['Item'],['Valor',1]],[
+    ['Custo total do mês',_brl(custo)],['Faturamento previsto',_brl(fat)],
+    ['Custo ÷ faturamento',fat>0?`<b>${_n(custo/fat*100,1)}%</b> (meta até ${alvo}%)`:'—'],
+    ['Tonelagem planejada',_n(tonPlan,0)+' t'],
+    ['Custo das toneladas já produzidas',_brl(real*cpt)],
+  ]);
+  const gl=_agrupar(itens,i=>i.linha);
+  html+=_sec('Produzido no mês por linha')+_tab([['Linha'],['Quantidade',1],['Toneladas',1],['Custo planejado',1]],
+    _ordLinhas(Object.keys(gl)).map(ln=>{const r=_somaItens(gl[ln]);return [`<b>${_e(ln)}</b>`,_fmtMix(r),_ton(r.kg),_brl(r.kg/1000*cpt)];}),
+    ['TOTAL',_fmtMix(_somaItens(itens)),_n(real,2)+' t',_brl(real*cpt)]);
+  abrirDet('💰 Custo da fábrica — '+_mesNome(),html,'custo-precificacao.html','Abrir Custo & Precificação');
+}
+
+/* ── ALERTAS ── */
+function detInsumos(tipo){
+  const lst=(_ALMX||[]).filter(i=>(i.estoque_minimo||0)>0&&(tipo==='zerado'?(i.estoque_atual||0)<=0:(i.estoque_atual||0)>0&&(i.estoque_atual||0)<=(i.estoque_minimo||0)))
+    .sort((a,b)=>(a.estoque_atual/a.estoque_minimo)-(b.estoque_atual/b.estoque_minimo));
+  const tit=tipo==='zerado'?'📦 Insumos com estoque zerado':'⚠️ Insumos abaixo do mínimo';
+  if(!lst.length) return abrirDet(tit,_vazio('Nenhum item.'),'almoxarifado.html','Abrir Almoxarifado');
+  const html=_tab([['Item'],['Categoria'],['Estoque',1],['Mínimo',1],['Falta p/ mínimo',1]],
+    lst.map(i=>[`<b>${_e(i.nome)}</b>`,_e(i.categoria||'—'),`<b style="color:${(i.estoque_atual||0)<=0?'var(--bad)':'var(--warn)'};">${_n(i.estoque_atual,2)} ${_e(i.unidade||'')}</b>`,
+      _n(i.estoque_minimo,2)+' '+_e(i.unidade||''),_n(Math.max(0,(i.estoque_minimo||0)-(i.estoque_atual||0)),2)]));
+  abrirDet(tit+' ('+lst.length+')',html,'almoxarifado.html','Abrir Almoxarifado');
+}
+function detEPI(tipo){
+  const lst=(_EPI_PEND&&_EPI_PEND[tipo])||[];
+  const tit=tipo==='vencidas'?'🦺 EPIs com prazo vencido':'🦺 EPIs vencendo em até 5 dias';
+  _detLazy(tit+' ('+lst.length+')','epi.html','Abrir EPI',async()=>{
+    if(!lst.length) return _vazio('Nenhuma entrega.');
+    const fIds=[...new Set(lst.map(e=>e.funcionario_id).filter(Boolean))], eIds=[...new Set(lst.map(e=>e.epi_id).filter(Boolean))];
+    const [fs,es]=await Promise.all([
+      fIds.length?_sel(_supabase.from('funcionarios').select('id,nome,setor,funcao').in('id',fIds)):[],
+      eIds.length?_sel(_supabase.from('epi_cadastro').select('id,nome,ca').in('id',eIds)):[]]);
+    const F={},E={}; fs.forEach(f=>F[f.id]=f); es.forEach(e=>E[e.id]=e);
+    const rows=lst.slice().sort((a,b)=>String(a.data_prevista_troca).localeCompare(String(b.data_prevista_troca))).map(e=>{
+      const f=F[e.funcionario_id]||{}, p=E[e.epi_id]||{};
+      return [`<b>${_e(f.nome||'—')}</b>`,_e(f.setor||f.funcao||'—'),_e(p.nome||'—')+(p.ca?` <span class="det-nota">CA ${_e(p.ca)}</span>`:''),_dBRano(e.data_entrega),`<b style="color:${tipo==='vencidas'?'var(--bad)':'var(--warn)'};">${_dBRano(e.data_prevista_troca)}</b>`];});
+    return _tab([['Funcionário'],['Setor'],['EPI'],['Entregue'],['Troca prevista']],rows);
+  });
+}
+function detManut(soUrgentes){
+  _detLazy(soUrgentes?'🔧 OS urgentes em aberto':'🔧 OS abertas ou em andamento','manutencao.html','Abrir Manutenção',async()=>{
+    let q=_supabase.from('manutencao').select('numero,equipamento,linha,descricao,prioridade,status,data_abertura,tecnico,tipo').in('status',['aberta','em_andamento']).order('data_abertura',{ascending:true});
+    if(soUrgentes) q=q.eq('prioridade','urgente');
+    const lst=await _sel(q);
+    if(!lst.length) return _vazio('Nenhuma OS.');
+    const pr={urgente:'bad',alta:'warn'};
+    const g=_agrupar(lst,m=>m.prioridade||'—');
+    return _boxes(Object.keys(g).map(k=>[g[k].length,_e(k)]).concat([[lst.length,'Total']]))+
+      _sec('Ordens de serviço')+_tab([['OS'],['Aberta em'],['Equipamento'],['Linha'],['Descrição'],['Prioridade'],['Status']],
+      lst.map(m=>[_e(m.numero||'—'),_dBRano(m.data_abertura),`<b>${_e(m.equipamento||'—')}</b>`,_e(m.linha||'—'),_e(m.descricao||'—'),
+        _tag(_e(m.prioridade||'—'),pr[m.prioridade]||'neu'),_tag(m.status==='em_andamento'?'Em andamento':'Aberta',m.status==='em_andamento'?'warn':'neu')]));
+  });
+}
+function detPortaria(status){
+  const rot={sem_ordem:'Sem ordem',aguardando:'Aguardando',carregando:'Carregando'}[status]||status;
+  _detLazy('🚛 Portaria — '+rot,'portaria.html','Abrir Portaria',async()=>{
+    const lst=await _sel(_supabase.from('portaria').select('placa,placa2,nome_motorista,transportadora,modelo_veiculo,tipo_carga,numero_ordem,hora_chegada,inicio_carregamento,unidade_carregamento,status').eq('status',status).order('hora_chegada',{ascending:true}));
+    if(!lst.length) return _vazio('Nenhum caminhão '+rot.toLowerCase()+'.');
+    const agora=Date.now();
+    const espera=h=>{ if(!h) return '—'; const t=new Date(h).getTime(); if(isNaN(t)) return _e(h); const m=Math.max(0,Math.round((agora-t)/6e4)); return m>=60?Math.floor(m/60)+'h'+String(m%60).padStart(2,'0'):m+' min'; };
+    const hora=h=>{ if(!h) return '—'; const d=new Date(h); return isNaN(d)?_e(h):d.toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}); };
+    return _tab([['Placa'],['Motorista'],['Transportadora'],['Carga'],['Ordem'],['Chegada'],[status==='carregando'?'Carregando há':'Esperando há',1]],
+      lst.map(p=>[`<b>${_e(p.placa||'—')}</b>${p.placa2?' / '+_e(p.placa2):''}`,_e(p.nome_motorista||'—'),_e(p.transportadora||'—'),
+        _e([p.tipo_carga,p.unidade_carregamento].filter(Boolean).join(' · ')||'—'),_e(p.numero_ordem||'—'),hora(p.hora_chegada),
+        espera(status==='carregando'?(p.inicio_carregamento||p.hora_chegada):p.hora_chegada)]));
+  });
+}
+
+/* ── RESUMO POR ÁREA: os números do card + a lista que os forma ── */
+function detModulo(pagina){
+  const mc=_MINI[pagina]||{icon:'',titulo:pagina,linhas:[]};
+  const topo=_boxes(mc.linhas.map(l=>[l[1],l[0],l[2]]));
+  const ini=_M_INI, fim=_M_FIM, hoje=_HOJE_ISO;
+  const tit=(mc.icon?mc.icon+' ':'')+String(mc.titulo).replace(/&amp;/g,'&');
+  const tab=(sec,cab,rows,tot)=>_sec(sec)+(rows.length?_tab(cab,rows,tot):_vazio('Nada para mostrar.'));
+  const M={
+    'frota.html':async()=>{
+      const v=await _sel(_supabase.from('frota_veiculos').select('nome,placa,tipo,modelo,status,tipo_revisao,proxima_revisao_data,proxima_revisao,revisao_horas,horimetro_atual').order('nome'));
+      const venc=x=>x.tipo_revisao==='data'?(x.proxima_revisao_data&&x.proxima_revisao_data<=hoje):(x.revisao_horas>0&&(x.horimetro_atual||0)>=(x.proxima_revisao||Infinity));
+      const st={ativo:_tag('Ativo','ok'),manutencao:_tag('Manutenção','warn'),inativo:_tag('Inativo')};
+      return tab('Veículos',[['Veículo'],['Placa'],['Tipo'],['Status'],['Próxima revisão'],['Revisão']],
+        v.sort((a,b)=>venc(b)-venc(a)).map(x=>[`<b>${_e(x.nome||x.modelo||'—')}</b>`,_e(x.placa||'—'),_e(x.tipo||'—'),st[x.status]||_tag(_e(x.status||'—')),
+          x.tipo_revisao==='data'?_dBRano(x.proxima_revisao_data):(x.proxima_revisao?_n(x.proxima_revisao)+' h (atual '+_n(x.horimetro_atual)+' h)':'—'),venc(x)?_tag('Vencida','bad'):_tag('Em dia','ok')]));
+    },
+    'abastecimento.html':async()=>{
+      const [b,r]=await Promise.all([_sel(_supabase.from('abastecimento_bombas').select('id,nome,combustivel,litros_atual,capacidade_litros,valor_litro')),
+        _sel(_supabase.from('abastecimento_registros').select('bomba_id,litros,veiculo_nome,veiculo_placa,terceiro_nome').gte('data',ini).lte('data',fim+'T23:59:59.999'))]);
+      const B={}; b.forEach(x=>B[x.id]=x);
+      const gv=_agrupar(r,x=>x.veiculo_nome||x.terceiro_nome||x.veiculo_placa||'—');
+      const tl=_somar(r,x=>x.litros), tc=_somar(r,x=>(x.litros||0)*((B[x.bomba_id]||{}).valor_litro||0));
+      return tab('Bombas',[['Bomba'],['Combustível'],['Estoque',1],['Capacidade',1],['Ocupação',1],['Consumo no mês',1]],
+          b.map(x=>{const p=x.capacidade_litros>0?x.litros_atual/x.capacidade_litros*100:null;
+            return [`<b>${_e(x.nome||'—')}</b>`,_e(x.combustivel||'—'),_n(x.litros_atual)+' L',_n(x.capacidade_litros)+' L',p==null?'—':`<b style="color:${p<20?'var(--bad)':p<50?'var(--warn)':'var(--ok)'};">${_n(p)}%</b>`,_n(_somar(r.filter(y=>y.bomba_id===x.id),y=>y.litros))+' L'];}))+
+        tab('Consumo no mês por veículo',[['Veículo'],['Abastecimentos',1],['Litros',1],['Custo',1]],
+          Object.keys(gv).map(k=>[k,gv[k].length,_somar(gv[k],x=>x.litros),_somar(gv[k],x=>(x.litros||0)*((B[x.bomba_id]||{}).valor_litro||0))]).sort((a,b)=>b[2]-a[2])
+            .map(x=>[`<b>${_e(x[0])}</b>`,x[1],_n(x[2])+' L',_brl(x[3])]),['TOTAL',r.length,_n(tl)+' L',_brl(tc)]);
+    },
+    'terceiros.html':async()=>{
+      const s=await _sel(_supabase.from('terceiros_servicos').select('numero,data,prestador_nome,descricao,status,valor_total').gte('data',ini).lte('data',fim+'T23:59:59.999').order('data'));
+      const gp=_agrupar(s,x=>x.prestador_nome||'—');
+      return tab('Por prestador',[['Prestador'],['Serviços',1],['Valor',1]],Object.keys(gp).map(k=>[`<b>${_e(k)}</b>`,gp[k].length,_brl(_somar(gp[k],x=>x.valor_total))]),['TOTAL',s.length,_brl(_somar(s,x=>x.valor_total))])+
+        tab('Serviços do mês',[['Nº'],['Data'],['Prestador'],['Descrição'],['Status'],['Valor',1]],
+          s.map(x=>[_e(x.numero||'—'),_dBR(x.data),_e(x.prestador_nome||'—'),_e(x.descricao||'—'),_tag(_e(x.status||'—'),['aberto','medido'].includes(x.status)?'warn':'ok'),_brl(x.valor_total)]));
+    },
+    'custos.html':async()=>{
+      const l=await _sel(_supabase.from('lancamentos_custo').select('valor,natureza_nome,centro_custo_nome,linha').gte('data',ini).lte('data',fim));
+      const gn=_agrupar(l,x=>x.natureza_nome||'Sem natureza'), gc=_agrupar(l,x=>x.centro_custo_nome||'Sem centro de custo'), tot=_somar(l,x=>x.valor);
+      const rows=g=>Object.keys(g).map(k=>[k,g[k].length,_somar(g[k],x=>x.valor)]).sort((a,b)=>b[2]-a[2]).map(x=>[`<b>${_e(x[0])}</b>`,x[1],_brl(x[2]),tot?_n(x[2]/tot*100,1)+'%':'']);
+      return tab('Por natureza',[['Natureza'],['Lanç.',1],['Valor',1],['%',1]],rows(gn),['TOTAL',l.length,_brl(tot),'100%'])+
+        tab('Por centro de custo',[['Centro de custo'],['Lanç.',1],['Valor',1],['%',1]],rows(gc),['TOTAL',l.length,_brl(tot),'100%']);
+    },
+    'compras.html':async()=>{
+      const p=await _sel(_supabase.from('compras_pedidos').select('numero,data,fornecedor,status,valor_total,prazo_entrega').in('status',['emitido','em_cotacao','aprovada','pendente']).order('data'));
+      return tab('Pedidos em aberto',[['Nº'],['Data'],['Fornecedor'],['Status'],['Prazo'],['Valor',1]],
+        p.map(x=>[_e(x.numero||'—'),_dBRano(x.data),`<b>${_e(x.fornecedor||'—')}</b>`,_tag(_e(x.status||'—'),'warn'),x.prazo_entrega?_dBRano(x.prazo_entrega):'—',_brl(x.valor_total)]),
+        ['TOTAL','','','','',_brl(_somar(p,x=>x.valor_total))]);
+    },
+    'solicitacoes.html':async()=>{
+      const [c,a]=await Promise.all([
+        _sel(_supabase.from('compras_solicitacoes').select('numero,data,solicitante,prioridade,status').in('status',['aberta','pendente']).order('data')),
+        _sel(_supabase.from('almoxarifado_solicitacoes').select('numero,data,solicitante,prioridade,status').in('status',['pendente','cadastrada','cotacao','em_recebimento']).order('data'))]);
+      const rows=l=>l.map(x=>[_e(x.numero||'—'),_dBRano(x.data),`<b>${_e(x.solicitante||'—')}</b>`,_tag(_e(x.prioridade||'normal'),x.prioridade==='urgente'?'bad':'neu'),_tag(_e(x.status||'—'),'warn')]);
+      const cab=[['Nº'],['Data'],['Solicitante'],['Prioridade'],['Status']];
+      return tab('Compras pendentes',cab,rows(c))+tab('Almoxarifado pendentes',cab,rows(a));
+    },
+    'laboratorio.html':async()=>{
+      const an=await _sel(_supabase.from('laboratorio').select('hora,linha,produto,status,responsavel,turno').eq('data',hoje).order('hora'));
+      const pend=(_PLTS||[]).filter(p=>p.status==='pendente'), opDe={}; (_PM||[]).forEach(l=>opDe[l.id]=l);
+      const gl=_agrupar(pend,p=>p.linha||(opDe[p.lancamento_id]||{}).linha);
+      const cor={OK:'ok',Ajuste:'warn','Manutenção':'warn',Parada:'bad'};
+      return tab('Análises de hoje',[['Hora'],['Linha'],['Turno'],['Produto'],['Responsável'],['Status']],
+          an.map(x=>[_e(String(x.hora||'').slice(0,5)||'—'),`<b>${_e(x.linha||'—')}</b>`,_e(x.turno||'—'),_e(x.produto||'—'),_e(x.responsavel||'—'),_tag(_e(x.status||'—'),cor[x.status]||'neu')]))+
+        tab('Pallets aguardando análise',[['Linha'],['Pallets',1]],_ordLinhas(Object.keys(gl)).map(k=>[`<b>${_e(k)}</b>`,gl[k].length]),pend.length?['TOTAL',pend.length]:null);
+    },
+    'bpf.html':async()=>{
+      const [n,a]=await Promise.all([_sel(_supabase.from('bpf_ncs').select('data,linha,descricao,gravidade,prazo,responsavel_nome,status').eq('status','aberta').order('prazo')),
+        _sel(_supabase.from('bpf_auditorias').select('data,tipo,linha,escopo,auditor,resultado').gte('data',ini).lte('data',fim).order('data'))]);
+      return tab('NCs abertas',[['Aberta em'],['Linha'],['Descrição'],['Gravidade'],['Responsável'],['Prazo']],
+          n.map(x=>[_dBRano(x.data),_e(x.linha||'—'),_e(x.descricao||'—'),_e(x.gravidade||'—'),_e(x.responsavel_nome||'—'),x.prazo?(x.prazo<hoje?_tag(_dBRano(x.prazo)+' · vencida','bad'):_dBRano(x.prazo)):'—']))+
+        tab('Auditorias do mês',[['Data'],['Tipo'],['Linha'],['Auditor'],['Resultado']],a.map(x=>[_dBRano(x.data),_e(x.tipo||'—'),_e(x.linha||'—'),_e(x.auditor||'—'),_e(x.resultado||'—')]));
+    },
+    'expedicao.html':async()=>{
+      const [p,o]=await Promise.all([_sel(_supabase.from('expedicao_pedidos').select('numero,cliente,cidade,data_pedido,data_prevista').eq('status','pendente').order('data_prevista')),
+        _sel(_supabase.from('expedicao_ordens').select('numero_ordem,cliente,destino,placa,data_prevista,total_sacos,total_kg').eq('status','pendente').order('data_prevista'))]);
+      return tab('Pedidos pendentes',[['Nº'],['Cliente'],['Cidade'],['Pedido em'],['Previsto']],p.map(x=>[_e(x.numero||'—'),`<b>${_e(x.cliente||'—')}</b>`,_e(x.cidade||'—'),_dBRano(x.data_pedido),_dBRano(x.data_prevista)]))+
+        tab('Ordens pendentes',[['Ordem'],['Cliente'],['Destino'],['Placa'],['Previsto'],['Sacos',1],['Peso',1]],
+          o.map(x=>[_e(x.numero_ordem||'—'),`<b>${_e(x.cliente||'—')}</b>`,_e(x.destino||'—'),_e(x.placa||'—'),_dBRano(x.data_prevista),_n(x.total_sacos),x.total_kg?_n(x.total_kg/1000,2)+' t':'—']));
+    },
+    'carregamento.html':async()=>{
+      const r=await _sel(_supabase.from('romaneios').select('numero,data_emissao,placa,motorista,transportadora,sacos,bags,status').gte('importado_em',ini).lte('importado_em',fim+'T23:59:59.999').order('data_emissao'));
+      const gs=_agrupar(r,x=>x.status||'—');
+      return _boxes(Object.keys(gs).map(k=>[gs[k].length,_e(k)]))+tab('Romaneios do mês',[['Nº'],['Emissão'],['Placa'],['Motorista'],['Transportadora'],['Sacos',1],['Bags',1],['Status']],
+        r.map(x=>[_e(x.numero||'—'),_dBRano(x.data_emissao),`<b>${_e(x.placa||'—')}</b>`,_e(x.motorista||'—'),_e(x.transportadora||'—'),_n(x.sacos),_n(x.bags),_tag(_e(x.status||'—'),x.status==='carregado'?'ok':'neu')]),
+        ['TOTAL','','','','',_n(_somar(r,x=>x.sacos)),_n(_somar(r,x=>x.bags)),'']);
+    },
+    'rh.html':async()=>{
+      const f=await _sel(_supabase.from('rh_ferias').select('funcionario_id,data_inicio,data_fim,dias,status').gte('data_fim',hoje).order('data_inicio'));
+      const ids=[...new Set(f.map(x=>x.funcionario_id).filter(Boolean))];
+      const fs=ids.length?await _sel(_supabase.from('funcionarios').select('id,nome,setor').in('id',ids)):[];
+      const F={}; fs.forEach(x=>F[x.id]=x);
+      const rows=l=>l.map(x=>[`<b>${_e((F[x.funcionario_id]||{}).nome||'—')}</b>`,_e((F[x.funcionario_id]||{}).setor||'—'),_dBRano(x.data_inicio),_dBRano(x.data_fim),x.dias||'—']);
+      const cab=[['Funcionário'],['Setor'],['Início'],['Fim'],['Dias',1]];
+      return tab('Em férias hoje',cab,rows(f.filter(x=>x.data_inicio<=hoje)))+tab('Férias agendadas',cab,rows(f.filter(x=>x.data_inicio>hoje)));
+    },
+    'aferidor.html':async()=>{
+      const a=await _sel(_supabase.from('aferidor_aditivacao').select('numero,data,hora,linha,op_numero,encarregado_turno,status_lab').gte('criado_em',ini).lte('criado_em',fim+'T23:59:59.999').order('data').order('hora'));
+      const gl=_agrupar(a,x=>x.linha);
+      return tab('Por linha',[['Linha'],['Registros',1]],_ordLinhas(Object.keys(gl)).map(k=>[`<b>${_e(k)}</b>`,gl[k].length]),['TOTAL',a.length])+
+        tab('Registros do mês',[['Nº'],['Data'],['Linha'],['OP'],['Encarregado'],['Laboratório']],
+          a.map(x=>[_e(x.numero||'—'),_dBR(x.data)+' '+_e(String(x.hora||'').slice(0,5)),_e(x.linha||'—'),_e(x.op_numero||'—'),_e(x.encarregado_turno||'—'),_tag(_e(x.status_lab||'pendente'),x.status_lab==='aprovado'?'ok':x.status_lab==='reprovado'?'bad':'neu')]));
+    },
+
+
+
+
+  };
+  const montar=M[pagina];
+  if(!montar) return abrirDet(tit,topo,pagina);
+  _detLazy(tit,pagina,'Abrir o módulo',async()=>topo+await montar());
+}
+
 /* ── AUTO-REFRESH ─────────────────────────────────────────────────────────
    Antes rodava init() cheio a cada 5 min, inclusive com a aba em segundo
    plano: ~35 consultas por ciclo em cada aba aberta, e a tela piscava o
@@ -1685,6 +2385,8 @@ function podeAtualizar(){
   if(document.hidden) return false;                                   // aba em segundo plano
   const modal=document.getElementById('modal-dia');
   if(modal&&modal.classList.contains('open')) return false;           // não puxa o tapete de quem está lendo as OPs
+  const mdet=document.getElementById('modal-det');
+  if(mdet&&mdet.classList.contains('open')) return false;             // idem para o modal de detalhe
   return true;
 }
 setInterval(()=>{ if(podeAtualizar()) init({silencioso:true}); }, REFRESH_MS);
