@@ -5757,19 +5757,31 @@ function variacaoPeloNomeProduto(nome){
   const vs=(_caulimVariacoes||[]).filter(v=>v.ativo!==false);
   return vs.find(v=>_lauNorm(v.nome)===alvo)||(num===1?vs.find(v=>_lauNorm(v.nome)===cor+' 1'):null)||null;
 }
+// (out/2026) Ao escolher o produto, a variação de cor vinculada vem sozinha:
+// 1º da VARIAÇÃO DECLARADA no último Lote de MP lançado para este produto;
+// 2º pelo nome do produto ("Caulim 25kg - Creme 02" → Creme 2). Sempre editável.
 function lpSugerirVariacao(){
-  const sel=document.getElementById('lp-variacao'); if(!sel||sel.value) return;
-  const nome=lpProdutoSelecionadoNome(); if(!nome) return;
-  const v=variacaoPeloNomeProduto(nome); if(!v) return;
-  sel.value=v.id; lpAplicarVariacao(true);
-  const d=document.getElementById('lp-variacao-dica'); if(d) d.innerHTML='sugerida pelo nome do produto — <strong>confira</strong>';
+  const sel=document.getElementById('lp-variacao'); if(!sel) return;
+  if(sel.value&&sel.dataset.auto!=='1') return;   // escolhida à mão: não mexe
+  if(sel.dataset.auto==='1'){ sel.value=''; ['lp-std-l','lp-std-a','lp-std-b','lp-dE'].forEach(id=>{ const el=document.getElementById(id); if(el&&el.dataset.auto==='1'){ el.value=''; el.dataset.auto=''; } }); }
+  const pid=(document.getElementById('lp-produto')||{}).value||'';
+  const nome=lpProdutoSelecionadoNome(); if(!nome&&!pid) return;
+  const d=document.getElementById('lp-variacao-dica');
+  const lote=pid?(_caulimLotesMP||[]).filter(l=>String(l.produto_id)===String(pid)&&l.variacao_declarada_id)
+    .sort((a,b)=>String(b.data||b.created_at||'').localeCompare(String(a.data||a.created_at||'')))[0]:null;
+  let v=lote?(_caulimVariacoes||[]).find(x=>String(x.id)===String(lote.variacao_declarada_id)):null, origem='';
+  if(v) origem=`da variação declarada no lote de MP <strong>${esc(lote.numero||'')}</strong>`;
+  else { v=variacaoPeloNomeProduto(nome); if(v) origem='pelo nome do produto'; }
+  if(!v){ if(d) d.innerHTML='<span style="color:#b45309;">não achei a variação deste produto — escolha na lista</span>'; return; }
+  sel.value=v.id; sel.dataset.auto='1'; lpAplicarVariacao(true);
+  if(d) d.innerHTML=`veio ${origem} — <strong>confira</strong>. STD em branco preenchido com o da variação.`;
 }
 // Escolher a variação preenche o STD em branco com o STD dela.
 function lpAplicarVariacao(){
   const v=(_caulimVariacoes||[]).find(x=>String(x.id)===String(gv('lp-variacao'))); if(!v) return;
   const st=stdDaVariacao(v);
   [['lp-std-l',st.l],['lp-std-a',st.a],['lp-std-b',st.b],['lp-dE',st.max]].forEach(([id,val])=>{
-    const el=document.getElementById(id); if(el&&String(el.value).trim()===''&&val!=null) el.value=val; });
+    const el=document.getElementById(id); if(el&&String(el.value).trim()===''&&val!=null){ el.value=val; el.dataset.auto='1'; } });
 }
 
 // "Não se aplica" trava a dosagem: produto sem aditivo não tem grama por saco.
@@ -5857,7 +5869,7 @@ function abrirLimiteProduto(pid){
       e traz daqui o STD, o ΔE máximo e os limites da caracterização. A umidade é a do grupo <strong>Umidade (%)</strong> acima.</p>
     <div class="form-grid-3">
       <div class="form-group"><label class="form-label" style="font-size:11px;">Variação de cor vinculada</label>
-        <select id="lp-variacao" class="form-input" onchange="lpAplicarVariacao()">
+        <select id="lp-variacao" class="form-input" onchange="this.dataset.auto='';lpAplicarVariacao()">
           <option value="">— nenhuma —</option>${(_caulimVariacoes||[]).filter(v=>v.ativo!==false||String(v.id)===String(q.variacao_id)).map(v=>`<option value="${esc(v.id)}" ${String(q.variacao_id||'')===String(v.id)?'selected':''}>${esc(v.nome)} (${esc(v.codigo||'—')})</option>`).join('')}
         </select>
         <div id="lp-variacao-dica" style="font-size:10.5px;color:#94a3b8;margin-top:3px;">sigla do nº do lote e as análises externas do laudo</div></div>
