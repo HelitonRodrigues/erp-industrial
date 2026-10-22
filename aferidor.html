@@ -105,6 +105,11 @@ body.ap-on #toast-container{top:10px;bottom:auto;left:10px;right:10px;z-index:14
 .af-ad-s .ok{background:#dcfce7;color:#166534;} .af-ad-s .warn{background:#fef3c7;color:#92400e;} .af-ad-s .bad{background:#fee2e2;color:#991b1b;} .af-ad-s .gray{background:#f1f5f9;color:#475569;}
 .af-ad-c small{font-size:11.5px;color:#64748b;}
 @media (max-width:900px){ .af-pend{grid-template-columns:minmax(0,1fr);} }
+
+.am-cab,.am-row{display:grid;grid-template-columns:minmax(0,1fr) 110px 110px 110px 34px;gap:8px;align-items:center;}
+.am-cab{font-size:11px;font-weight:700;color:#64748b;margin:4px 0;} .am-row{margin-bottom:6px;}
+.am-n{font-size:12px;font-weight:700;color:#475569;} .am-x{border:0;background:#fee2e2;color:#b91c1c;border-radius:8px;height:36px;cursor:pointer;}
+@media (max-width:640px){ .am-cab{display:none;} .am-row{grid-template-columns:1fr 1fr;} .am-row select{grid-column:1/-1;} }
 </style>
 </head>
 <body>
@@ -163,22 +168,20 @@ body.ap-on #toast-container{top:10px;bottom:auto;left:10px;right:10px;z-index:14
   <div id="tab-amostras" style="display:none;">
     <div class="card" style="max-width:680px;">
       <h3 style="font-weight:800;color:var(--primary);font-size:14px;margin-bottom:16px;">🧪 Etiqueta de Amostra</h3>
-      <p style="font-size:12px;color:#64748b;margin-bottom:16px;">Adicione vários números de pallet. <b>Separador</b> e <b>ADT (g/saco)</b> são opcionais — se vazios, saem em branco para anotação manual.</p>
+      <p style="font-size:12px;color:#64748b;margin-bottom:16px;">Escolha o produto e a faixa de pallets (ex.: <b>início 1, fim 10</b> = 10 etiquetas). Dá para pôr <b>vários produtos</b>. <b>Separador</b> e <b>ADT (g/saco)</b> são opcionais — se vazios, saem em branco para anotar à mão.</p>
       <div class="form-grid-2" style="margin-bottom:14px;">
         <div class="form-group" style="margin:0;"><label class="form-label">Data</label><input type="date" id="am-data" class="form-input"></div>
         <div class="form-group" style="margin:0;"><label class="form-label">Linha <span class="req">*</span></label><select id="am-linha" class="form-input"></select></div>
-        <div class="form-group" style="margin:0;"><label class="form-label">Produto</label><select id="am-produto" class="form-input"><option value="">Selecione...</option></select></div>
-        <div class="form-group" style="margin:0;"><label class="form-label">Cópias por pallet</label><input type="number" id="am-qtd" class="form-input" value="1" min="1" style="width:140px;"></div>
+        <div class="form-group" style="margin:0;"><label class="form-label">Cópias por pallet</label><input type="number" id="am-qtd" class="form-input" value="1" min="1" style="width:140px;" oninput="amTotais()"></div>
         <div class="form-group" style="margin:0;"><label class="form-label">Separador (opcional)</label><input type="text" id="am-separador" class="form-input" placeholder="deixe vazio p/ preencher à mão"></div>
         <div class="form-group" style="margin:0;"><label class="form-label">ADT g/saco (opcional)</label><input type="text" id="am-adt" class="form-input" placeholder="deixe vazio p/ preencher à mão"></div>
       </div>
-      <div class="form-group" style="margin:0 0 16px;">
-        <label class="form-label">Nº dos Pallets (adicione vários) <span class="req">*</span></label>
-        <div style="display:flex;gap:8px;">
-          <input type="text" id="am-pallet" class="form-input" placeholder="Digite um número e Enter" onkeydown="if(event.key==='Enter'){event.preventDefault();addPallet();}">
-          <button class="btn btn-secondary btn-sm" onclick="addPallet()">+ Adicionar</button>
-        </div>
-        <div id="am-pallets-chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;"></div>
+      <div class="form-group" style="margin:0 0 12px;">
+        <label class="form-label">Produtos e pallets <span class="req">*</span></label>
+        <div class="am-cab"><span>Produto</span><span>Pallet início</span><span>Pallet fim</span><span>Etiquetas</span><span></span></div>
+        <div id="am-itens"></div>
+        <button type="button" class="btn btn-secondary btn-sm" style="margin-top:6px;" onclick="amAddItem()">+ Adicionar outro produto</button>
+        <div id="am-total" style="font-size:12.5px;color:#475569;margin-top:8px;font-weight:700;"></div>
       </div>
       <button class="btn btn-primary" onclick="gerarAmostras()">🖨️ Gerar Etiquetas (PDF)</button>
     </div>
@@ -318,7 +321,7 @@ async function init() {
       _supabase.from('funcionarios').select('id,nome,funcao,status').eq('status', 'ativo').order('nome'),
       _supabase.from('producao').select('*').order('data', { ascending: false }).order('created_at', { ascending: false }).limit(400),
       _supabase.from('aferidor_aditivacao').select('*').order('criado_em', { ascending: false }).limit(300),
-      _supabase.from('produtos').select('id,nome,status,validade_dias').eq('status', 'ativo').order('nome'),
+      _supabase.from('produtos').select('*').eq('status', 'ativo').order('nome'),   // '*': validade_dias é opcional (antes a coluna inexistente derrubava a lista)
     ]);
     _empresa = emp.data || {};
     _linhas = linhas.data || [];
@@ -331,7 +334,6 @@ async function init() {
     setHoje();
     renderRotulos();
     renderAditList();
-    renderAmPallets();
   } catch (e) {
     console.warn('[aferidor] init:', e);
     toast('Erro ao carregar dados: ' + (e.message || e), 'danger');
@@ -362,7 +364,7 @@ function preencherSelects() {
   ['ad-enc', 'ad-resp'].forEach(id => { const el = document.getElementById(id); if (el) el.innerHTML = funcOpts; });
 
   const prodOpts = '<option value="">Selecione...</option>' + _produtos.map(pr => `<option value="${escapeHtml(pr.nome)}">${escapeHtml(pr.nome)}</option>`).join('');
-  const amp = document.getElementById('am-produto'); if (amp) amp.innerHTML = prodOpts;
+  if (!_amItens.length) amAddItem(); else renderAmItens();
 
   pintarSelectOP();
 }
@@ -1118,42 +1120,56 @@ function amostraEtiquetaHTML(d) {
   </div>`;
 }
 
+// produto + faixa de pallets (início/fim) — vários produtos numa impressão
+let _amItens = [];
+function amAddItem() { _amItens.push({ produto: '', ini: '', fim: '' }); renderAmItens(); }
+function amDelItem(k) { _amItens.splice(k, 1); if (!_amItens.length) _amItens.push({ produto: '', ini: '', fim: '' }); renderAmItens(); }
+function amSet(k, campo, v) { _amItens[k][campo] = v; if (campo === 'ini' && !_amItens[k].fim) { const el = document.getElementById('am-fim-' + k); if (el) el.placeholder = v || 'ex.: 10'; } amTotais(); }
+function _amFaixa(it) {
+  const a = parseInt(it.ini), b = parseInt(it.fim === '' ? it.ini : it.fim);
+  if (!(a >= 0) || !(b >= 0)) return [];
+  const [x, y] = a <= b ? [a, b] : [b, a];
+  if (y - x > 499) return null;   // proteção: no máximo 500 etiquetas por linha
+  return Array.from({ length: y - x + 1 }, (_, i) => String(x + i));
+}
+function amTotais() {
+  const copias = Math.max(1, parseInt(document.getElementById('am-qtd').value) || 1);
+  let tot = 0;
+  _amItens.forEach((it, k) => { const f = _amFaixa(it); const n = f ? f.length * copias : 0; tot += n;
+    const el = document.getElementById('am-n-' + k); if (el) el.textContent = f === null ? 'faixa grande demais' : n ? n + ' etiqueta(s)' : '—'; });
+  const t = document.getElementById('am-total'); if (t) t.textContent = tot ? `Total: ${tot} etiqueta(s)` : '';
+}
+function renderAmItens() {
+  const box = document.getElementById('am-itens'); if (!box) return;
+  const opts = sel => '<option value="">Selecione o produto…</option>' + _produtos.map(pr => `<option value="${escapeHtml(pr.nome)}" ${pr.nome === sel ? 'selected' : ''}>${escapeHtml(pr.nome)}</option>`).join('');
+  box.innerHTML = _amItens.map((it, k) => `<div class="am-row">
+    <select class="form-input" onchange="amSet(${k},'produto',this.value)">${opts(it.produto)}</select>
+    <input class="form-input" type="number" min="0" placeholder="ex.: 1" value="${escapeHtml(it.ini)}" oninput="amSet(${k},'ini',this.value)">
+    <input class="form-input" id="am-fim-${k}" type="number" min="0" placeholder="ex.: 10" value="${escapeHtml(it.fim)}" oninput="amSet(${k},'fim',this.value)">
+    <span class="am-n" id="am-n-${k}">—</span>
+    <button type="button" class="am-x" onclick="amDelItem(${k})" aria-label="Tirar">✕</button></div>`).join('');
+  amTotais();
+}
 function gerarAmostras() {
   const base = {
     data: document.getElementById('am-data').value || new Date().toISOString().slice(0, 10),
     linha: document.getElementById('am-linha').value,
-    produto: document.getElementById('am-produto').value,
     separador: document.getElementById('am-separador').value.trim(),
     adt: document.getElementById('am-adt').value.trim(),
   };
   const copias = Math.max(1, parseInt(document.getElementById('am-qtd').value) || 1);
   if (!base.linha) { toast('Selecione a linha.', 'warning'); return; }
-  // pallets: usa a lista de chips; se vazia, usa o que estiver digitado
-  let pallets = _amPallets.slice();
-  const pend = document.getElementById('am-pallet').value.trim();
-  if (pend && !pallets.includes(pend)) pallets.push(pend);
-  if (!pallets.length) pallets = ['']; // ao menos uma etiqueta (pallet em branco)
+  const validos = _amItens.filter(it => it.produto || it.ini !== '' || it.fim !== '');
+  if (!validos.length) { toast('Escolha o produto e a faixa de pallets.', 'warning'); return; }
+  for (const it of validos) {
+    if (!it.produto) { toast('Falta escolher o produto em uma das linhas.', 'warning'); return; }
+    const f = _amFaixa(it);
+    if (f === null) { toast('Faixa de pallets grande demais (máximo 500 por produto).', 'warning'); return; }
+    if (!f.length) { toast(`Informe o pallet de início de ${it.produto}.`, 'warning'); return; }
+  }
   let html = '';
-  pallets.forEach(num => { for (let i = 0; i < copias; i++) html += amostraEtiquetaHTML(Object.assign({}, base, { pallet: num })); });
+  validos.forEach(it => _amFaixa(it).forEach(num => { for (let i = 0; i < copias; i++) html += amostraEtiquetaHTML(Object.assign({}, base, { produto: it.produto, pallet: num })); }));
   imprimirDoc('Etiquetas de Amostra', html, 'A4');
-}
-
-function addPallet() {
-  const el = document.getElementById('am-pallet');
-  const v = (el.value || '').trim();
-  if (!v) return;
-  if (!_amPallets.includes(v)) _amPallets.push(v);
-  el.value = '';
-  el.focus();
-  renderAmPallets();
-}
-function removeAmPallet(v) { _amPallets = _amPallets.filter(x => x !== v); renderAmPallets(); }
-function renderAmPallets() {
-  const box = document.getElementById('am-pallets-chips');
-  if (!box) return;
-  box.innerHTML = _amPallets.length
-    ? _amPallets.map(v => `<span style="display:inline-flex;align-items:center;gap:6px;background:#eef2f6;border:1px solid #cbd5e1;border-radius:30px;padding:4px 6px 4px 12px;font-size:12px;font-weight:700;color:#042D4D;">#${escapeHtml(v)}<button onclick="removeAmPallet('${escapeHtml(v)}')" style="background:none;border:none;cursor:pointer;color:#ef4444;font-size:14px;line-height:1;">✕</button></span>`).join('')
-    : '<span style="font-size:11px;color:#94a3b8;font-style:italic;">Nenhum pallet adicionado — adicione ao menos um.</span>';
 }
 
 function onSelectOP() {
