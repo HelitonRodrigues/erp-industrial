@@ -183,6 +183,9 @@ div:has(> #tbtn-monitor) .tab-btn.active{background:var(--accent) !important;col
 .comp-acc{border-radius:12px !important;}
 .comp-acc-status{font-size:11px !important;font-weight:800 !important;padding:4px 10px !important;border-radius:20px !important;white-space:nowrap;}
 .comp-chip.on{background:var(--accent) !important;color:var(--primary) !important;border-color:var(--accent) !important;}
+.osp-barra{display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:#f8fafc;border-radius:12px;padding:10px 12px;margin-bottom:10px;font-size:13px;}
+.osp-barra label{display:flex;gap:6px;align-items:center;cursor:pointer;} .osp-barra span{color:#64748b;flex:1;}
+.osp-row input[type=checkbox]{width:18px;height:18px;flex-shrink:0;}
 </style>
 </head>
 <body>
@@ -8863,6 +8866,145 @@ function motSeg(){
   // botão de cadastro no topo da tela
   const hd=document.querySelector('#main-content .page-header > div:last-child');
   if(hd&&!document.getElementById('btn-cadequip')){ const b=document.createElement('button'); b.id='btn-cadequip'; b.className='btn btn-secondary btn-sm'; b.innerHTML='⚙️ Cadastrar equipamento'; b.onclick=abrirCadEquip; hd.insertBefore(b,hd.lastElementChild); }
+})();
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+   (out/2026) Cadastro pelo Monitor, encarregado pela Escala e aprovação em lote
+   ══════════════════════════════════════════════════════════════════════════ */
+// botões de cadastro dentro do Monitor (janela da linha e janela do equipamento)
+(function(){
+  const _tl=toggleLinha;
+  toggleLinha=function(header){
+    const r=_tl.apply(this,arguments);
+    try{ const nome=header&&header.dataset.linha, corpo=document.getElementById('modal-linha-corpo');
+      if(corpo&&nome){ const ger=nome==='__gerais__';
+        corpo.insertAdjacentHTML('afterbegin',`<div style="display:flex;justify-content:flex-end;margin-bottom:10px;"><button class="btn btn-primary btn-sm" onclick="abrirCadEquip(null,'${ger?'gerais':'linhas'}','${ger?'':String(nome).replace(/'/g,"\\'")}')">➕ Cadastrar equipamento ${ger?'geral':'nesta linha'}</button></div>`); } }catch(e){}
+    return r;
+  };
+})();
+(function(){
+  // aceita abrir já no equipamento (pôr peças) ou já na linha (equipamento novo)
+  const _ab=abrirCadEquip;
+  abrirCadEquip=function(equipId,tabela,linha){
+    _ab.apply(this,[]);
+    if(!_cq) return;
+    if(tabela) _cq.tabela=tabela;
+    if(equipId){ _cq.modo='add'; _cq.equipId=equipId; }
+    else if(linha){ _cq.linha=linha; const l=(_linhasProd||[]).find(x=>x.nome===linha); if(l&&l.horimetro) _cq.hor=String(l.horimetro); }
+    cqRender();
+  };
+  // janela do equipamento: botão "➕ Componente"
+  const _rc=renderComponentes;
+  renderComponentes=function(equip,comps,tabela,idxOffset){
+    const h=_rc.apply(this,arguments);
+    if(typeof idxOffset==='number'||typeof h!=='string') return h;
+    return h.replace('<div class="comp-toolbar">',`<div class="comp-toolbar"><button class="btn btn-sm" style="background:var(--accent);color:var(--primary);border:none;font-size:11px;font-weight:800;" onclick="abrirCadEquip('${equip.id}','${tabela}')">➕ Componente</button>`);
+  };
+})();
+
+// ── encarregado do turno pela Escala de Equipe ──
+let _escalasCache=null;
+async function _carregarEscalas(){
+  if(_escalasCache) return _escalasCache;
+  try{ const {data}=await _supabase.from('escalas').select('periodo_inicio,periodo_fim,status,turno_id,turno_nome,encarregado,linhas,turno2,turno3').neq('status','rascunho').order('periodo_inicio',{ascending:false}).limit(60); _escalasCache=data||[]; }
+  catch(e){ _escalasCache=[]; }
+  return _escalasCache;
+}
+const _DIAS=['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
+function _horaNoTurno(turnoNomeOuId,data,hora){
+  if(!hora) return false;
+  const t=(_turnos||[]).find(x=>x.id===turnoNomeOuId||x.nome===turnoNomeOuId); if(!t||!t.calendario) return false;
+  const c=t.calendario[_DIAS[new Date(data+'T12:00:00').getDay()]]; if(!c||!c.inicio||!c.fim) return false;
+  const m=s=>{ const [h,mi]=String(s).slice(0,5).split(':').map(Number); return h*60+(mi||0); };
+  const a=m(c.inicio), b=m(c.fim), x=m(hora);
+  return b>a?(x>=a&&x<b):(x>=a||x<b);
+}
+// devolve {nome,turno} do encarregado da escala que vale na data/hora (e, se der, na linha)
+async function encarregadoDaEscala(data,hora,linha){
+  const esc=(await _carregarEscalas()).find(e=>e.periodo_inicio<=data&&e.periodo_fim>=data); if(!esc) return null;
+  const ts=[{id:esc.turno_id,nome:esc.turno_nome,enc:esc.encarregado,linhas:esc.linhas},esc.turno2&&{id:esc.turno2.turno_id,nome:esc.turno2.turno_nome,enc:esc.turno2.encarregado,linhas:esc.turno2.linhas},esc.turno3&&{id:esc.turno3.turno_id,nome:esc.turno3.turno_nome,enc:esc.turno3.encarregado,linhas:esc.turno3.linhas}].filter(t=>t&&t.enc&&t.enc.nome);
+  if(!ts.length) return null;
+  const peloHorario=ts.find(t=>_horaNoTurno(t.id,data,hora)||_horaNoTurno(t.nome,data,hora));
+  const pelaLinha=linha?ts.find(t=>(t.linhas||[]).some(l=>l&&(l.nome===linha))):null;
+  const t=peloHorario||pelaLinha||ts[0];
+  return {nome:t.enc.nome,turno:t.nome};
+}
+// na revisão: já vem com o encarregado do turno de agora
+(function(){
+  const _rr=rxReset;
+  rxReset=function(){ const r=_rr.apply(this,arguments);
+    const d=new Date(), hoje=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`, hora=`${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+    encarregadoDaEscala(hoje,hora,null).then(x=>{ const el=document.getElementById('rx-enc'); if(x&&el&&!el.value){ el.value=x.nome; el.title='Pela escala: '+x.turno; rxStatus(); } }).catch(()=>{});
+    return r; };
+})();
+
+// ── pendências: aprovar em lote e preencher encarregado pela escala ──
+let _osSel=new Set();
+function osSelTodos(on){ document.querySelectorAll('#modal-ospend input.osp-ck').forEach(c=>{ c.checked=on; on?_osSel.add(c.value):_osSel.delete(c.value); }); osSelInfo(); }
+function osSelUm(c){ c.checked?_osSel.add(c.value):_osSel.delete(c.value); osSelInfo(); }
+function osSelInfo(){ const el=document.getElementById('osp-n'); if(el) el.textContent=_osSel.size; }
+async function osAprovarLote(){
+  if(!guardAction('manutencao','edit')) return;
+  const nome=(document.getElementById('osp-gestor').value||'').trim();
+  if(!nome){ toast('Escreva o nome do gestor que está aprovando.','warning'); return; }
+  if(!_osSel.size){ toast('Marque pelo menos uma OS.','warning'); return; }
+  if(!confirm(`Aprovar ${_osSel.size} OS como ${nome}?`)) return;
+  const ids=[..._osSel]; const agora=new Date().toISOString();
+  const {error}=await _supabase.from('manutencao').update({gestor_aprov:nome,atualizado_em:agora}).in('id',ids);
+  if(error){ toast('Erro: '+error.message,'danger'); return; }
+  ids.forEach(id=>{ const o=_ordens.find(x=>x.id===id); if(o) o.gestor_aprov=nome; });
+  if(typeof addLog==='function') addLog('UPDATE','MANUTENCAO',ids.join(','),'Aprovação em lote do gestor: '+nome+' ('+ids.length+' OS)');
+  toast(`✅ ${ids.length} OS aprovada(s) por ${nome}.`,'success'); closeModal('modal-ospend'); _osSel=new Set(); osPendRender();
+}
+async function osEncLote(){
+  if(!guardAction('manutencao','edit')) return;
+  const alvo=[..._osSel].map(id=>({id,enc:(window._osEncSug||{})[id]})).filter(x=>x.enc);
+  if(!alvo.length){ toast('Nenhuma OS marcada com encarregado encontrado na escala.','warning'); return; }
+  if(!confirm(`Preencher o encarregado de ${alvo.length} OS pela Escala de Equipe?`)) return;
+  const agora=new Date().toISOString(); let ok=0;
+  for(const a of alvo){ const {error}=await _supabase.from('manutencao').update({encarregado:a.enc.nome,atualizado_em:agora}).eq('id',a.id); if(!error){ ok++; const o=_ordens.find(x=>x.id===a.id); if(o) o.encarregado=a.enc.nome; } }
+  if(typeof addLog==='function') addLog('UPDATE','MANUTENCAO','lote','Encarregado preenchido pela escala em '+ok+' OS');
+  toast(`✅ Encarregado preenchido em ${ok} OS.`,'success'); closeModal('modal-ospend'); _osSel=new Set(); osPendRender();
+}
+(function(){
+  const _oa=osPendAbrir;
+  osPendAbrir=async function(k){
+    _osSel=new Set();
+    if(k!=='gestor'&&k!=='enc') return _oa.apply(this,arguments);
+    const v=osPendencias()[k]; if(!v||!v.l.length) return;
+    let sug={};
+    if(k==='enc'){ for(const o of v.l){ const x=await encarregadoDaEscala(o.data_abertura,o.hora_ini?String(o.hora_ini).slice(0,5):null,o.linha); if(x) sug[o.id]=x; } }
+    window._osEncSug=sug;
+    let m=document.getElementById('modal-ospend');
+    if(!m){ m=document.createElement('div'); m.id='modal-ospend'; m.className='modal-overlay hidden'; m.style.zIndex='10015'; document.body.appendChild(m); }
+    const E=_rxEsc;
+    const barra=k==='gestor'
+      ?`<div class="osp-barra"><label><input type="checkbox" onchange="osSelTodos(this.checked)"> <b>Selecionar todas</b></label><span><b id="osp-n">0</b> marcada(s)</span>
+         <input id="osp-gestor" class="form-input" list="rx-funcs" placeholder="Nome do gestor" style="max-width:220px;"><button class="btn btn-primary btn-sm" onclick="osAprovarLote()">✅ Aprovar selecionadas</button></div>`
+      :`<div class="osp-barra"><label><input type="checkbox" onchange="osSelTodos(this.checked)"> <b>Selecionar todas</b></label><span><b id="osp-n">0</b> marcada(s) · ${Object.keys(sug).length} com encarregado achado na escala</span>
+         <button class="btn btn-primary btn-sm" onclick="osEncLote()">👷 Preencher pela escala</button></div>`;
+    m.innerHTML=`<div class="modal modal-lg" style="max-width:780px;"><div class="modal-header"><div class="modal-title">${E(v.t)} (${v.l.length})</div><button class="modal-close" onclick="closeModal('modal-ospend')">✕</button></div>
+      ${barra}
+      <div style="max-height:60vh;overflow-y:auto;display:flex;flex-direction:column;gap:6px;">${v.l.slice(0,200).map(o=>{ const s=sug[o.id];
+        return `<div class="osp-row"><label style="display:flex;gap:10px;align-items:center;flex:1;min-width:0;cursor:pointer;"><input type="checkbox" class="osp-ck" value="${o.id}" onchange="osSelUm(this)" ${k==='enc'&&!s?'disabled':''}>
+          <div style="min-width:0;"><b>#${String(o.numero||'').padStart(4,'0')} · ${E(o.equipamento||'—')}</b><small>${E(o.linha||'')} · ${o.data_abertura?o.data_abertura.split('-').reverse().join('/'):''}${o.hora_ini?' · '+String(o.hora_ini).slice(0,5):''} · ${E(o.tecnico||'sem técnico')}</small>
+          ${k==='enc'?`<small style="color:${s?'#15803d':'#b45309'};font-weight:700;">${s?'👷 escala: '+E(s.nome)+' ('+E(s.turno||'')+')':'sem escala para esta data'}</small>`:''}</div></label>
+          <button class="btn btn-secondary btn-sm" onclick="closeModal('modal-ospend');editarOS('${o.id}')">✏️ Abrir</button></div>`; }).join('')}</div></div>`;
+    const dl=document.getElementById('rx-funcs'); if(!dl){ const d=document.createElement('datalist'); d.id='rx-funcs'; document.body.appendChild(d); }
+    document.getElementById('rx-funcs').innerHTML=(_funcionarios||[]).map(f=>`<option value="${E(f.nome)}">`).join('');
+    m.classList.remove('hidden');
+  };
+})();
+
+
+// Nova OS: encarregado já vem da escala do turno de agora (se o campo estiver vazio)
+(function(){
+  const _om=openModalOS;
+  openModalOS=function(){ const r=_om.apply(this,arguments);
+    try{ const d=new Date(), hoje=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`, hora=`${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+      setTimeout(()=>encarregadoDaEscala(hoje,hora,null).then(x=>{ const el=document.getElementById('os-encarregado'); if(x&&el&&!el.value&&!_eOSId){ el.value=x.nome; el.title='Pela escala: '+x.turno; } }).catch(()=>{}),250); }catch(e){}
+    return r; };
 })();
 
 </script>
