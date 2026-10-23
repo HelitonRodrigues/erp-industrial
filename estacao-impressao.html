@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Estação de impressão — DYMO</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/supabase.js"></script>
+<style>
+/* ══════════════════════════════════════════════════════════════════════════
+   ESTAÇÃO DE IMPRESSÃO (out/2026)
+   Fica aberta no PC ligado à DYMO LabelWriter 450. O celular manda as etiquetas
+   (Aferidor → Amostras → "Enviar para a DYMO") e esta página imprime sozinha.
+   Para imprimir SEM a janela de impressão, abra o Chrome com --kiosk-printing
+   (atalho explicado na própria tela) e deixe a DYMO como impressora padrão.
+   ══════════════════════════════════════════════════════════════════════════ */
+:root{--primary:#042D4D;--accent:#C9FF64;--border:#e3e9f0;--muted:#64748b;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Plus Jakarta Sans',system-ui,sans-serif;background:#f4f7fb;color:#0b2a4a;padding:22px;}
+.w{max-width:880px;margin:0 auto;display:flex;flex-direction:column;gap:14px;}
+.top{background:var(--primary);color:#fff;border-radius:20px;padding:20px 22px;display:flex;align-items:center;gap:18px;}
+.dot{width:20px;height:20px;border-radius:50%;background:#94a3b8;box-shadow:0 0 0 6px rgba(255,255,255,.08);flex-shrink:0;}
+.dot.on{background:#22c55e;animation:pulse 1.6s infinite;} .dot.err{background:#ef4444;}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(34,197,94,.6);}100%{box-shadow:0 0 0 14px rgba(34,197,94,0);}}
+.top h1{font-size:21px;font-weight:800;} .top p{font-size:13px;color:rgba(255,255,255,.75);margin-top:2px;}
+.top .n{margin-left:auto;text-align:right;} .top .n b{display:block;font-size:30px;color:var(--accent);line-height:1;} .top .n small{font-size:11.5px;color:rgba(255,255,255,.7);}
+.card{background:#fff;border:1px solid var(--border);border-radius:18px;padding:16px 18px;}
+.sec{font-size:14px;font-weight:800;color:var(--primary);margin-bottom:10px;}
+.it{display:grid;grid-template-columns:80px minmax(0,1fr) 110px;gap:10px;align-items:center;padding:9px 0;border-top:1px solid #f1f5f9;font-size:13px;}
+.it:first-of-type{border-top:0;} .it small{color:var(--muted);}
+.st{font-size:11.5px;font-weight:800;padding:3px 10px;border-radius:20px;text-align:center;} .st.impresso{background:#dcfce7;color:#166534;} .st.pendente{background:#fef3c7;color:#92400e;} .st.imprimindo{background:#dbeafe;color:#1e40af;} .st.erro{background:#fee2e2;color:#991b1b;}
+.vz{font-size:13px;color:var(--muted);padding:6px 0;}
+.how{font-size:13px;line-height:1.6;color:#334155;} .how ol{padding-left:20px;} .how code{display:block;background:#0b2a4a;color:#C9FF64;border-radius:10px;padding:10px 12px;margin:6px 0;font-size:12px;word-break:break-all;}
+.btn{border:0;border-radius:11px;padding:10px 16px;font:inherit;font-weight:800;font-size:13px;cursor:pointer;}
+.btn-p{background:var(--accent);color:var(--primary);} .btn-s{background:#fff;border:1.5px solid #cbd5e1;color:var(--primary);}
+.login{text-align:center;padding:40px 20px;}
+details summary{cursor:pointer;font-weight:800;color:var(--primary);font-size:14px;}
+</style>
+</head>
+<body>
+<div class="w" id="app"><div class="card login">Carregando…</div></div>
+<iframe id="pf" style="position:absolute;width:0;height:0;border:0;left:-9999px;top:-9999px;"></iframe>
+<script>
+const DESTINO='dymo';
+let _hist=[], _rodando=false, _ok=true, _nImp=0;
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const hora=t=>t?new Date(t).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit',second:'2-digit'}):'—';
+function render(){
+  const url=location.origin+location.pathname;
+  document.getElementById('app').innerHTML=`
+  <div class="top"><div class="dot ${_ok?'on':'err'}"></div><div><h1>Estação de impressão — DYMO</h1><p>${_ok?'Ligada e esperando etiquetas do celular':'Sem conexão — tentando de novo…'} · deixe esta janela aberta</p></div>
+    <div class="n"><b>${_nImp}</b><small>impressas desde que abriu</small></div></div>
+  <div class="card"><div class="sec">Últimas impressões</div>
+    ${_hist.length?_hist.slice(0,15).map(j=>`<div class="it"><small>${hora(j.impresso_em||j.criado_em)}</small><div><b>${esc(j.titulo||'Etiquetas')}</b> <small>· ${j.qtd||1} etiqueta(s) · enviado por ${esc(j.criado_por||'—')}</small>${j.erro?`<br><small style="color:#b91c1c;">${esc(j.erro)}</small>`:''}</div><span class="st ${j.status}">${j.status}</span></div>`).join(''):'<div class="vz">Nada impresso ainda. Envie pelo celular: Aferidor → Amostras → 📲 Enviar para a DYMO.</div>'}
+    <div style="margin-top:10px;display:flex;gap:8px;"><button class="btn btn-s" onclick="teste()">🧪 Imprimir etiqueta de teste</button></div></div>
+  <div class="card how"><details><summary>⚙️ Como deixar esta estação imprimindo sozinha (fazer uma vez)</summary><ol style="margin-top:8px;">
+    <li>No Windows, deixe a <b>DYMO LabelWriter 450</b> como <b>impressora padrão</b>. Em <i>Preferências de impressão</i> da DYMO, escolha o papel <b>30252 Address</b> e orientação <b>paisagem</b>.</li>
+    <li>Crie um atalho na área de trabalho com este destino:<code>"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" --kiosk-printing --app=${esc(url)}</code></li>
+    <li>Abra pelo atalho, faça o login do ERP nesta janela uma vez e <b>deixe aberta</b> (pode minimizar).</li>
+    <li>Para abrir sozinha quando o PC ligar: copie o atalho para a pasta <b>shell:startup</b> (Win + R → <i>shell:startup</i>).</li>
+    <li>Sem o <code style="display:inline;padding:1px 6px;">--kiosk-printing</code> funciona igual, mas aparece a janela de impressão para clicar em Imprimir.</li></ol></details></div>`;
+}
+async function imprimirHTML(job){
+  const f=document.getElementById('pf'), d=f.contentWindow.document;
+  d.open(); d.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${esc(job.titulo||'Etiquetas')}</title><style>*{box-sizing:border-box;}body{margin:0;padding:0;font-family:Arial,sans-serif;}
+    @page{size:${job.tamanho||'89mm 28mm'};margin:0;}</style></head><body>${job.html}</body></html>`); d.close();
+  await new Promise(r=>setTimeout(r,400));
+  f.contentWindow.focus(); f.contentWindow.print();
+  await new Promise(r=>setTimeout(r,1500));
+}
+function _poe(j){ const k=_hist.findIndex(x=>x.id===j.id); if(k>=0) _hist.splice(k,1); _hist.unshift(j); }
+async function ciclo(){
+  if(_rodando) return; _rodando=true;
+  try{
+    await _supabase.from('impressao_estacoes').upsert({destino:DESTINO,nome:'PC da DYMO',visto_em:new Date().toISOString()});
+    const {data,error}=await _supabase.from('impressao_fila').select('*').eq('destino',DESTINO).eq('status','pendente').order('criado_em').limit(5);
+    if(error) throw error;
+    _ok=true;
+    for(const job of (data||[])){
+      // "trava" o trabalho: se outra aba pegar o mesmo, só uma imprime
+      const {data:upd}=await _supabase.from('impressao_fila').update({status:'imprimindo',estacao:'PC da DYMO'}).eq('id',job.id).eq('status','pendente').select('id');
+      if(!upd||!upd.length) continue;
+      try{ await imprimirHTML(job);
+        await _supabase.from('impressao_fila').update({status:'impresso',impresso_em:new Date().toISOString()}).eq('id',job.id);
+        _nImp+=job.qtd||1; _poe({...job,status:'impresso',impresso_em:new Date().toISOString()});
+      }catch(e){ await _supabase.from('impressao_fila').update({status:'erro',erro:String(e.message||e)}).eq('id',job.id); _poe({...job,status:'erro',erro:String(e.message||e)}); }
+    }
+  }catch(e){ _ok=false; console.warn('[estação]',e); }
+  finally{ _rodando=false; render(); }
+}
+async function teste(){
+  const u=JSON.parse(sessionStorage.getItem('erp_user')||'{}');
+  await _supabase.from('impressao_fila').insert({destino:DESTINO,tipo:'teste',titulo:'Etiqueta de teste',tamanho:'89mm 28mm',qtd:1,criado_por:u.nome||'estação',
+    html:`<div style="width:89mm;height:28mm;padding:2mm 3mm;font-family:Arial;display:flex;flex-direction:column;justify-content:center;"><div style="font-size:7pt;font-weight:800;letter-spacing:.6px;">TESTE DA ESTAÇÃO DE IMPRESSÃO</div><div style="font-size:14pt;font-weight:900;">DYMO 30252 ✓</div><div style="font-size:7pt;">${new Date().toLocaleString('pt-BR')}</div></div>`});
+  ciclo();
+}
+(async function(){
+  // aberta como ARQUIVO baixado (file://): sem o site não há login nem banco — manda para o endereço certo
+  if(location.protocol==='file:'||typeof _supabase==='undefined'){
+    const URL_ERP='https://erp-industrial-theta.vercel.app/estacao-impressao.html';
+    document.getElementById('app').innerHTML=`<div class="card login"><div style="font-size:40px;">🌐</div><div class="sec" style="margin-top:8px;">Abra a estação pelo endereço do ERP</div>
+      <p class="vz">Esta página foi aberta como arquivo do computador. Ela precisa ser aberta pelo site do ERP:</p>
+      <p style="margin-top:10px;"><a class="btn btn-p" style="text-decoration:none;" href="${URL_ERP}">Abrir ${URL_ERP.replace('https://','')}</a></p></div>`; return; }
+  let sess=null; try{ ({data:{session:sess}}=await _supabase.auth.getSession()); }catch(e){}
+  if(!sess){ document.getElementById('app').innerHTML=`<div class="card login"><div style="font-size:40px;">🔒</div><div class="sec" style="margin-top:8px;">Entre no ERP nesta janela</div>
+    <p class="vz">A estação precisa de um login (uma vez). Depois volte para esta página.</p><p style="margin-top:12px;"><a class="btn btn-p" style="text-decoration:none;" href="index.html">Fazer login</a></p></div>`; return; }
+  try{ const {data}=await _supabase.from('impressao_fila').select('*').eq('destino',DESTINO).order('criado_em',{ascending:false}).limit(15); _hist=data||[]; }catch(e){}
+  render(); ciclo(); setInterval(ciclo,3000);
+})();
+</script>
+</body>
+</html>
