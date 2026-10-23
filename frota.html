@@ -118,6 +118,8 @@ details.fr-os-vazios{margin-top:6px;} details.fr-os-vazios>summary{cursor:pointe
 .fr-kt{background:#fff;border:1px solid #e3e9f0;border-radius:16px;padding:16px;margin-top:14px;} .fr-kt-h{font-weight:800;color:var(--primary);font-size:14px;margin-bottom:10px;} .fr-kt-h span{font-size:11.5px;font-weight:600;color:#94a3b8;margin-left:6px;}
 .fr-kt-w{overflow-x:auto;} .fr-kt table{width:100%;border-collapse:collapse;font-size:13px;} .fr-kt th{background:#f1f5f9;color:#475569;font-size:11px;text-align:left;padding:8px 10px;} .fr-kt td{padding:9px 10px;border-top:1px solid #f1f5f9;} .fr-kt tbody tr{cursor:pointer;} .fr-kt tbody tr:hover td{background:#f8fbff;}
 @media (max-width:640px){ .fr-np .g2,.fr-np .g3{grid-template-columns:1fr;} }
+.fr-alm-av{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;background:#fffbeb;border:1.5px solid #fcd34d;border-radius:12px;padding:10px 12px;margin-bottom:8px;font-size:13px;color:#78350f;}
+.fr-alm-av span{flex-basis:100%;font-size:12px;color:#92400e;} .fr-alm-av button{margin-left:auto;}
 </style>
 </head>
 <body>
@@ -3849,7 +3851,7 @@ setTimeout(frReconciliarPedidos,4000);
 function frPrevImprimir(){
   const v=_frota.find(x=>x.id===_frPv.vid); if(!v||!_frPv.sel.size){ toast('Marque as peças.','warning'); return; }
   const un=_frUn(v), itens=[..._frPv.sel].map(i=>(v.componentes||[])[i]).filter(Boolean).sort((a,b)=>String(a.sistema||'').localeCompare(String(b.sistema||'')));
-  const alm=c=>{ const a=c.almox_id?(_almox||[]).find(x=>String(x.id)===String(c.almox_id)):null; return a?(a.codigo||''):''; };
+  const alm=c=>{ const a=typeof _frAlmoxDe==='function'?_frAlmoxDe(c):null; return a?(a.codigo||''):'⚠️ sem cadastro'; };
   const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Lista de peças — ${_frEsc(v.nome)}</title><style>
     @page{size:A4;margin:12mm;} body{font-family:Arial,sans-serif;color:#0b2a4a;font-size:12px;} h1{font-size:18px;margin:0;} .sub{color:#64748b;font-size:11px;margin:2px 0 12px;}
     .cab{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:3px solid #042D4D;padding-bottom:6px;margin-bottom:10px;}
@@ -3890,6 +3892,119 @@ function frPrevImprimir(){
     }catch(e){ console.warn('[kpis frota]',e); }
     return r; };
 })();
+
+
+/* ══ FROTA — vínculo com o almoxarifado pelo código (ALM-xxxx) e cabeçalho da empresa nos PDFs ══ */
+function _frAlmoxDe(c){
+  if(!c) return null; const A=_almox||[], U=s=>String(s||'').trim().toUpperCase();
+  if(c.almox_id){ const a=A.find(x=>String(x.id)===String(c.almox_id)); if(a) return a; }
+  const cod=U(c.codigo); if(cod){ const a=A.find(x=>U(x.codigo)===cod)||A.find(x=>U(x.codigo_especificacao)===cod); if(a) return a; }
+  const n=U(c.nome); return n?(A.find(x=>U(x.nome)===n)||null):null;
+}
+(function(){
+  // detalhe da peça: almoxarifado pelo código também
+  const _pd=frPecaDetalhe;
+  frPecaDetalhe=function(c,v){ let h=_pd.apply(this,arguments); const a=_frAlmoxDe(c);
+    const txt=a?`✅ ${_frEsc((a.codigo||'')+' — '+a.nome)}`:(c.sol_id?'⏳ cadastro pedido ao almoxarifado':'⚠️ não cadastrado no almoxarifado');
+    return h.replace(/(<small>Almoxarifado<\/small><b>)[^<]*(<\/b>)/,`$1${txt}$2`); };
+  // lista impressa e seção de sistemas: aviso do que não está no almoxarifado + pedir em lote
+  const _sh=frSistemasHTML;
+  frSistemasHTML=function(v){ let h=_sh.apply(this,arguments);
+    const fora=(v.componentes||[]).filter(c=>!_frAlmoxDe(c)), semPed=fora.filter(c=>!c.sol_id);
+    if(fora.length) h=h.replace('<details class="fr-sd',`<div class="fr-alm-av">⚠️ <b>${fora.length} peça(s) não estão cadastradas no almoxarifado</b>${fora.length-semPed.length?` · ${fora.length-semPed.length} já pedida(s)`:''}
+      <span>${fora.slice(0,8).map(c=>_frEsc(c.nome)).join(' · ')}${fora.length>8?' …':''}</span>
+      ${semPed.length?`<button type="button" class="btn btn-primary btn-sm" onclick="frPedirCadastroLote('${v.id}')">📨 Pedir cadastro das ${semPed.length} ao almoxarifado</button>`:''}</div><details class="fr-sd`);
+    return h; };
+})();
+async function frPedirCadastroLote(vid){
+  const v=_frota.find(x=>x.id===vid); if(!v) return;
+  const alvo=(v.componentes||[]).map((c,i)=>({c,i})).filter(x=>!_frAlmoxDe(x.c)&&!x.c.sol_id);
+  if(!alvo.length) return;
+  const ok=typeof erpConfirm==='function'?await erpConfirm(`Enviar ${alvo.length} pedido(s) de cadastro ao almoxarifado? Quando o almoxarifado concluir, cada peça fica vinculada sozinha.`,{titulo:'Pedir cadastro ao almoxarifado',ok:'Enviar pedidos',cancelar:'Voltar'}):confirm('Enviar pedidos?');
+  if(!ok) return;
+  try{
+    const {data:a,error:e1}=await _supabase.from('frota_veiculos').select('componentes').eq('id',v.id).single(); if(e1) throw e1;
+    const lista=(a.componentes||[]).slice(); let n=0;
+    for(const x of alvo){
+      const k=lista.findIndex(c=>c&&c.nome===x.c.nome&&String(c.codigo||'')===String(x.c.codigo||'')&&!c.sol_id&&!c.almox_id); if(k<0) continue;
+      const c=lista[k]; c.uid=c.uid||('fc'+Date.now().toString(36)+Math.random().toString(36).slice(2,6));
+      const sol=crypto.randomUUID?crypto.randomUUID():null; if(!sol) continue;
+      const ident=[c.nome,c.codigo].filter(Boolean).join(' ');
+      const {error}=await _supabase.from('almoxarifado_solicitacoes_cadastro').insert({id:sol,nome:ident,nome_base:c.nome,identificacao:ident,codigo_especificacao:c.codigo||null,codigo_sugerido:c.codigo||null,
+        unidade:c.unidade||'un',origem:'frota',equipamento:'Frota — '+v.nome,equipamento_id:v.id,componente_uid:c.uid,data:new Date().toISOString(),status:'pendente',
+        motivo:'Pedido pela Frota (peça sem cadastro no almoxarifado); o vínculo volta sozinho quando o cadastro for concluído'});
+      if(!error){ c.sol_id=sol; n++; }
+    }
+    const {error:e2}=await _supabase.from('frota_veiculos').update({componentes:lista,atualizado_em:new Date().toISOString()}).eq('id',v.id); if(e2) throw e2;
+    v.componentes=lista; toast(`📨 ${n} pedido(s) de cadastro enviados ao almoxarifado.`,'success'); abrirDetalhe(v.id);
+  }catch(e){ toast('Erro: '+(e.message||e),'danger'); }
+}
+// PDFs com o cabeçalho da empresa (logo, nome fantasia, razão social, CNPJ, endereço)
+(function(){
+  const cab=()=>typeof cabecalhoEmpresaHTML==='function'?cabecalhoEmpresaHTML(_emp):'';
+  const _is=imprimirSistema;
+  imprimirSistema=function(){ const _o=window.open; window.open=function(){ const w=_o.apply(window,arguments); if(w){ const _wr=w.document.write.bind(w.document); w.document.write=function(h){ return _wr(String(h).replace('<body>','<body>'+cab())); }; } return w; };
+    try{ return _is.apply(this,arguments); } finally{ window.open=_o; } };
+  const _pi=frPrevImprimir;
+  frPrevImprimir=function(){ const _o=window.open; window.open=function(){ const w=_o.apply(window,arguments); if(w){ const _wr=w.document.write.bind(w.document); w.document.write=function(h){ return _wr(String(h).replace('<body>','<body>'+cab())); }; } return w; };
+    try{ return _pi.apply(this,arguments); } finally{ window.open=_o; } };
+})();
+
+
+/* ══ IMPRIMIR TUDO DO EQUIPAMENTO (out/2026) ══ */
+function frImprimirEquip(id){
+  const v=_frota.find(x=>x.id===id); if(!v) return;
+  const w=window.open('','_blank'); if(!w){ toast('Libere pop-up para imprimir.','warning'); return; }
+  const E=_frEsc, un=_frUn(v), st=calcStatusVeiculo(v), si=_FR_ST[st]||_FR_ST.ok, ab=_frAbast(v), sis=_frSistemas(v);
+  const osV=(_ordens||[]).filter(o=>o.equipamento===v.nome).sort((a,b)=>String(b.data_abertura||'').localeCompare(String(a.data_abertura||'')));
+  const brl=x=>'R$ '+(Number(x)||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const dBR=d=>d?new Date(String(d).slice(0,10)+'T12:00:00').toLocaleDateString('pt-BR'):'—';
+  const custoTot=osV.reduce((s,o)=>s+(parseFloat(o.custo_manutencao)||0),0);
+  const abReg=(_abastRegs||[]).filter(r=>r.veiculo_id===v.id||(!r.veiculo_id&&String(r.veiculo_nome||'').toLowerCase()===String(v.nome||'').toLowerCase())).sort((a,b)=>String(b.data||'').localeCompare(String(a.data||''))).slice(0,15);
+  const fora=(v.componentes||[]).filter(c=>!_frAlmoxDe(c));
+  const stTxt={vencido:'🔴 vencida',proximo:'🟡 em breve',ok:'✅ em dia',sem:'⚪ sem histórico'};
+  const linhaPeca=c=>{ const s=_frSitComp(c,v), r=_frRestante(c,v), a=_frAlmoxDe(c), ult=_ultimaRevisaoComp(c);
+    const hc=(c.horimetro_componente!==''&&c.horimetro_componente!=null)?c.horimetro_componente:((c.horimetro_inicial!==''&&c.horimetro_inicial!=null)?c.horimetro_inicial:null);
+    return `<tr class="${s}"><td><b>${E(c.nome)}</b>${c.codigo?`<br><small>${E(c.codigo)}</small>`:''}</td><td>${a?E(a.codigo||''):'<span class="r">sem cadastro</span>'}</td><td class="c">${E((c.qtd||1)+' '+(c.unidade||'un'))}</td>
+      <td>${c.intervalo_revisao?_frN(c.intervalo_revisao)+' '+un:''}${c.intervalo_revisao_meses?(c.intervalo_revisao?' / ':'')+c.intervalo_revisao_meses+' m':''}${!c.intervalo_revisao&&!c.intervalo_revisao_meses?'—':''}</td>
+      <td>${hc!=null?_frN(hc,1)+' '+un:'—'}${ult?`<br><small>${dBR(ult)}</small>`:''}</td><td>${r?_frN((parseFloat(hc)||0)+r.it,1)+' '+un:(_proxRevisaoCalculada(c)?dBR(_proxRevisaoCalculada(c)):'—')}</td>
+      <td class="st">${stTxt[s]||s}${r?`<br><small>${r.falta<0?'passou '+_frN(-r.falta):'faltam '+_frN(r.falta)} ${un}</small>`:''}</td></tr>`; };
+  const html=`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>${E(v.nome)} — ficha do equipamento</title><style>
+    @page{size:A4;margin:10mm;} *{box-sizing:border-box;} body{font-family:Arial,Helvetica,sans-serif;color:#0b2a4a;font-size:11px;margin:0;}
+    h1{font-size:19px;margin:0;color:#042D4D;} h2{font-size:12.5px;color:#042D4D;margin:16px 0 6px;padding-left:7px;border-left:4px solid #C9FF64;text-transform:uppercase;letter-spacing:.3px;}
+    .top{display:flex;gap:14px;align-items:flex-start;} .top img,.top .ic{width:110px;height:110px;border-radius:10px;object-fit:cover;background:#f1f5f9;display:flex;align-items:center;justify-content:center;font-size:52px;flex-shrink:0;}
+    .sit{display:inline-block;font-size:11px;font-weight:800;padding:3px 10px;border-radius:20px;margin-top:4px;} .sit.venc{background:#fee2e2;color:#991b1b;} .sit.prox{background:#fef3c7;color:#92400e;} .sit.ok{background:#dcfce7;color:#166534;}
+    .g{display:grid;grid-template-columns:repeat(4,1fr);gap:5px;margin-top:8px;} .g div{border:1px solid #cbd5e1;border-radius:6px;padding:5px 7px;} .g small{display:block;font-size:8px;color:#64748b;text-transform:uppercase;font-weight:700;} .g b{font-size:12px;}
+    .k{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;} .k div{background:#f1f5f9;border-radius:8px;padding:7px 8px;} .k small{display:block;font-size:8px;color:#64748b;font-weight:700;text-transform:uppercase;} .k b{font-size:14px;}
+    table{width:100%;border-collapse:collapse;} th{background:#042D4D;color:#C9FF64;font-size:8.5px;text-align:left;padding:5px;text-transform:uppercase;} td{border-bottom:1px solid #e2e8f0;padding:5px;vertical-align:top;} td small{color:#64748b;font-size:9px;} td.c{text-align:center;white-space:nowrap;}
+    tr.sis td{background:#eef4fa;font-weight:800;color:#042D4D;font-size:11px;} tr.vencido td.st{color:#b91c1c;font-weight:700;} tr.proximo td.st{color:#b45309;font-weight:700;} tr.sem td.st{color:#64748b;} .r{color:#b91c1c;font-weight:700;}
+    .av{background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:7px 9px;color:#78350f;margin-top:6px;} .obs{background:#f8fafc;border-radius:8px;padding:8px;margin-top:6px;}
+    .rod{margin-top:14px;font-size:9px;color:#94a3b8;text-align:right;} tr{page-break-inside:avoid;}
+  </style></head><body>${typeof cabecalhoEmpresaHTML==='function'?cabecalhoEmpresaHTML(_emp):''}
+  <div class="top">${v.foto?`<img src="${v.foto}">`:`<div class="ic">${_FR_TI[v.tipo||'outro']||'🚜'}</div>`}
+    <div style="flex:1;"><h1>${E(v.nome)}</h1><span class="sit ${si[0]}">${si[1]}</span>
+      <div class="g"><div><small>Tipo</small><b>${E(v.tipo||'—')}</b></div><div><small>Placa / patrimônio</small><b>${E(v.placa||'—')}</b></div><div><small>Marca / modelo</small><b>${E([v.marca,v.modelo].filter(Boolean).join(' ')||'—')}</b></div><div><small>Ano</small><b>${E(v.ano||'—')}</b></div>
+        <div><small>${un==='km'?'Odômetro':'Horímetro'} atual</small><b>${_frN(v.horimetro_atual,1)} ${un}</b></div><div><small>Controle de revisão</small><b>${v.tipo_controle==='km'?'por odômetro (km)':v.tipo_controle==='data'?'por data':'por horímetro'}</b></div>
+        <div><small>Próxima revisão geral</small><b>${v.proxima_revisao_data?dBR(v.proxima_revisao_data):(Number(v.proxima_revisao)>0?_frN(v.proxima_revisao)+' '+un:'—')}</b></div><div><small>Empresa responsável</small><b>${E(v.empresa_resp||'—')}</b></div></div></div></div>
+  ${v.obs?`<div class="obs"><b>Observações:</b> ${E(v.obs)}</div>`:''}
+  <h2>Resumo</h2><div class="k"><div><small>Consumo médio (60 dias)</small><b>${ab&&ab.cons?_frN(ab.cons.v,1)+' '+ab.cons.un:'—'}</b></div><div><small>Custo no mês</small><b>${brl(_frCustoMes(v))}</b></div>
+    <div><small>Custo total (OS)</small><b>${brl(custoTot)}</b></div><div><small>OS registradas</small><b>${osV.length}</b></div><div><small>OS em aberto</small><b>${osV.filter(o=>o.status==='aberta'||o.status==='em_andamento').length}</b></div></div>
+  <h2>Sistemas e componentes (${(v.componentes||[]).length})</h2>
+  ${(v.componentes||[]).length?`<table><thead><tr><th>Peça</th><th>Cód. almox.</th><th>Qtd</th><th>Trocar a cada</th><th>Última troca</th><th>Próxima troca</th><th>Situação</th></tr></thead><tbody>
+    ${sis.map(s=>`<tr class="sis"><td colspan="7">${E(s.nome==='Outros'?'Outros (sem sistema)':s.nome)} — ${s.its.length} peça(s)${s.venc?` · ${s.venc} vencida(s)`:''}${s.prox?` · ${s.prox} em breve`:''}</td></tr>${s.its.map(x=>linhaPeca(x.c)).join('')}`).join('')}</tbody></table>`:'<div class="av">Nenhum componente cadastrado.</div>'}
+  ${fora.length?`<div class="av">⚠️ <b>${fora.length} peça(s) sem cadastro no almoxarifado:</b> ${fora.map(c=>E(c.nome)).join(' · ')}</div>`:''}
+  <h2>Histórico de ordens de serviço (${osV.length})</h2>
+  ${osV.length?`<table><thead><tr><th>OS</th><th>Data</th><th>Tipo</th><th>Situação</th><th>Serviço / peças</th><th>Responsável</th><th>${un==='km'?'Km':'Horím.'}</th><th>Custo</th></tr></thead><tbody>
+    ${osV.slice(0,40).map(o=>`<tr><td>OS-${String(o.numero||0).padStart(4,'0')}</td><td>${dBR(o.data_abertura)}</td><td>${E(o.tipo||'—')}</td><td>${E(String(o.status||'').replace('_',' '))}</td><td>${E(String(o.servico_realizado||o.descricao||'').slice(0,140))}${o.parte?`<br><small>${E(o.parte)}</small>`:''}</td><td>${E(o.terceiro||o.tecnico||'—')}</td><td>${o.horimetro?_frN(o.horimetro,1):'—'}</td><td>${o.custo_manutencao?brl(o.custo_manutencao):'—'}</td></tr>`).join('')}</tbody></table>${osV.length>40?`<small>+ ${osV.length-40} OS anteriores</small>`:''}`:'<div class="obs">Nenhuma OS registrada.</div>'}
+  <h2>Últimos abastecimentos</h2>
+  ${abReg.length?`<table><thead><tr><th>Data</th><th>${un==='km'?'Odômetro':'Horímetro'} anterior</th><th>${un==='km'?'Odômetro':'Horímetro'}</th><th>Uso</th><th>Litros</th></tr></thead><tbody>
+    ${abReg.map(r=>{ const d=(Number(r.horimetro_atual)||0)-(Number(r.horimetro_anterior)||0); return `<tr><td>${dBR(r.data)}</td><td>${r.horimetro_anterior!=null?_frN(r.horimetro_anterior,1):'—'}</td><td>${_frN(r.horimetro_atual,1)}</td><td>${d>0?_frN(d,1)+' '+un:'—'}</td><td>${_frN(r.litros,1)} L</td></tr>`; }).join('')}</tbody></table>`:'<div class="obs">Sem abastecimentos registrados.</div>'}
+  ${(v.documentos||[]).length?`<h2>Documentos</h2><div class="obs">${(v.documentos||[]).map(d=>E(d.nome||d.titulo||'documento')+(d.validade?' (validade '+dBR(d.validade)+')':'')).join(' · ')}</div>`:''}
+  <div class="rod">Emitido em ${new Date().toLocaleString('pt-BR')}</div></body></html>`;
+  w.document.write(html); w.document.close(); setTimeout(()=>{ try{ w.focus(); w.print(); }catch(e){} },500);
+}
+(function(){ const _fc=frCartao; frCartao=function(v){ return _fc.apply(this,arguments).replace(`<button class="btn btn-secondary btn-sm" onclick="editarVeiculo('${v.id}')" title="Editar">✏️</button>`,
+  `<button class="btn btn-secondary btn-sm" onclick="frImprimirEquip('${v.id}')" title="Imprimir tudo deste equipamento">🖨️</button><button class="btn btn-secondary btn-sm" onclick="editarVeiculo('${v.id}')" title="Editar">✏️</button>`); }; })();
 
 </script>
 </body>
