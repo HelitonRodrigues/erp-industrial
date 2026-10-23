@@ -80,9 +80,10 @@ function analiseTxt(p){if(!p.analise)return '';if(typeof p.analise==='string')re
 
 const SEL='*,producao(op_numero,produtos_op,encarregado,equipe,turno,data,lote_mp)';
 
+let _rastreioPublico=true, _logadoERP=false;
 async function carregarEmpresa(){
   try{const{data}=await _supabase.rpc('branding_publico');
-    if(data){document.getElementById('empresa').textContent=data.nome_fantasia||data.razao_social||'Rastreabilidade de Pallet';if(data.logo)document.getElementById('logo').innerHTML=`<img src="${data.logo}" style="width:100%;height:100%;object-fit:cover;">`;}}catch(e){}
+    if(data){ _rastreioPublico=data.rastreio_publico!==false;document.getElementById('empresa').textContent=data.nome_fantasia||data.razao_social||'Rastreabilidade de Pallet';if(data.logo)document.getElementById('logo').innerHTML=`<img src="${data.logo}" style="width:100%;height:100%;object-fit:cover;">`;}}catch(e){}
 }
 
 // Prefixo de 3 letras da linha, mesma fórmula usada para gerar o código.
@@ -242,6 +243,22 @@ function renderOrdem(ordem,pallets){
 (async function(){
   document.getElementById('ts').textContent=new Date().toLocaleString('pt-BR');
   await carregarEmpresa();
+  try{ const{data:{session}}=await _supabase.auth.getSession(); _logadoERP=!!session; }catch(e){}
+  // (out/2026) consulta pública DESLIGADA no ERP (Aferidor → Rótulos): cliente vê só uma tela neutra;
+  // quem está logado no ERP continua vendo tudo, com o aviso de que é modo teste.
+  if(!_rastreioPublico&&!_logadoERP){
+    document.getElementById('sub').textContent='Produto rastreável';
+    document.getElementById('conteudo').innerHTML=`<div class="card" style="text-align:center;padding:40px 22px;">
+      <div style="font-size:42px;">📦</div>
+      <div style="font-size:19px;font-weight:800;color:var(--primary);margin-top:8px;">Produto com rastreabilidade</div>
+      <div style="font-size:14px;color:var(--muted);margin-top:8px;line-height:1.5;">As informações deste lote estarão disponíveis para consulta em breve.<br>Obrigado pela preferência.</div></div>`;
+    document.querySelectorAll('.btn-print').forEach(b=>b.style.display='none');
+    return;
+  }
+  if(!_rastreioPublico&&_logadoERP){
+    document.querySelector('.wrap').insertAdjacentHTML('afterbegin',`<div class="no-print" style="background:#fef3c7;border:1.5px solid #fcd34d;color:#78350f;border-radius:12px;padding:10px 14px;margin-bottom:12px;font-size:13px;">
+      🧪 <b>Modo teste:</b> a consulta pública do QR está <b>desligada</b>. Você vê porque está logado no ERP — o cliente vê só "disponível em breve". Ligue em Aferidor → Rótulos.</div>`);
+  }
   const params=new URLSearchParams(location.search);
   let palletCod=params.get('pallet'); const ordem=params.get('ordem');
   // tolera QR que contenha a URL inteira

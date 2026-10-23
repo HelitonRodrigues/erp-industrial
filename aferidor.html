@@ -110,6 +110,9 @@ body.ap-on #toast-container{top:10px;bottom:auto;left:10px;right:10px;z-index:14
 .am-cab{font-size:11px;font-weight:700;color:#64748b;margin:4px 0;} .am-row{margin-bottom:6px;}
 .am-n{font-size:12px;font-weight:700;color:#475569;} .am-x{border:0;background:#fee2e2;color:#b91c1c;border-radius:8px;height:36px;cursor:pointer;}
 @media (max-width:640px){ .am-cab{display:none;} .am-row{grid-template-columns:1fr 1fr;} .am-row select{grid-column:1/-1;} }
+.qrp{display:flex;align-items:center;gap:12px;background:#fff;border:1.5px solid #e3e9f0;border-left:5px solid #94a3b8;border-radius:14px;padding:11px 14px;margin-bottom:14px;flex-wrap:wrap;}
+.qrp.on{border-left-color:#16a34a;background:#f0fdf4;} .qrp-i{font-size:22px;} .qrp-t{flex:1;min-width:220px;} .qrp-t b{display:block;font-size:14px;color:var(--primary);} .qrp-t span{font-size:12px;color:#64748b;}
+.qrp small{font-size:11.5px;color:#94a3b8;}
 </style>
 </head>
 <body>
@@ -143,6 +146,7 @@ body.ap-on #toast-container{top:10px;bottom:auto;left:10px;right:10px;z-index:14
 
   <!-- ABA RÓTULOS -->
   <div id="tab-rotulos">
+    <div id="qr-publico"></div>
     <div class="card" style="margin-bottom:14px;">
       <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
         <div class="form-group" style="margin:0;flex:1;min-width:180px;"><label class="form-label">Buscar</label><input type="text" id="rot-busca" class="form-input" placeholder="OP, produto ou linha..." oninput="renderRotulos()"></div>
@@ -1652,6 +1656,34 @@ init().then(() => {
   const querPatio = /[?&]patio=1/.test(location.search) || (apLsGet(LS_AP, false) === true && apMovel());
   if (querPatio) { swTab('aditivacao', document.querySelectorAll('.tab-btn')[2]); abrirPatioAdit(); }
 });
+
+
+/* ══ QR do rótulo para clientes: liga/desliga (out/2026) ══
+   Desligado: quem aponta a câmera e NÃO está logado no ERP vê só "disponível em breve"
+   (a trava é no banco: as consultas públicas não devolvem nada). Logado no ERP vê tudo. */
+function _qrPodeMudar(){ const u=(typeof getUser==='function'?getUser():null)||{}; return ['SADM','ADM','ADMIN','admin','Administrador'].includes(u.perfil); }
+function renderQrPublico(){
+  const box=document.getElementById('qr-publico'); if(!box) return;
+  const on=!!(_empresa&&_empresa.rastreio_publico);
+  box.innerHTML=`<div class="qrp ${on?'on':''}">
+    <div class="qrp-i">${on?'🟢':'⚪'}</div>
+    <div class="qrp-t"><b>QR do rótulo para clientes: ${on?'LIGADO':'DESLIGADO'}</b>
+      <span>${on?'Quem aponta a câmera no rótulo vê as informações do pallet.':'Os rótulos já saem com QR, mas quem aponta a câmera vê só "informações disponíveis em breve". Quem está logado no ERP continua vendo tudo (para testar).'}</span></div>
+    ${_qrPodeMudar()?`<button type="button" class="btn ${on?'btn-secondary':'btn-primary'} btn-sm" onclick="alternarQrPublico()">${on?'Desligar':'Ligar para os clientes'}</button>`:'<small>só administrador muda</small>'}</div>`;
+}
+async function alternarQrPublico(){
+  if(!_qrPodeMudar()){ toast('Só administrador pode mudar.','warning'); return; }
+  const novo=!(_empresa&&_empresa.rastreio_publico);
+  const msg=novo?'A partir de agora, qualquer pessoa que apontar a câmera no QR de um rótulo vai ver as informações do pallet (produto, lote, data, análise).':'Quem apontar a câmera no QR passa a ver só "informações disponíveis em breve". Quem está logado no ERP continua vendo.';
+  const ok=typeof erpConfirm==='function'?await erpConfirm(msg,{titulo:novo?'Ligar o QR para os clientes?':'Desligar o QR para os clientes?',ok:novo?'Sim, ligar':'Sim, desligar',cancelar:'Voltar',perigo:!novo}):confirm(msg);
+  if(!ok) return;
+  const {error}=await _supabase.from('empresa_config').update({rastreio_publico:novo}).eq('id',_empresa.id);
+  if(error){ toast('Não foi possível mudar: '+error.message,'danger'); return; }
+  _empresa.rastreio_publico=novo;
+  if(typeof addLog==='function') addLog('UPDATE','AFERIDOR','empresa_config','QR público dos rótulos '+(novo?'LIGADO':'DESLIGADO'));
+  toast(novo?'✅ QR ligado para os clientes.':'QR desligado para os clientes.','success'); renderQrPublico();
+}
+(function(){ const _rr=renderRotulos; renderRotulos=function(){ const r=_rr.apply(this,arguments); try{ renderQrPublico(); }catch(e){} return r; }; })();
 
 </script>
 </body>
