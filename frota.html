@@ -87,6 +87,15 @@ details.fr-sd>summary em.venc{background:#fee2e2;color:#991b1b;} details.fr-sd>s
 .fr-pc.venc .fr-bar em{background:#dc2626;} .fr-pc.prox .fr-bar em{background:#f59e0b;}
 .fr-pc strong{font-size:12px;color:#166534;} .fr-pc.venc strong{color:#dc2626;} .fr-pc.prox strong{color:#b45309;} .fr-pc.sem strong{color:#64748b;font-weight:600;}
 @media (max-width:640px){ #frota-grid{grid-template-columns:minmax(0,1fr) !important;} .fr-pc{grid-template-columns:minmax(0,1fr) auto;} .fr-pc .fr-bar,.fr-pc>i{display:none;} }
+.fr-dt{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;} .fr-prevbt{margin-left:auto;}
+.fr-abrir{border:1px solid #cbd5e1;background:#fff;border-radius:8px;padding:3px 9px;font:inherit;font-size:11.5px;font-weight:700;color:var(--primary);cursor:pointer;}
+.fr-pv-f{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:10px;}
+.fr-pv-f button{border:0;background:#f1f5f9;border-radius:9px;padding:7px 12px;font:inherit;font-size:12.5px;font-weight:700;color:#64748b;cursor:pointer;} .fr-pv-f button.on{background:var(--accent);color:var(--primary);}
+.fr-pv-f span{margin-left:auto;font-size:12px;} .fr-pv-f a{color:#1d4ed8;font-weight:700;}
+.fr-pv-g{font-size:12px;font-weight:800;color:#64748b;text-transform:uppercase;margin:10px 2px 4px;}
+.fr-pv-it{display:grid;grid-template-columns:24px minmax(0,1fr) auto;gap:10px;align-items:center;padding:9px 11px;border:1px solid #e3e9f0;border-radius:10px;margin-bottom:5px;cursor:pointer;font-size:13px;}
+.fr-pv-it input{width:18px;height:18px;} .fr-pv-it b{color:var(--primary);} .fr-pv-it small{color:#94a3b8;} .fr-pv-it em{font-style:normal;font-size:12px;font-weight:700;color:#166534;}
+.fr-pv-it.venc{border-color:#fca5a5;background:#fff5f5;} .fr-pv-it.venc em{color:#dc2626;} .fr-pv-it.prox{border-color:#fcd34d;background:#fffbeb;} .fr-pv-it.prox em{color:#b45309;}
 </style>
 </head>
 <body>
@@ -3523,9 +3532,9 @@ function _frRestante(c,v){   // h/km que faltam (negativo = passou)
   return {falta:hc+it-(parseFloat(v.horimetro_atual)||0),pct:Math.min(100,Math.max(0,((parseFloat(v.horimetro_atual)||0)-hc)/it*100)),it};
 }
 function _frSistemas(v){
-  const g={}; (v.componentes||[]).forEach((c,i)=>{ const s=(c.sistema||'').trim()||'Sem sistema'; (g[s]=g[s]||[]).push({c,i,sit:_frSitComp(c,v)}); });
+  const g={}; (v.componentes||[]).forEach((c,i)=>{ const s=(c.sistema||'').trim()||'Outros'; (g[s]=g[s]||[]).push({c,i,sit:_frSitComp(c,v)}); });
   return Object.entries(g).map(([nome,its])=>({nome,its,venc:its.filter(x=>x.sit==='vencido').length,prox:its.filter(x=>x.sit==='proximo').length,sem:its.filter(x=>x.sit==='sem').length}))
-    .sort((a,b)=>(b.venc-a.venc)||(b.prox-a.prox)||(a.nome==='Sem sistema')-(b.nome==='Sem sistema')||a.nome.localeCompare(b.nome));
+    .sort((a,b)=>(b.venc-a.venc)||(b.prox-a.prox)||(a.nome==='Outros')-(b.nome==='Outros')||a.nome.localeCompare(b.nome));
 }
 // consumo médio nos últimos 60 dias (L/h ou km/L) e a última leitura no Abastecimento
 function _frAbast(v){
@@ -3564,17 +3573,23 @@ function frCartao(v){
       sis.map(s=>`<button type="button" class="${s.venc?'venc':s.prox?'prox':s.sem===s.its.length?'sem':'ok'}" onclick="abrirDetalhe('${v.id}');setTimeout(()=>frAbrirSis('${_frEsc(s.nome)}'),120)">${_frEsc(s.nome)}${s.venc?` <i>🔴 ${s.venc}</i>`:''}${s.prox?` <i>🟡 ${s.prox}</i>`:''}${!s.venc&&!s.prox?(s.sem===s.its.length?' <i>⚪</i>':' <i>✓</i>'):''}</button>`).join('')}</div>
     <div class="fr-acts"><button class="btn btn-primary btn-sm" onclick="abrirNovaOS('${v.id}')">🔧 Nova OS</button>
       <button class="btn btn-secondary btn-sm" onclick="abrirDetalhe('${v.id}')">👁️ Detalhe</button>
+      ${(v.componentes||[]).length?`<button class="btn btn-secondary btn-sm" onclick="frPreventiva('${v.id}')" title="Preventiva rápida: óleos e filtros">🛢️</button>`:''}
       <button class="btn btn-secondary btn-sm" onclick="editarVeiculo('${v.id}')" title="Editar">✏️</button>
       <button class="btn btn-danger btn-sm" onclick="delVeiculo('${v.id}')" title="Excluir">🗑️</button></div>
   </div>`;
 }
 function frSistemasHTML(v){
   const sis=_frSistemas(v), un=_frUn(v);
+  const osV=(_ordens||[]).filter(o=>o.equipamento===v.nome), cus={};
+  osV.forEach(o=>{ try{ const bd=_osCustoPorSistema(o,v); Object.keys(bd).forEach(k=>{ cus[k]=cus[k]||{os:0,t:0}; cus[k].os++; cus[k].t+=bd[k].total||0; }); }catch(e){} });
+  const totG=Object.values(cus).reduce((a,x)=>a+x.t,0), brl=x=>'R$ '+(x||0).toLocaleString('pt-BR',{minimumFractionDigits:2});
   if(!sis.length) return `<div class="fr-dsec"><div class="fr-dt">⚙️ Sistemas & componentes</div><div class="fr-vz">Nenhum componente cadastrado. Use ✏️ Editar → Sistemas & Componentes.</div></div>`;
-  return `<div class="fr-dsec"><div class="fr-dt">⚙️ Sistemas & componentes <span>toque no sistema para ver as peças · cada sistema mostra a pior situação de dentro</span></div>
+  return `<div class="fr-dsec"><div class="fr-dt">⚙️ Sistemas & componentes <span>custo total ${brl(totG)} · cada sistema mostra a pior situação de dentro</span>
+      <button type="button" class="btn btn-primary btn-sm fr-prevbt" onclick="frPreventiva('${v.id}')">🛢️ Preventiva rápida (óleos e filtros)</button></div>
     ${sis.map(s=>{ const cls=s.venc?'venc':s.prox?'prox':s.sem===s.its.length?'sem':'ok';
-      return `<details class="fr-sd ${cls}" data-sis="${_frEsc(s.nome)}" ${s.venc||s.prox?'open':''}><summary><b>${_frEsc(s.nome)}</b><span>${s.its.length} peça(s)</span>
-        ${s.venc?`<em class="venc">🔴 ${s.venc} vencida(s)</em>`:''}${s.prox?`<em class="prox">🟡 ${s.prox} em breve</em>`:''}${s.sem?`<em class="sem">⚪ ${s.sem} sem histórico</em>`:''}${!s.venc&&!s.prox&&s.sem<s.its.length?'<em class="ok">✓ em dia</em>':''}</summary>
+      const cs=cus[s.nome]||{os:0,t:0};
+      return `<details class="fr-sd ${cls}" data-sis="${_frEsc(s.nome)}" ${s.venc||s.prox?'open':''}><summary><b>${_frEsc(s.nome==='Outros'?'Outros (sem sistema)':s.nome)}</b><span>${s.its.length} peça(s) · ${cs.os} OS · ${brl(cs.t)}</span>
+        ${s.venc?`<em class="venc">🔴 ${s.venc} vencida(s)</em>`:''}${s.prox?`<em class="prox">🟡 ${s.prox} em breve</em>`:''}${s.sem?`<em class="sem">⚪ ${s.sem} sem histórico</em>`:''}${!s.venc&&!s.prox&&s.sem<s.its.length?'<em class="ok">✓ em dia</em>':''}<button type="button" class="fr-abrir" onclick="event.preventDefault();event.stopPropagation();abrirSistemaModal('${v.id}','${_frEsc(s.nome).replace(/'/g,"\\'")}')" title="Dados técnicos, histórico e observações">📂 abrir</button></summary>
         ${s.its.map(({c,sit})=>{ const r=_frRestante(c,v), ult=_ultimaRevisaoComp(c);
           const txt=sit==='sem'?'sem histórico — conta a partir da 1ª troca registrada':r?(r.falta<0?`passou ${_frN(-r.falta)} ${un}`:`faltam ${_frN(r.falta)} ${un}`)+` (a cada ${_frN(r.it)} ${un})`:(c.intervalo_revisao_meses?`a cada ${c.intervalo_revisao_meses} mês(es)`:'sem intervalo');
           return `<div class="fr-pc ${sit==='vencido'?'venc':sit==='proximo'?'prox':sit}"><div class="fr-pc-n"><b>${_frEsc(c.nome)}${c.codigo?' <small>'+_frEsc(c.codigo)+'</small>':''}</b>
@@ -3623,6 +3638,49 @@ function frOSPeca(id,nome){ fecharModal('m-detalhe'); abrirNovaOS(id); setTimeou
     try{ const id=arguments[0]; const o=(_ordens||[]).find(x=>x.id===id); const v=o&&_frota.find(x=>x.nome===o.equipamento); const lb=document.querySelector('#grp-conc-horim .form-label'); if(lb) lb.textContent=_frUn(v)==='km'?'Odômetro na conclusão (km)':'Horímetro na Conclusão'; }catch(e){}
     return r; };
 })();
+
+
+/* ── uma seção de sistemas só: a antiga "Sistemas do Equipamento" foi juntada na de cima ── */
+(function(){ _analiseSistemasFrota=function(){ return ''; }; })();
+/* ── PREVENTIVA RÁPIDA: marcar óleos e filtros de todos os sistemas numa tela e abrir UMA OS ── */
+let _frPv={vid:null,filtro:'oleo',sel:new Set()};
+const _FR_OLEO=/(ó|o)leo|filtro|lubrific|graxa|tela/i;
+function frPreventiva(vid){
+  const v=_frota.find(x=>x.id===vid); if(!v) return;
+  _frPv={vid,filtro:'oleo',sel:new Set((v.componentes||[]).map((c,i)=>_FR_OLEO.test(c.nome||'')?i:null).filter(i=>i!==null))};
+  let m=document.getElementById('m-fr-prev'); if(!m){ m=document.createElement('div'); m.id='m-fr-prev'; m.className='modal-overlay hidden'; m.style.zIndex='10050'; document.body.appendChild(m); }
+  frPrevRender(); m.classList.remove('hidden');
+}
+function frPrevFiltro(f){ _frPv.filtro=f; frPrevRender(); }
+function frPrevMarca(i,on){ on?_frPv.sel.add(i):_frPv.sel.delete(i); frPrevRender(true); }
+function frPrevTodos(on){ const v=_frota.find(x=>x.id===_frPv.vid); frPrevLista(v).forEach(x=>on?_frPv.sel.add(x.i):_frPv.sel.delete(x.i)); frPrevRender(); }
+function frPrevLista(v){ const f=_frPv.filtro; return (v.componentes||[]).map((c,i)=>({c,i,sit:_frSitComp(c,v)})).filter(x=>f==='todos'||(f==='oleo'&&_FR_OLEO.test(x.c.nome||''))||(f==='venc'&&(x.sit==='vencido'||x.sit==='proximo'))); }
+function frPrevRender(soContagem){
+  const v=_frota.find(x=>x.id===_frPv.vid), m=document.getElementById('m-fr-prev'); if(!v||!m) return;
+  const n=_frPv.sel.size;
+  if(soContagem){ const b=document.getElementById('fr-pv-ok'); if(b){ b.textContent=`🔧 Abrir OS preventiva com ${n} item(ns)`; b.disabled=!n; } return; }
+  const lista=frPrevLista(v), un=_frUn(v), grupos={};
+  lista.forEach(x=>{ const k=(x.c.sistema||'').trim()||'Outros'; (grupos[k]=grupos[k]||[]).push(x); });
+  m.innerHTML=`<div class="modal modal-lg" style="max-width:760px;"><div class="modal-header"><div class="modal-title">🛢️ Preventiva rápida — ${_frEsc(v.nome)}</div><button class="modal-close" onclick="fecharModal('m-fr-prev')">✕</button></div>
+    <div class="fr-pv-f"><button type="button" class="${_frPv.filtro==='oleo'?'on':''}" onclick="frPrevFiltro('oleo')">🛢️ Óleos e filtros</button><button type="button" class="${_frPv.filtro==='venc'?'on':''}" onclick="frPrevFiltro('venc')">🔴 Vencidas e em breve</button><button type="button" class="${_frPv.filtro==='todos'?'on':''}" onclick="frPrevFiltro('todos')">Todas as peças</button>
+      <span><a href="javascript:frPrevTodos(true)">marcar todas</a> · <a href="javascript:frPrevTodos(false)">desmarcar</a></span></div>
+    <div style="max-height:56vh;overflow-y:auto;">${Object.keys(grupos).length?Object.entries(grupos).map(([k,its])=>`<div class="fr-pv-g">${_frEsc(k==='Outros'?'Outros (sem sistema)':k)}</div>${its.map(x=>{ const r=_frRestante(x.c,v);
+      return `<label class="fr-pv-it ${x.sit==='vencido'?'venc':x.sit==='proximo'?'prox':''}"><input type="checkbox" ${_frPv.sel.has(x.i)?'checked':''} onchange="frPrevMarca(${x.i},this.checked)">
+        <span><b>${_frEsc(x.c.nome)}</b>${x.c.codigo?` <small>${_frEsc(x.c.codigo)}</small>`:''}</span>
+        <em>${x.sit==='sem'?'sem histórico':r?(r.falta<0?'passou '+_frN(-r.falta)+' '+un:'faltam '+_frN(r.falta)+' '+un):'—'}</em></label>`; }).join('')}`).join(''):'<div class="fr-vz">Nenhuma peça neste filtro.</div>'}</div>
+    <div class="modal-footer"><span style="font-size:12px;color:#64748b;margin-right:auto;">As peças marcadas entram juntas numa OS <b>preventiva</b>. Ao concluir a OS, todas são atualizadas.</span>
+      <button class="btn btn-secondary" onclick="fecharModal('m-fr-prev')">Cancelar</button><button class="btn btn-primary" id="fr-pv-ok" ${n?'':'disabled'} onclick="frPrevAbrirOS()">🔧 Abrir OS preventiva com ${n} item(ns)</button></div></div>`;
+}
+function frPrevAbrirOS(){
+  const v=_frota.find(x=>x.id===_frPv.vid); if(!v||!_frPv.sel.size) return;
+  const nomes=[..._frPv.sel].map(i=>(v.componentes||[])[i]).filter(Boolean).map(c=>c.nome);
+  fecharModal('m-fr-prev'); try{ fecharModal('m-detalhe'); }catch(e){}
+  abrirNovaOS(v.id);
+  setTimeout(()=>{ try{ const t=document.getElementById('os-tipo'); if(t) t.value='preventiva';
+    nomes.forEach(n=>_marcarCompOSPorNome(n));
+    const d=document.getElementById('os-serv'); if(d&&!d.value) d.value='Preventiva — troca de óleos e filtros ('+nomes.length+' itens)';
+  }catch(e){ console.warn('[preventiva rápida]',e); } },300);
+}
 
 </script>
 </body>
