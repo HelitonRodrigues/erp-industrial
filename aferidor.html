@@ -188,7 +188,11 @@ body.ap-on #toast-container{top:10px;bottom:auto;left:10px;right:10px;z-index:14
         <button type="button" class="btn btn-secondary btn-sm" style="margin-top:6px;" onclick="amAddItem()">+ Adicionar outro produto</button>
         <div id="am-total" style="font-size:12.5px;color:#475569;margin-top:8px;font-weight:700;"></div>
       </div>
-      <button class="btn btn-primary" onclick="gerarAmostras()">🖨️ Gerar Etiquetas (PDF)</button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+        <button class="btn btn-primary" onclick="gerarAmostras()">🖨️ Imprimir aqui</button>
+        <button class="btn btn-secondary" onclick="enviarAmostrasDymo()">📲 Enviar para a DYMO</button>
+        <span id="am-estacao" style="font-size:12px;color:#64748b;"></span>
+      </div>
     </div>
   </div>
 
@@ -1106,21 +1110,23 @@ async function registrarPalletsEstoque() {
 // ════════════════════════════════════════════════════════════
 // ABA 2 — AMOSTRAS
 // ════════════════════════════════════════════════════════════
-// (out/2026) Etiqueta DYMO 30252 (Address) — 89 × 28 mm, LabelWriter 450. Uma etiqueta por "página".
+// (out/2026) Mesmo layout da etiqueta de amostra, só no tamanho da DYMO 30252 (Address) — 89 × 28 mm.
 function amostraEtiquetaHTML(d) {
-  const E = escapeHtml;
-  const camp = (l, v) => `<div style="flex:1;min-width:0;"><div style="font-size:5.5pt;color:#555;font-weight:700;text-transform:uppercase;letter-spacing:.3px;">${l}</div>
-    <div style="font-size:8pt;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;${v ? '' : 'border-bottom:0.6pt solid #000;height:9pt;'}">${v ? E(v) : ''}</div></div>`;
-  return `<div class="dymo" style="page-break-after:always;width:89mm;height:28mm;padding:1.6mm 2.2mm;box-sizing:border-box;font-family:Arial,Helvetica,sans-serif;color:#000;background:#fff;display:flex;flex-direction:column;overflow:hidden;">
-    <div style="display:flex;align-items:flex-start;gap:2mm;">
-      <div style="flex:1;min-width:0;">
-        <div style="font-size:5.5pt;font-weight:800;letter-spacing:.6px;">AMOSTRA · ${E(fmtData(d.data))} · ${E(d.linha || '')}</div>
-        <div style="font-size:10pt;font-weight:900;line-height:1.05;max-height:21pt;overflow:hidden;margin-top:.4mm;">${E(d.produto || '')}</div>
-      </div>
-      <div style="text-align:center;border:0.8pt solid #000;border-radius:1.2mm;padding:.3mm 1.8mm;flex-shrink:0;">
-        <div style="font-size:5pt;font-weight:800;">PALLET</div><div style="font-size:15pt;font-weight:900;line-height:1;">${E(d.pallet)}</div></div>
+  const linha = (txt) => `<div style="margin-top:1px;border-bottom:0.6pt solid #475569;min-height:9pt;"></div><div style="font-size:4.5pt;color:#94a3b8;text-transform:uppercase;letter-spacing:.3px;">${txt}</div>`;
+  const campo = (label, valor, quebra) => `<div style="padding:0.4mm 0;min-width:0;"><div style="font-size:4.5pt;color:#94a3b8;font-weight:700;text-transform:uppercase;letter-spacing:.3px;">${label}</div><div style="font-size:${quebra && String(valor || '').length > 24 ? '6.3pt' : '7.5pt'};font-weight:800;color:#042D4D;line-height:1.1;${quebra ? 'max-height:14pt;overflow:hidden;' : 'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;'}">${escapeHtml(valor || '—')}</div></div>`;   // produto pode quebrar em 2 linhas
+  const campoOuLinha = (label, valor) => (valor && String(valor).trim()) ? campo(label, valor) : linha(label);
+  return `<div style="page-break-after:always;width:89mm;height:28mm;padding:1.5mm 2.5mm;box-sizing:border-box;font-family:Arial,sans-serif;background:#fff;overflow:hidden;">
+    <div style="border-bottom:0.9pt solid #042D4D;padding-bottom:0.5mm;margin-bottom:0.6mm;font-size:6.5pt;font-weight:800;color:#042D4D;text-transform:uppercase;">🧪 Etiqueta de Amostra</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 4mm;">
+      ${campo('Data', fmtData(d.data))}
+      ${campo('Nº do Pallet', d.pallet)}
+      ${campo('Linha', d.linha)}
+      ${campo('Produto', d.produto, true)}
     </div>
-    <div style="display:flex;gap:3mm;margin-top:auto;">${camp('Separador', d.separador)}${camp('ADT g/saco', d.adt)}</div>
+    <div style="margin-top:0.4mm;display:grid;grid-template-columns:1fr 1fr;gap:4mm;">
+      <div>${campoOuLinha('Separador', d.separador)}</div>
+      <div>${campoOuLinha('ADT (g/saco)', d.adt)}</div>
+    </div>
   </div>`;
 }
 
@@ -1171,8 +1177,9 @@ function gerarAmostras() {
     if (f === null) { toast('Faixa de pallets grande demais (máximo 500 por produto).', 'warning'); return; }
     if (!f.length) { toast(`Informe o pallet de início de ${it.produto}.`, 'warning'); return; }
   }
-  let html = '';
-  validos.forEach(it => _amFaixa(it).forEach(num => { for (let i = 0; i < copias; i++) html += amostraEtiquetaHTML(Object.assign({}, base, { produto: it.produto, pallet: num })); }));
+  let html = '', qtd = 0;
+  validos.forEach(it => _amFaixa(it).forEach(num => { for (let i = 0; i < copias; i++) { html += amostraEtiquetaHTML(Object.assign({}, base, { produto: it.produto, pallet: num })); qtd++; } }));
+  if (arguments[0] === 'html') return { html, qtd, titulo: validos.map(it => it.produto + ' ' + (_amFaixa(it)[0] || '') + (_amFaixa(it).length > 1 ? '–' + _amFaixa(it).slice(-1)[0] : '')).join(' · ') };
   imprimirDoc('Etiquetas de Amostra', html, '89mm 28mm');   // DYMO 30252 Address (LabelWriter 450)
 }
 
@@ -1684,6 +1691,25 @@ async function alternarQrPublico(){
   toast(novo?'✅ QR ligado para os clientes.':'QR desligado para os clientes.','success'); renderQrPublico();
 }
 (function(){ const _rr=renderRotulos; renderRotulos=function(){ const r=_rr.apply(this,arguments); try{ renderQrPublico(); }catch(e){} return r; }; })();
+
+
+/* ── (out/2026) mandar as etiquetas para a Estação de impressão (PC da DYMO) ── */
+async function enviarAmostrasDymo() {
+  const r = gerarAmostras('html'); if (!r || !r.html) return;
+  const u = (typeof getUser === 'function' ? getUser() : null) || {};
+  const { error } = await _supabase.from('impressao_fila').insert({ destino: 'dymo', tipo: 'amostra', titulo: r.titulo || 'Etiquetas de amostra', tamanho: '89mm 28mm', html: r.html, qtd: r.qtd, criado_por: u.nome || '' });
+  if (error) { toast('Não foi possível enviar: ' + error.message, 'danger'); return; }
+  toast(`📲 ${r.qtd} etiqueta(s) enviadas para a DYMO.`, 'success'); amEstacaoStatus();
+}
+async function amEstacaoStatus() {
+  const el = document.getElementById('am-estacao'); if (!el) return;
+  try {
+    const { data } = await _supabase.from('impressao_estacoes').select('visto_em').eq('destino', 'dymo').maybeSingle();
+    const on = data && data.visto_em && (Date.now() - new Date(data.visto_em).getTime()) < 30000;
+    el.innerHTML = on ? '<span style="color:#15803d;font-weight:700;">● estação da DYMO ligada</span>' : '<span style="color:#b45309;font-weight:700;">● estação da DYMO desligada</span> — abra a página <a href="estacao-impressao.html" target="_blank">Estação de impressão</a> no PC da DYMO';
+  } catch (e) {}
+}
+setTimeout(amEstacaoStatus, 1500); setInterval(amEstacaoStatus, 20000);
 
 </script>
 </body>
