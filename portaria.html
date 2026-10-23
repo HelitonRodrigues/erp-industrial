@@ -1551,6 +1551,8 @@ async function imprimirSaida(portId,soVer){
   const w=window.open('','_blank'); if(!w){toast('Libere pop-up para imprimir.','warning');return;}
   w.document.write('<p style="font-family:sans-serif;padding:20px;">Montando romaneio…</p>');
   let certs=[], carga=null; try{if(o){[certs,carga]=await Promise.all([window.certDaOrdem?certDaOrdem(o.id):[],cargaDaOrdem(o.numero)]);}}catch(e){}
+  // (out/2026) assinatura de quem conferiu a carga no Carregamento (operador ou encarregado do turno)
+  let ass=null; try{ if(o){ const {data}=await _supabase.from('carregamentos').select('assinatura_nome,assinatura_papel,assinatura_img,assinatura_em').eq('ordem_numero',String(o.numero)).not('assinatura_img','is',null).order('created_at',{ascending:false}).limit(1); ass=data&&data[0]||null; } }catch(e){}
   const t=x=>x!=null?nf(x,3)+' t':'—', E=esc;
   const doc=`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Romaneio de saída ${E(v.placa)}</title><style>
     @page{size:A4;margin:10mm;} *{box-sizing:border-box;} body{font-family:Arial,sans-serif;color:#032036;font-size:10.5px;margin:0;}
@@ -1563,7 +1565,8 @@ async function imprimirSaida(portId,soVer){
     table{width:100%;border-collapse:collapse;} th{background:#042D4D;color:#C9FF64;font-size:8px;text-align:left;padding:4px 5px;text-transform:uppercase;} td{border-bottom:1px solid #e2e8f0;padding:3.5px 5px;vertical-align:top;}
     .n{text-align:right;white-space:nowrap;} .cod{font-family:monospace;font-size:8px;color:#475569;}
     .termo{font-size:9px;color:#334155;border:1px solid #cbd5e1;border-radius:6px;padding:7px 9px;margin-top:10px;line-height:1.45;}
-    .ass{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-top:34px;} .ass div{border-top:1.3px solid #042D4D;padding-top:4px;text-align:center;font-size:9px;font-weight:700;}
+    .ass{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-top:34px;align-items:end;} .ass>div{border-top:1.3px solid #042D4D;padding-top:4px;text-align:center;font-size:9px;font-weight:700;position:relative;}
+    .ass .img{position:absolute;left:0;right:0;bottom:100%;display:flex;justify-content:center;} .ass .img img{max-height:44px;max-width:100%;} .ass small{display:block;font-weight:500;color:#64748b;font-size:7.5px;}
   </style></head><body>
   <div class="topo"><div class="marca">SILICATE<small>SILICATE INDÚSTRIA E COMÉRCIO LTDA · Portaria</small></div><div><h1>ROMANEIO DE SAÍDA</h1><div class="sub">${o?'Ordem '+E(o.numero)+' · ':''}impresso ${new Date().toLocaleString('pt-BR')}</div></div></div><div class="lime"></div>
   <div class="g"><div><small>Placa</small><b>${E(v.placa)}</b>${v.placa2?' / '+E(v.placa2):''}</div><div><small>Motorista</small>${E(v.nome_motorista||'—')}</div><div><small>CPF</small>${E(v.cpf||'—')}</div><div><small>Transportadora</small>${E(v.transportadora||'—')}</div>
@@ -1577,7 +1580,7 @@ async function imprimirSaida(portId,soVer){
   ${r?`<div class="sec">Entregas (ordem de carregamento)</div><table><thead><tr><th>#</th><th>Cliente</th><th>Cidade</th><th>Pedido</th><th>Produto</th><th class="n">Qtd.</th><th class="n">Unid.</th></tr></thead><tbody>${r.it.map(i=>`<tr><td>${i.ordem_entrega??''}</td><td>${E(i.cliente)}</td><td>${E(i.cidade||'')}</td><td>${E(i.pedido||'')}</td><td>${E(i.produto_erp||i.produto)}</td><td class="n">${E(i.quantidade)}</td><td class="n">${E(i.unidades||'')}</td></tr>`).join('')}</tbody></table>`:''}
   ${certs.length?`<div style="margin-top:8px;font-size:9.5px;"><b>Certificados de análise entregues:</b> ${certs.map(c=>E(c.laudo.numero||'')+' (lote '+E(c.laudo.lote||'—')+' · '+qtdTxt(Number(c.quantidade)||0,c.unidade==='sc'?'sc':c.unidade)+')').join(' · ')}</div>`:''}
   <div class="termo"><b>Termo de responsabilidade do motorista:</b> declaro que recebi as mercadorias acima em perfeito estado de conservação, conferi a quantidade e os pesos e me responsabilizo pelo transporte e entrega nos destinos indicados${certs.length?', junto com os certificados de análise listados':''}.</div>
-  <div class="ass"><div>Expedição</div><div>Portaria</div><div>Fábrica</div><div>Motorista — ${E(v.nome_motorista||'')}</div></div></body></html>`;
+  <div class="ass"><div>Expedição</div><div>Portaria</div><div>${ass?`<span class="img"><img src="${ass.assinatura_img}"></span>`:''}Carregamento — ${ass?E(ass.assinatura_nome||'')+`<small>${E(ass.assinatura_papel==='encarregado'?'encarregado':'operador')} · ${dtBr(ass.assinatura_em)}</small>`:'Fábrica'}</div><div>Motorista — ${E(v.nome_motorista||'')}</div></div></body></html>`;
   const barra=`<div class="sem-print" style="position:fixed;top:8px;right:8px;display:flex;gap:6px;z-index:9;"><button onclick="print()" style="font:700 13px Arial;padding:8px 14px;border:0;border-radius:8px;background:#042D4D;color:#C9FF64;cursor:pointer;">🖨️ Imprimir</button><button onclick="close()" style="font:700 13px Arial;padding:8px 14px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;cursor:pointer;">✕ Fechar</button></div>`;
   const docF=soVer?doc.replace('</style>','@media print{.sem-print{display:none!important;}} @media screen{body{max-width:210mm;margin:0 auto;padding:14px;}}</style>').replace(/<body([^>]*)>/,'<body$1>'+barra):doc;
   w.document.open(); w.document.write(docF); w.document.close(); if(!soVer)setTimeout(()=>{try{w.focus();w.print();}catch(e){}},500);

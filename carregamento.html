@@ -487,6 +487,24 @@ body.patio-on #toast-container{top:10px;bottom:auto;left:10px;right:10px;z-index
 .patio-flash .pt-btn.cinza{background:rgba(255,255,255,.9);}
 .patio-flash.err .pt-btn.vermelho{background:#fff;color:#b91c1c;box-shadow:0 4px 0 #7f1d1d;}
 @media(min-width:900px){.pt-cam .cam-area{height:360px;}}
+.qtdpal-ov{position:fixed;inset:0;z-index:250000;background:rgba(4,45,77,.6);display:flex;align-items:center;justify-content:center;padding:14px;}
+.qtdpal{background:#fff;border-radius:20px;width:100%;max-width:440px;padding:18px;box-shadow:0 24px 64px rgba(0,0,0,.35);font-family:'Plus Jakarta Sans',system-ui,sans-serif;}
+.qtdpal-h small{display:block;font-size:12.5px;font-weight:700;color:#64748b;} .qtdpal-h b{display:block;font-size:22px;font-weight:800;color:#042D4D;margin:2px 0 12px;}
+.qtdpal-b{display:grid;grid-template-columns:repeat(auto-fill,minmax(92px,1fr));gap:8px;}
+.qtdpal-b button{border:2px solid #d6e2ec;background:#fff;border-radius:14px;padding:14px 6px;font:inherit;font-size:26px;font-weight:800;color:#042D4D;cursor:pointer;}
+.qtdpal-b button small{display:block;font-size:11px;font-weight:700;color:#94a3b8;} .qtdpal-b button.on{border-color:#042D4D;background:#C9FF64;}
+.qtdpal-b button.outro{font-size:16px;color:#475569;background:#f1f5f9;}
+.qtdpal-o{gap:8px;margin-top:10px;} .qtdpal-o input{flex:1;height:52px;border:2px solid #042D4D;border-radius:12px;font:inherit;font-size:22px;font-weight:800;padding:0 12px;color:#042D4D;}
+.qtdpal-o button{border:0;background:#042D4D;color:#C9FF64;border-radius:12px;padding:0 18px;font:inherit;font-size:16px;font-weight:800;}
+.qtdpal-rap{width:100%;margin-top:12px;border:0;background:#16a34a;color:#fff;border-radius:14px;padding:15px;font:inherit;font-size:17px;font-weight:800;cursor:pointer;}
+.qtdpal-x{width:100%;margin-top:8px;border:0;background:transparent;color:#64748b;font:inherit;font-size:14px;font-weight:700;padding:8px;cursor:pointer;text-decoration:underline;}
+.qtdpal-ov.patio .qtdpal{max-width:520px;} .qtdpal-ov.patio .qtdpal-b button{font-size:32px;padding:20px 6px;}
+.ass-quem{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;}
+.ass-quem button{border:2px solid #d6e2ec;background:#fff;border-radius:14px;padding:12px 10px;text-align:left;font:inherit;cursor:pointer;}
+.ass-quem button small{display:block;font-size:11px;font-weight:800;color:#94a3b8;} .ass-quem button b{font-size:15px;color:#042D4D;}
+.ass-quem button.on{border-color:#042D4D;background:#C9FF64;}
+.ass-lbl{font-size:12px;font-weight:700;color:#64748b;margin:4px 0 6px;}
+.ass-cv{width:100%;height:170px;border:2px dashed #94a3b8;border-radius:14px;background:#f8fafc;touch-action:none;display:block;}
 </style>
 </head>
 <body>
@@ -960,6 +978,7 @@ let _carrOrdem=null;          // {numero,transportadora,motorista,placa,data_emi
 let _carrEditId=null;         // id em `carregamentos` sendo atualizado (null = nova carga)
 let _carrPreIds=new Set();    // pallets que JÁ estavam salvos como carregados nesta carga
 let _linhasCarr=[], _alloc={}, _allocSet=new Set(), _extra={}, _linhaAtiva=null;
+let _qtdInf={}, _qtdUlt={};   // (out/2026) "pallet de quantos?" informado na leitura (por pallet) e a última resposta por produto
 let _doa={}, _doaPre={}, _modoDoa=false;  /* pallets abertos: {palletId:{qtd,produto,key}} — _doaPre = já gravado no banco nesta carga */
 let _avulsos={};   /* modo quantidade: itens SEM pallet por linha {key:[{id,sacos,motivo,obs}]} — granel, avulsos, contingência */
 
@@ -1104,6 +1123,7 @@ function mapaCapOP(prod,pallet){
    completar outro pallet numa carga — migration 042). Estoque usa o saldo;
    a PRODUÇÃO do dia usa a capacidade (capDoPallet). */
 function sacosDoPallet(p){
+  if(p&&_qtdInf&&_qtdInf[p.id]!=null) return Number(_qtdInf[p.id])||0;   // informado na leitura ("pallet de quantos?")
   const c=capDoPallet(p);if(!c)return 0;
   return Math.max(0,c-(Number(p&&p.sacos_retirados)||0));
 }
@@ -2521,12 +2541,13 @@ function encarregadoDoOperador(nome){
    turno. O modal manual vira exceção: sem escala vigente, fora de janela de
    turno, ou quando alguém clica em "trocar" no cabeçalho da carga. */
 const DIAS_SEMANA=['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
-function turnoAtivoAgora(agora){
+function turnoAtivoAgora(agora,nomesPermitidos){
   const d=agora||new Date();
   const hm=String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
   const candidatos=[];
   const testar=(dia,hoje)=>{
     _turnos.forEach(t=>{
+      if(nomesPermitidos&&!nomesPermitidos.includes(normNome(t.nome)))return;   // só os turnos da escala vigente
       const c=(t.calendario||{})[dia];
       if(!c||!c.ativo||!c.inicio||!c.fim)return;
       if(c.inicio<=c.fim){ /* janela no mesmo dia */
@@ -2545,14 +2566,15 @@ function turnoAtivoAgora(agora){
   return candidatos[0].nome;
 }
 function resolverEquipeAutomatica(){
-  const turnoNome=turnoAtivoAgora();
-  if(!turnoNome)return {erro:'Nenhum turno com janela de horário cobrindo este momento.'};
   const hoje=hojeISO();
   const escala=escalasOrdenadas().find(e=>{
     const i=String(e.periodo_inicio||'').slice(0,10),f=String(e.periodo_fim||'').slice(0,10);
     return i&&f&&i<=hoje&&hoje<=f&&e.status!=='rascunho';
   });
-  if(!escala)return {erro:'Nenhuma escala vigente cobre a data de hoje.',turno:turnoNome};
+  if(!escala)return {erro:'Nenhuma escala vigente cobre a data de hoje.'};
+  // (out/2026) o turno de agora é procurado SÓ entre os turnos desta escala
+  const turnoNome=turnoAtivoAgora(null,turnosDaEscala(escala).map(t=>normNome(t.turno)));
+  if(!turnoNome)return {erro:'Nenhum turno da escala "'+(escala.nome||'')+'" cobre este horário.',escala};
   const t=turnosDaEscala(escala).find(x=>normNome(x.turno)===normNome(turnoNome));
   if(!t)return {erro:'A escala "'+(escala.nome||'')+'" não tem o turno "'+turnoNome+'".',turno:turnoNome,escala};
   if(!t.operador||!t.operador.nome)return {erro:'O turno "'+turnoNome+'" da escala não tem operador definido.',turno:turnoNome,escala};
@@ -2674,7 +2696,7 @@ function iniciarCarregamento(opt){
   if(!rom&&!c&&!opt.avulso)return;
   _carrEditId=c?c.id:null;
   _carrPreIds=new Set();
-  _alloc={};_allocSet=new Set();_extra={};_avulsos={};_linhasCarr=[];_linhaAtiva=null;_keySeq=0;
+  _alloc={};_allocSet=new Set();_extra={};_qtdInf={};_qtdUlt={};_avulsos={};_linhasCarr=[];_linhaAtiva=null;_keySeq=0;
   _doa={};_doaPre={};_modoDoa=false;
   if(rom){
     _carrOrdem={numero:rom.numero,transportadora:rom.transportadora,motorista:rom.motorista,placa:rom.placa,
@@ -2720,6 +2742,7 @@ function iniciarCarregamento(opt){
         if(!_allocSet.has(p.id)){_alloc[l.key].push(p.id);_allocSet.add(p.id);_carrPreIds.add(p.id);}
         const ex=Number(it.sacos_extra)||0;
         if(ex>0)_extra[p.id]={qtd:ex,obs:it.extra_obs||''};
+        if(it.sacos_informado&&Number(it.sacos_base)>0) _qtdInf[p.id]=Number(it.sacos_base);
       }
       if(!rom)l.sacksNeed+=(Number(it.sacos)||0);
     });
@@ -3295,6 +3318,11 @@ function processarLeitura(txt){
     fb(`⛔ <span class="mono">${esc(codigoDigitavel(palCodigo(p)))}</span> BLOQUEADO — ${SIT_LBL[sit]}.`,'err');
     return 'block';
   }
+  if(precisaQtdPallet(p)&&_qtdInf[p.id]==null){
+    perguntarQtdPallet(p,()=>{ const r=processarLeitura(txt); beep(r); if(r==='ok'||r==='dup'){ const i=document.getElementById('scan-input'); if(i){ i.value=''; i.focus(); } } });
+    fb(`🔢 Quantos sacos tem o pallet <span class="mono">${esc(codigoDigitavel(palCodigo(p)))}</span>?`,'info');
+    return 'conf';
+  }
   const s=sacosDoPallet(p);
   if(!s){
     fb(`⚠️ Não se sabe quantos sacos tem <span class="mono">${esc(codigoDigitavel(palCodigo(p)))}</span>.`,'warn');
@@ -3322,7 +3350,7 @@ function alocar(key,id){
 }
 function retirarPallet(key,id){
   _alloc[key]=(_alloc[key]||[]).filter(x=>x!==id);
-  _allocSet.delete(id);delete _extra[id];
+  _allocSet.delete(id);delete _extra[id];delete _qtdInf[id];
   renderCarr();fb('Pallet retirado da carga.','info');
 }
 
@@ -3509,7 +3537,7 @@ async function gravarCarregamento(opts){
       usados.add(id);
       const base=sacosDoPallet(p),ex=sacosExtra(id),obs=(_extra[id]||{}).obs||'';
       itensSnap.push({pallet_id:id,codigo:palCodigo(p),produto:p.produto,linha:p.linha||'',
-        sacos_base:base,sacos_extra:ex,sacos:base+ex,extra_obs:obs,
+        sacos_base:base,sacos_extra:ex,sacos:base+ex,extra_obs:obs,sacos_informado:_qtdInf[id]!=null,
         cliente:l.cliente||'',pedido:l.pedido||'',cidade:l.cidade||'',
         data_producao:p.data||null,lote:l.lote||loteDe(p),
         barracao:nomeBarracao(barracaoDoPallet(p)),
@@ -3662,7 +3690,7 @@ async function renderCertCarga(c,revincular){
 function fecharCarregar(){
   pararCam();closeModal('modal-lido');_lidoCtx=null;closeModal('modal-carregar');
   _carrOrdem=null;_carrEditId=null;_carrPreIds=new Set();
-  _alloc={};_allocSet=new Set();_extra={};_linhasCarr=[];_linhaAtiva=null;
+  _alloc={};_allocSet=new Set();_extra={};_qtdInf={};_qtdUlt={};_linhasCarr=[];_linhaAtiva=null;
   _doa={};_doaPre={};_modoDoa=false;_avulsos={};
   _opSel=null;_opEncarregado=null;
 }
@@ -4509,7 +4537,7 @@ function salvarRascunho(extra){
     return;
   }
   all[num]={ordem:_carrOrdem,editId:_carrEditId,preIds:[..._carrPreIds],linhas:_linhasCarr,alloc:_alloc,
-    extra:_extra,doa:_doa,doaPre:_doaPre,avulsos:_avulsos,ativa:_linhaAtiva,keySeq:_keySeq,
+    extra:_extra,qtdInf:_qtdInf,qtdUlt:_qtdUlt,doa:_doa,doaPre:_doaPre,avulsos:_avulsos,ativa:_linhaAtiva,keySeq:_keySeq,
     op:_opSel,enc:_opEncarregado,ts:Date.now(),pendente:!!(extra&&extra.pendente)};
   lsSet(LS_RASC,all);
 }
@@ -4518,7 +4546,7 @@ function aplicarRascunho(r){
   _carrOrdem=r.ordem||_carrOrdem;_carrEditId=r.editId||_carrEditId||null;
   _carrPreIds=new Set(r.preIds||[]);
   _linhasCarr=Array.isArray(r.linhas)&&r.linhas.length?r.linhas:_linhasCarr;
-  _extra=r.extra||{};_doa=r.doa||{};_doaPre=r.doaPre||{};_avulsos=r.avulsos||{};
+  _extra=r.extra||{};_qtdInf=r.qtdInf||{};_qtdUlt=r.qtdUlt||{};_doa=r.doa||{};_doaPre=r.doaPre||{};_avulsos=r.avulsos||{};
   _keySeq=Math.max(_keySeq,Number(r.keySeq)||0);
   if(r.op)_opSel=r.op; if(r.enc)_opEncarregado=r.enc;
   _alloc={};_allocSet=new Set();let perdidos=0;
@@ -4992,6 +5020,7 @@ function patioLeitura(txt){
     patioFlash('err','⛔','NÃO CARREGAR',`<b>${t}</b><br>${esc(p.produto)} · ${esc(codCurto(p))}<br>Deixe este pallet no lugar.`,{botao:'ENTENDI'});
     return 'block';
   }
+  if(precisaQtdPallet(p)&&_qtdInf[p.id]==null){ _patioOcupado=true; perguntarQtdPallet(p,()=>{ _patioOcupado=false; beep(patioLeitura(txt)); },true,()=>{ _patioOcupado=false; }); return 'conf'; }
   if(!sacosDoPallet(p)){patioFlash('err','⚠️','PALLET SEM QUANTIDADE NO SISTEMA','Chame o encarregado.',{botao:'ENTENDI'});return 'err';}
   let alvo=l;
   if(l.produto&&normNome(p.produto)!==normNome(l.produto)){
@@ -5246,6 +5275,120 @@ recarregarTudo().then(()=>{
   if(/[?&]patio=1/.test(location.search)||prefPatio===true||(prefPatio===null&&ehCelularOuTablet()))abrirPatio();
   enviarPendentes();
 });
+
+/* ══════════ "PALLET DE QUANTOS?" na leitura (out/2026) ══════════
+   Todo pallet ensacado bipado pergunta a quantidade: botões com os padrões do
+   produto (cadastro de Produtos → capacidades) + Outro. A última resposta do
+   produto já vem marcada (é só tocar). Granel e big bag não perguntam. */
+function precisaQtdPallet(p){
+  if(!p) return false;
+  if(typeof ehGranel==='function'&&ehGranel(p.produto)) return false;
+  if(typeof ehBagNome==='function'&&ehBagNome(p.produto)) return false;
+  const u=String(prodObj(p.produto).unidade||'').toLowerCase();
+  if(u&&/ton|kg|unid|bag/.test(u)) return false;
+  return true;
+}
+function perguntarQtdPallet(p,continuar,patio,cancelar){
+  const k=normNome(p.produto);
+  const caps=[...new Set((prodObj(p.produto).capacidades||[]).map(x=>parseInt(x)).filter(x=>x>0))].sort((a,b)=>a-b);
+  const sist=(()=>{ const t=_qtdInf[p.id]; delete _qtdInf[p.id]; const v=sacosDoPallet(p); if(t!=null) _qtdInf[p.id]=t; return v; })();
+  const sug=_qtdUlt[k]||(caps.length===1?caps[0]:(sist&&caps.includes(sist)?sist:null));
+  let ov=document.getElementById('qtdpal'); if(ov) ov.remove();
+  ov=document.createElement('div'); ov.id='qtdpal'; ov.className='qtdpal-ov'+(patio?' patio':'');
+  ov.innerHTML=`<div class="qtdpal">
+    <div class="qtdpal-h"><small>${esc(p.produto)} · ${esc(codigoDigitavel(palCodigo(p)))}</small><b>Pallet de quantos sacos?</b></div>
+    <div class="qtdpal-b">${caps.map(c=>`<button type="button" class="${c===sug?'on':''}" onclick="qtdPalEscolher(${c})">${c}<small>sacos</small></button>`).join('')}
+      <button type="button" class="outro" onclick="qtdPalOutro()">Outro</button></div>
+    <div class="qtdpal-o" id="qtdpal-o" style="display:${caps.length?'none':'flex'};"><input id="qtdpal-v" type="number" inputmode="numeric" min="1" placeholder="quantos sacos?" onkeydown="if(event.key==='Enter')qtdPalEscolher(this.value)"><button type="button" onclick="qtdPalEscolher(document.getElementById('qtdpal-v').value)">OK</button></div>
+    ${sug?`<button type="button" class="qtdpal-rap" onclick="qtdPalEscolher(${sug})">✔ Confirmar ${sug} sacos</button>`:''}
+    <button type="button" class="qtdpal-x" onclick="qtdPalCancelar()">Cancelar</button></div>`;
+  document.body.appendChild(ov);
+  window._qtdPalCtx={p,continuar,cancelar,k};
+  setTimeout(()=>{ (ov.querySelector('.qtdpal-rap')||document.getElementById('qtdpal-v'))?.focus(); },60);
+}
+function qtdPalOutro(){ const o=document.getElementById('qtdpal-o'); if(o){ o.style.display='flex'; document.getElementById('qtdpal-v').focus(); } }
+function qtdPalEscolher(v){
+  const n=parseInt(v); if(!(n>0)){ toast('Informe quantos sacos tem o pallet.','warning'); return; }
+  const c=window._qtdPalCtx; if(!c) return;
+  _qtdInf[c.p.id]=n; _qtdUlt[c.k]=n; window._qtdPalCtx=null;
+  document.getElementById('qtdpal')?.remove();
+  if(typeof c.continuar==='function') c.continuar();
+}
+function qtdPalCancelar(){ const c=window._qtdPalCtx; window._qtdPalCtx=null; document.getElementById('qtdpal')?.remove(); fb('Leitura cancelada — o pallet não entrou na carga.','warn'); if(c&&typeof c.cancelar==='function') c.cancelar(); }
+
+
+/* ══════════ ASSINATURA DE QUEM CONFERE A CARGA (out/2026) ══════════
+   Ao salvar (botão Salvar / TERMINEI), o operador OU o encarregado do turno
+   (os dois vêm da escala) assina na tela. A assinatura vai para o registro da
+   carga e sai no Romaneio de saída da Portaria. Sem internet, fica guardada no
+   aparelho e sobe junto quando a carga for enviada. */
+const LS_ASS='erp_carr_assinatura_';
+function _assKey(){ return LS_ASS+String((_carrOrdem&&_carrOrdem.numero)||''); }
+let _assPapel=null;
+function abrirAssinaturaCarga(depois){
+  const op=operadorDaCarga(), enc=encarregadoDaCarga();
+  let ov=document.getElementById('asscarga'); if(ov) ov.remove();
+  ov=document.createElement('div'); ov.id='asscarga'; ov.className='qtdpal-ov'+(_patio?' patio':'');
+  ov.innerHTML=`<div class="qtdpal" style="max-width:560px;">
+    <div class="qtdpal-h"><small>Ordem ${esc(String((_carrOrdem&&_carrOrdem.numero)||''))}${_carrOrdem&&_carrOrdem.placa?' · '+esc(_carrOrdem.placa):''}</small><b>Quem conferiu a carga?</b></div>
+    <div class="ass-quem">
+      <button type="button" data-p="operador" onclick="assEscolher('operador')"><small>OPERADOR</small><b>${esc(op||'—')}</b></button>
+      ${enc?`<button type="button" data-p="encarregado" onclick="assEscolher('encarregado')"><small>ENCARREGADO</small><b>${esc(enc)}</b></button>`:''}
+    </div>
+    <div class="ass-lbl">Assine com o dedo aqui:</div>
+    <canvas id="ass-cv" class="ass-cv"></canvas>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;"><button type="button" class="qtdpal-x" style="width:auto;margin:0;" onclick="assLimpar()">Limpar</button><span class="ass-lbl" style="margin:0;">A assinatura sai no romaneio da Portaria</span></div>
+    <button type="button" class="qtdpal-rap" onclick="assConfirmar()">✅ Assinar e salvar a carga</button>
+    <button type="button" class="qtdpal-x" onclick="assVoltar()">Voltar</button></div>`;
+  document.body.appendChild(ov);
+  window._assDepois=depois; _assPapel=null;
+  const cv=document.getElementById('ass-cv'), r=cv.getBoundingClientRect(), dpr=window.devicePixelRatio||1;
+  cv.width=r.width*dpr; cv.height=r.height*dpr; const ctx=cv.getContext('2d'); ctx.scale(dpr,dpr); ctx.lineWidth=2.6; ctx.lineCap='round'; ctx.strokeStyle='#0b2a4a';
+  let des=false, temTraco=false; const pos=e=>{ const b=cv.getBoundingClientRect(), t=e.touches?e.touches[0]:e; return [t.clientX-b.left,t.clientY-b.top]; };
+  const ini=e=>{ e.preventDefault(); des=true; const [x,y]=pos(e); ctx.beginPath(); ctx.moveTo(x,y); };
+  const mov=e=>{ if(!des) return; e.preventDefault(); const [x,y]=pos(e); ctx.lineTo(x,y); ctx.stroke(); temTraco=true; cv.dataset.ok='1'; };
+  const fim=()=>{ des=false; };
+  cv.addEventListener('mousedown',ini); cv.addEventListener('mousemove',mov); window.addEventListener('mouseup',fim);
+  cv.addEventListener('touchstart',ini,{passive:false}); cv.addEventListener('touchmove',mov,{passive:false}); cv.addEventListener('touchend',fim);
+  if(!enc) assEscolher('operador');
+}
+function assVoltar(){ document.getElementById('asscarga')?.remove(); window._assDepois=null; const c=window._assCancel; window._assCancel=null; if(typeof c==='function') c(); }
+function assEscolher(p){ _assPapel=p; document.querySelectorAll('#asscarga .ass-quem button').forEach(b=>b.classList.toggle('on',b.dataset.p===p)); }
+function assLimpar(){ const cv=document.getElementById('ass-cv'); if(!cv) return; cv.getContext('2d').clearRect(0,0,cv.width,cv.height); cv.dataset.ok=''; }
+function assConfirmar(){
+  if(!_assPapel){ toast('Toque em quem conferiu: operador ou encarregado.','warning'); return; }
+  const cv=document.getElementById('ass-cv'); if(!cv||cv.dataset.ok!=='1'){ toast('Falta a assinatura.','warning'); return; }
+  const nome=_assPapel==='encarregado'?encarregadoDaCarga():operadorDaCarga();
+  const dado={nome,papel:_assPapel,img:cv.toDataURL('image/png'),em:new Date().toISOString(),operador:operadorDaCarga()||null,encarregado:encarregadoDaCarga()||null};
+  try{ localStorage.setItem(_assKey(),JSON.stringify(dado)); }catch(e){}
+  document.getElementById('asscarga').remove();
+  const d=window._assDepois; window._assDepois=null; if(typeof d==='function') d();
+}
+async function _gravarAssinaturaCarga(ordem){
+  let dado=null; try{ dado=JSON.parse(localStorage.getItem(LS_ASS+ordem)||'null'); }catch(e){}
+  if(!dado) return;
+  try{
+    const {data}=await _supabase.from('carregamentos').select('id').eq('ordem_numero',ordem).order('created_at',{ascending:false}).limit(1);
+    const id=data&&data[0]&&data[0].id; if(!id) return;
+    const {error}=await _supabase.from('carregamentos').update({assinatura_nome:dado.nome,assinatura_papel:dado.papel,assinatura_img:dado.img,assinatura_em:dado.em,operador:dado.operador,encarregado:dado.encarregado}).eq('id',id);
+    if(!error) localStorage.removeItem(LS_ASS+ordem);
+  }catch(e){ console.warn('[assinatura carga]',e); }
+}
+(function(){
+  const _gc=gravarCarregamento;
+  gravarCarregamento=async function(opts){
+    opts=opts||{};
+    const ordem=String((_carrOrdem&&_carrOrdem.numero)||'');
+    let tem=false; try{ tem=!!localStorage.getItem(LS_ASS+ordem); }catch(e){}
+    if(!opts.silencioso&&!tem&&!opts._assinado){
+      return await new Promise(res=>{ window._assCancel=()=>res(false); abrirAssinaturaCarga(async()=>{ window._assCancel=null; res(await gravarCarregamento(Object.assign({},opts,{_assinado:true}))); }); });
+    }
+    const ok=await _gc.apply(this,[opts]);
+    if(ok) await _gravarAssinaturaCarga(ordem);
+    return ok;
+  };
+})();
+
 </script>
 </body>
 </html>
