@@ -361,7 +361,7 @@ async function init(){
     _supabase.from('empresa_config').select('*').limit(1).maybeSingle(),
     _supabase.from('linhas_producao').select('id,nome').eq('status','ativo').order('nome'),
     _supabase.from('produtos').select('nome,unidade,peso_unidade_kg'),
-    _supabase.from('producao').select('turno').gte('data',_iso(_diaRel(-120))).limit(2000),
+    selectTodos(_supabase.from('producao').select('turno').gte('data',_iso(_diaRel(-120)))),
   ]);
   _empresa = empData || {};
   _linhas  = ln || [];
@@ -537,7 +537,7 @@ async function abaProducao(){
   let q = _supabase.from('producao').select('*').gte('data',ini).lte('data',fim).order('data',{ascending:false});
   if(linha) q = q.eq('linha',linha);
   if(turno) q = q.eq('turno',turno);
-  const rows = await safe(q);
+  const rows = await safe(selectTodos(q));
 
   const tQ   = somaQ(rows);
   const tHT  = rows.reduce((s,l)=>s+(l.ht||0),0);
@@ -729,9 +729,9 @@ async function abaQualidade(){
   const {ini,fim,linha} = getPeriodo();
   let qL = _supabase.from('producao').select('id,data,linha,turno,status').gte('data',ini).lte('data',fim);
   if(linha) qL = qL.eq('linha',linha);
-  const lancs = await safe(qL);
+  const lancs = await safe(selectTodos(qL));
   const ids = lancs.map(l=>l.id);
-  const pallets = ids.length ? await safe(_supabase.from('producao_pallets').select('*').in('lancamento_id',ids)) : [];
+  const pallets = ids.length ? await safe(selectTodos(_supabase.from('producao_pallets').select('*').in('lancamento_id',ids).order('created_at',{ascending:true}))) : [];
   const labRows = await safe(_supabase.from('laboratorio').select('*').gte('created_at',ini+'T00:00:00').lte('created_at',fim+'T23:59:59').order('created_at',{ascending:false}).limit(300));
 
   // ── NOVO: Fluxo Automatizado (aferição produção → análise laboratório) ──
@@ -956,7 +956,7 @@ async function abaManutencao(){
   // exatamente como o manutencao.html real faz (.or('linha.is.null,linha.neq.Frota')).
   let q = _supabase.from('manutencao').select('*').or('linha.is.null,linha.neq.Frota').gte('data_abertura',ini).lte('data_abertura',fim).order('data_abertura',{ascending:false});
   if(status) q = q.eq('status',status);
-  const rows = await safe(q);
+  const rows = await safe(selectTodos(q));
   const hoje = new Date().toISOString().split('T')[0];
 
   const abertas  = rows.filter(x=>x.status==='aberta').length;
@@ -1067,7 +1067,7 @@ async function abaAlmoxarifado(){
   const {ini,fim} = getPeriodo();
   const [itens, movs, forns] = await Promise.all([
     safe(_supabase.from('almoxarifado').select('*').order('nome')),
-    safe(_supabase.from('almoxarifado_movimentos').select('*').gte('data',ini).lte('data',fim).order('data',{ascending:false})),
+    safe(selectTodos(_supabase.from('almoxarifado_movimentos').select('*').gte('data',ini).lte('data',fim).order('data',{ascending:false}))),
     safe(_supabase.from('almoxarifado_fornecedores').select('id,nome_fantasia')),
   ]);
   itens.forEach(i=>{ i.fornecedor_nome = forns.find(f=>f.id===(i.fornecedor_id||i.fornecedor))?.nome_fantasia || null; });
@@ -1593,7 +1593,7 @@ async function abaEpi(){
 async function abaAbastecimento(){
   const {ini,fim} = getPeriodo();
   const [regs, ents, bombas] = await Promise.all([
-    safe(_supabase.from('abastecimento_registros').select('*').gte('data',ini).lte('data',fim+'T23:59').order('data',{ascending:false})),
+    safe(selectTodos(_supabase.from('abastecimento_registros').select('*').gte('data',ini).lte('data',fim+'T23:59').order('data',{ascending:false}))),
     safe(_supabase.from('abastecimento_entradas').select('*').gte('data',ini).lte('data',fim+'T23:59').order('data',{ascending:false})),
     safe(_supabase.from('abastecimento_bombas').select('*').order('nome')),
   ]);
@@ -2099,7 +2099,7 @@ function detalheCompra(id){
    ══════════════════════════════════════════════════════════ */
 async function abaAferidor(){
   const {ini,fim} = getPeriodo();
-  const registros = await safe(_supabase.from('aferidor_aditivacao').select('*').gte('data',ini).lte('data',fim).order('data',{ascending:false}));
+  const registros = await safe(selectTodos(_supabase.from('aferidor_aditivacao').select('*').gte('data',ini).lte('data',fim).order('data',{ascending:false})));
   const porLinha={};
   registros.forEach(r=>{ const l=r.linha||'—'; porLinha[l]=(porLinha[l]||0)+1; });
 
@@ -2210,7 +2210,7 @@ async function abaGerencial(){
   const em7  = new Date(Date.now()+7*86400000).toISOString().split('T')[0];
 
   const [prod,manut,almx,epiVenc,epiProx,exp,port,pals,custos,nats,ccs,frota,abastBombas,bpfNcs,martelos] = await Promise.all([
-    safe(_supabase.from('producao').select('*').gte('data',ini).lte('data',fim)),
+    safe(selectTodos(_supabase.from('producao').select('*').gte('data',ini).lte('data',fim))),
     safe(_supabase.from('manutencao').select('*').or('linha.is.null,linha.neq.Frota').gte('data_abertura',ini).lte('data_abertura',fim)),
     safe(_supabase.from('almoxarifado').select('nome,estoque_atual,estoque_minimo,categoria,unidade,custo_unitario')),
     // EPI vencidos / a vencer em 7d → contagem (estado atual); não baixa o histórico de entregas
@@ -2218,7 +2218,7 @@ async function abaGerencial(){
     safeCount(_supabase.from('epi_entregas').select('*',{count:'exact',head:true}).gte('data_prevista_troca',hoje).lte('data_prevista_troca',em7)),
     safe(_supabase.from('expedicao_ordens').select('*').gte('created_at',ini+'T00:00:00').lte('created_at',fim+'T23:59:59')),
     safe(_supabase.from('portaria').select('*').gte('created_at',ini+'T00:00:00').lte('created_at',fim+'T23:59:59')),
-    safe(_supabase.from('producao_pallets').select('status,linha,produto').gte('created_at',ini+'T00:00:00').lte('created_at',fim+'T23:59:59')),
+    safe(selectTodos(_supabase.from('producao_pallets').select('status,linha,produto').gte('created_at',ini+'T00:00:00').lte('created_at',fim+'T23:59:59'))),
     safe(_supabase.from('lancamentos_custo').select('*').gte('data',ini).lte('data',fim)),
     safe(_supabase.from('naturezas_custo').select('id,nome,grupo')),
     safe(_supabase.from('centros_custo').select('id,nome')),
@@ -2897,7 +2897,7 @@ async function pdfProducao(){
   toast('Gerando PDF de Produção...','info');
   let q=_supabase.from('producao').select('*').gte('data',ini).lte('data',fim).order('data');
   if(linha)q=q.eq('linha',linha); if(turno)q=q.eq('turno',turno);
-  const rows=await safe(q);
+  const rows=await safe(selectTodos(q));
   const tQ=somaQ(rows);
   const tHT=rows.reduce((s,l)=>s+(l.ht||0),0);
   const tHP=rows.reduce((s,l)=>s+(l.hp||0),0);
@@ -3111,9 +3111,9 @@ async function pdfQualidade(){
   toast('Gerando PDF de Qualidade...','info');
   let qL=_supabase.from('producao').select('id,data,linha,turno').gte('data',ini).lte('data',fim);
   if(linha) qL=qL.eq('linha',linha);
-  const lancs=await safe(qL);
+  const lancs=await safe(selectTodos(qL));
   const ids=lancs.map(l=>l.id);
-  const pallets=ids.length?await safe(_supabase.from('producao_pallets').select('*').in('lancamento_id',ids)):[];
+  const pallets=ids.length?await safe(selectTodos(_supabase.from('producao_pallets').select('*').in('lancamento_id',ids).order('created_at',{ascending:true}))):[];
   const aprov=pallets.filter(p=>p.status==='aprovado').length;
   const reprov=pallets.filter(p=>p.status==='reprovado').length;
   const pend =pallets.filter(p=>p.status==='pendente').length;
@@ -3253,13 +3253,13 @@ async function pdfGerencial(){
   const hoje=new Date().toISOString().split('T')[0];
   const em7 =new Date(Date.now()+7*86400000).toISOString().split('T')[0];
   const [prod,manut,almx,epiEnt,exp,port,pals,custos,nats,ccs,frota,bpfNcs,abastBombas]=await Promise.all([
-    safe(_supabase.from('producao').select('linha,total_sacos,ht,hp,consumo_lenha,status,efic_disp,efic_prod,paradas_op,produtos_op,produto').gte('data',ini).lte('data',fim)),
+    safe(selectTodos(_supabase.from('producao').select('linha,total_sacos,ht,hp,consumo_lenha,status,efic_disp,efic_prod,paradas_op,produtos_op,produto').gte('data',ini).lte('data',fim))),
     safe(_supabase.from('manutencao').select('id,prioridade,status,horas_gastas,equipamento,linha,data_prevista').or('linha.is.null,linha.neq.Frota').gte('data_abertura',ini).lte('data_abertura',fim)),
     safe(_supabase.from('almoxarifado').select('nome,estoque_atual,estoque_minimo,custo_unitario')),
     safe(_supabase.from('epi_entregas').select('id,data_prevista_troca')),
     safe(_supabase.from('expedicao_ordens').select('status,total_kg,data_prevista').gte('created_at',ini+'T00:00:00').lte('created_at',fim+'T23:59:59')),
     safe(_supabase.from('portaria').select('peso_liquido,peso_bruto,peso_tara,status').gte('created_at',ini+'T00:00:00').lte('created_at',fim+'T23:59:59')),
-    safe(_supabase.from('producao_pallets').select('status,linha').gte('created_at',ini+'T00:00:00').lte('created_at',fim+'T23:59:59')),
+    safe(selectTodos(_supabase.from('producao_pallets').select('status,linha').gte('created_at',ini+'T00:00:00').lte('created_at',fim+'T23:59:59'))),
     safe(_supabase.from('lancamentos_custo').select('valor,natureza_id,centro_custo_id').gte('data',ini).lte('data',fim)),
     safe(_supabase.from('naturezas_custo').select('id,nome')),
     safe(_supabase.from('centros_custo').select('id,nome')),
@@ -3381,7 +3381,7 @@ async function csvProducao(){
   const {ini,fim,linha,turno}=getPeriodo();
   let q=_supabase.from('producao').select('*').gte('data',ini).lte('data',fim).order('data');
   if(linha)q=q.eq('linha',linha); if(turno)q=q.eq('turno',turno);
-  const rows=await safe(q);
+  const rows=await safe(selectTodos(q));
   exportarCSV(['Data','Dia','Linha','Turno','Encarregado','Produto','H.T','H.P','Sacos','Bags','Granel (t)','Efic.Disp','Efic.Prod','Lenha m³','Status'],
     rows.map(l=>[l.data,l.dia_semana||'—',l.linha,l.turno,l.encarregado||'—',(l.produtos_op&&l.produtos_op.length?l.produtos_op.map(p=>p.produto).join('|'):l.produto)||'—',l.ht||0,l.hp||0,qtdOP(l).sc,qtdOP(l).bags,+qtdOP(l).t.toFixed(3),l.efic_disp||'—',l.efic_prod||'—',l.consumo_lenha||0,l.status]),
     `producao_${ini}_${fim}`); toast('CSV exportado!','success');
@@ -3416,7 +3416,7 @@ async function csvAlmox(){
 async function csvMovAlmox(){
   if (!guardAction('relatorios', 'export')) return;
   const {ini,fim}=getPeriodo();
-  const [movs,itens]=await Promise.all([safe(_supabase.from('almoxarifado_movimentos').select('*').gte('data',ini).lte('data',fim).order('data')),safe(_supabase.from('almoxarifado').select('id,nome,unidade'))]);
+  const [movs,itens]=await Promise.all([safe(selectTodos(_supabase.from('almoxarifado_movimentos').select('*').gte('data',ini).lte('data',fim).order('data'))),safe(_supabase.from('almoxarifado').select('id,nome,unidade'))]);
   exportarCSV(['Data','Insumo','Tipo','Quantidade','Unidade','Responsável','Obs'],
     movs.map(m=>{const it=itens.find(x=>x.id===m.insumo_id);return[fmtD(m.data),it?.nome||'—',m.tipo,fmtN(m.quantidade,2),it?.unidade||'—',m.responsavel||'—',m.obs||'—'];}),
     `movimentacoes_${ini}_${fim}`); toast('CSV exportado!','success');

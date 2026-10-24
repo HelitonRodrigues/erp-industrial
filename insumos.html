@@ -915,8 +915,13 @@ const DB = {
     const PAG = 1000, todos = [];
     for (let de = 0; ; de += PAG) {
       // ordem estável é obrigatória para paginar sem pular/repetir linha
-      const chave = tab === T.prefs ? 'chave' : 'id';
-      const { data, error } = await _supabase.from(tab).select('*').order(chave).range(de, de + PAG - 1);
+      // ordem de criação (desempate pelo id): mantém a sequência real dos lançamentos
+      // do mesmo dia, que o custo médio móvel usa. id é uuid — sozinho seria aleatório.
+      let q = _supabase.from(tab).select('*');
+      if (tab === T.prefs) q = q.order('chave');
+      else if (tab === T.fechamentos) q = q.order('id');
+      else q = q.order('criado_em', { ascending: true, nullsFirst: true }).order('id');
+      const { data, error } = await q.range(de, de + PAG - 1);
       if (error) {
         console.warn('[insumos] list ' + tab, error.message);
         if (typeof toast === 'function') toast('Erro ao carregar ' + tab + ': ' + error.message, 'error');
@@ -4058,8 +4063,8 @@ async function mapaOPLinha(de, ate) {
   try {
     if (TEM_SUPABASE) {
       // folga de 2 dias: a OP pode ter sido lançada no dia seguinte à baixa
-      const { data, error } = await _supabase.from('producao').select('id,op_numero,linha,data')
-        .gte('data', addDias(de, -2)).lte('data', addDias(ate, 2)).limit(10000);
+      const { data, error } = await selectTodos(_supabase.from('producao').select('id,op_numero,linha,data')
+        .gte('data', addDias(de, -2)).lte('data', addDias(ate, 2)));
       if (error) throw error;
       (data || []).forEach((p) => {
         if (!p.linha) return;

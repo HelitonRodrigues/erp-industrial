@@ -878,9 +878,9 @@ async function init(){
     _supabase.from('funcionarios').select('id,nome,funcao').eq('status','ativo').order('nome'),
     _supabase.from('produtos').select('id,nome,centro_custo,linhas,unidade,unidade_custom,emb_tipo,emb_qtd,capacidades,status,criado_em,atualizado_em,peso_saco,chilincado,peso_unidade_kg,laudo_composicao,laudo_modo_usar,laudo_precaucoes,laudo_registro,laudo_classificacao').eq('status','ativo').order('nome'), /* sem foto (3 MB) */
     _supabase.from('laboratorio').select('*').order('data',{ascending:false}).order('hora',{ascending:false}).limit(400),
-    (async()=>{const r=await _supabase.from('producao_pallets')
+    (async()=>{const r=await selectTodos(_supabase.from('producao_pallets')
         .select('*,producao(id,data,linha,turno,encarregado,op_numero,produtos_op)')
-        .order('created_at',{ascending:false}).limit(_palLimite);
+        .order('created_at',{ascending:false}), {max:_palLimite});
       if(r.error){_falhasCarga.push({tabela:'producao_pallets (Análise de Pallets)',erro:r.error.message});return[];}
       return r.data||[];})(),
     _supabase.from('empresa_config').select('*').limit(1),
@@ -1350,13 +1350,13 @@ async function garantirOpsAfericoes(){
     // Em lotes: a lista inteira numa URL só passava do tamanho aceito e voltava vazia.
     const LOTE=30, rows=[], pals=[];
     for(let i=0;i<dias.length;i+=LOTE){
-      const r1=await db(_supabase.from('producao').select('id,op_numero,produto,produtos_op,status,total_sacos,linha,data,turno').in('data',dias.slice(i,i+LOTE)).limit(5000),'OPs das aferições');
+      const r1=await db(selectTodos(_supabase.from('producao').select('id,op_numero,produto,produtos_op,status,total_sacos,linha,data,turno').in('data',dias.slice(i,i+LOTE))),'OPs das aferições');
       if(r1.error){ falhou=true; break; }
       rows.push(...(r1.data||[]));
     }
     const ids=rows.map(x=>x.id);
     for(let i=0;!falhou&&i<ids.length;i+=40){
-      const r2=await db(_supabase.from('producao_pallets').select('id,lancamento_id,status,produto,numero,embalagem_tipo').in('lancamento_id',ids.slice(i,i+40)).limit(5000),'pallets das OPs das aferições');
+      const r2=await db(selectTodos(_supabase.from('producao_pallets').select('id,lancamento_id,status,produto,numero,embalagem_tipo').in('lancamento_id',ids.slice(i,i+40))),'pallets das OPs das aferições');
       if(r2.error){ falhou=true; break; }
       pals.push(...(r2.data||[]));
     }
@@ -2297,9 +2297,9 @@ function cartaoPallet(p,gi){
 
 async function carregarMaisPallets(){
   _palLimite+=1000;
-  const{data:pal}=await db(_supabase.from('producao_pallets')
+  const{data:pal}=await db(selectTodos(_supabase.from('producao_pallets')
     .select('*,producao(id,data,linha,turno,encarregado,op_numero,produtos_op)')
-    .order('created_at',{ascending:false}).limit(_palLimite),'carregar pallets');
+    .order('created_at',{ascending:false}), {max:_palLimite}),'carregar pallets');
   _pallets=pal||_pallets; renderPallets();
 }
 
@@ -2769,7 +2769,7 @@ async function refletirStatusNaOP(palletIds,status,resp,hora){
 }
 async function recarregarPallets(){
   const[a,b]=await Promise.all([
-    _supabase.from('producao_pallets').select('*,producao(id,data,linha,turno,encarregado,op_numero,produtos_op)').order('created_at',{ascending:false}).limit(_palLimite),
+    selectTodos(_supabase.from('producao_pallets').select('*,producao(id,data,linha,turno,encarregado,op_numero,produtos_op)').order('created_at',{ascending:false}), {max:_palLimite}),
     _supabase.from('lab_pallet_analises').select('*').order('data',{ascending:false}).limit(600),
   ]);
   if(a.error) toast('Falha ao recarregar os pallets: '+a.error.message,'danger'); else _pallets=a.data||[];
@@ -4233,7 +4233,7 @@ async function carregarLaudos(){
   const safe=async(q,nome)=>{ try{ const r=await q; if(r.error) throw r.error; return r.data||[]; }
     catch(e){ console.warn('[laudo]',nome,e.message||e); _falhas.push(nome+': '+(e.message||e)); return []; } };
   const [ops,laudos,lim,empCfg,carr]=await Promise.all([
-    safe(_supabase.from('producao').select('*').gte('data',ini).lte('data',fim).order('data',{ascending:false}),'produção'),
+    safe(selectTodos(_supabase.from('producao').select('*').gte('data',ini).lte('data',fim).order('data',{ascending:false})),'produção'),
     (async()=>await buscaResiliente('lab_laudos',{ordem:'created_at',limite:1000,rotulo:'lab_laudos'}))(),
     safe(_supabase.from('lab_limites_quimicos').select('*').eq('ativo',true).order('ordem'),'limites químicos'),
     safe(_supabase.from('empresa_config').select('*').limit(1),'empresa_config'),
