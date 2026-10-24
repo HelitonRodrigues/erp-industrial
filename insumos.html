@@ -909,9 +909,23 @@ const _mem = {};
 const DB = {
   async list(tab) {
     if (usarMemoria()) return (_mem[tab] || []).slice();
-    const { data, error } = await _supabase.from(tab).select('*');
-    if (error) { console.warn('[insumos] list ' + tab, error.message); return (_mem[tab] || []).slice(); }
-    return data || [];
+    // O Supabase devolve no máximo 1.000 linhas por consulta. Sem paginar, a
+    // tabela de movimentos (já passa de 2 mil) vinha cortada pela metade e os
+    // saldos, consumos e relatórios saíam errados. Busca em páginas até acabar.
+    const PAG = 1000, todos = [];
+    for (let de = 0; ; de += PAG) {
+      // ordem estável é obrigatória para paginar sem pular/repetir linha
+      const chave = tab === T.prefs ? 'chave' : 'id';
+      const { data, error } = await _supabase.from(tab).select('*').order(chave).range(de, de + PAG - 1);
+      if (error) {
+        console.warn('[insumos] list ' + tab, error.message);
+        if (typeof toast === 'function') toast('Erro ao carregar ' + tab + ': ' + error.message, 'error');
+        return de === 0 ? (_mem[tab] || []).slice() : todos;
+      }
+      todos.push(...(data || []));
+      if (!data || data.length < PAG) break;
+    }
+    return todos;
   },
   async insert(tab, rows) {
     invalidarCache(); _idxItens = null;
