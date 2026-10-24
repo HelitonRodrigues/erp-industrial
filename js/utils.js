@@ -1069,6 +1069,29 @@ function exportarCSV(colunas, linhas, nomeArquivo) {
   a.click();
 }
 
+// ── BUSCAR TODAS AS LINHAS ─────────────────────────────────
+/* O Supabase devolve NO MÁXIMO 1.000 linhas por consulta — mesmo com
+   .limit(5000) ou .limit(50000). Passou disso, o resto some calado.
+   selectTodos(q) recebe a consulta já montada (select + filtros + ordem),
+   busca em páginas de 1.000 até acabar e devolve { data, error } igual ao
+   Supabase, então pode entrar no lugar da consulta sem mudar quem usa.
+   opts.max      → teto opcional de linhas (ex.: "carregar mais")
+   opts.desempate→ coluna(s) únicas para a ordem ficar estável entre páginas
+                   (padrão 'id'; false se a ordem já for única). */
+async function selectTodos(q, opts = {}) {
+  const PAG = 1000, max = opts.max || 500000, out = [];
+  const desemp = opts.desempate === undefined ? 'id' : opts.desempate;
+  if (desemp) (Array.isArray(desemp) ? desemp : [desemp]).forEach((c) => { q = q.order(c, { ascending: true }); });
+  for (let de = 0; de < max; de += PAG) {
+    const ate = Math.min(de + PAG, max) - 1;
+    const { data, error } = await q.range(de, ate);
+    if (error) return { data: out.length ? out : null, error };
+    out.push(...(data || []));
+    if (!data || data.length < ate - de + 1) break;
+  }
+  return { data: out, error: null };
+}
+
 // ── EXPORT PDF genérico ─────────────────────────────────────
 /* Cabeçalho da empresa para PDFs/impressões: logo, nome fantasia, razão social,
    CNPJ/IE, endereço e contato — tudo vem de Configurações → Empresa. */
