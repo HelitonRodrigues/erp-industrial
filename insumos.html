@@ -290,6 +290,7 @@ tbody tr:nth-child(even) td{background:#fbfcfe;}
     <button class="tab-btn" id="tb-estoque" onclick="showTab('estoque')">Itens</button>
     <button class="tab-btn" id="tb-lotes"   onclick="showTab('lotes')">Lotes</button>
     <button class="tab-btn" id="tb-movs"    onclick="showTab('movs')">Movimentos</button>
+    <button class="tab-btn" id="tb-conslinha" onclick="showTab('conslinha')">Consumo por linha</button>
   </div>
   <div class="ins-subnav no-print" data-sec="lancar">
     <button class="tab-btn" id="tb-entradas"   onclick="showTab('entradas')">Entradas de MP</button>
@@ -344,6 +345,24 @@ tbody tr:nth-child(even) td{background:#fbfcfe;}
       </div>
     </div>
     <div id="movs-wrap"></div>
+  </div>
+
+  <!-- ═══ ESTOQUE · CONSUMO POR LINHA ═══
+       Liga cada baixa por OP à linha da produção (tabela producao, a mesma do producao.html). -->
+  <div id="tab-conslinha" class="hidden">
+    <div class="filtros no-print">
+      <div class="form-group"><label class="form-label">De</label><input id="cl-de" type="date" class="form-input" onchange="renderConsumoLinha()"></div>
+      <div class="form-group"><label class="form-label">Até</label><input id="cl-ate" type="date" class="form-input" onchange="renderConsumoLinha()"></div>
+      <div class="form-group ins-f-larga"><label class="form-label">Grupo</label><select id="cl-grupo" class="form-input" onchange="renderConsumoLinha()"></select></div>
+      <div class="form-group"><label class="form-label">Mostrar</label><select id="cl-modo" class="form-input" onchange="renderConsumoLinha()">
+        <option value="qtd">Quantidade</option><option value="valor">Valor (R$)</option></select></div>
+      <div class="ins-f-acoes">
+        <button class="btn btn-secondary btn-sm" onclick="exportarConsumoLinha()">CSV</button>
+      </div>
+    </div>
+    <div class="ins-chips no-print" id="cl-periodos"></div>
+    <div id="cl-kpis" class="ins-kpis"></div>
+    <div id="cl-wrap"></div>
   </div>
 
   <!-- ═══ FICHA TÉCNICA (configuração) ═══ -->
@@ -1176,13 +1195,13 @@ function produtosFicha() {
 }
 
 /* ── 6. NAVEGAÇÃO E KPIs ──────────────────────────────────── */
-const TABS = ['resumo','estoque','movs','ficha','lotes','entradas','dia','mes','inventario','fechamento','relatorios'];
+const TABS = ['resumo','estoque','movs','ficha','lotes','entradas','dia','mes','inventario','fechamento','relatorios','conslinha'];
 
 // Cada sub-aba pertence a uma área. A área só organiza a tela: quem manda
 // em permissão continua sendo a sub-aba (showTab), como antes.
 const SECOES = {
   painel:     ['resumo'],
-  estoque:    ['estoque', 'lotes', 'movs'],
+  estoque:    ['estoque', 'lotes', 'movs', 'conslinha'],
   lancar:     ['entradas', 'inventario'],
   relatorios: ['relatorios', 'dia', 'mes', 'fechamento'],
   config:     ['ficha'],
@@ -1227,7 +1246,8 @@ function showTab(t) {
   try { const u = new URL(location.href); u.searchParams.set('aba', t); history.replaceState(null, '', u); } catch (e) {}
   const r = { resumo: renderResumo, estoque: renderEstoque, movs: renderMovs, ficha: renderFicha,
     lotes: renderLotes, entradas: renderEntradasMP, dia: renderDia, mes: renderMes,
-    inventario: renderInventario, fechamento: renderFichaDiaria, relatorios: renderRelatorios };
+    inventario: renderInventario, fechamento: renderFichaDiaria, relatorios: renderRelatorios,
+    conslinha: renderConsumoLinha };
   r[t] && r[t]();
 }
 
@@ -1716,7 +1736,8 @@ function renderFicha() {
             '<td class="num">' + (it ? fmt(saldo(it.id)) : '—') + '</td>' +
             '<td><div class="table-actions"><button class="btn btn-ghost btn-sm" onclick="abrirFichaLinha(\'' + f.id + '\')">✏️</button>' +
             '<button class="btn btn-ghost btn-sm" onclick="excluirFichaLinha(\'' + f.id + '\')">🗑️</button></div></td></tr>';
-        }).join('') + '</tbody></table></div>');
+        }).join('') + '</tbody></table></div>') +
+        '</div>';   // fecha o cartão do produto (faltava: os cartões ficavam um dentro do outro, em degrau)
     }).join('');
 }
 
@@ -3780,7 +3801,7 @@ function popularSelects() {
   const gs = grupos();
   const setOpts = (id, html, keep) => { const e = el(id); if (!e) return; const cur = e.value; e.innerHTML = html; if (keep) e.value = cur; };
   const optGrupos = '<option value="">Todos os grupos</option>' + gs.map((g) => '<option value="' + esc(g) + '">' + esc(g) + '</option>').join('');
-  ['f-grupo', 'dia-grupo', 'mes-grupo', 'rel-grupo'].forEach((id) => setOpts(id, optGrupos, true));
+  ['f-grupo', 'dia-grupo', 'mes-grupo', 'rel-grupo', 'cl-grupo'].forEach((id) => setOpts(id, optGrupos, true));
   setOpts('inv-grupo', gs.map((g) => '<option value="' + esc(g) + '">' + esc(g) + '</option>').join(''), true);
   setOpts('f-tipo', '<option value="">Todos os tipos</option>' +
     Object.keys(TIPOS_INSUMO).map((k) => '<option value="' + k + '">' + TIPOS_INSUMO[k] + '</option>').join(''), true);
@@ -3822,6 +3843,7 @@ async function carregar() {
     DB.list(T.ficha), DB.list(T.invent), DB.list(T.fechamentos), DB.list(T.entradas),
   ]);
   invalidarCache(); _idxItens = null;
+  if (typeof _clCache !== 'undefined') _clCache.chave = '';   // produção pode ter mudado
   state.prefs = {};
   (prefs || []).forEach((p) => { state.prefs[p.chave] = p.valor; });
   state.grupos = (grps || []).slice().sort((a, b) => (Number(a.ordem) || 0) - (Number(b.ordem) || 0));
@@ -4008,6 +4030,139 @@ function gerarRelatorio(id, formato) {
   exportarPDF(d.titulo, d.cols, corpo);
 }
 
+/* ── CONSUMO POR LINHA DE PRODUÇÃO ─────────────────────────
+   O movimento de baixa guarda a OP (origem_id), não a linha. A linha vem da
+   tabela producao (a mesma do producao.html): OP → linha. Só leitura.
+   Consumo manual (sem OP) aparece separado em "Manual / sem OP". */
+let _clCache = { chave: '', mapa: {} };
+const CL_SEM = 'Manual / sem OP';
+
+async function mapaOPLinha(de, ate) {
+  const chave = de + '|' + ate;
+  if (_clCache.chave === chave) return _clCache.mapa;
+  const mapa = {};
+  try {
+    if (TEM_SUPABASE) {
+      // folga de 2 dias: a OP pode ter sido lançada no dia seguinte à baixa
+      const { data, error } = await _supabase.from('producao').select('id,op_numero,linha,data')
+        .gte('data', addDias(de, -2)).lte('data', addDias(ate, 2)).limit(10000);
+      if (error) throw error;
+      (data || []).forEach((p) => {
+        if (!p.linha) return;
+        mapa[String(p.id)] = p.linha;
+        if (p.op_numero) mapa[String(p.op_numero)] = p.linha;
+      });
+    } else {
+      (state._producaoOffline || []).forEach((p) => {
+        if (!p.linha) return;
+        mapa[String(p.id)] = p.linha;
+        if (p.op_numero) mapa[String(p.op_numero)] = p.linha;
+      });
+    }
+  } catch (e) { console.warn('[consumo por linha]', e.message || e); }
+  _clCache = { chave, mapa };
+  return mapa;
+}
+
+function linhaDoMov(m, mapa) {
+  if (m.origem === 'OP') {
+    const l = mapa[String(m.origem_id || '')];
+    if (l) return l;
+    // baixa manual por produção grava a linha no texto: "… · linha L3 · …"
+    const x = String(m.obs || '').match(/·\s*linha\s+([^·]+?)\s*(?:·|$)/i);
+    if (x) return x[1].trim();
+    return 'OP sem linha';
+  }
+  return CL_SEM;
+}
+
+function setPeriodoCL(k) {
+  const ontem = addDias(hoje(), -1), iniMes = ontem.slice(0, 8) + '01';
+  let de = ontem, ate = ontem;
+  if (k === 'mes') de = iniMes;
+  else if (k === 'mesant') { const u = addDias(iniMes, -1); de = u.slice(0, 8) + '01'; ate = u; }
+  else if (k === '7') de = addDias(ontem, -6);
+  else if (k === '30') de = addDias(ontem, -29);
+  el('cl-de').value = de; el('cl-ate').value = ate;
+  renderConsumoLinha();
+}
+
+async function dadosConsumoLinha() {
+  const de = val('cl-de') || addDias(hoje(), -30), ate = val('cl-ate') || hoje(), fg = val('cl-grupo');
+  const mapa = await mapaOPLinha(de, ate);
+  const movs = state.movs.filter((m) => m.tipo === 'consumo' && m.data >= de && m.data <= ate);
+  const porItem = {}, totLinha = {}, valLinha = {};
+  movs.forEach((m) => {
+    const it = itemPorId(m.insumo_id);
+    if (!it || (fg && it.grupo !== fg)) return;
+    const L = linhaDoMov(m, mapa);
+    const q = n(m.quantidade);
+    const v = q * (n(m.custo_unitario) > 0 ? n(m.custo_unitario) : custoMedio(it.id));
+    const r = (porItem[it.id] = porItem[it.id] || { it, q: {}, v: {}, tq: 0, tv: 0 });
+    r.q[L] = (r.q[L] || 0) + q; r.v[L] = (r.v[L] || 0) + v; r.tq += q; r.tv += v;
+    totLinha[L] = (totLinha[L] || 0) + q; valLinha[L] = (valLinha[L] || 0) + v;
+  });
+  // ordem das colunas: linhas cadastradas, depois as achadas, e por fim sem linha/manual
+  const achadas = Object.keys(totLinha);
+  const cad = (state.linhasProducao || []).filter((l) => achadas.includes(l));
+  const resto = achadas.filter((l) => !cad.includes(l) && l !== CL_SEM && l !== 'OP sem linha').sort();
+  const cols = [...cad, ...resto, ...['OP sem linha', CL_SEM].filter((l) => achadas.includes(l))];
+  const linhas = itensOrdenados(Object.values(porItem).map((r) => r.it)).map((i) => porItem[i.id]);
+  return { de, ate, cols, linhas, valLinha };
+}
+
+async function renderConsumoLinha() {
+  const ontem = addDias(hoje(), -1), iniMes = ontem.slice(0, 8) + '01', uAnt = addDias(iniMes, -1);
+  const de0 = val('cl-de'), ate0 = val('cl-ate');
+  el('cl-periodos').innerHTML = [
+    ['ontem', 'Ontem', ontem, ontem], ['7', 'Últimos 7 dias', addDias(ontem, -6), ontem],
+    ['30', 'Últimos 30 dias', addDias(ontem, -29), ontem], ['mes', 'Este mês', iniMes, ontem],
+    ['mesant', 'Mês passado', uAnt.slice(0, 8) + '01', uAnt],
+  ].map(([k, l, d, a]) => '<button class="ins-chip' + (de0 === d && ate0 === a ? ' on' : '') + '" onclick="setPeriodoCL(\'' + k + '\')">' + l + '</button>').join('');
+
+  el('cl-wrap').innerHTML = '<div class="empty-state">Buscando a produção do período…</div>';
+  const d = await dadosConsumoLinha();
+  const emValor = val('cl-modo') === 'valor';
+
+  const totGeral = Object.values(d.valLinha).reduce((a, b) => a + b, 0);
+  el('cl-kpis').innerHTML = d.cols.map((L) =>
+    '<div class="kpi' + (L === CL_SEM || L === 'OP sem linha' ? '' : ' kpi-bom') + '"><div class="kpi-lbl">' + esc(L) + '</div>' +
+    '<div class="kpi-val">' + fmtR$(d.valLinha[L]) + '</div>' +
+    '<div class="kpi-sub">' + (totGeral ? fmt(d.valLinha[L] / totGeral * 100, 1) + '% do consumo' : '') + '</div></div>').join('');
+
+  if (!d.linhas.length) {
+    el('cl-wrap').innerHTML = '<div class="empty-state"><span class="empty-icon">🏭</span>Nenhum consumo no período.' +
+      '<p class="mini" style="margin-top:6px;">O consumo por linha aparece depois da baixa por produção (Lançar → Baixa por produção).</p></div>';
+    return;
+  }
+  const cel = (r, L) => {
+    const v = emValor ? r.v[L] : r.q[L];
+    return v ? (emValor ? fmtR$(v) : fmt(v)) : '<span class="mini">—</span>';
+  };
+  el('cl-wrap').innerHTML = '<div class="table-wrap"><table><thead><tr><th>Insumo</th><th>Un.</th>' +
+    d.cols.map((L) => '<th class="num">' + esc(L) + '</th>').join('') + '<th class="num">Total</th></tr></thead><tbody>' +
+    d.linhas.map((r) => '<tr><td><span class="cor-dot" style="background:' + (r.it.cor_hex || '#64748b') + ';"></span><strong>' + esc(r.it.nome) + '</strong>' +
+      '<div class="mini">' + esc(r.it.grupo || '') + '</div></td>' +
+      '<td>' + (emValor ? 'R$' : esc(r.it.unidade_estoque || '')) + '</td>' +
+      d.cols.map((L) => '<td class="num">' + cel(r, L) + '</td>').join('') +
+      '<td class="num"><strong>' + (emValor ? fmtR$(r.tv) : fmt(r.tq)) + '</strong></td></tr>').join('') +
+    (emValor ? '<tr><td><strong>TOTAL</strong></td><td></td>' + d.cols.map((L) => '<td class="num"><strong>' + fmtR$(d.valLinha[L]) + '</strong></td>').join('') +
+      '<td class="num"><strong>' + fmtR$(totGeral) + '</strong></td></tr>' : '') +
+    '</tbody></table></div>' +
+    (emValor ? '' : '<p class="mini" style="margin-top:8px;">Total em R$ por linha: troque <em>Mostrar</em> para Valor. Unidades diferentes não se somam.</p>');
+}
+
+async function exportarConsumoLinha() {
+  const d = await dadosConsumoLinha();
+  if (!d.linhas.length) { toast('Nada para exportar.', 'warning'); return; }
+  const emValor = val('cl-modo') === 'valor';
+  baixarCSV('insumos_consumo_por_linha_' + d.de + '_a_' + d.ate + '.csv',
+    ['Insumo', 'Grupo', 'Unidade'].concat(d.cols).concat(['Total']),
+    d.linhas.map((r) => [r.it.nome, r.it.grupo || '', emValor ? 'R$' : r.it.unidade_estoque || '']
+      .concat(d.cols.map((L) => fmt(emValor ? r.v[L] : r.q[L], emValor ? 2 : 3)))
+      .concat([fmt(emValor ? r.tv : r.tq, emValor ? 2 : 3)])));
+}
+
 /* ── RADAR DE BAIXAS PENDENTES ────────────────────────────
    Consulta a view v_baixas_pendentes: todo produto PRODUZIDO em OP cujo
    consumo não entrou em insumos_movimentos, seja por falta de ficha técnica,
@@ -4087,6 +4242,8 @@ async function init() {
   el('fd-data').value = ontem;
   el('rel-de').value = ontem.slice(0, 8) + '01';
   el('rel-ate').value = ontem;
+  el('cl-de').value = ontem.slice(0, 8) + '01';
+  el('cl-ate').value = ontem;
 
   await carregar();
   // deep-link: insumos.html?aba=lotes abre direto na sub-aba
