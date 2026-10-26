@@ -177,6 +177,7 @@
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
       <span class="relogio" id="relogio">--:--</span>
       <button class="btn btn-secondary" onclick="showTab('ordens');document.getElementById('arq-ordem').click()">📄 Importar ordem</button>
+      <button class="btn btn-secondary" onclick="linkIntegracaoAvulso()" title="Link do vídeo de integração BPF para mandar ao motorista antes de ele chegar">📲 Link de integração</button>
       <button class="btn btn-primary" data-perm="portaria:create" onclick="abrirChegada()">＋ Registrar chegada</button>
     </div>
   </div>
@@ -318,13 +319,16 @@
           <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
             <div><div style="font-size:12.5px;font-weight:800;color:var(--primary);">🎬 Integração BPF</div>
               <div id="ch-bpf-st" style="font-size:12px;color:#64748b;margin-top:2px;">Digite o motorista para conferir.</div></div>
-            <button type="button" class="btn btn-secondary btn-sm" onclick="passarVideoBpf()">▶️ Passar o vídeo</button>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;">
+              <button type="button" class="btn btn-secondary btn-sm" onclick="enviarLinkIntegracao()" title="Manda o vídeo para o celular do motorista; ele confirma lá">📲 Enviar no WhatsApp</button>
+              <button type="button" class="btn btn-secondary btn-sm" onclick="passarVideoBpf()">▶️ Passar aqui</button>
+            </div>
           </div>
           <label style="display:flex;gap:8px;align-items:center;margin-top:8px;font-size:13px;font-weight:700;cursor:pointer;">
             <input type="checkbox" id="ch-video"> Assistiu ao vídeo agora (grava no histórico BPF)</label>
         </div>
         <div class="form-grid-2">
-          <div class="form-group"><label class="form-label">Placa <span class="req">*</span></label><input id="ch-placa" class="form-input" style="text-transform:uppercase;font-weight:800;" placeholder="ABC1D23" oninput="sugerirPorPlaca()"></div>
+          <div class="form-group"><label class="form-label">Placa <span class="req">*</span></label><input id="ch-placa" onblur="bpfConferirIntegracao()" class="form-input" style="text-transform:uppercase;font-weight:800;" placeholder="ABC1D23" oninput="sugerirPorPlaca()"></div>
           <div class="form-group"><label class="form-label">Placa da carreta</label><input id="ch-placa2" class="form-input" style="text-transform:uppercase;" placeholder="opcional"></div>
         </div>
         <div class="form-grid-2">
@@ -1169,13 +1173,15 @@ async function bpfConferirIntegracao(){
   _bpfTm=setTimeout(async()=>{
     const st=document.getElementById('ch-bpf-st');if(!st)return;
     const nome=(document.getElementById('ch-motorista').value||'').trim(), cpf=(document.getElementById('ch-cpf').value||'').replace(/\D/g,'');
+    const placaAtual=(document.getElementById('ch-placa').value||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
     const vid=await bpfCarregarVideo();
     if(!vid||!vid.arquivo_path){_bpfInteg=null;st.innerHTML='<span style="color:#94a3b8;">Vídeo de integração ainda não cadastrado no BPF (IT-POP04-03).</span>';return;}
     if(!nome&&!cpf){_bpfInteg=null;st.textContent='Digite o motorista para conferir.';return;}
     try{
       const {data}=await _supabase.from('bpf_registros').select('numero,data,campos,cancelado_em').eq('formulario_cod','REG-POP04-02').order('data',{ascending:false}).limit(1000);
       const meus=(data||[]).filter(r=>!r.cancelado_em&&(r.campos||{}).video_assistido==='sim'&&
-        ((cpf&&String((r.campos||{}).documento||'').replace(/\D/g,'')===cpf)||(nome&&normNome((r.campos||{}).nome)===normNome(nome))));
+        ((cpf&&String((r.campos||{}).documento||'').replace(/\D/g,'')===cpf)||(nome&&normNome((r.campos||{}).nome)===normNome(nome))
+         ||(placaAtual&&String((r.campos||{}).placa||'').toUpperCase()===placaAtual)));
       const atual='rev. '+(vid.revisao||'—');
       const naAtual=meus.find(r=>(r.campos||{}).video_versao===atual);
       _bpfInteg=naAtual?'ok':meus.length?'antigo':'nao';
@@ -1198,6 +1204,33 @@ async function passarVideoBpf(){
     ov.querySelector('button').onclick=()=>{ov.remove();const c=document.getElementById('ch-video');if(c)c.checked=true;};
     document.body.appendChild(ov);
   }catch(e){toast('Não foi possível abrir o vídeo: '+(e.message||e),'danger');}
+}
+// link da página pública integracao.html, já com os dados do motorista
+function linkIntegracao(){
+  const g=id=>(document.getElementById(id)?.value||'').trim();
+  const p=new URLSearchParams();
+  if(g('ch-motorista'))p.set('nome',g('ch-motorista'));
+  if(g('ch-cpf'))p.set('cpf',g('ch-cpf'));
+  if(g('ch-placa'))p.set('placa',g('ch-placa').toUpperCase());
+  if(g('ch-transp'))p.set('empresa',g('ch-transp'));
+  const base=location.origin+location.pathname.replace(/[^/]*$/,'')+'integracao.html';
+  return base+(p.toString()?'?'+p.toString():'');
+}
+function enviarLinkIntegracao(){
+  const cel=(document.getElementById('ch-celular').value||'').replace(/\D/g,'');
+  const nome=(document.getElementById('ch-motorista').value||'').trim().split(' ')[0];
+  const txt=`Olá${nome?' '+nome:''}! Antes de entrar na Silicate, assista ao vídeo de integração de Boas Práticas (2 min) e toque em "Vi o vídeo" no final:\n${linkIntegracao()}`;
+  if(cel.length>=10) window.open('https://wa.me/55'+cel+'?text='+encodeURIComponent(txt),'_blank');
+  else if(navigator.share) navigator.share({title:'Integração BPF — Silicate',text:txt}).catch(()=>{});
+  else { navigator.clipboard?.writeText(txt); toast('Link copiado. Cole no WhatsApp do motorista (sem celular no cadastro).','info'); }
+  toast('Quando ele confirmar no celular, a integração aparece aqui como ✅.','info');
+}
+// link genérico (sem dados) — para a expedição/portaria mandar antes do motorista chegar
+function linkIntegracaoAvulso(){
+  const base=location.origin+location.pathname.replace(/[^/]*$/,'')+'integracao.html';
+  const txt=`Antes de vir carregar na Silicate, assista ao vídeo de integração de Boas Práticas (2 min) e toque em "Vi o vídeo" no final:\n${base}`;
+  if(navigator.share) navigator.share({title:'Integração BPF — Silicate',text:txt}).catch(()=>{});
+  else { navigator.clipboard?.writeText(txt); toast('Link copiado — cole no WhatsApp do motorista ou da transportadora.','success'); }
 }
 async function bpfRegistrarIntegracao(d){
   const vid=await bpfCarregarVideo();

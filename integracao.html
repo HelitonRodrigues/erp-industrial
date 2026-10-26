@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Integração BPF — Silicate</title>
+<meta name="theme-color" content="#042D4D">
+<link rel="icon" href="icons/icon-192.png">
+<!-- PÁGINA PÚBLICA (sem login) — BPF POP-04: o motorista/visitante assiste ao
+     vídeo de integração no próprio celular e confirma "Vi o vídeo".
+     Só usa: o vídeo IT-POP04-03 (liberado por política) e as funções
+     bpf_integracao_info / bpf_integracao_confirmar (migration 068). -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/supabase.js"></script>
+<style>
+  :root{--navy:#042D4D;--lima:#C9FF64;--ok:#16a34a;--txt:#0f172a;--mu:#64748b;--ln:#e2e8f0;}
+  *{box-sizing:border-box;}
+  body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:#f1f5f9;color:var(--txt);
+       padding:env(safe-area-inset-top,0) 0 env(safe-area-inset-bottom,0);}
+  header{background:var(--navy);color:#fff;padding:16px 18px;display:flex;align-items:center;gap:12px;}
+  header img{width:44px;height:44px;border-radius:10px;object-fit:contain;background:var(--navy);}
+  header b{display:block;font-size:17px;color:var(--lima);}
+  header small{font-size:12.5px;color:#cbd5e1;}
+  main{max-width:640px;margin:0 auto;padding:14px;}
+  .card{background:#fff;border:1px solid var(--ln);border-radius:16px;padding:16px;margin-bottom:14px;}
+  .passo{font-size:12px;font-weight:800;color:var(--mu);text-transform:uppercase;letter-spacing:.04em;margin-bottom:8px;}
+  video{width:100%;border-radius:12px;background:#000;display:block;}
+  .barra{height:8px;background:var(--ln);border-radius:99px;margin-top:10px;overflow:hidden;}
+  .barra i{display:block;height:100%;width:0;background:var(--ok);transition:width .3s;}
+  .dica{font-size:13px;color:var(--mu);margin-top:8px;}
+  label{display:block;font-size:13px;font-weight:700;margin:12px 0 5px;}
+  input,select{width:100%;min-height:50px;border:1.5px solid var(--ln);border-radius:12px;padding:0 14px;font-size:17px;font-family:inherit;}
+  input:focus,select:focus{outline:none;border-color:var(--navy);}
+  .btn{width:100%;min-height:58px;border:none;border-radius:14px;font-size:18px;font-weight:800;margin-top:16px;cursor:pointer;}
+  .btn-ok{background:var(--ok);color:#fff;}
+  .btn-ok:disabled{background:#cbd5e1;color:#64748b;cursor:not-allowed;}
+  .erro{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;border-radius:12px;padding:10px 12px;margin-top:12px;font-size:14px;display:none;}
+  .feito{text-align:center;padding:26px 16px;}
+  .feito .ic{width:96px;height:96px;border-radius:50%;background:var(--ok);color:#fff;font-size:56px;line-height:96px;margin:0 auto 14px;}
+  .feito h2{margin:0 0 6px;color:var(--ok);}
+  .codigo{font-family:ui-monospace,monospace;font-size:20px;font-weight:800;background:#f8fafc;border:1px dashed var(--ln);border-radius:12px;padding:12px;margin:14px 0;}
+  .hidden{display:none!important;}
+</style>
+</head>
+<body>
+<header><img id="logo" src="icons/icon-192.png" alt=""><div><b id="emp">Silicate</b><small>Integração de Boas Práticas de Fabricação</small></div></header>
+<main>
+  <div id="tela-form">
+    <div class="card">
+      <div class="passo">1 · Assista ao vídeo até o final</div>
+      <video id="vid" controls playsinline preload="metadata"></video>
+      <div class="barra"><i id="prog"></i></div>
+      <div class="dica" id="dica">Carregando o vídeo…</div>
+    </div>
+    <div class="card">
+      <div class="passo">2 · Seus dados</div>
+      <label for="nome">Nome completo</label><input id="nome" autocomplete="name" placeholder="Ex.: João da Silva">
+      <label for="cpf">CPF</label><input id="cpf" inputmode="numeric" placeholder="000.000.000-00">
+      <label for="placa">Placa do caminhão (motorista)</label><input id="placa" placeholder="ABC1D23" style="text-transform:uppercase;">
+      <label for="empresa">Transportadora / empresa</label><input id="empresa" placeholder="Opcional">
+      <label for="tipo">Você é</label>
+      <select id="tipo"><option>Motorista</option><option>Visitante</option><option>Prestador</option></select>
+      <button class="btn btn-ok" id="btn" disabled onclick="confirmar()">✅ Vi o vídeo</button>
+      <div class="dica" id="dica-btn">O botão libera quando o vídeo terminar.</div>
+      <div class="erro" id="erro"></div>
+    </div>
+  </div>
+  <div id="tela-ok" class="card feito hidden">
+    <div class="ic">✓</div>
+    <h2>Integração confirmada!</h2>
+    <div>Mostre esta tela na portaria.</div>
+    <div class="codigo" id="cod"></div>
+    <div class="dica" id="ok-det"></div>
+  </div>
+</main>
+<script>
+const q=new URLSearchParams(location.search);
+['nome','cpf','placa','empresa'].forEach(k=>{const v=q.get(k);if(v)document.getElementById(k).value=v;});
+if(q.get('tipo'))document.getElementById('tipo').value=q.get('tipo');
+const vid=document.getElementById('vid');let assistiu=false,maxVisto=0;
+function mascCpf(v){v=String(v||'').replace(/\D/g,'').slice(0,11);return v.replace(/(\d{3})(\d)/,'$1.$2').replace(/(\d{3})(\d)/,'$1.$2').replace(/(\d{3})(\d{1,2})$/,'$1-$2');}
+document.getElementById('cpf').addEventListener('input',e=>e.target.value=mascCpf(e.target.value));
+document.getElementById('cpf').value=mascCpf(document.getElementById('cpf').value);
+function libera(){assistiu=true;document.getElementById('btn').disabled=false;document.getElementById('dica-btn').textContent='Confira seus dados e toque em "Vi o vídeo".';document.getElementById('prog').style.width='100%';}
+// não deixa pular: só conta o que foi realmente assistido
+vid.addEventListener('timeupdate',()=>{
+  if(!vid.duration)return;
+  if(vid.currentTime>maxVisto+2&&!vid.seeking)return;
+  maxVisto=Math.max(maxVisto,vid.currentTime);
+  document.getElementById('prog').style.width=Math.min(100,maxVisto/vid.duration*100)+'%';
+  if(maxVisto/vid.duration>=0.95&&!assistiu)libera();
+});
+vid.addEventListener('seeking',()=>{ if(vid.currentTime>maxVisto+2){vid.currentTime=maxVisto;} });
+vid.addEventListener('ended',()=>{ if(maxVisto/(vid.duration||1)>=0.9)libera(); });
+async function carregar(){
+  try{
+    const {data,error}=await _supabase.rpc('bpf_integracao_info');
+    if(error)throw error;
+    if(data.logo)document.getElementById('logo').src=data.logo;
+    if(data.empresa)document.getElementById('emp').textContent=data.empresa;
+    if(!data.arquivo_path){document.getElementById('dica').textContent='A empresa ainda não publicou o vídeo. Peça ajuda na portaria.';return;}
+    const s=await _supabase.storage.from('documentos').createSignedUrl(data.arquivo_path,7200);
+    if(s.error)throw s.error;
+    vid.src=s.data.signedUrl;
+    document.getElementById('dica').textContent='Vídeo versão '+(data.revisao||'—')+'. Assista até o final para liberar a confirmação.';
+  }catch(e){document.getElementById('dica').textContent='Não foi possível carregar o vídeo. Verifique a internet e tente de novo.';}
+}
+async function confirmar(){
+  const er=document.getElementById('erro');er.style.display='none';
+  if(!assistiu){er.textContent='Assista ao vídeo até o final.';er.style.display='block';return;}
+  const b=document.getElementById('btn');b.disabled=true;b.textContent='Enviando…';
+  const g=id=>document.getElementById(id).value.trim();
+  try{
+    const {data,error}=await _supabase.rpc('bpf_integracao_confirmar',{p_nome:g('nome'),p_cpf:g('cpf'),p_placa:g('placa'),p_empresa:g('empresa'),p_tipo:g('tipo')});
+    if(error)throw error;
+    if(data.erro){er.textContent=data.erro;er.style.display='block';b.disabled=false;b.textContent='✅ Vi o vídeo';return;}
+    document.getElementById('cod').textContent=data.numero;
+    document.getElementById('ok-det').textContent=g('nome').toUpperCase()+(g('placa')?' · '+g('placa').toUpperCase():'')+' · vídeo rev. '+(data.revisao||'—')+' · '+new Date().toLocaleString('pt-BR');
+    document.getElementById('tela-form').classList.add('hidden');document.getElementById('tela-ok').classList.remove('hidden');
+    window.scrollTo(0,0);
+  }catch(e){er.textContent='Não foi possível enviar. Verifique a internet e tente de novo.';er.style.display='block';b.disabled=false;b.textContent='✅ Vi o vídeo';}
+}
+carregar();
+</script>
+</body>
+</html>
