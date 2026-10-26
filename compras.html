@@ -154,12 +154,13 @@
     <!-- SOLICITAÇÕES -->
     <div id="tab-solicitacoes" style="display:none;">
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;align-items:center;">
-        <span class="chip on" data-fs="all" onclick="filtroSol('all',this)">Todas</span>
+        <span class="chip on" data-fs="all" onclick="filtroSol('all',this)" title="Todas, menos as canceladas">Todas</span>
         <span class="chip" data-fs="pendente" onclick="filtroSol('pendente',this)">Pendentes</span>
         <span class="chip" data-fs="aprovada" onclick="filtroSol('aprovada',this)">Aprovadas</span>
         <span class="chip" data-fs="em_cotacao" onclick="filtroSol('em_cotacao',this)">Em cotação</span>
         <span class="chip" data-fs="em_pedido" onclick="filtroSol('em_pedido',this)">Em pedido</span>
         <span class="chip" data-fs="reprovada" onclick="filtroSol('reprovada',this)">Reprovadas</span>
+        <span class="chip" data-fs="cancelada" onclick="filtroSol('cancelada',this)">🚫 Canceladas</span>
         <input id="busca-sol" class="form-input" placeholder="🔍 Buscar..." style="flex:1;min-width:140px;" oninput="renderSolicitacoes()">
         <button class="btn btn-secondary btn-sm" data-perm="compras.solicitacoes:export" onclick="exportarSolicitacoesCSV()">📊 Excel</button>
         <button class="btn btn-secondary btn-sm" onclick="corrigirQuantidadesCompras()" title="Corrige quantidades fracionadas antigas (×1000)">🔧 Corrigir Quantidades</button>
@@ -220,6 +221,21 @@
 </main>
 
 <!-- ===== MODAIS ===== -->
+<!-- CANCELAR SOLICITAÇÃO -->
+<div id="m-cancelar-sol" class="modal-overlay hidden" onclick="if(event.target===this)closeM('m-cancelar-sol')" style="z-index:10090;">
+  <div class="modal" style="max-width:520px;">
+    <div class="modal-header"><div class="modal-title" id="mcs-tit">🚫 Cancelar solicitação</div><button class="modal-close" onclick="closeM('m-cancelar-sol')">✕</button></div>
+    <div class="form-group"><label class="form-label">Motivo *</label><select id="mcs-motivo" class="form-input" style="min-height:44px;"></select></div>
+    <div class="form-group"><label class="form-label">Substituída por / duplicada de</label><select id="mcs-subst" class="form-input" style="min-height:44px;"></select></div>
+    <div class="form-group"><label class="form-label">Observação</label><input id="mcs-obs" class="form-input" style="min-height:44px;" placeholder="Opcional (obrigatória em “Outro”)"></div>
+    <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:10px 12px;font-size:12.5px;color:#475569;margin-bottom:14px;">Ela sai da lista, do Kanban e do Painel, e também do “Em andamento” do Solicitações. Fica no filtro <b>Canceladas</b> com motivo, quem cancelou e quando.</div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button class="btn btn-secondary" onclick="closeM('m-cancelar-sol')">Voltar</button>
+      <button class="btn" style="background:#dc2626;color:#fff;border:none;font-weight:700;min-height:44px;" onclick="confirmarCancelarSolCompras()">Cancelar solicitação</button>
+    </div>
+  </div>
+</div>
+
 <div id="m-sol" class="modal-overlay hidden" onclick="if(event.target===this)closeM('m-sol')">
   <div class="modal modal-lg" style="max-width:780px;max-height:92vh;overflow-y:auto;">
     <div class="modal-header"><div class="modal-title" id="m-sol-tit">Nova Solicitação de Compra</div><button class="modal-close" onclick="closeM('m-sol')">✕</button></div>
@@ -1139,7 +1155,9 @@ function renderSolicitacoes(){
   document.getElementById('sol-acomp').textContent=ehSolicitante?'Você está vendo apenas suas solicitações (modo acompanhamento).':'';
   let lista=_sols.slice();
   if(ehSolicitante)lista=lista.filter(s=>s.solicitante===(_user?.nome||''));
-  if(_filtroSol!=='all')lista=lista.filter(s=>s.status===_filtroSol);
+  // cancelada some da lista (só aparece no filtro "Canceladas")
+  if(_filtroSol==='all')lista=lista.filter(s=>s.status!=='cancelada');
+  else lista=lista.filter(s=>s.status===_filtroSol);
   if(busca)lista=lista.filter(s=>JSON.stringify(s).toLowerCase().includes(busca));
   // Ordem por código (número da solicitação)
   lista.sort((a,b)=>(a.numero||0)-(b.numero||0));
@@ -1152,12 +1170,63 @@ function renderSolicitacoes(){
       let acoes='';
       if(s.status==='pendente'&&podeAprovar())acoes+=`<button class="btn btn-secondary btn-sm" data-perm="compras.solicitacoes:aprovar" onclick="abrirAprovacao('${s.id}')">Avaliar</button> `;
       if((s.status==='aprovada'||s.status==='aguardando_cotacao')&&podeComprar())acoes+=`<button class="btn btn-secondary btn-sm" data-perm="compras.cotacoes:create" onclick="iniciarCotacao('${s.id}')">Cotação</button> <button class="btn btn-secondary btn-sm" data-perm="compras.pedidos:create" onclick="gerarPedidoDireto('${s.id}')">Gerar pedido</button> `;
+      if(podeCancelarSolCompras(s))acoes+=`<button class="btn btn-sm" style="border:1.5px solid #fca5a5;color:#b91c1c;background:#fff;font-weight:700;" data-perm="compras.solicitacoes:edit" onclick="abrirCancelarSolCompras('${s.id}')" title="Cancelar (ex.: substituída por outra)">🚫 Cancelar</button> `;
+      if(s.status==='cancelada'&&s.cancelado_motivo)acoes+=`<span class="mini" style="color:#991b1b;">🚫 ${s.cancelado_motivo}${s.cancelado_substituta?' ('+s.cancelado_substituta+')':''}</span> `;
       acoes+=`<button class="btn btn-ghost btn-sm" data-perm="compras.solicitacoes:view" onclick="verSolicitacao('${s.id}')">👁️</button> <button class="btn btn-ghost btn-sm" title="Imprimir/PDF" data-perm="compras.solicitacoes:imprimir" onclick="imprimirSolicitacao('${s.id}')">🖨️</button>`;
       if(podeExcluir())acoes+=` <button class="btn btn-ghost btn-sm" title="Excluir" data-perm="compras.solicitacoes:delete" onclick="confirmarExclusao('sol','${s.id}')">🗑️</button>`;
       const destaque=pi.ord>=4?`border-left:4px solid ${pi.cor};`:'';
       return `<tr style="${destaque}"><td><strong>#${String(s.numero||0).padStart(4,'0')}</strong>${s.origem?`<div class="mini">via ${s.origem}</div>`:''}</td><td class="mini">${s.data||''}</td><td>${s.solicitante||'—'}<div class="mini">${s.solicitante_perfil||''}</div></td><td>${respSolic(s)}</td><td><span style="color:${pi.cor};font-weight:700;white-space:nowrap;">${pi.ic} ${pi.l}</span></td><td class="mini" style="white-space:nowrap;">${progLabelSol(s)}</td><td>${resumo||'—'}<div class="mini">${nItens} item(ns)</div></td><td><span class="sb st-${s.status}">${labelStatus(s.status)}</span>${slaBadge}</td><td>${acoes}</td></tr>`;
     }).join(''):'<tr><td colspan="9" style="text-align:center;color:#94a3b8;padding:24px;">Nenhuma solicitação.</td></tr>'
   }</tbody>`;
+}
+/* ─────────── CANCELAR SOLICITAÇÃO ───────────
+   Ex.: pediram uma solicitação nova e esta ficou para trás. Some da lista,
+   do Kanban e do Painel; fica no filtro "Canceladas" com motivo/quem/quando.
+   Também cancela a solicitação de origem (solicitacoes.html). Só antes do pedido. */
+const MOTIVOS_CANCEL_C=[['Substituída','🔁 Substituída por outra solicitação'],['Não é mais necessária','🚫 Não é mais necessária'],['Comprada por outro meio','🛒 Comprada por outro meio'],['Duplicada','📑 Duplicada'],['Outro','✏️ Outro']];
+function podeCancelarSolCompras(s){
+  if(!['pendente','devolvida','aprovada','aguardando_cotacao','em_cotacao'].includes(s.status))return false;
+  if(_peds.some(p=>p.solicitacao_id===s.id&&p.status!=='cancelado'))return false;
+  return podeComprar()||podeAprovar();
+}
+let _cancC=null;
+function abrirCancelarSolCompras(id){
+  const s=_sols.find(x=>x.id===id);if(!s)return;
+  if(!podeCancelarSolCompras(s))return toast('Esta solicitação já tem pedido. Cancele o pedido primeiro.','warning');
+  _cancC=s;
+  document.getElementById('mcs-tit').textContent='🚫 Cancelar solicitação #'+String(s.numero||0).padStart(4,'0')+(s.codigo?' ('+s.codigo+')':'');
+  document.getElementById('mcs-motivo').innerHTML='<option value="">Selecione…</option>'+MOTIVOS_CANCEL_C.map(([v,t])=>`<option value="${v}">${t}</option>`).join('');
+  const outras=_sols.filter(x=>x.id!==s.id&&x.status!=='cancelada').sort((a,b)=>(b.numero||0)-(a.numero||0)).slice(0,200);
+  document.getElementById('mcs-subst').innerHTML='<option value="">—</option>'+outras.map(x=>{const ref=x.codigo||('#'+String(x.numero||0).padStart(4,'0'));return `<option value="${String(ref).replace(/"/g,'&quot;')}">${ref} — ${x.data||''} · ${(x.itens||[]).slice(0,2).map(i=>i.nome).join(', ')}</option>`;}).join('');
+  document.getElementById('mcs-obs').value='';
+  document.getElementById('m-cancelar-sol').classList.remove('hidden');
+}
+async function confirmarCancelarSolCompras(){
+  const s=_cancC;if(!s)return;
+  const mot=document.getElementById('mcs-motivo').value;
+  const sub=document.getElementById('mcs-subst').value;
+  const obs=document.getElementById('mcs-obs').value.trim();
+  if(!mot)return toast('Escolha o motivo.','warning');
+  if(mot==='Substituída'&&!sub)return toast('Escolha qual solicitação substituiu esta.','warning');
+  if(mot==='Outro'&&!obs)return toast('Descreva o motivo na observação.','warning');
+  const motivo=mot+(obs?' — '+obs:'');
+  const por=(_user&&_user.nome)||'—';const agora=new Date().toISOString();
+  const campos={status:'cancelada',cancelado_motivo:motivo,cancelado_substituta:sub||null,cancelado_por:por,cancelado_em:agora,atualizado_em:agora};
+  const hist=(Array.isArray(s.historico)?s.historico.slice():[]);
+  hist.push({acao:'cancelada',por,em:agora,obs:motivo+(sub?' ('+sub+')':'')});
+  try{
+    const{error}=await _supabase.from('compras_solicitacoes').update({...campos,historico:hist}).eq('id',s.id);
+    if(error)throw error;
+    Object.assign(s,campos,{historico:hist});
+    // cotação aberta desta solicitação deixa de valer
+    try{await _supabase.from('compras_cotacoes').update({status:'cancelada'}).eq('solicitacao_id',s.id).not('status','in','(concluida,cancelada)');_cots.forEach(c=>{if(c.solicitacao_id===s.id&&!['concluida','cancelada'].includes(c.status))c.status='cancelada';});}catch(e){}
+    // solicitação de origem (solicitacoes.html) também fica cancelada
+    if(s.origem==='solicitacoes'&&s.origem_id){try{await _supabase.from('almoxarifado_solicitacoes').update(campos).eq('id',s.origem_id);}catch(e){}}
+    try{await addLog('UPDATE','COMPRAS',s.id,'Solicitação #'+(s.numero||'')+' cancelada: '+motivo+(sub?' ('+sub+')':''));}catch(e){}
+    closeM('m-cancelar-sol');
+    renderSolicitacoes();renderPendencias();renderPainel();renderCotacoes();renderKanban();
+    toast('Solicitação cancelada — saiu da lista e do Kanban.','success');
+  }catch(e){toast('Não foi possível cancelar: '+(e.message||e),'danger');}
 }
 function labelStatus(s){return ({pendente:'Pendente',aprovada:'Aprovada',aguardando_cotacao:'Aguardando cotação',reprovada:'Reprovada',devolvida:'Devolvida',em_cotacao:'Em cotação',em_pedido:'Em pedido',atendida:'Atendida',cancelada:'Cancelada',emitido:'Emitido',aguardando_entrega:'Aguard. entrega',recebido_parcial:'Receb. parcial',recebido_total:'Recebido',aberta:'Aberta',concluida:'Concluída',ativo:'Ativo',cancelado:'Cancelado'})[s]||s;}
 
@@ -1833,7 +1902,7 @@ function renderKanban(){
     let col=null;
     if(['pendente','devolvida','aprovada','aguardando_cotacao'].includes(s.status))col='aberto';
     else if(s.status==='em_cotacao')col='em_cotacao';
-    else if(s.status==='reprovada'||s.status==='cancelada')col='cancelado';
+    else if(s.status==='reprovada')col='cancelado';   // cancelada não entra no Kanban (fica só no filtro "Canceladas")
     if(!col)return;
     const texto=[s.solicitante,s.centro_custo,(s.itens||[]).map(i=>i.nome).join(' ')].join(' ');
     if(!passa(s.prioridade,texto,'',''))return;
