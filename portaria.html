@@ -310,8 +310,18 @@
       <div>
         <div id="ch-sug"></div>
         <div class="form-group ac-box"><label class="form-label">Motorista <span class="req">*</span></label>
-          <input id="ch-motorista" class="form-input" autocomplete="off" placeholder="Digite o nome — puxa do cadastro" oninput="acMotorista()" onfocus="acMotorista()" onkeydown="acTecla(event)">
+          <input id="ch-motorista" class="form-input" autocomplete="off" placeholder="Digite o nome — puxa do cadastro" oninput="acMotorista();bpfConferirIntegracao()" onfocus="acMotorista()" onkeydown="acTecla(event)" onblur="bpfConferirIntegracao()">
           <div id="ch-ac" class="ac-lista hidden"></div>
+        </div>
+        <!-- BPF · POP-04: integração (vídeo DDS) do motorista -->
+        <div id="ch-bpf" style="border:1.5px solid #e2e8f0;border-radius:10px;padding:10px 12px;margin-bottom:12px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
+            <div><div style="font-size:12.5px;font-weight:800;color:var(--primary);">🎬 Integração BPF</div>
+              <div id="ch-bpf-st" style="font-size:12px;color:#64748b;margin-top:2px;">Digite o motorista para conferir.</div></div>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="passarVideoBpf()">▶️ Passar o vídeo</button>
+          </div>
+          <label style="display:flex;gap:8px;align-items:center;margin-top:8px;font-size:13px;font-weight:700;cursor:pointer;">
+            <input type="checkbox" id="ch-video"> Assistiu ao vídeo agora (grava no histórico BPF)</label>
         </div>
         <div class="form-grid-2">
           <div class="form-group"><label class="form-label">Placa <span class="req">*</span></label><input id="ch-placa" class="form-input" style="text-transform:uppercase;font-weight:800;" placeholder="ABC1D23" oninput="sugerirPorPlaca()"></div>
@@ -319,7 +329,7 @@
         </div>
         <div class="form-grid-2">
           <div class="form-group"><label class="form-label">Celular</label><input id="ch-celular" class="form-input" placeholder="(00) 00000-0000" oninput="this.value=mascCel(this.value)"></div>
-          <div class="form-group"><label class="form-label">CPF</label><input id="ch-cpf" class="form-input" placeholder="000.000.000-00" oninput="this.value=mascCpf(this.value)"></div>
+          <div class="form-group"><label class="form-label">CPF</label><input id="ch-cpf" class="form-input" placeholder="000.000.000-00" onblur="bpfConferirIntegracao()" oninput="this.value=mascCpf(this.value)"></div>
         </div>
         <div class="form-group"><label class="form-label">Transportadora</label><input id="ch-transp" class="form-input" list="dl-transp"></div>
         <div class="form-grid-2">
@@ -1134,8 +1144,72 @@ function abrirChegada(opt){
   if(o)_ch.ordemId=o.id;
   chModo(v?!!o:true);
   if(opt.ordemId)selecionarOrdemCh(opt.ordemId);
+  document.getElementById('ch-video').checked=false;
   document.getElementById('m-chegada').classList.remove('hidden');
   setTimeout(()=>document.getElementById(opt.ordemId||o?'ch-celular':(_ch.tem?'ch-busca':'ch-motorista')).focus(),80);
+  bpfConferirIntegracao();
+}
+// ── BPF · POP-04 ─────────────────────────────────────────────────────────
+// O vídeo é o documento IT-POP04-03 do BPF (com versão). "Integrado" = existe
+// REG-POP04-02 com "assistiu = sim" na versão ATUAL do vídeo. A trava
+// visitante_sem_integracao (BPF → Travas) decide se a chegada é barrada.
+let _bpfVid=null,_bpfInteg=null,_bpfTrava=false,_bpfTm=null;
+async function bpfCarregarVideo(){
+  if(_bpfVid!==null)return _bpfVid;
+  try{
+    const [{data:d},{data:t}]=await Promise.all([
+      _supabase.from('bpf_documentos_mestre').select('codigo,revisao,arquivo_path').eq('codigo','IT-POP04-03').maybeSingle(),
+      _supabase.from('bpf_travas').select('ativa').eq('codigo','visitante_sem_integracao').maybeSingle()]);
+    _bpfVid=d||false;_bpfTrava=!!(t&&t.ativa);
+  }catch(e){_bpfVid=false;}
+  return _bpfVid;
+}
+async function bpfConferirIntegracao(){
+  clearTimeout(_bpfTm);
+  _bpfTm=setTimeout(async()=>{
+    const st=document.getElementById('ch-bpf-st');if(!st)return;
+    const nome=(document.getElementById('ch-motorista').value||'').trim(), cpf=(document.getElementById('ch-cpf').value||'').replace(/\D/g,'');
+    const vid=await bpfCarregarVideo();
+    if(!vid||!vid.arquivo_path){_bpfInteg=null;st.innerHTML='<span style="color:#94a3b8;">Vídeo de integração ainda não cadastrado no BPF (IT-POP04-03).</span>';return;}
+    if(!nome&&!cpf){_bpfInteg=null;st.textContent='Digite o motorista para conferir.';return;}
+    try{
+      const {data}=await _supabase.from('bpf_registros').select('numero,data,campos,cancelado_em').eq('formulario_cod','REG-POP04-02').order('data',{ascending:false}).limit(1000);
+      const meus=(data||[]).filter(r=>!r.cancelado_em&&(r.campos||{}).video_assistido==='sim'&&
+        ((cpf&&String((r.campos||{}).documento||'').replace(/\D/g,'')===cpf)||(nome&&normNome((r.campos||{}).nome)===normNome(nome))));
+      const atual='rev. '+(vid.revisao||'—');
+      const naAtual=meus.find(r=>(r.campos||{}).video_versao===atual);
+      _bpfInteg=naAtual?'ok':meus.length?'antigo':'nao';
+      st.innerHTML=naAtual?`<span style="color:#166534;font-weight:700;">✅ Integrado — viu o vídeo ${atual} em ${String(naAtual.data).split('-').reverse().join('/')}</span>`
+        :meus.length?`<span style="color:#b45309;font-weight:700;">⚠️ Viu uma versão antiga do vídeo — precisa rever (${atual})</span>`
+        :`<span style="color:#b91c1c;font-weight:700;">❌ Sem integração BPF${_bpfTrava?' — passe o vídeo antes de liberar':''}</span>`;
+    }catch(e){_bpfInteg=null;st.textContent='Não foi possível conferir no BPF.';}
+  },350);
+}
+async function passarVideoBpf(){
+  const vid=await bpfCarregarVideo();
+  if(!vid||!vid.arquivo_path){toast('O vídeo ainda não foi anexado no BPF (IT-POP04-03).','warning');return;}
+  try{
+    const {data,error}=await _supabase.storage.from('documentos').createSignedUrl(vid.arquivo_path,900);
+    if(error)throw error;
+    const ov=document.createElement('div');
+    ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:20000;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;padding:16px;';
+    ov.innerHTML=`<video src="${data.signedUrl}" controls autoplay playsinline style="max-width:min(960px,100%);max-height:78vh;border-radius:10px;background:#000;"></video>
+      <button class="btn btn-primary" style="min-height:46px;">✅ Terminou — fechar e marcar "assistiu"</button>`;
+    ov.querySelector('button').onclick=()=>{ov.remove();const c=document.getElementById('ch-video');if(c)c.checked=true;};
+    document.body.appendChild(ov);
+  }catch(e){toast('Não foi possível abrir o vídeo: '+(e.message||e),'danger');}
+}
+async function bpfRegistrarIntegracao(d){
+  const vid=await bpfCarregarVideo();
+  const agora=new Date().toISOString();const quem=(typeof quemSou==='function'?quemSou():null)||'Portaria';
+  const row={formulario_cod:'REG-POP04-02',pop_cod:'POP-04',data:agora.slice(0,10),hora:new Date().toTimeString().slice(0,5),
+    campos:{nome:d.nome,documento:d.cpf||'',empresa:d.transportadora||'',tipo:'Motorista',placa:d.placa||'',
+      video_assistido:'sim',video_versao:'rev. '+((vid&&vid.revisao)||'—'),hora_entrada:new Date().toTimeString().slice(0,5)},
+    status:'concluido',conforme:true,anexos:[],assinaturas:[],assinaturas_papel:{},origem_modulo:'portaria',origem_id:d.portariaId?String(d.portariaId):null,
+    preenchido_por:quem,lancado_por:quem,lancado_em:agora,concluido_em:agora,
+    foto_ficha:{digital:true,nome:'Lançado na Portaria (vídeo assistido na chegada)',em:agora,por:quem},criado_por:quem};
+  const {error}=await _supabase.from('bpf_registros').insert(row);
+  if(error)throw error;
 }
 function chModo(tem){
   _ch.tem=tem; if(!tem)_ch.ordemId=null;
@@ -1171,7 +1245,7 @@ function selecionarOrdemCh(id){
   renderOpcoesOrdem('ch');
   document.getElementById('ch-sug').innerHTML=`<div class="aviso ok">📄 Dados puxados da <b>ordem ${esc(o.numero)}</b>${m?` · motorista do cadastro (${m.visitas||0} visita(s))`:o.motorista?' · motorista novo — será cadastrado':''}.</div>`;
 }
-function aplicarMotorista(m,daOrdem){
+function aplicarMotorista(m,daOrdem){setTimeout(bpfConferirIntegracao,0);
   _ch.motId=m.id;
   const set=(k,val,forcar)=>{const e=document.getElementById(k);if(val&&(forcar||!e.value))e.value=val;};
   set('ch-motorista',m.nome,!daOrdem); set('ch-celular',m.celular,true); set('ch-cpf',m.cpf,true); set('ch-placa2',m.placa2);
@@ -1224,6 +1298,9 @@ async function salvarChegada(){
   if(dup)return erro(`A placa ${placa} já está na portaria (${ST[dup.status].t.toLowerCase()}, chegou ${hm(dup.hora_chegada)}).`);
   const o=_ch.tem?ordemPorId(_ch.ordemId):null;
   if(o){const outro=portDaOrdem(o); if(outro&&outro.id!==_ch.id)return erro(`A ordem ${o.numero} já está com o caminhão ${outro.placa}.`);}
+  const viuAgora=document.getElementById('ch-video').checked;
+  if(!v&&_bpfTrava&&_bpfInteg&&_bpfInteg!=='ok'&&!viuAgora)
+    return erro('BPF: motorista sem integração na versão atual do vídeo. Passe o vídeo (▶️) e marque "Assistiu" — trava SYS-021.');
   const btn=document.getElementById('ch-btn'); btn.disabled=true; err.classList.add('hidden');
   try{
     // cadastro do motorista (cria ou atualiza)
@@ -1252,6 +1329,8 @@ async function salvarChegada(){
     if(antiga&&(!o||antiga.id!==o.id))await _supabase.from('romaneios').update({portaria_id:null}).eq('id',antiga.id);
     if(o)await _supabase.from('romaneios').update({portaria_id:id}).eq('id',o.id);
     addLog(v?'UPDATE':'CREATE','PORTARIA',placa,`${v?'Editado':'Chegada'}: ${placa} ${nome}${o?' · ordem '+o.numero:' · sem ordem'}`);
+    if(viuAgora){ try{ await bpfRegistrarIntegracao({nome,cpf,transportadora:g('ch-transp'),placa,portariaId:id}); toast('BPF: integração do motorista registrada.','success'); }
+      catch(e){ toast('Chegada registrada, mas a integração BPF não foi gravada: '+(e.message||e),'warning'); } }
     toast(v?'Registro atualizado.':`Chegada registrada — ${placa} é o ${fila().length+1}º da fila.`,'success');
     closeModal('m-chegada'); await carregarTudo();
   }finally{btn.disabled=false;}
