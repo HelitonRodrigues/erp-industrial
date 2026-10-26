@@ -119,7 +119,7 @@
 .dlg-tt{font-size:14px;font-weight:800;color:var(--primary);}
 .dlg-bd{padding:15px 18px;font-size:12.5px;line-height:1.65;color:var(--text);}
 .dlg-ft{padding:11px 18px 15px;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;}
-.vw-box{width:100%;height:64vh;border:1.5px solid #e2e8f0;border-radius:10px;background:#f8fafc;}
+.vw-box{width:100%;height:74vh;border:1.5px solid #e2e8f0;border-radius:10px;background:#f8fafc;}
 .vw-box img{max-width:100%;max-height:100%;display:block;margin:0 auto;object-fit:contain;}
 
 .mob-tg{display:none;background:var(--primary);color:#fff;border:none;border-radius:8px;padding:8px 12px;font-size:12px;cursor:pointer;font-family:inherit;font-weight:700;}
@@ -978,9 +978,38 @@ function uiTexto(msg,{titulo='Informe',rotulo='',ok='Salvar',obrigatorio=true,li
 // Visualizador de anexo: imagem e PDF abrem aqui dentro; o resto oferece download.
 // bucket opcional: as fotos enviadas pelo cliente vivem em `publico-anexos`,
 // separado do `documentos` por segurança — lá o anon pode inserir, aqui não.
+// PDF desenhado com pdf.js dentro da janela: o visualizador nativo do navegador
+// (iframe) às vezes mostra só o botão "Abrir" — principalmente no celular.
+let _pdfjs=null;
+async function carregarPdfJs(){
+  if(_pdfjs)return _pdfjs;
+  await new Promise((ok,er)=>{const sc=document.createElement('script');
+    sc.src='https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js';sc.onload=ok;sc.onerror=er;document.head.appendChild(sc);});
+  window.pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+  _pdfjs=window.pdfjsLib;return _pdfjs;
+}
+// src: URL (string) ou bytes (Uint8Array). Desenha todas as páginas no elemento.
+async function renderPdfNo(el,src){
+  const lib=await carregarPdfJs();
+  let dados=src;
+  if(typeof src==='string'){const resp=await fetch(src);if(!resp.ok)throw new Error('HTTP '+resp.status);dados=new Uint8Array(await resp.arrayBuffer());}
+  const pdf=await lib.getDocument({data:dados}).promise;
+  el.innerHTML='';el.style.overflowY='auto';el.style.background='#e2e8f0';el.style.padding='10px';
+  const larg=Math.max(280,el.clientWidth-20);
+  for(let i=1;i<=pdf.numPages;i++){
+    const pg=await pdf.getPage(i);const v0=pg.getViewport({scale:1});
+    const esc_=larg/v0.width, dpr=window.devicePixelRatio||1;
+    const vp=pg.getViewport({scale:esc_*dpr});
+    const cv=document.createElement('canvas');cv.width=vp.width;cv.height=vp.height;
+    cv.style.width=(vp.width/dpr)+'px';cv.style.height=(vp.height/dpr)+'px';
+    cv.style.display='block';cv.style.margin='0 auto 10px';cv.style.background='#fff';cv.style.boxShadow='0 1px 4px rgba(0,0,0,.15)';
+    el.appendChild(cv);
+    await pg.render({canvasContext:cv.getContext('2d'),viewport:vp}).promise;
+  }
+}
 async function uiVisualizar(path,nome,bucket){
   const ext=String(nome||path).split('.').pop().toLowerCase();
-  _dlg(`<div class="dlg" style="max-width:920px;"><div class="dlg-hd"><span class="dlg-ic">📎</span>
+  _dlg(`<div class="dlg" style="max-width:1000px;width:96vw;"><div class="dlg-hd"><span class="dlg-ic">📎</span>
     <div class="dlg-tt">${esc(nome||path)}</div></div>
     <div class="dlg-bd" id="vw-bd"><span class="spin"></span> Abrindo…</div>
     <div class="dlg-ft" id="vw-ft"><button class="btn btn-secondary" onclick="_fecharDlg()">Fechar</button></div></div>`);
@@ -998,13 +1027,16 @@ async function uiVisualizar(path,nome,bucket){
   const bd=document.getElementById('vw-bd');
   if(['png','jpg','jpeg','webp','gif','avif','bmp'].includes(ext))
     bd.innerHTML=`<div class="vw-box" style="display:flex;align-items:center;justify-content:center;padding:8px;"><img src="${url}" alt="${esc(nome)}"></div>`;
-  else if(ext==='pdf')
-    bd.innerHTML=`<iframe class="vw-box" src="${url}" title="${esc(nome)}"></iframe>`;
+  else if(ext==='pdf'){
+    bd.innerHTML=`<div class="vw-box" id="vw-pdf"><span class="spin"></span> Abrindo PDF…</div>`;
+    try{ await renderPdfNo(document.getElementById('vw-pdf'),url); }
+    catch(e){ bd.innerHTML=`<iframe class="vw-box" src="${url}" title="${esc(nome)}"></iframe>`; }   // sem pdf.js: cai no visualizador do navegador
+  }
   else
     bd.innerHTML=`<div class="alerta al-info" style="margin:0;">Pré-visualização não disponível para <strong>.${esc(ext)}</strong>.
       Use o botão de download.</div>`;
   document.getElementById('vw-ft').insertAdjacentHTML('afterbegin',
-    `<a class="btn btn-primary" href="${url}" target="_blank" rel="noopener" download="${esc(nome||'')}">⬇️ Baixar</a>`);
+    `<button class="btn btn-primary" onclick="baixarArquivo('${esc(path)}','${esc(nome||'')}','${esc(bucket||'')}')">⬇️ Baixar</button>`);
 }
 
 // ── MENU RETRÁTIL ──────────────────────────────────────────────────────────
@@ -1292,6 +1324,12 @@ function abrirPop(cod){
   // O registro JÁ É o dado do ERP: as fichas nascem da OP/laboratório com os dados
   // preenchidos. Por isso o painel "Dados do ERP" saiu e o quadro vem primeiro.
   if(fs.length) h+=quadroRegsHtml(_regs.filter(r=>r.pop_cod===cod),'📝 Registros deste POP');
+  // Dados do ERP = a origem dos registros: cada linha mostra a ficha BPF que nasceu dela
+  if(ERP[cod]){
+    h+=`<div class="bx-card"><div class="bx-ttl">📡 Dados do ERP deste POP <span class="bx-mu">cada linha com a ficha BPF dela</span></div>
+      ${bannerEscopo()}
+      <div id="erp-out" style="margin-top:6px;"><span class="spin"></span> Carregando…</div></div>`;
+  }
   if(fs.length) h+=`<div class="sec-card" style="margin-top:0;"><h3>Formulários do POP (${fs.length})</h3>
     <div class="sub">Gerar ficha manual (quando não veio sozinha da OP), ficha em branco e o documento de cada formulário.</div></div>`;
   if(!fs.length)
@@ -1331,6 +1369,7 @@ function abrirPop(cod){
 
   h+=historicoHtml(p);
   document.getElementById('conteudo').innerHTML=h;
+  if(ERP[cod]) carregarERP(cod);
 }
 
 // Consulta resiliente + escopo aplicado AQUI, na camada de busca.
@@ -1366,11 +1405,11 @@ async function carregarERP(cod){
   const out=document.getElementById('erp-out');if(!out)return;
   const blocos=await Promise.all(paineis.map(async p=>{
     const chave=cod+'|'+p.t;
-    if(_erpCache[chave])return _erpCache[chave];
     let html;
     try{
-      const {data,semOrdem,cortadas}=await buscaERP(p);
-      html=tabelaERP(p,data||[],semOrdem,cortadas);
+      let res=_erpCache[chave];
+      if(!res||Date.now()-res.t>60000){res=await buscaERP(p);res.t=Date.now();_erpCache[chave]=res;}
+      html=tabelaERP(p,res.data||[],res.semOrdem,res.cortadas,cod);
     }catch(e){
       // Protocolo #7: falha aparece, não some — e diz o que fazer.
       const msg=String(e.message||e);
@@ -1381,11 +1420,16 @@ async function carregarERP(cod){
                    :`Não foi possível ler <code>${esc(p.tab)}</code>.`}
         <div style="font-size:11px;margin-top:4px;color:#92400e;">${esc(msg)}</div></div></div>`;
     }
-    _erpCache[chave]=html;return html;
+    return html;
   }));
   out.innerHTML=blocos.join('');
 }
-function tabelaERP(p,linhas,semOrdem,cortadas){
+// fichas BPF que nasceram desta linha do ERP (origem_id = id da linha)
+function fichasDaLinhaERP(cod,row){
+  if(!row||row.id===undefined||row.id===null)return [];
+  return _regs.filter(r=>r.pop_cod===cod&&!r.cancelado_em&&String(r.origem_id||'')===String(row.id));
+}
+function tabelaERP(p,linhas,semOrdem,cortadas,cod){
   if(!linhas.length)
     return `<div class="sec-card" style="margin-bottom:10px;"><h3>${esc(p.t)}</h3>
       <div class="sub" style="margin-top:5px;">${esc(p.vazio||'Nenhum registro encontrado em '+p.tab+'.')}
@@ -1401,7 +1445,7 @@ function tabelaERP(p,linhas,semOrdem,cortadas){
     ${semOrdem?`<div class="sub" style="color:#b45309;">Sem ordenação: a coluna <code>${esc(p.ord[0])}</code> não existe nesta tabela. Os dados são os mesmos.</div>`:''}
     ${cortadas?`<div class="sub">${cortadas} registro(s) fora do escopo do BPF foram ocultados (outra linha ou outro produto).</div>`:''}
     <div class="tbl-wrap" style="margin-top:9px;"><table class="tbl"><thead><tr>
-      ${cols.map(c=>`<th>${esc(DERIV[c]?DERIV[c].l:cap(c))}</th>`).join('')}<th style="width:120px;">Ação</th></tr></thead><tbody>
+      ${cols.map(c=>`<th>${esc(DERIV[c]?DERIV[c].l:cap(c))}</th>`).join('')}${cod?'<th>Ficha BPF</th>':''}<th style="width:90px;">Ação</th></tr></thead><tbody>
       ${linhas.slice(0,25).map(r=>`<tr>${cols.map(c=>{
         let v=DERIV[c]?DERIV[c].fn(r):r[c];
         if(v===null||v===undefined||v==='')return '<td style="color:#cbd5e1;">—</td>';
@@ -1409,7 +1453,10 @@ function tabelaERP(p,linhas,semOrdem,cortadas){
         if(typeof v==='object')return `<td style="color:#94a3b8;font-size:11px;">{…}</td>`;
         if(ehData(v))return `<td>${fmtD(v)}</td>`;
         return `<td>${esc(String(v).slice(0,60))}</td>`;
-      }).join('')}<td><button class="btn btn-ghost btn-sm" onclick="verLinhaERP('${esc(p.tab)}',${idx(r)})">👁️ ver</button></td></tr>`).join('')}
+      }).join('')}${cod?`<td style="white-space:nowrap;">${(()=>{const fl=fichasDaLinhaERP(cod,r);
+          if(!fl.length)return '<span class="bx-mu" style="font-size:11.5px;">—</span>';
+          return fl.slice(0,4).map(x=>{const e=ETAPAS_REG.find(k=>k.k===etapaReg(x))||{cor:'#94a3b8',t:''};
+            return `<button class="bx-ib" style="border-color:${e.cor};color:${e.cor};font-size:11.5px;" title="${esc(e.t)}" onclick="abrirReg('${x.id}')">${esc(String(x.numero||'').split('-').pop())} ${e.t.split(' ')[0]}</button>`;}).join('')+(fl.length>4?` +${fl.length-4}`:'');})()}</td>`:''}<td><button class="btn btn-ghost btn-sm" onclick="verLinhaERP('${esc(p.tab)}',${idx(r)})">👁️ ver</button></td></tr>`).join('')}
     </tbody></table></div>
     ${linhas.length>25?`<div class="sub" style="margin-top:6px;">Mostrando 25 de ${linhas.length}.</div>`:''}</div>`;
 }
@@ -3135,9 +3182,9 @@ function verArqDoc(id){
   const d=_docs.find(x=>x.id===id);if(!d||!d.arquivo_path)return;
   uiVisualizar(d.arquivo_path,`${d.codigo} rev. ${d.revisao||'—'} — ${d.titulo}.${String(d.arquivo_path).split('.').pop()}`);
 }
-async function baixarArquivo(path,nome){
+async function baixarArquivo(path,nome,bucket){
   try{
-    const {data,error}=await _supabase.storage.from('documentos').createSignedUrl(path,600,{download:nome||true});
+    const {data,error}=await _supabase.storage.from(bucket||'documentos').createSignedUrl(path,600,{download:nome||true});
     if(error)throw error;
     const a=document.createElement('a');a.href=data.signedUrl;a.download=nome||'';document.body.appendChild(a);a.click();a.remove();
   }catch(e){ await uiAlerta(`Não foi possível baixar.<br><span style="font-size:11px;">${esc(e.message||e)}</span>`,{titulo:'Erro',tipo:'dang'}); }
@@ -3281,6 +3328,12 @@ async function salvarNovaVersao(){
     const r=await db(_supabase.from('bpf_documentos_mestre').update(upd).eq('id',d.id),'publicar versão');
     if(r.error)throw r.error;
     await addLog('UPDATE','BPF',d.codigo,primeiro?'Arquivo anexado (rev. '+rev+')':'Revisão '+(d.revisao||'—')+' → '+rev+': '+alt);
+    // POP-12/002: documento mudou → nasce a ficha de distribuição/recolhimento das cópias antigas
+    if(!primeiro&&_forms.some(f=>f.codigo==='REG-POP12-02')){
+      try{ await gerarRegistro('REG-POP12-02',{abrir:false,pre:{documento:d.codigo+' — '+d.titulo,
+        revisao_entregue:rev,revisao_recolhida:d.revisao||'',obs:'Recolher todas as cópias da rev. '+(d.revisao||'—')+' (impressas e na linha). O que mudou: '+alt}}); }
+      catch(e){ console.warn('[POP-12]',e); }
+    }
     closeModal('m-ent');
     toast(primeiro?`Arquivo anexado a ${d.codigo}.`:`${d.codigo} agora está na revisão ${rev}. A anterior foi para o histórico.`,'success');
     await carregar();renderNav();
@@ -3310,7 +3363,7 @@ async function verDocumento(id){
     let corpo;
     if(['png','jpg','jpeg','webp','gif','avif','bmp'].includes(ext))
       corpo=`<div class="vw-box" style="display:flex;align-items:center;justify-content:center;padding:8px;"><img src="${src}" alt="${esc(a.nome)}"></div>`;
-    else if(ext==='pdf') corpo=`<iframe class="vw-box" src="${src}" title="${esc(a.nome)}"></iframe>`;
+    else if(ext==='pdf') corpo=`<div class="vw-box" id="vw-pdf64"><span class="spin"></span> Abrindo PDF…</div>`;
     else corpo=`<div class="alerta al-info" style="margin:0;">Pré-visualização não disponível para <strong>.${esc(ext)}</strong>.</div>`;
     _dlg(`<div class="dlg" style="max-width:920px;"><div class="dlg-hd"><span class="dlg-ic">📎</span>
       <div class="dlg-tt">${esc(a.nome)}</div></div>
@@ -3319,6 +3372,13 @@ async function verDocumento(id){
         não no Storage. Funciona, mas pesa no Postgres — ao reenviá-lo, ele passa a usar o Storage.</div></div>
       <div class="dlg-ft"><a class="btn btn-primary" href="${src}" download="${esc(a.nome)}">⬇️ Baixar</a>
       <button class="btn btn-secondary" onclick="_fecharDlg()">Fechar</button></div></div>`);
+    const alvo=document.getElementById('vw-pdf64');
+    if(alvo){
+      try{ const b64=String(a.conteudo_base64).replace(/^data:[^,]*,/,'');
+        const bin=atob(b64);const arr=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)arr[i]=bin.charCodeAt(i);
+        await renderPdfNo(alvo,arr); }
+      catch(e){ alvo.outerHTML=`<iframe class="vw-box" src="${src}" title="${esc(a.nome)}"></iframe>`; }
+    }
     return;
   }
   await uiAlerta(`O registro <strong>${esc(a.nome)}</strong> existe na lista, mas não tem arquivo associado
@@ -3544,15 +3604,31 @@ const GATILHO_FONTES={
   }},
   g_veiculo:{tab:'carregamentos',dias:30,async busca(){
     const l=await lst(_supabase.from('carregamentos').select('*').order('data',{ascending:false}).limit(120));
-    return l.map(c=>({ref:'CARR/'+c.id,id:c.id,quando:c.data,
+    // só caulim de nutrição animal (25 kg / Big Bag); carregamento sem itens entra (não dá para saber)
+    const ehEscopo=c=>{const t=JSON.stringify(c.itens||'');return !c.itens||t==='[]'||produtoNoEscopo(t);};
+    return l.filter(ehEscopo).map(c=>({ref:'CARR/'+c.id,id:c.id,quando:c.data,
       det:`Veículo ${c.placa||''} — ordem ${c.ordem_numero||c.id}`.trim(),
       pre:{placa:c.placa||'',motorista:c.motorista||'',transportadora:c.transportadora||'',ordem:c.ordem_numero||''}}));
   }},
+  // POP-07/001: toda manutenção da Linha 2 e Longa Vida, trazendo a OS
   g_manut:{tab:'manutencao',dias:30,async busca(){
-    const l=await lst(_supabase.from('manutencao').select('*').order('data_abertura',{ascending:false}).limit(120));
-    return l.map(m=>({ref:'MNT/'+m.id,id:m.id,quando:m.data_abertura||m.data,
-      det:`OS de manutenção — ${m.equipamento||''} ${m.tipo||''}`.trim(),
-      pre:{equipamento:m.equipamento||'',tipo:cap(m.tipo||'')}}));
+    const l=await lst(_supabase.from('manutencao').select('*').order('data_abertura',{ascending:false}).limit(200));
+    return l.filter(m=>m.linha&&linhaNoEscopo(m.linha)).map(m=>({ref:'MNT/'+m.id,id:m.id,quando:String(m.data_abertura||m.data||'').slice(0,10),
+      det:`OS ${m.numero||''} — ${m.linha} · ${m.equipamento||''} ${m.tipo||''}`.trim(),
+      pre:{os:m.numero?String(m.numero):'',linha:m.linha||'',equipamento:m.equipamento||'',tipo:cap(m.tipo||''),
+           servico:m.servico_realizado||m.solucao||m.descricao||'',pecas:typeof m.pecas_trocadas==='string'?m.pecas_trocadas:(typeof m.pecas==='string'?m.pecas:''),
+           horimetro:m.horimetro||null}}));
+  }},
+  // POP-07/002: instrumento sem calibração ou vencendo em 60 dias
+  g_calib:{tab:'bpf_instrumentos',async busca(){
+    return (_ent.instrumentos||[]).filter(i=>i.status!=='inativo').flatMap(i=>{
+      const u=(_ent.calibracoes||[]).filter(c=>c.instrumento_id===i.id).sort((x,y)=>String(y.validade).localeCompare(String(x.validade)))[0];
+      const d=u?diasAte(u.validade):null;
+      if(u&&d>60)return [];
+      return [{ref:'CAL/'+i.id+'/'+(u?.validade||'sem'),id:i.id,quando:hoje(),
+        det:`${i.tag} — ${i.nome}: ${u?(d<0?'calibração VENCIDA em '+fmtD(u.validade):'vence em '+d+' dia(s)'):'sem calibração registrada'}`,
+        pre:{instrumento_tag:i.tag,tipo:'calibracao',emp:i.emp??null,faixa:[i.faixa_min,i.faixa_max].some(v=>v!=null)?`${i.faixa_min??'—'} a ${i.faixa_max??'—'} ${i.unidade||''}`:''}}];
+    });
   }},
   g_lote_mp:{tab:'caulim_lotes_mp',dias:120,async busca(){
     const l=await lst(_supabase.from('caulim_lotes_mp').select('*').order('data',{ascending:false}).limit(120));
@@ -4028,7 +4104,7 @@ async function renderDossie(){
       <div style="margin-top:5px;">Ele cruza lote, matéria-prima, embalagem, carregamento e cliente —
       informação de todos os setores. Disponível para Qualidade, RT, Diretoria, Auditoria e gestão.</div></div>`;
     return;}
-  c.innerHTML=`<div class="alerta al-info">Busque por <strong>nota fiscal, cliente, placa, lote, QR, ordem ou nº de registro</strong>.
+  c.innerHTML=`<div class="alerta al-info">Busque por <strong>lote, produto, cliente, embalagem, OP, nota fiscal, placa ou nº de registro</strong>.
       Cada resposta tem o botão que abre a ficha assinada que a comprova.</div>
     <div class="sec-card" style="margin-top:12px;">
       <div class="dq-row">
@@ -4076,14 +4152,27 @@ async function htmlDossieBusca(){
       const l=await lst(_supabase.from(tab).select(sel).limit(400));
       l.forEach(r=>{const m=map(r); if(m&&bate(...m.busca)&&dentro(m.data)) hits.push(m.hit);});
     }catch(e){/* tabela ainda sem uso — silencioso aqui, aparece no painel do POP */} };
+  // lotes de produção = itens das OPs (é onde o lote existe de verdade)
+  try{
+    const ops=await lst(_supabase.from('producao').select('id,op_numero,data,linha,produtos_op,lote_mp').order('data',{ascending:false}).limit(600));
+    const vistos=new Set();
+    ops.filter(noEscopo).forEach(op=>itensDaOP(op).forEach(it=>{
+      if(!it.lote||vistos.has(it.lote))return;
+      if(!(bate(it.lote,it.produto,op.op_numero,op.lote_mp)&&dentro(op.data)))return;
+      vistos.add(it.lote);
+      hits.push({t:'Lote de produção',lb:`${it.lote} · ${it.produto||''}`,
+        sub:`OP ${op.op_numero||''} · ${op.linha||''} · ${fmtD(op.data)} · ${it.total_sacos||it.sacos_pallets||0} un.`,
+        btn:`<button class="btn btn-primary btn-sm" onclick="verLoteDossie('${esc(it.lote)}')">ver dossiê</button>`});
+    }));
+  }catch(e){}
   await Promise.all([
-    tenta('carregamentos','*',r=>({busca:[r.ordem_numero,r.placa,r.motorista,r.transportadora],data:r.data,
+    tenta('carregamentos','*',r=>({busca:[r.ordem_numero,r.placa,r.motorista,r.transportadora,JSON.stringify(r.itens||'')],data:r.data,
       hit:{t:'Carregamento',lb:`Ordem ${r.ordem_numero||r.id} · ${r.placa||''}`,
         sub:`${fmtD(r.data)} · ${r.motorista||''} · ${r.total_pallets||0} pallets`,btn:''}})),
-    tenta('producao_pallets','*',r=>({busca:[r.codigo,r.cliente_dest,r.produto,r.romaneio_numero,r.ordem_numero],data:r.data,
+    tenta('producao_pallets','*',r=>({busca:[r.codigo,r.cliente_dest,r.produto,r.romaneio_numero,r.ordem_numero,r.embalagem_tipo],data:r.data,
       hit:{t:'Pallet / unidade',lb:r.codigo||r.id,
-        sub:`${r.produto||''} · ${fmtD(r.data)} · ${r.estoque_status||r.status||''}${r.cliente_dest?' · '+r.cliente_dest:''}`,
-        btn:`<button class="btn btn-ghost btn-sm" onclick="verLoteDossie('${esc(r.codigo||'')}')">ver dossiê</button>`}})),
+        sub:`${r.produto||''} · ${fmtD(r.data)} · ${r.estoque_status||r.status||''}${r.cliente_dest?' · cliente '+r.cliente_dest:''}${r.embalagem_tipo?' · '+r.embalagem_tipo:''}`,
+        btn:r.lancamento_id?`<button class="btn btn-ghost btn-sm" onclick="verLoteDossie('OP:${esc(r.lancamento_id)}|${esc(r.produto||'')}')">ver dossiê do lote</button>`:''}})),
     tenta('caulim_lotes_producao','*',r=>({busca:[r.numero],data:(r.data_abertura||'').slice(0,10),
       hit:{t:'Lote de produção',lb:r.numero||r.id,sub:`${r.status||''} · aberto ${fmtD(r.data_abertura)}`,
         btn:`<button class="btn btn-secondary btn-sm" onclick="verLoteDossie('${esc(r.numero||'')}')">ver dossiê</button>`}})),
@@ -4104,8 +4193,25 @@ async function htmlDossieBusca(){
         <div class="tk-mt"><span class="badge badge-gray">${esc(h.t)}</span><span>${esc(h.sub)}</span></div></div>
       <div class="tk-ac">${h.btn}</div></div>`).join('');
 }
-async function htmlDossieLote(lote){
-  const regsDo=t=>_regs.filter(r=>!r.cancelado_em&&Object.values(r.campos||{}).some(v=>String(v||'')===lote)&&
+async function htmlDossieLote(chave){
+  // chave "OP:<id>|<produto>" (veio de um pallet) → acha o lote do item da OP
+  let lote=chave, op=null, item=null;
+  try{
+    if(String(chave).startsWith('OP:')){
+      const [idp,prod]=String(chave).slice(3).split('|');
+      op=(await lst(_supabase.from('producao').select('*').eq('id',idp).limit(1)))[0]||null;
+      item=op?(itensDaOP(op).find(i=>_normP(i.produto)===_normP(prod))||itensDaOP(op)[0]):null;
+      lote=item?.lote||chave;
+    }else{
+      const ops=await lst(_supabase.from('producao').select('*').order('data',{ascending:false}).limit(800));
+      for(const o of ops){const it=itensDaOP(o).find(i=>String(i.lote||'')===String(lote));if(it){op=o;item=it;break;}}
+    }
+  }catch(e){}
+  return htmlDossieLoteBase(lote,op,item);
+}
+async function htmlDossieLoteBase(lote,op,item){
+  const regsDo=t=>_regs.filter(r=>!r.cancelado_em&&(Object.values(r.campos||{}).some(v=>String(v||'')===lote||String(v||'').split(' · ').includes(lote))
+      ||(op&&(String(r.origem_id||'')===String(op.id)||(op.op_numero&&String((r.campos||{}).op||'')===String(op.op_numero)))))&&
     (!t||r.formulario_cod===t));
   const btn=r=>r?`<button class="btn btn-secondary btn-sm" onclick="verRegistro('${r.id}')">📄 ${esc(r.numero)}</button>`
     :'<span class="badge badge-danger">sem registro</span>';
@@ -4114,7 +4220,12 @@ async function htmlDossieLote(lote){
   try{ lp=(await lst(_supabase.from('caulim_lotes_producao').select('*').eq('numero',lote).limit(1)))[0]; }catch(e){}
   try{ if(lp?.lote_mp_id) lmp=(await lst(_supabase.from('caulim_lotes_mp').select('*').eq('id',lp.lote_mp_id).limit(1)))[0]; }catch(e){}
   try{ if(lp) uni=await lst(_supabase.from('caulim_unidades').select('*').eq('lote_producao_id',lp.id).limit(500)); }catch(e){}
-  try{ pal=await lst(_supabase.from('producao_pallets').select('*').or(`codigo.eq.${lote},romaneio_numero.eq.${lote}`).limit(300)); }catch(e){}
+  try{ pal=op?await lst(_supabase.from('producao_pallets').select('*').eq('lancamento_id',op.id).limit(500))
+                :await lst(_supabase.from('producao_pallets').select('*').or(`codigo.eq.${lote},romaneio_numero.eq.${lote}`).limit(300));
+       if(op&&item)pal=pal.filter(p=>!p.produto||_normP(p.produto)===_normP(item.produto)||itensDaOP(op).length===1); }catch(e){}
+  let labs=[],labPal=[];
+  try{ if(op){ labs=(await lst(_supabase.from('laboratorio').select('*').eq('data',op.data).eq('linha',op.linha))).filter(x=>!item||_normP(x.produto)===_normP(item.produto));
+                labPal=await lst(_supabase.from('lab_pallet_analises').select('resultado,produto,pallet_numero,data,assinatura_nome').eq('lancamento_id',op.id).limit(300)); } }catch(e){}
   try{ car=await lst(_supabase.from('carregamentos').select('*').order('data',{ascending:false}).limit(200)); }catch(e){}
   const qa=(n,perg,resp,acao)=>`<div class="qa"><div class="qa-q"><span class="qa-n">${n}</span>${perg}
     <span style="flex:1;"></span>${acao||''}</div><div class="qa-a">${resp}</div></div>`;
@@ -4123,9 +4234,30 @@ async function htmlDossieLote(lote){
   const nomeAss=r=>(r?.assinaturas||[]).map(a=>`${esc(a.nome)} (${esc(a.label)})`).join(' · ')||'—';
   let h=`<div class="sec-card" style="margin-top:12px;">
     <h3>Dossiê do lote ${esc(lote)}</h3>
-    <div class="sub">${lp?`${esc(lp.status||'')} · aberto ${fmtD(lp.data_abertura)}${lp.data_fechamento?' · fechado '+fmtD(lp.data_fechamento):''}`
-      :'Lote não encontrado em caulim_lotes_producao — mostrando o que existe nos registros do BPF.'}</div>
-    <div style="margin-top:8px;"><button class="btn btn-ghost btn-sm" onclick="_dqLote=null;pintarDossie()">← voltar à busca</button></div></div>`;
+    <div class="sub">${op?`OP <strong>${esc(op.op_numero||'')}</strong> · ${esc(op.linha||'')} · turno ${esc(op.turno||'—')} · ${fmtD(op.data)} · encarregado ${esc(op.encarregado||'—')}`
+      :lp?`${esc(lp.status||'')} · aberto ${fmtD(lp.data_abertura)}`:'Lote não encontrado nas OPs — mostrando o que existe nos registros do BPF.'}</div>
+    <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;" class="no-print">
+      <button class="btn btn-ghost btn-sm" onclick="_dqLote=null;pintarDossie()">← voltar à busca</button>
+      <button class="btn btn-secondary btn-sm" onclick="imprimirDossie()">🖨️ Imprimir dossiê</button>
+      ${_forms.some(f=>f.codigo==='REG-POP10-01')?`<button class="btn btn-secondary btn-sm" onclick="gerarRastreabilidade('${esc(lote)}')">📋 Gerar REG-POP10-01 (rastreabilidade)</button>`:''}</div></div>`;
+  if(op){
+    h+=qa(0,'A ordem de produção deste lote',
+      `<div class="dl-g"><b>OP</b><span>${esc(op.op_numero||'—')}</span>
+        <b>Produto</b><span>${esc(item?.produto||produtosDaOP(op))}</span>
+        <b>Quantidade</b><span>${esc(item?.total_sacos||item?.sacos_pallets||'—')} un.</span>
+        <b>Lote de MP</b><span>${esc(op.lote_mp||'—')}</span>
+        <b>Validade</b><span>${fmtD(item?.validade)}</span>
+        <b>Linha / turno</b><span>${esc(op.linha||'—')} · ${esc(op.turno||'—')}</span>
+        <b>Encarregado</b><span>${esc(op.encarregado||'—')}</span></div>`);
+    h+=qa('0b','O laboratório — análise da linha e dos pallets',
+      (labs.length||labPal.length)?`${labs.length?`<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Hora</th><th>Status da linha</th><th>Umidade</th><th>#20</th><th>#50</th><th>#100</th><th>#200</th><th>Analista</th></tr></thead><tbody>
+        ${labs.map(x=>{const pz=x.peneiramento||{};return `<tr><td>${esc(String(x.hora||'').slice(0,5))}</td><td><b>${esc(x.status||'')}</b></td><td>${esc(x.umidade??'—')}</td>
+          <td>${esc(pz.p20??'—')}</td><td>${esc(pz.p50??'—')}</td><td>${esc(pz.p100??'—')}</td><td>${esc(pz.p200??'—')}</td><td>${esc(x.responsavel_analise||x.responsavel||'—')}</td></tr>`;}).join('')}</tbody></table></div>`:''}
+        ${labPal.length?`<div class="dl-g" style="margin-top:8px;"><b>Pallets analisados</b><span>${labPal.length}</span>
+          <b>Aprovados</b><span>${labPal.filter(x=>/aprov/i.test(x.resultado||'')).length}</span>
+          <b>Reprovados</b><span>${labPal.filter(x=>/reprov/i.test(x.resultado||'')).length}</span></div>`:''}`
+      :'<div class="alerta al-info">Sem análise do laboratório para esta OP.</div>');
+  }
   h+=qa(1,'A embalagem usada neste lote — quando chegou e em que condição?',
     rEmb?`<div class="dl-g"><b>Fornecedor</b><span>${esc(rEmb.campos.fornecedor||'—')}</span>
       <b>Nota fiscal</b><span>${esc(rEmb.campos.nota_fiscal||'—')}</span>
@@ -4190,9 +4322,40 @@ async function htmlDossieLote(lote){
       <div class="aj" style="margin-top:6px;">As colunas que faltavam: quem verificou, quem aprovou e quando.</div>`
     :'<div class="alerta al-warn">Nenhum registro de limpeza (REG-POP03-01) no período.</div>');
   const todos=regsDo();
-  h+=qa(7,'Todos os registros ligados a este lote',
-    todos.length?tabelaRegs(todos):'<div class="alerta al-info">Nenhum registro cita este lote.</div>');
+  const popTit=c=>(_docs.find(d=>d.codigo===c)||{}).titulo||'';
+  h+=qa(7,'Todos os registros BPF ligados a este lote',
+    todos.length?`<div class="tbl-wrap"><table class="tbl"><thead><tr><th>POP</th><th>Registro</th><th>Nº</th><th>Data</th><th>Situação</th><th>Preenchido / lançado</th><th>Assinaturas</th><th></th></tr></thead><tbody>
+      ${todos.sort((a,b)=>String(a.pop_cod).localeCompare(String(b.pop_cod))).map(r=>{const f=_forms.find(x=>x.codigo===r.formulario_cod);
+        return `<tr><td><b>${esc(r.pop_cod)}</b><div class="bx-mu" style="font-size:11px;">${esc(popTit(r.pop_cod))}</div></td>
+          <td><b>${esc(r.formulario_cod)}</b><div class="bx-mu" style="font-size:11px;">${esc(f?.titulo||'')}</div></td>
+          <td class="num">${esc(r.numero||'')}</td><td>${fmtD(r.data)}</td><td>${badgeEtapa(r)}</td>
+          <td style="font-size:11.5px;">${esc(r.preenchido_por||'—')} / ${esc(r.lancado_por||'—')}</td>
+          <td style="font-size:11.5px;">${nomeAss(r)}</td>
+          <td class="no-print"><button class="btn btn-ghost btn-sm" onclick="abrirReg('${r.id}')">abrir</button></td></tr>`;}).join('')}
+      </tbody></table></div>`:'<div class="alerta al-info">Nenhum registro cita este lote.</div>');
   return h;
+}
+function imprimirDossie(){
+  const out=document.getElementById('dq-out');if(!out)return;
+  document.getElementById('print-area').innerHTML=`<div style="font-family:'Plus Jakarta Sans',sans-serif;">
+    <div style="border-bottom:2.5px solid #042D4D;padding-bottom:8px;margin-bottom:10px;"><b style="font-size:15px;color:#042D4D;">SILICATE — DOSSIÊ DE AUDITORIA</b>
+    <div style="font-size:10.5px;color:#64748b;">Gerado em ${new Date().toLocaleString('pt-BR')}</div></div>${out.innerHTML}</div>`;
+  document.querySelectorAll('#print-area .no-print,#print-area button').forEach(e=>e.remove());
+  window.print();
+}
+// POP-10/001 é do "tipo dossiê": gera o registro de rastreabilidade já preenchido com o que o dossiê achou
+async function gerarRastreabilidade(lote){
+  let op=null,item=null,pal=[];
+  try{ const ops=await lst(_supabase.from('producao').select('*').order('data',{ascending:false}).limit(800));
+    for(const o of ops){const it=itensDaOP(o).find(i=>String(i.lote||'')===String(lote));if(it){op=o;item=it;break;}}
+    if(op)pal=await lst(_supabase.from('producao_pallets').select('cliente_dest,romaneio_numero,ordem_numero').eq('lancamento_id',op.id).limit(500)); }catch(e){}
+  const clientes=[...new Set(pal.map(p=>p.cliente_dest).filter(Boolean))];
+  const romaneios=[...new Set(pal.map(p=>p.romaneio_numero||p.ordem_numero).filter(Boolean))];
+  const reg=await gerarRegistro('REG-POP10-01',{abrir:true,origemMod:'producao',origemId:op?String(op.id):null,
+    pre:{lote_producao:lote,lote_mp:op?.lote_mp||'',unidades:pal.length||null,
+      notas_fiscais:[clientes.length?'Clientes: '+clientes.join(', '):'',romaneios.length?'Romaneios/ordens: '+romaneios.join(', '):''].filter(Boolean).join('\n'),
+      obs:op?`OP ${op.op_numero||''} · ${op.linha||''} · ${fmtD(op.data)} · ${item?.produto||''}`:''}});
+  return reg;
 }
 
 init();
