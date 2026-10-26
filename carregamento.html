@@ -3485,7 +3485,29 @@ function refletirDevolucaoLocal(palletId){
   const p=_pallets.find(x=>x.id===palletId);
   if(p)Object.assign(p,CAMPOS_PALLET_LIVRE);
 }
+// BPF · POP-21 (trava "veiculo_reprovado", SYS-034): veículo reprovado na
+// inspeção (REG-POP21-01) não carrega até regularizar. Só age se a trava estiver
+// ligada em BPF → Travas. Uma inspeção aprovada mais nova libera.
+async function bpfVeiculoReprovado(placa){
+  if(!placa) return null;
+  try{
+    const {data:tv}=await _supabase.from('bpf_travas').select('ativa').eq('codigo','veiculo_reprovado').maybeSingle();
+    if(!tv||!tv.ativa) return null;
+    const desde=new Date(Date.now()-3*864e5).toISOString().slice(0,10);
+    const {data}=await _supabase.from('bpf_registros').select('numero,data,campos,cancelado_em,created_at')
+      .eq('formulario_cod','REG-POP21-01').gte('data',desde).order('created_at',{ascending:false}).limit(50);
+    const norm=x=>String(x||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
+    const doVeic=(data||[]).filter(r=>!r.cancelado_em&&norm((r.campos||{}).placa)===norm(placa)&&(r.campos||{}).resultado);
+    const ult=doVeic[0];
+    return ult&&/reprov/i.test(String(ult.campos.resultado))?ult:null;
+  }catch(e){ return null; }   // BPF fora do ar não para a expedição
+}
 async function salvarCarregamento(){
+  const rep=await bpfVeiculoReprovado(_carrOrdem&&_carrOrdem.placa);
+  if(rep){
+    toast(`🚫 BPF: veículo ${_carrOrdem.placa} REPROVADO na inspeção (${rep.numero}). Carregamento bloqueado até regularizar e registrar nova inspeção aprovada.`,'danger');
+    return;
+  }
   /* Conferência: saco compara saco, granel compara tonelada. Passar do pedido
      NÃO é incompleto — a balança do caminhão quase nunca fecha no pedido, e o
      excesso fica registrado na carga em vez de virar impedimento. */

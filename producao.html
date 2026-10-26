@@ -2223,6 +2223,40 @@ async function visualizarLanc(id){
     ${l.obs?`<div style="margin-top:10px;padding:10px;background:#f8fafc;border-radius:8px;font-size:12px;color:#64748b;"><strong>Obs:</strong> ${l.obs}</div>`:''}`;
   document.getElementById('vlanc-pdf-btn').onclick=()=>pdfLanc(id);
   document.getElementById('modal-view-lanc').classList.remove('hidden');
+  bpfDaOP(l);   // seção do BPF (fichas da OP + rótulo vigente) carrega em seguida
+}
+
+// ── BPF dentro da OP ─────────────────────────────────────────────────────
+// Fichas BPF que nasceram desta OP (POP-13/14/18) e a versão do rótulo aprovada
+// pelo RT para cada produto (POP-15/003 — "levar a atualização para a OP").
+// Só leitura aqui; preencher/assinar é no BPF. Linha 2 e Longa Vida apenas.
+async function bpfDaOP(l){
+  const box=document.getElementById('vlanc-body');if(!box||!l)return;
+  if(!['Linha 2','Longa Vida'].includes(l.linha))return;
+  const sec=document.createElement('div');
+  sec.innerHTML=`<p style="font-size:11px;color:#94a3b8;font-weight:700;text-transform:uppercase;margin:14px 0 8px;">✅ BPF desta OP</p><div id="vlanc-bpf" style="font-size:12px;color:#94a3b8;">Carregando…</div>`;
+  box.appendChild(sec);
+  const alvo=sec.querySelector('#vlanc-bpf');
+  try{
+    const [{data:regs},{data:rots}]=await Promise.all([
+      _supabase.from('bpf_registros').select('id,numero,formulario_cod,status,lancado_em,foto_ficha,campos,cancelado_em').eq('origem_id',String(l.id)),
+      _supabase.from('bpf_registros').select('numero,data,status,campos,concluido_em').eq('formulario_cod','REG-POP15-03').is('cancelado_em',null).order('data',{ascending:false}).limit(200)
+    ]);
+    const norm=x=>String(x||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]/g,'');
+    const etapa=r=>r.cancelado_em?['#94a3b8','cancelada']:r.status==='concluido'?['#16a34a','concluída']:!r.lancado_em?['#2563eb','a preencher / digitar']:!r.foto_ficha?['#f59e0b','falta foto']:['#7c3aed','assinaturas'];
+    const fichas=(regs||[]).filter(r=>!r.cancelado_em);
+    const prods=Array.isArray(l.produtos_op)?l.produtos_op.map(x=>x&&x.produto).filter(Boolean):[l.produto].filter(Boolean);
+    const rotulo=p=>(rots||[]).find(r=>norm((r.campos||{}).produto)&&(norm(p).includes(norm(r.campos.produto))||norm(r.campos.produto).includes(norm(p))));
+    alvo.innerHTML=`
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;">
+        ${fichas.length?fichas.map(r=>{const e=etapa(r);return `<span style="border:1.5px solid ${e[0]};color:${e[0]};border-radius:8px;padding:3px 8px;font-weight:700;">${r.formulario_cod.replace('REG-','')} · ${e[1]}</span>`;}).join('')
+          :'<span>As fichas aparecem quando alguém abre o módulo BPF (geração automática).</span>'}
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+        <a class="btn btn-secondary btn-sm" href="bpf.html?imprimirOP=${encodeURIComponent(l.id)}" target="_blank" rel="noopener">🖨️ Imprimir fichas BPF desta OP</a>
+      </div>
+      ${prods.map(p=>{const r=rotulo(p);return `<div style="color:#475569;">🏷️ <b>${p}</b>: ${r?`rótulo versão <b>${(r.campos||{}).versao||'—'}</b> aprovado pelo RT (${r.numero})${r.status!=='concluido'?' — <span style="color:#b45309;font-weight:700;">aprovação ainda não concluída</span>':''}`:'<span style="color:#b45309;font-weight:700;">sem aprovação de rótulo do RT registrada</span>'}</div>`;}).join('')}`;
+  }catch(e){ alvo.textContent='Não foi possível ler o BPF: '+(e.message||e); }
 }
 
 async function pdfLanc(id){
