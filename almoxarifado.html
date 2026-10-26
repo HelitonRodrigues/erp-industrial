@@ -1229,7 +1229,7 @@ function renderInsumos(){ /* aba removida */ }
    4 botões empilhados que desalinhavam a linha. */
 function abrirAcoesProduto(id){
   const i=_itens.find(x=>x.id===id); if(!i) return;
-  const inativo = i.ativo===false;
+  const inativo = isItemInativo(i);   // era i.ativo===false — coluna que não existe; o toggle grava em status
   document.getElementById('acoes-titulo').textContent=i.nome||'Ações';
   const item=(icone,texto,acao,perm,cor)=>`
     <button class="btn ${cor||'btn-secondary'}" ${perm?`data-perm="${perm}"`:''} style="justify-content:flex-start;text-align:left;gap:8px;display:flex;align-items:center;padding:10px 12px;"
@@ -2150,7 +2150,6 @@ async function salvarSaida(){
       }
       await db(_supabase.from('almoxarifado').update({estoque_atual:Math.max(0,(item?.estoque_atual||0)-p.qtd),atualizado_em:new Date().toISOString()}).eq('id',p.itemId),'baixar estoque (saída)');
       // se esta saída foi lançada como perda, avisa quando o valor for relevante
-      if((document.getElementById('sai-tipo')?.value||'saida')==='perda'){ await _registrarAlertaPerda(p.itemId,p.qtd,document.getElementById('sai-obs')?.value||''); }
     }
     if(vincManut)toast('🔧 Saída vinculada à manutenção — pendente de validação pelo gestor.','info');
     await recarregarMovimentos();await recarregarItens();
@@ -4160,59 +4159,7 @@ function visualizarSolicitacao(id){
   document.getElementById('m-vis-sol').classList.remove('hidden');
 }
 
-function renderSolicitacoes(){
-  const stF=document.getElementById('sol-f-status')?.value||'',priorF=document.getElementById('sol-f-prior')?.value||'';
-  const lista=_solicitacoes.filter(s=>(!stF||s.status===stF)&&(!priorF||s.prioridade===priorF));
-  const grid=document.getElementById('sol-grid'),empty=document.getElementById('sol-empty');
-  if(!grid)return;
-  if(!lista.length){grid.innerHTML='';empty.classList.remove('hidden');return;}
-  empty.classList.add('hidden');
-  const stCfg={pendente:{cls:'sb-pend',txt:'⏳ Pendente'},cotacao:{cls:'sb-cot',txt:'💬 Em Cotação'},comprado:{cls:'sb-comprado',txt:'✅ Aprovado'},em_recebimento:{cls:'sb-receb',txt:'📦 Em Recebimento'},concluido:{cls:'sb-concl',txt:'🎉 Concluído'},cancelado:{cls:'sb-zero',txt:'❌ Cancelado'}};
-  const prCfg={urgente:{cor:'#dc2626',txt:'🔴 Urgente'},alta:{cor:'#ea580c',txt:'🟠 Alta'},normal:{cor:'#b45309',txt:'🟡 Normal'},baixa:{cor:'#16a34a',txt:'🟢 Baixa'}};
-  const nextStatus={pendente:'cotacao',cotacao:'comprado',comprado:'em_recebimento',em_recebimento:'concluido'};
-  const nextLabel={
-    pendente:'💬 Cotar',
-    cotacao:'✅ Aprovar Compra',
-    comprado:'📦 Registrar Compra',
-    em_recebimento:'🎉 Confirmar Recebimento'
-  };
-  grid.innerHTML=lista.map(sol=>{
-    const st=stCfg[sol.status]||{cls:'sb-pend',txt:sol.status};
-    const pr=prCfg[sol.prioridade]||{cor:'#64748b',txt:sol.prioridade||'—'};
-    const prods=Array.isArray(sol.produtos)?sol.produtos:JSON.parse(sol.produtos||'[]');
-    const cc=_centrosCusto.find(c=>c.id===sol.centro_custo_id)?.nome||'';
-    return`<div style="background:#fff;border:1.5px solid #e2e8f0;border-radius:12px;padding:16px;">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;margin-bottom:10px;">
-        <div>
-          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:4px;">
-            <span class="sb ${st.cls}">${st.txt}</span>
-            ${sol.numero?`<span style="font-size:11px;font-family:monospace;font-weight:700;color:#475569;background:#f1f5f9;padding:2px 7px;border-radius:5px;">#${sol.numero}</span>`:''}
-            <span style="font-size:11px;font-weight:700;color:${pr.cor};">${pr.txt}</span>
-            <span style="font-size:11px;color:#94a3b8;">📅 ${sol.data||'—'}</span>
-            ${cc?`<span style="font-size:11px;color:#64748b;background:#f1f5f9;padding:2px 6px;border-radius:4px;">💼 ${cc}</span>`:''}
-          </div>
-          <div style="font-size:13px;"><strong>Solicitante:</strong> ${sol.solicitante||'—'}${sol.natureza_nome?` · <span style="color:#64748b;">${sol.natureza_nome}</span>`:''}</div>
-          ${sol.fornecedor_sugerido?`<div style="font-size:12px;color:#64748b;">🏢 ${sol.fornecedor_sugerido}</div>`:''}
-        </div>
-        <div style="display:flex;gap:5px;flex-wrap:wrap;">
-          <button class="btn btn-secondary btn-sm" data-perm="almoxarifado.solicitacoes:view" onclick="visualizarSolicitacao('${sol.id}')">👁️</button>
-          <button class="btn btn-secondary btn-sm" data-perm="almoxarifado.solicitacoes:imprimir" onclick="imprimirSolicitacao('${sol.id}')" title="Imprimir PDF">🖨️</button>
-          ${sol.status==='cotacao'?`<button class="btn btn-secondary btn-sm" style="font-size:11px;" data-perm="almoxarifado.solicitacoes:edit" onclick="atualizarStatusSol('${sol.id}','cotacao')">✏️ Editar Cotação</button>`:''}
-          ${nextStatus[sol.status]?`<button class="btn btn-primary btn-sm" style="font-size:11px;" data-perm="almoxarifado.solicitacoes:edit" onclick="atualizarStatusSol('${sol.id}','${nextStatus[sol.status]}')">${nextLabel[sol.status]}</button>`:''}
-          ${sol.status!=='concluido'?`<button class="btn btn-secondary btn-sm" data-perm="almoxarifado.solicitacoes:edit" onclick="abrirSolicitacao('${sol.id}')">✏️</button>`:''}
-          <button class="btn btn-danger btn-sm" data-perm="almoxarifado.solicitacoes:delete" onclick="confirmarDelSol('${sol.id}')">🗑️</button>
-        </div>
-      </div>
-      <div style="border-top:1px solid #f1f5f9;padding-top:10px;">
-        <div style="font-size:11px;color:#94a3b8;margin-bottom:6px;">${prods.length} produto(s)</div>
-        <div style="display:flex;flex-wrap:wrap;gap:4px;">
-          ${prods.slice(0,4).map(p=>`<span style="font-size:11px;background:#f1f5f9;padding:3px 8px;border-radius:6px;">${p.nome_item||nomeItem(p.item_id)} <strong>${p.quantidade}</strong></span>`).join('')}
-          ${prods.length>4?`<span style="font-size:11px;color:#94a3b8;">+${prods.length-4} mais</span>`:''}
-        </div>
-      </div>
-    </div>`;
-  }).join('');
-}
+function renderSolicitacoes(){ /* lista de solicitações fica no solicitacoes.html; aqui só atualiza os cartões */ }
 
 function confirmarDelSol(id){
   document.getElementById('confirm-msg').innerHTML='Excluir esta solicitação de compras?';
@@ -4226,31 +4173,7 @@ function confirmarDelSol(id){
 }
 
 /* ═══ FORNECEDORES ══════════════════════════════════════ */
-function renderFornecedores(){
-  const grid=document.getElementById('forn-grid'),empty=document.getElementById('forn-empty');
-  if(!grid)return;
-  if(!_fornecedores.length){grid.innerHTML='';empty.classList.remove('hidden');return;}
-  empty.classList.add('hidden');
-  grid.innerHTML=_fornecedores.map(f=>`
-    <div style="background:#fff;border:1.5px solid #e2e8f0;border-radius:12px;padding:16px;">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
-        <div>
-          <div style="font-size:15px;font-weight:800;color:var(--primary);">${f.nome_fantasia||f.razao_social}</div>
-          ${f.razao_social&&f.razao_social!==f.nome_fantasia?`<div style="font-size:11px;color:#64748b;">${f.razao_social}</div>`:''}
-        </div>
-        <div style="display:flex;gap:6px;">
-          <button class="btn btn-secondary btn-sm" data-perm="almoxarifado.fornecedores:edit" onclick="editarFornecedor('${f.id}')">✏️</button>
-          <button class="btn btn-danger btn-sm" data-perm="almoxarifado.fornecedores:delete" onclick="confirmarDelForn('${f.id}','${(f.nome_fantasia||f.razao_social||'').replace(/'/g,"\\'")}')">🗑️</button>
-        </div>
-      </div>
-      ${f.cnpj?`<div style="font-size:12px;color:#64748b;">📋 CNPJ: ${f.cnpj}</div>`:''}
-      ${f.fone?`<div style="font-size:12px;color:#64748b;">📱 ${f.fone}</div>`:''}
-      ${f.email?`<div style="font-size:12px;color:#64748b;">✉️ ${f.email}</div>`:''}
-      ${f.contato?`<div style="font-size:12px;color:#64748b;">👤 ${f.contato}</div>`:''}
-      ${f.categoria?`<div style="margin-top:6px;"><span class="sb" style="background:#f1f5f9;color:#475569;">${f.categoria}</span></div>`:''}
-      ${f.pgto?`<div style="font-size:11px;color:#94a3b8;margin-top:4px;">💳 ${f.pgto}</div>`:''}
-    </div>`).join('');
-}
+function renderFornecedores(){ /* cadastro de fornecedores fica no módulo próprio */ }
 
 function abrirCadFornecedor(id){
   _editFornId=id||null;
