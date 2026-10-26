@@ -6862,9 +6862,46 @@ async function salvarLoteMP(){
     _caulimLotesMP.unshift(nd);
     await addLog('CREATE','CAULIM_LOTE_MP',nd.id,numero);
     closeModal('modal-lote-mp'); toast('Lote de MP '+numero+' registrado.','success'); renderCaulimMP();
+    await registrarBpfLoteMP(nd,typeof codigoVariacaoSel==='function'?codigoVariacaoSel():null);
   }catch(e){
     if(btn){btn.disabled=false;btn.innerHTML='💾 Salvar Lote de MP';}
     toast('Erro: '+e.message,'danger');
+  }
+}
+// ── BPF · POP-02 ─────────────────────────────────────────────────────────
+// O lote de MP já nasce como registro REG-POP02-01 no BPF: lançado e assinado
+// (Executante) por quem está salvando aqui no laboratório. Não há ficha em papel
+// para este registro, então ele não pede foto. A Qualidade completa e assina no BPF.
+async function registrarBpfLoteMP(nd,variacao){
+  try{
+    const u=(typeof getUser==='function')?getUser():null;
+    const quem=(u&&(u.nome||u.email))||nd.analista_mp||'—';
+    const agora=new Date().toISOString();
+    const {data:f}=await _supabase.from('bpf_formularios').select('assinaturas,campos').eq('codigo','REG-POP02-01').maybeSingle();
+    if(!f) return;                                    // BPF sem o formulário: não faz nada
+    const a0=(f.assinaturas||[])[0];
+    const opV=((f.campos||[]).find(c=>c.id==='variacao_declarada')||{}).opcoes||[];
+    const campos={lote_mp:nd.numero||'',
+      mina_frente:(nd.frentes||[]).map(x=>x.nome).filter(Boolean).join(' + ')||nd.frente_nome||'',
+      mistura_pct:nd.mistura_pct, montante_t:nd.montante_t, delta_e:nd.delta_e, umidade:nd.umidade_pct,
+      granulometria_ok:nd.retido_200!=null?'sim':'nao',
+      decisao:nd.cor_aprovada===true?'Liberado':nd.cor_aprovada===false?'Reprovado':''};
+    if(variacao&&opV.includes(String(variacao)))campos.variacao_declarada=String(variacao);
+    const row={formulario_cod:'REG-POP02-01',pop_cod:'POP-02',data:nd.data||agora.slice(0,10),
+      hora:new Date().toTimeString().slice(0,5),campos,status:'aguardando_assinatura',conforme:nd.cor_aprovada!==false,
+      anexos:[],assinaturas:a0?[{id:a0.id,label:a0.label,funcao:a0.funcao,nome:quem,perfil:(u&&u.perfil)||null,em:agora}]:[],
+      assinaturas_papel:{},origem_modulo:'laboratorio',origem_id:String(nd.id),
+      preenchido_por:nd.analista_mp||quem,lancado_por:quem,lancado_em:agora,
+      foto_ficha:{digital:true,nome:'Lançado direto no Laboratório (sem ficha em papel)',em:agora,por:quem},
+      criado_por:quem};
+    const {data:reg,error}=await _supabase.from('bpf_registros').insert(row).select('id,numero').single();
+    if(error) throw error;
+    try{ await _supabase.from('bpf_registro_trilha').insert({registro_id:reg.id,numero:reg.numero,acao:'lançado',
+      motivo:'Criado pelo laboratório ao salvar o lote de MP '+(nd.numero||'')+' · assinado como '+(a0?a0.label:'executante')+' por '+quem,autor:quem}); }catch(e){}
+    toast('BPF: registro '+reg.numero+' criado e assinado por '+quem+'. Falta a Qualidade no BPF.','success');
+  }catch(e){
+    console.warn('[BPF POP-02]',e);
+    toast('Lote salvo, mas o registro do BPF não foi criado: '+(e.message||e),'warning');
   }
 }
 // ── ANÁLISES EXTERNAS ─────────────────────────────────────────────────────

@@ -482,6 +482,72 @@ function alternarEscopo(){
 // carregamento.html — se o BPF derivasse diferente, dariam lotes divergentes
 // para a mesma OP.
 function itensDaOP(r){ return Array.isArray(r.produtos_op)?r.produtos_op.filter(Boolean):[]; }
+// itens da OP que são de nutrição animal (sacaria 25 kg ou Big Bag)
+function itensEscopoOP(r){ return itensDaOP(r).filter(x=>produtoNoEscopo(x.produto)&&(Number(x.total_sacos||x.sacos_pallets||0)>0||x.lote)); }
+function ehBag(it){ return /big\s*-?\s*bag|\bbag\b/i.test(String(it.produto||''))||/bag/i.test(String(it.linha_produto||'')); }
+// ── POP-15: laboratório → registro ───────────────────────────────────────
+const _normP=x=>String(x||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]/g,'');
+// lote da análise: OP do mesmo dia e linha, item com o mesmo produto
+async function loteDaAnaliseLab(x){
+  try{
+    const ops=await lst(_supabase.from('producao').select('op_numero,data,linha,produtos_op').eq('data',x.data).eq('linha',x.linha));
+    for(const op of ops){const it=itensDaOP(op).find(i=>_normP(i.produto)===_normP(x.produto));if(it)return {lote:it.lote||'',op:op.op_numero||''};}
+  }catch(e){}
+  return {lote:'',op:''};
+}
+function mapLabPOP15(x,lt){
+  const pen=x.peneiramento||{};const n=v=>v===null||v===undefined||v===''?null:Number(v);
+  const pens={pen20:n(pen.p20),pen40:n(pen.p40),pen50:n(pen.p50),pen100:n(pen.p100),pen200:n(pen.p200)};
+  const soma=Object.values(pens).filter(v=>v!==null&&!isNaN(v)).reduce((a,b)=>a+b,0);
+  const tem=Object.values(pens).some(v=>v!==null);
+  const o={lote:(lt&&lt.lote)||'',...pens,
+    total_retido:tem?+soma.toFixed(2):null,passante:tem?+(100-soma).toFixed(2):null,
+    umidade:n(x.umidade),mm:n(x.mm_result),peso_especifico:n(x.peso_esp_result),
+    limites_origem:'Genérico do produto',
+    decisao:x.status==='OK'?'Aprovado':'Aguardando resultado',
+    _resp:x.responsavel_analise||x.responsavel||'Laboratório'};
+  if(lt&&lt.op)o.obs='OP '+lt.op+' · '+x.linha+' · '+x.produto;
+  Object.keys(o).forEach(k=>{if(o[k]===null)delete o[k];});
+  return o;
+}
+// botão "Atualizar do laboratório": relê a análise enquanto nenhum revisor assinou
+async function atualizarDoLaboratorio(id){
+  const r=_regs.find(x=>x.id===id);if(!r||r.origem_modulo!=='laboratorio'||!r.origem_id)return;
+  const {data:x,error}=await _supabase.from('laboratorio').select('*').eq('id',r.origem_id).maybeSingle();
+  if(error||!x){await uiAlerta('Análise não encontrada no laboratório.',{titulo:'Não encontrado',tipo:'warn'});return;}
+  const novo=mapLabPOP15(x,await loteDaAnaliseLab(x));delete novo._resp;
+  const campos={...(r.campos||{}),...novo};
+  const res=await db(_supabase.from('bpf_registros').update({campos,atualizado_em:new Date().toISOString()}).eq('id',id),'atualizar do laboratório');
+  if(res.error)return;
+  await trilha(id,r.numero,'atualizado',null,null,null,'Valores relidos do laboratório');
+  r.campos=campos;toast('Valores atualizados do laboratório.','success');abrirRegistroFluxo(id);
+}
+// POP-15 / 003: rótulo aprovado → o 1º lote produzido com ele entra sozinho no registro
+async function vincularLoteRotulo(){
+  const pend=_regs.filter(r=>r.formulario_cod==='REG-POP15-03'&&!r.cancelado_em&&regLancado(r)&&(r.campos||{}).produto&&!(r.campos||{}).primeiro_lote);
+  if(!pend.length)return;
+  let ops=[];
+  try{ops=await lst(_supabase.from('producao').select('op_numero,data,linha,produtos_op').order('data').gte('data',pend.map(r=>r.data).sort()[0]).limit(1000));}catch(e){return;}
+  for(const r of pend){
+    const alvo=_normP(r.campos.produto);
+    for(const op of ops.filter(o=>o.data>=r.data&&noEscopo(o))){
+      const it=itensDaOP(op).find(i=>_normP(i.produto)===alvo||_normP(i.produto).includes(alvo));
+      if(!it)continue;
+      const campos={...r.campos,primeiro_lote:it.lote||'',op_primeiro:op.op_numero||''};
+      const res=await db(_supabase.from('bpf_registros').update({campos}).eq('id',r.id),'vincular lote ao rótulo');
+      if(!res.error){r.campos=campos;await trilha(r.id,r.numero,'lote vinculado','Primeiro lote',null,it.lote||'',`OP ${op.op_numero||''} — primeiro lote com esta versão do rótulo`);}
+      break;
+    }
+  }
+}
+// calibração vigente do instrumento pela TAG: true / false / null (sem cadastro)
+function calibracaoVigente(tag){
+  const i=(_ent.instrumentos||[]).find(x=>x.tag===tag);if(!i)return null;
+  const u=(_ent.calibracoes||[]).filter(c=>c.instrumento_id===i.id&&c.resultado!=='reprovado')
+    .sort((x,y)=>String(y.validade).localeCompare(String(x.validade)))[0];
+  if(!u)return null;                               // sem calibração cadastrada: o operador responde
+  return diasAte(u.validade)>=0;
+}
 function lotesDaOP(r){
   const l=[...new Set(itensDaOP(r).map(x=>x.lote).filter(Boolean).map(String))];
   if(l.length) return l.join(' · ');
@@ -1637,6 +1703,8 @@ const ETAPAS_REG=[
   {k:'assinaturas',t:'✍️ Assinaturas',cor:'#7c3aed',dica:'faltam assinaturas no sistema'},
   {k:'concluido',t:'✅ Concluídos',cor:'#16a34a',dica:''},
 ];
+// formulário preenchido direto no sistema (ex.: aprovação de rótulo pelo RT): não tem papel nem foto
+function formSemPapel(cod){ return !!(_forms.find(x=>x.codigo===cod)||{}).sem_papel; }
 function faltamAssin(r){
   const f=_forms.find(x=>x.codigo===r.formulario_cod);
   return (f?.assinaturas||[]).filter(a=>!(r.assinaturas||[]).some(x=>x.id===a.id));
@@ -1646,7 +1714,7 @@ function etapaReg(r){
   if(r.cancelado_em||r.status==='cancelado')return 'cancelado';
   if(r.status==='concluido')return 'concluido';
   if(!regLancado(r))return (r.ficha_impressa_em||r.status==='rascunho'||r.status==='a_digitar')?'a_digitar':'a_preencher';
-  if(!r.foto_ficha)return 'falta_foto';
+  if(!r.foto_ficha&&!formSemPapel(r.formulario_cod))return 'falta_foto';
   return faltamAssin(r).length?'assinaturas':'concluido';
 }
 function abrirReg(id){
@@ -1665,6 +1733,7 @@ function quadroRegsHtml(lista,titulo){
   return `<div class="bx-card"><div class="bx-ttl">${titulo||'📋 Andamento dos registros'} <span class="bx-mu">${ativos.length} registro(s)</span></div>
     <div class="rx-cols">${ETAPAS_REG.map(e=>{const l=col(e);const mostra=e.k==='concluido'?l.slice(0,5):l.slice(0,30);
       return `<div class="rx-col"><h4>${e.t}<span>${l.length}</span></h4>
+        ${e.k==='a_preencher'&&l.length>1?`<div class="rx-mais" style="margin:-2px 0 8px;" onclick="imprimirFichasPendentes('${esc(l[0].pop_cod)}')">🖨️ imprimir todas</div>`:''}
         ${mostra.map(r=>{const fa=faltamAssin(r).map(a=>a.label);
           return `<div class="rx-it" style="border-left-color:${e.cor}" onclick="abrirReg('${r.id}')">
           <b>${esc(r.numero||r.formulario_cod)}</b>${esc(resumoReg(r)||fmtD(r.data))}
@@ -1716,6 +1785,27 @@ async function imprimirFichaReg(id){
   }
 }
 
+// Imprime de uma vez todas as fichas "A preencher" (ex.: as que a OP acabou de gerar)
+async function imprimirFichasPendentes(popCod){
+  const l=_regs.filter(r=>etapaReg(r)==='a_preencher'&&(!popCod||r.pop_cod===popCod));
+  if(!l.length){toast('Nenhuma ficha a imprimir.','info');return;}
+  const ok=await uiConfirma(`Imprimir <strong>${l.length} ficha(s)</strong>${popCod?' do '+esc(popCod):''}? Cada uma sai numa página, com o número do registro e os dados da OP.`,{titulo:'Imprimir fichas',ok:'Imprimir'});
+  if(!ok)return;
+  document.getElementById('print-area').innerHTML=l.map(r=>{
+    const f=_forms.find(x=>x.codigo===r.formulario_cod);if(!f)return '';
+    const pre=Object.entries(r.campos||{}).filter(([k,v])=>v!==null&&v!==''&&typeof v!=='object')
+      .map(([k,v])=>{const c=(f.campos||[]).find(x=>x.id===k);return c?`<b>${esc(c.label)}:</b> ${esc(v)}`:'';}).filter(Boolean);
+    return `<div style="font-family:'Plus Jakarta Sans',sans-serif;border:2px solid #042D4D;border-radius:6px;padding:7px 10px;margin-bottom:8px;font-size:11px;color:#111;">
+      <b style="font-size:13px;color:#042D4D;">Registro nº ${esc(r.numero||'')}</b> · ${fmtD(r.data)}${pre.length?'<div style="margin-top:4px;">'+pre.join(' &nbsp;·&nbsp; ')+'</div>':''}</div>`
+      +htmlFicha(f,_pops.find(p=>p.codigo===f.pop_cod));
+  }).join('');
+  window.print();
+  const agora=new Date().toISOString();
+  const ids=l.map(r=>r.id);
+  const res=await db(_supabase.from('bpf_registros').update({ficha_impressa_em:agora,status:'a_digitar'}).in('id',ids),'marcar fichas impressas');
+  if(!res.error){l.forEach(r=>{r.ficha_impressa_em=agora;r.status='a_digitar';});toast(`${l.length} ficha(s) marcadas como impressas.`,'success');voltar();}
+}
+
 // ── tela do registro: digitar, foto, assinaturas ─────────────────────────
 let _regAtual=null;
 function abrirRegistroFluxo(id){
@@ -1723,46 +1813,55 @@ function abrirRegistroFluxo(id){
   const f=_forms.find(x=>x.codigo===r.formulario_cod);if(!f){verRegistro(id);return;}
   _regAtual=r;_formAtual=f;_anexosTmp=(r.anexos||[]).slice();_origem=null;
   const e=etapaReg(r);
-  const travado=(r.assinaturas||[]).length>0;     // depois da 1ª assinatura no sistema, o conteúdo não muda
+  // trava quando um REVISOR (encarregado, qualidade…) assinou; a do executante não trava
+  const primeiraAss=(f.assinaturas||[])[0]?.id;
+  const travado=(r.assinaturas||[]).some(x=>x.id!==primeiraAss);
   const passos=[['Gerado',true],['Ficha impressa',!!r.ficha_impressa_em||regLancado(r)],['Preenchido no papel',regLancado(r)],
     ['Digitado no ERP',regLancado(r)],['Foto da ficha',!!r.foto_ficha],['Assinaturas',e==='concluido']];
   const atual=e==='a_preencher'?1:e==='a_digitar'?3:e==='falta_foto'?4:5;
   const pap=r.assinaturas_papel||{};
   const foto=r.foto_ficha;
+  const semPapel=formSemPapel(f.codigo)||!!(foto&&foto.digital);   // laboratório / RT: não existe ficha em papel
   document.getElementById('m-reg-tit').textContent=`${f.codigo} · ${r.numero||''} — ${f.titulo}`;
   document.getElementById('m-reg-body').innerHTML=`
-    <div class="rx-steps">${passos.map(([t,ok],i)=>`<div class="${i===atual?'at':ok?'ok':''}">${i+1} ${t}</div>`).join('')}</div>
-    ${travado?`<div class="alerta al-info" style="font-size:12px;">Já tem assinatura no sistema: o conteúdo ficou travado. Para corrigir, cancele o registro com motivo.</div>`:''}
+    <div class="rx-steps">${semPapel
+      ?[['Gerado',true],['Lançado',regLancado(r)],['Assinaturas',e==='concluido']].map(([t,ok],i)=>`<div class="${(regLancado(r)?2:1)===i?'at':ok?'ok':''}">${i+1} ${t}</div>`).join('')
+      :passos.map(([t,ok],i)=>`<div class="${i===atual?'at':ok?'ok':''}">${i+1} ${t}</div>`).join('')}</div>
+    ${travado?`<div class="alerta al-info" style="font-size:12px;">Já foi revisado e assinado: o conteúdo ficou travado. Para corrigir, cancele o registro com motivo.</div>`:''}
     ${f.fonte_modulo&&FONTES[f.fonte_modulo]&&!travado?`<div class="rx-erp-sel"><label>📡 Vincular ao ERP (${esc(f.fonte_modulo)})</label>
       <select class="form-input" id="f__origem" onchange="aplicarOrigem()"><option value="">— sem vínculo —</option></select></div>`:''}
+    ${r.origem_modulo==='laboratorio'&&r.formulario_cod==='REG-POP15-01'&&!travado?`<div class="rx-erp-sel"><label>🧪 Valores vindos do laboratório</label>
+      <button class="btn btn-secondary btn-sm" onclick="atualizarDoLaboratorio('${r.id}')">🔄 Atualizar do laboratório</button>
+      <span class="bx-mu" style="font-size:11.5px;margin-left:6px;">relê a análise (ex.: umidade lançada depois)</span></div>`:''}
     <div class="form-row">
       <div class="fld"><label>Data<span class="req">*</span></label><input type="date" class="form-input" id="f__data" value="${esc(r.data||hoje())}" ${travado?'disabled':''}></div>
       <div class="fld"><label>Hora</label><input type="time" class="form-input" id="f__hora" value="${esc(String(r.hora||'').slice(0,5))}" ${travado?'disabled':''}></div>
       ${f.gera_validade?`<div class="fld"><label>Validade</label><input type="date" class="form-input" id="f__validade" value="${esc(r.validade||validadeSugerida(f))}" ${travado?'disabled':''}></div>`:''}
     </div>
-    <div class="rx-sub">Campos da ficha — digite exatamente como está no papel</div>
+    <div class="rx-sub">${semPapel?'Campos do registro':'Campos da ficha — digite exatamente como está no papel'}</div>
     <div class="form-row" id="campos-box">${(f.campos||[]).map(c=>campoHtml(c,(r.campos||{})[c.id])).join('')}</div>
     <div id="box-desvio" style="margin-top:6px;"></div>
     <div class="rx-2">
       <div class="rx-box"><h5>Quem fez</h5>
-        <div class="fld"><label>✍️ Preenchido no papel por<span class="req">*</span></label>
-          <input class="form-input" id="rf-preench" list="lst-func" value="${esc(r.preenchido_por||'')}" placeholder="Nome de quem escreveu na ficha" ${travado?'disabled':''}></div>
+        <div class="fld"><label>${semPapel?'👤 Responsável pelos dados':'✍️ Preenchido no papel por'}<span class="req">*</span></label>
+          <input class="form-input" id="rf-preench" list="lst-func" value="${esc(r.preenchido_por||'')}" placeholder="${semPapel?'Quem fez a análise / o lançamento':'Nome de quem escreveu na ficha'}" ${travado?'disabled':''}></div>
         <div class="rx-quem">⌨️ <b>Lançado no ERP por:</b> ${r.lancado_por?esc(r.lancado_por)+' · '+fmtDH(r.lancado_em):'<span class="bx-mu">ainda não lançado — será você</span>'}</div>
       </div>
-      <div class="rx-box"><h5>📷 Foto da ficha preenchida <span class="rx-pd">(obrigatória)</span></h5>
-        ${foto?`<div class="rx-foto-ok">✅ ${esc(foto.nome)} <span class="bx-mu">· ${esc(foto.por||'')} ${fmtDH(foto.em)}</span>
+      ${formSemPapel(f.codigo)?`<div class="rx-box"><h5>💻 Preenchido direto no sistema</h5><div class="bx-mu" style="font-size:12px;">Este registro não tem ficha em papel — não pede foto.${f.exige_anexo?' O anexo (ex.: croqui) é obrigatório e abre aqui mesmo em 👁️.':''}</div></div>`:`<div class="rx-box"><h5>📷 Foto da ficha preenchida <span class="rx-pd">(obrigatória)</span></h5>
+        ${foto&&foto.digital?`<div class="rx-foto-ok">💻 ${esc(foto.nome)}</div>`
+         :foto?`<div class="rx-foto-ok">✅ ${esc(foto.nome)} <span class="bx-mu">· ${esc(foto.por||'')} ${fmtDH(foto.em)}</span>
             <div style="margin-top:6px;"><button class="bx-ib" onclick="uiVisualizar('${esc(foto.path)}','${esc(foto.nome)}')">👁️ Ver</button>
             ${travado?'':`<label class="bx-ib" style="display:inline-flex;align-items:center;cursor:pointer;">🔄 Trocar<input type="file" accept="image/*,application/pdf" capture="environment" style="display:none;" onchange="subirFotoFicha(this)"></label>`}</div></div>`
           :`<label class="rx-foto-btn ${regLancado(r)?'':'rx-off'}">📷 Tirar / anexar foto<input type="file" accept="image/*,application/pdf" capture="environment" style="display:none;" ${regLancado(r)?'':'disabled'} onchange="subirFotoFicha(this)"></label>
             <div class="bx-mu" style="font-size:11.5px;margin-top:6px;">${regLancado(r)?'Sem a foto o registro não conclui. Ela sai no PDF.':'Libera depois de salvar a digitação.'}</div>`}
-      </div>
+      </div>`}
     </div>
     <div class="rx-box"><h5>✍️ Assinaturas</h5>
-      <table class="rx-as"><tr><th>Função</th><th>Assinou no papel</th><th>Assinatura no sistema</th></tr>
+      <table class="rx-as"><tr><th>Função</th>${semPapel?'':'<th>Assinou no papel</th>'}<th>Assinatura no sistema</th></tr>
       ${(f.assinaturas||[]).map(a=>{const fe=(r.assinaturas||[]).find(x=>x.id===a.id);
-        const pode=regLancado(r)&&!!foto;
+        const pode=regLancado(r)&&(!!foto||formSemPapel(f.codigo));
         return `<tr><td><b>${esc(a.label)}</b><div class="bx-mu" style="font-size:10.5px;">${esc(nomeFuncao(a.funcao))}</div></td>
-          <td><input class="form-input rx-pap" id="rf-pap-${esc(a.id)}" list="lst-func" value="${esc(pap[a.id]||'')}" placeholder="nome na ficha" ${travado?'disabled':''}></td>
+          ${semPapel?'':`<td><input class="form-input rx-pap" id="rf-pap-${esc(a.id)}" list="lst-func" value="${esc(pap[a.id]||'')}" placeholder="nome na ficha" ${travado?'disabled':''}></td>`}
           <td>${fe?`<span class="rx-ok">✓ ${esc(fe.nome)} · ${fmtDH(fe.em)}</span>`
             :pode?`<button class="btn btn-secondary btn-sm" onclick="assinar('${r.id}','${a.id}')">✍️ Assinar</button>`
             :'<span class="bx-mu" style="font-size:11.5px;">após digitação e foto</span>'}</td></tr>`;}).join('')
@@ -1775,17 +1874,30 @@ function abrirRegistroFluxo(id){
   document.getElementById('m-reg-foot').innerHTML=`
     ${podeExcluir?`<button class="btn btn-ghost" style="color:var(--danger);margin-right:auto;" onclick="excluirRascunho('${r.id}')">🗑️ Excluir ficha</button>`:''}
     <button class="btn btn-secondary" onclick="closeModal('m-reg')">Fechar</button>
-    <button class="btn btn-secondary" onclick="imprimirFichaReg('${r.id}')">🖨️ ${r.ficha_impressa_em?'Reimprimir ficha':'Imprimir ficha'}</button>
+    ${semPapel?'':`<button class="btn btn-secondary" onclick="imprimirFichaReg('${r.id}')">🖨️ ${r.ficha_impressa_em?'Reimprimir ficha':'Imprimir ficha'}</button>`}
     ${travado?'':`<button class="btn btn-secondary" onclick="salvarDigitacao(true)">Salvar rascunho</button>
     <button class="btn btn-primary" onclick="salvarDigitacao(false)">💾 ${regLancado(r)?'Salvar alterações':'Salvar digitação'}</button>`}`;
   document.getElementById('m-reg').classList.remove('hidden');
-  renderAnexosTmp();avaliarAoVivo();
+  renderAnexosTmp();aplicarCalc();avaliarAoVivo();
   if(f.fonte_modulo&&FONTES[f.fonte_modulo]&&!travado) carregarOrigens(f.fonte_modulo).then(()=>{const s=document.getElementById('f__origem');if(s&&r.origem_id)s.value=r.origem_id;});
   if(travado)document.querySelectorAll('#campos-box input,#campos-box select,#campos-box textarea').forEach(el=>el.disabled=true);
 }
+// calc: "outroCampo*fator" — o campo fica só leitura e é recalculado ao digitar
+function aplicarCalc(){
+  for(const c of (_formAtual?.campos||[])){
+    if(!c.calc)continue;
+    const m=String(c.calc).match(/^(\w+)\s*\*\s*([\d.]+)$/);if(!m)continue;
+    const src=document.getElementById('f_'+m[1]),dst=document.getElementById('f_'+c.id);if(!dst)continue;
+    dst.readOnly=true;dst.style.background='#f1f5f9';
+    const v=parseFloat(String(src?.value||'').replace(',','.'));
+    dst.value=isNaN(v)?'':String(+(v*parseFloat(m[2])).toFixed(3));
+  }
+}
+document.addEventListener('input',e=>{ if(e.target.closest&&e.target.closest('#campos-box'))aplicarCalc(); });
 async function salvarDigitacao(rascunho){
   if(!guardAction('bpf','edit'))return;
   const r=_regAtual,f=_formAtual;if(!r||!f)return;
+  aplicarCalc();
   const campos=f.campos||[],vals=lerForm(campos);
   const data=document.getElementById('f__data').value;
   const preench=document.getElementById('rf-preench').value.trim();
@@ -1929,7 +2041,7 @@ async function verRegistro(id){
       ${r.origem_modulo?` · vinculado a ${esc(r.origem_modulo)}`:''}</div>
       <div class="sub" style="margin-top:6px;">✍️ Preenchido no papel por <strong>${esc(r.preenchido_por||'—')}</strong> ·
         ⌨️ lançado no ERP por <strong>${esc(r.lancado_por||r.criado_por||'—')}</strong>${r.lancado_em?' em '+fmtDH(r.lancado_em):''}</div>
-      ${r.foto_ficha?`<div style="margin-top:8px;"><button class="btn btn-secondary btn-sm" onclick="uiVisualizar('${esc(r.foto_ficha.path)}','${esc(r.foto_ficha.nome)}')">📷 Ver foto da ficha</button></div>`:''}</div>
+      ${r.foto_ficha&&!r.foto_ficha.digital?`<div style="margin-top:8px;"><button class="btn btn-secondary btn-sm" onclick="uiVisualizar('${esc(r.foto_ficha.path)}','${esc(r.foto_ficha.nome)}')">📷 Ver foto da ficha</button></div>`:''}</div>
     <div class="tbl-wrap"><table class="tbl"><tbody>${campos.filter(c=>c.tipo!=='secao').map(c=>{
       let v=(r.campos||{})[c.id];
       if(Array.isArray(v))v=v.join(', ');
@@ -1970,7 +2082,7 @@ async function assinar(regId,assId){
   const a=(f?.assinaturas||[]).find(x=>x.id===assId);if(!a)return;
   const u=getUser();
   if(!u){await uiAlerta('Sessão não identificada. Faça login novamente.',{titulo:'Sem usuário',tipo:'dang'});return;}
-  if(!regLancado(r)||!r.foto_ficha){
+  if(!regLancado(r)||(!r.foto_ficha&&!formSemPapel(r.formulario_cod))){
     await uiAlerta('A assinatura no sistema libera depois que a ficha foi <strong>digitada</strong> e a <strong>foto da ficha</strong> anexada.',{titulo:'Ainda não',tipo:'warn'});return;}
   const tv=_travas.find(t=>t.codigo==='sem_designacao');
   if(tv?.ativa&&a.funcao){
@@ -1994,7 +2106,7 @@ async function assinar(regId,assId){
   const cadeia=(f?.assinaturas||[]).map(x=>x.id);
   const todas=cadeia.every(id=>novas.some(x=>x.id===id));
   const patch={assinaturas:novas,atualizado_em:new Date().toISOString()};
-  if(todas&&r.foto_ficha&&regLancado(r)){patch.status='concluido';patch.concluido_em=new Date().toISOString();}
+  if(todas&&(r.foto_ficha||formSemPapel(r.formulario_cod))&&regLancado(r)){patch.status='concluido';patch.concluido_em=new Date().toISOString();}
   const res=await db(_supabase.from('bpf_registros').update(patch).eq('id',regId),'assinar');
   if(res.error)return;
   Object.assign(r,patch);
@@ -2030,7 +2142,9 @@ async function imprimirRegistro(id){
   const campos=f?.campos||[],desvios=avaliar(campos,r.campos||{});
   // foto da ficha preenchida sai no PDF (imagem) — PDF anexado vira referência
   let fotoHtml='';
-  if(r.foto_ficha){
+  if(r.foto_ficha&&r.foto_ficha.digital){
+    fotoHtml=`<div style="margin-top:12px;font-size:11px;"><strong>Origem:</strong> ${esc(r.foto_ficha.nome)}</div>`;
+  }else if(r.foto_ficha){
     const ext=String(r.foto_ficha.nome||r.foto_ficha.path).split('.').pop().toLowerCase();
     try{
       const {data}=await _supabase.storage.from('documentos').createSignedUrl(r.foto_ficha.path,600);
@@ -3452,16 +3566,55 @@ const GATILHO_FONTES={
       pre:{lote_mp:m.numero||'',montante_t:m.montante_t||null,mistura_pct:m.mistura_pct||null,
            umidade:m.umidade_pct||null,delta_e:m.delta_e||null}}));
   }},
-  g_lote_prod:{tab:'caulim_lotes_producao',dias:60,async busca(){
-    const l=await lst(_supabase.from('caulim_lotes_producao').select('*').order('data_abertura',{ascending:false}).limit(120));
-    return l.map(p=>({ref:'LOTE/'+p.id,id:p.id,quando:(p.data_abertura||'').slice(0,10),
-      det:`Abertura do lote ${p.numero||p.id}`,pre:{lote_producao:p.numero||''}}));
+  // ── OP (tabela producao) — antes estes três liam caulim_lotes_producao, que
+  // está VAZIA: por isso nunca geravam nada. Agora nascem da própria OP.
+  // POP-13: uma ficha por OP, com TODOS os lotes/produtos dela.
+  g_lote_prod:{tab:'producao',dias:3,async busca(){
+    const l=await lst(_supabase.from('producao').select('*').order('data',{ascending:false}).limit(150));
+    return l.filter(noEscopo).filter(p=>itensEscopoOP(p).length).map(p=>({ref:'OP13/'+p.id,id:p.id,quando:p.data,
+      det:`OP ${p.op_numero||p.id} — ${p.linha||''} — ${itensEscopoOP(p).map(x=>x.produto).join(' + ')}`,
+      pre:{op:p.op_numero||'',lote_producao:itensEscopoOP(p).map(x=>x.lote).filter(Boolean).join(' · '),
+           lote_mp:p.lote_mp||''}}));
   }},
-  g_boletim:{tab:'caulim_lotes_producao',dias:60,async busca(){
-    const l=await lst(_supabase.from('caulim_lotes_producao').select('*')
-      .eq('status','fechado').order('data_fechamento',{ascending:false}).limit(120));
-    return l.map(p=>({ref:'FECH/'+p.id,id:p.id,quando:(p.data_fechamento||'').slice(0,10),
-      det:`Lote ${p.numero||p.id} fechado — aguardando ensaios`,pre:{lote:p.numero||''}}));
+  // POP-14: uma ficha por lote produzido (item da OP), propósito = conformidade
+  g_amostra:{tab:'producao',dias:3,async busca(){
+    const l=await lst(_supabase.from('producao').select('*').order('data',{ascending:false}).limit(150));
+    return l.filter(noEscopo).flatMap(p=>itensEscopoOP(p).map((it,i)=>({ref:'OP14/'+p.id+'/'+(it.lote||i),id:p.id,quando:p.data,
+      det:`Amostragem — OP ${p.op_numero||p.id} · ${it.produto} · lote ${it.lote||'—'}`,
+      pre:{op:p.op_numero||'',lote:it.lote||'',proposito:'Conformidade do lote',produto:it.produto||''}})));
+  }},
+  // POP-18: uma ficha por lote; balança e calibração vêm do cadastro de instrumentos
+  g_ensaque:{tab:'producao',dias:3,async busca(){
+    const l=await lst(_supabase.from('producao').select('*').order('data',{ascending:false}).limit(150));
+    return l.filter(noEscopo).flatMap(p=>itensEscopoOP(p).map((it,i)=>{
+      const bag=ehBag(it);const tag=bag?'BAL-BAG':'BAL-ENS';const cal=calibracaoVigente(tag);
+      return {ref:'OP18/'+p.id+'/'+(it.lote||i),id:p.id,quando:p.data,
+        det:`Aferição de pesagem — OP ${p.op_numero||p.id} · ${it.produto} · lote ${it.lote||'—'}`,
+        pre:{op:p.op_numero||'',lote:it.lote||'',equipamento:bag?'Big Bag':'Ensacadeira — sacaria',
+             balanca_tag:tag,balanca_calibrada:cal===null?'':(cal?'sim':'nao')}};
+    }));
+  }},
+  // POP-15 / 001 — aprovação da linha pelo laboratório (tabela laboratorio).
+  // Registro DIGITAL: os números vêm do laboratório, não há ficha em papel.
+  g_boletim:{tab:'laboratorio',dias:3,digital:true,async busca(){
+    const l=await lst(_supabase.from('laboratorio').select('*').order('data',{ascending:false}).limit(150));
+    const ok=l.filter(x=>noEscopo(x)&&produtoNoEscopo(x.produto)&&['OK','Ajuste'].includes(x.status));
+    const out=[];
+    for(const x of ok){
+      const lote=await loteDaAnaliseLab(x);
+      out.push({ref:'LAB/'+x.id,id:x.id,quando:x.data,
+        det:`Análise do laboratório — ${x.linha} · ${x.produto} · ${x.status}`,pre:mapLabPOP15(x,lote)});
+    }
+    return out;
+  }},
+  // POP-15 / 002 — certificado: vem do laudo emitido no laboratório (lab_laudos)
+  g_cert:{tab:'lab_laudos',dias:7,digital:true,async busca(){
+    const l=await lst(_supabase.from('lab_laudos').select('*').order('emitido_em',{ascending:false}).limit(150));
+    return l.filter(x=>x.numero&&produtoNoEscopo(x.produto||x.embalagem||'')).map(x=>({ref:'LAUDO/'+x.id,id:x.id,
+      quando:String(x.emitido_em||x.data_fabricacao||'').slice(0,10),
+      det:`Laudo ${x.numero} — ${x.produto||''} · lote ${x.lote||'—'}`,
+      pre:{lote:x.lote||'',numero_cert:x.numero||'',data_fabricacao:x.data_fabricacao||'',validade:x.validade||'',
+           emissor:x.emitido_por||x.responsavel||'',_resp:x.emitido_por||x.responsavel||'Laboratório'}}));
   }},
   g_reclama:{tab:'bpf_reclamacoes',dias:120,async busca(){
     const l=await lst(_supabase.from('bpf_reclamacoes').select('*').order('data_recebimento',{ascending:false}).limit(120));
@@ -3508,6 +3661,7 @@ function tarefaAtrasada(t){ return t.prazo && new Date(t.prazo) < new Date(); }
 // mexe em tabela de outro módulo e pode ser desligada só apagando a linha.
 async function varrerGatilhos(silencioso){
   if(!_temFila)return 0;
+  try{await vincularLoteRotulo();}catch(e){console.warn('[rótulo]',e);}
   const ativos=_gatilhos.filter(g=>g.ativo);
   if(!ativos.length){ if(!silencioso)toast('Nenhum gatilho ligado. Ligue um em ⚙️ Gatilhos.','warning'); return 0; }
   const novas=[],erros=[];
@@ -3521,10 +3675,13 @@ async function varrerGatilhos(silencioso){
         eventos=await rec.busca(g);
         if(rec.dias){const lim=new Date(Date.now()-rec.dias*864e5).toISOString().slice(0,10);
           eventos=eventos.filter(e=>!e.quando||String(e.quando).slice(0,10)>=lim);}
+        // "desde": nada antes da data de implantação vira ficha (evita gerar o passado)
+        const desde=g.filtro&&g.filtro.desde;
+        if(desde)eventos=eventos.filter(e=>!e.quando||String(e.quando).slice(0,10)>=desde);
       }
       for(const e of eventos){
         if(_tarefas.some(t=>t.gatilho_cod===g.codigo&&t.origem_ref===e.ref))continue;
-        novas.push({gatilho_cod:g.codigo,formulario_cod:g.formulario_cod,pop_cod:g.pop_cod,
+        novas.push({status:'aberta',gatilho_cod:g.codigo,formulario_cod:g.formulario_cod,pop_cod:g.pop_cod,
           funcao_cod:funcaoColeta(g.formulario_cod),origem_tabela:g.fonte_tabela,
           origem_id:e.id?String(e.id):null,origem_ref:e.ref,origem_det:e.det,pre:e.pre||{},
           prazo:new Date(Date.parse((e.quando&&e.quando.length>10?e.quando:(e.quando||hoje())+'T08:00:00'))+
@@ -3537,12 +3694,68 @@ async function varrerGatilhos(silencioso){
     const r=await db(_supabase.from('bpf_tarefas').upsert(novas,{onConflict:'gatilho_cod,origem_ref',ignoreDuplicates:true}),'criar tarefas');
     if(r.error)return 0;
     _tarefas=await lst(_supabase.from('bpf_tarefas').select('*').order('prazo')).catch(()=>_tarefas);
+    await gerarRegistrosDasTarefas();
   }
   if(erros.length&&!silencioso)
     toast(`${novas.length} tarefa(s) criada(s). ${erros.length} gatilho(s) falharam — ver console.`,'warning'),console.warn('[gatilhos]',erros);
   else if(!silencioso)
     toast(novas.length?`${novas.length} tarefa(s) criada(s).`:'Nada novo — tudo já estava na fila.',novas.length?'success':'info');
   return novas.length;
+}
+// Cada tarefa nova já nasce com o REGISTRO pendente (ficha "A preencher"),
+// pré-preenchido com o que o ERP trouxe. A tarefa fecha quando o registro é digitado.
+async function gerarRegistrosDasTarefas(){
+  const desdeImpl='2026-10-26';
+  const novas=_tarefas.filter(t=>t.status==='aberta'&&!t.registro_id&&String(t.criado_em||'').slice(0,10)>=desdeImpl
+    &&!_regs.some(r=>r.tarefa_id===t.id));
+  if(!novas.length)return 0;
+  const u=getUser();
+  const agora=new Date().toISOString();
+  const rows=novas.map(t=>{
+    const dig=!!(GATILHO_FONTES[t.gatilho_cod]||{}).digital;
+    const pre={...(t.pre||{})};const resp=pre._resp||null;delete pre._resp;
+    const f=_forms.find(x=>x.codigo===t.formulario_cod);
+    const conforme=f?avaliar(f.campos||[],pre).length===0:true;
+    return {formulario_cod:t.formulario_cod,pop_cod:t.pop_cod,
+      data:String(t.prazo||'').slice(0,10)||hoje(),hora:null,campos:pre,
+      status:dig?(conforme?'aguardando_assinatura':'nao_conforme'):'a_preencher',conforme,
+      anexos:[],assinaturas:[],assinaturas_papel:{},origem_modulo:t.origem_tabela||null,origem_id:t.origem_id||null,
+      tarefa_id:t.id,criado_por:'Gatilho '+t.gatilho_cod,
+      ...(dig?{preenchido_por:resp||'Laboratório',lancado_por:resp||'Laboratório',lancado_em:agora,
+        foto_ficha:{digital:true,nome:'Lançado pelo Laboratório (sem ficha em papel)',em:agora,por:resp||'Laboratório'}}:{})};
+  });
+  const r=await db(_supabase.from('bpf_registros').insert(rows).select(),'gerar fichas das tarefas');
+  if(r.error)return 0;
+  for(const reg of (r.data||[])){
+    // digital (laboratório): a tarefa já fecha — não há o que digitar
+    const fecha=reg.lancado_em?{status:'concluida',concluida_em:new Date().toISOString()}:{};
+    await db(_supabase.from('bpf_tarefas').update({registro_id:reg.id,...fecha}).eq('id',reg.tarefa_id),'vincular ficha');
+    const t=_tarefas.find(x=>x.id===reg.tarefa_id);if(t){t.registro_id=reg.id;if(reg.lancado_em)t.status='concluida';}
+    _regs.unshift(reg);
+  }
+  return (r.data||[]).length;
+}
+// Pendências da fila criadas ANTES do fluxo novo: encerrar em lote, com motivo.
+async function encerrarPendenciasAntigas(){
+  if(!guardAction('bpf','edit'))return;
+  const lim='2026-10-26';
+  const velhas=_tarefas.filter(t=>t.status==='aberta'&&!t.registro_id&&String(t.criado_em||'').slice(0,10)<lim);
+  if(!velhas.length){toast('Nenhuma pendência antiga.','info');return;}
+  const m=await uiTexto(`<strong>${velhas.length} tarefa(s)</strong> abertas antes de ${fmtD(lim)} e que nunca viraram ficha.
+    <div style="margin-top:6px;font-size:11.5px;color:#64748b;">Elas não são apagadas: ficam como canceladas, com este motivo, na trilha.</div>`,
+    {titulo:'Encerrar pendências antigas',rotulo:'Motivo',ok:'Encerrar todas',obrigatorio:true,linhas:2});
+  if(m===null||!String(m).trim())return;
+  const u=getUser();
+  const ids=velhas.map(t=>t.id);
+  for(let i=0;i<ids.length;i+=100){
+    const r=await db(_supabase.from('bpf_tarefas').update({status:'cancelada',cancelada_por:u?.nome||u?.email||'—',
+      cancelada_motivo:m}).in('id',ids.slice(i,i+100)),'encerrar pendências');
+    if(r.error)return;
+  }
+  velhas.forEach(t=>{t.status='cancelada';t.cancelada_motivo=m;});
+  await addLog('UPDATE','BPF','fila',`${velhas.length} pendências antigas encerradas: ${m}`);
+  toast(`${velhas.length} pendência(s) encerrada(s).`,'success');
+  renderFila();marcarArea('fila');
 }
 function eventosCalendario(g,tipo){
   const h=hoje(),ini=h.slice(0,8)+'01';
@@ -3623,8 +3836,11 @@ function cadeiaHtml(f,r){
         :(cls==='now'?'aguardando agora':'aguarda a etapa anterior')}</div></div>`;}).join('')}</div>`;
 }
 function renderFila(){
+  const nVelhas=_tarefas.filter(t=>t.status==='aberta'&&!t.registro_id&&String(t.criado_em||'').slice(0,10)<'2026-10-26').length;
   cab('BPF / SGQ','Minha fila',
-    _temFila?`<button class="btn btn-secondary btn-sm" onclick="varrerGatilhos()">↻ Procurar eventos agora</button>`:'');
+    _temFila?`<button class="btn btn-secondary btn-sm" onclick="varrerGatilhos()">↻ Procurar eventos agora</button>
+      ${_regs.some(r=>etapaReg(r)==='a_preencher')?`<button class="btn btn-primary btn-sm" onclick="imprimirFichasPendentes()">🖨️ Imprimir fichas novas (${_regs.filter(r=>etapaReg(r)==='a_preencher').length})</button>`:''}
+      ${nVelhas?`<button class="btn btn-secondary btn-sm" onclick="encerrarPendenciasAntigas()" title="Tarefas de antes do fluxo papel→ERP">🧹 Encerrar ${nVelhas} pendência(s) antiga(s)</button>`:''}`:'');
   const u=getUser();
   if(!_temFila){
     document.getElementById('conteudo').innerHTML=`
@@ -3692,7 +3908,7 @@ async function abrirTarefa(id){
     await uiAlerta(`Esta ficha é da função <strong>${esc(nomeFuncao(t.funcao_cod))}</strong> e você não tem designação vigente para ela no ${esc(t.pop_cod)}.
       <div style="margin-top:5px;" class="sys">SYS-036</div>`,{titulo:'Sem designação',tipo:'dang'});return;}
   // já existe ficha gerada por esta tarefa? abre ela em vez de criar outra
-  const ja=_regs.find(r=>r.tarefa_id===t.id&&!r.cancelado_em);
+  const ja=_regs.find(r=>(r.tarefa_id===t.id||r.id===t.registro_id)&&!r.cancelado_em);
   if(ja){abrirReg(ja.id);return;}
   await gerarRegistro(t.formulario_cod,{pre:t.pre||{},tarefa:t,origemMod:t.origem_tabela||null,origemId:t.origem_ref||null});
 }
