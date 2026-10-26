@@ -1027,6 +1027,8 @@ async function uiVisualizar(path,nome,bucket){
   const bd=document.getElementById('vw-bd');
   if(['png','jpg','jpeg','webp','gif','avif','bmp'].includes(ext))
     bd.innerHTML=`<div class="vw-box" style="display:flex;align-items:center;justify-content:center;padding:8px;"><img src="${url}" alt="${esc(nome)}"></div>`;
+  else if(['mp4','webm','mov','m4v','ogg'].includes(ext))
+    bd.innerHTML=`<video class="vw-box" src="${url}" controls autoplay playsinline style="background:#000;"></video>`;
   else if(ext==='pdf'){
     bd.innerHTML=`<div class="vw-box" id="vw-pdf"><span class="spin"></span> Abrindo PDF…</div>`;
     try{ await renderPdfNo(document.getElementById('vw-pdf'),url); }
@@ -1188,6 +1190,20 @@ function alertas(){
   if(new Date().getMonth()===11)['auditoria','treinamento'].forEach(t=>{
     if(!(_ent.cronograma||[]).some(c=>c.ano===prox&&c.tipo===t))
       a.push({t:'warn',pop:'POP-20',ent:'cronograma',m:`Cronograma de ${t} de ${prox} ainda não cadastrado (SYS-026)`});});
+  // travas em modo "alerta" (o bloqueio acontece em outro módulo / na portaria)
+  try{
+    const d30=new Date(Date.now()-30*864e5).toISOString().slice(0,10);
+    if(travaAtiva('veiculo_reprovado'))_regs.filter(r=>r.formulario_cod==='REG-POP21-01'&&!r.cancelado_em&&String(r.data)>=d30&&/reprov/i.test(String((r.campos||{}).resultado||'')))
+      .forEach(r=>a.push({t:'dang',pop:'POP-21',m:`Veículo ${(r.campos||{}).placa||''} REPROVADO na inspeção (${r.numero}) — não carregar até regularizar (SYS-034)`}));
+    if(travaAtiva('lote_nao_liberado'))_regs.filter(r=>r.formulario_cod==='REG-POP15-01'&&!r.cancelado_em&&String(r.data)>=d30&&['Reprovado','Aguardando resultado'].includes((r.campos||{}).decisao))
+      .forEach(r=>a.push({t:(r.campos||{}).decisao==='Reprovado'?'dang':'warn',pop:'POP-16',m:`Lote ${(r.campos||{}).lote||'—'} ${(r.campos||{}).decisao==='Reprovado'?'REPROVADO':'aguardando resultado'} — não usar nem expedir sem liberação (SYS-012)`}));
+    if(travaAtiva('treinamento_vencido')){
+      const pessoas={};_regs.filter(r=>r.formulario_cod==='REG-POP20-01'&&!r.cancelado_em&&regLancado(r)).forEach(r=>{
+        String((r.campos||{}).participantes||'').split(/[\n,;]+/).map(x=>x.trim()).filter(Boolean).forEach(n=>{const v=(r.campos||{}).validade;if(v&&(!pessoas[n]||v>pessoas[n]))pessoas[n]=v;});});
+      const venc=Object.entries(pessoas).filter(([n,v])=>v<hoje());
+      if(venc.length)a.push({t:'warn',pop:'POP-20',m:`${venc.length} pessoa(s) com treinamento de BPF vencido: ${venc.slice(0,5).map(x=>x[0]).join(', ')}${venc.length>5?'…':''} (SYS-016)`});
+    }
+  }catch(e){}
   return a;
 }
 
@@ -1747,6 +1763,8 @@ const ETAPAS_REG=[
 ];
 // formulário preenchido direto no sistema (ex.: aprovação de rótulo pelo RT): não tem papel nem foto
 function formSemPapel(cod){ return !!(_forms.find(x=>x.codigo===cod)||{}).sem_papel; }
+// formulário que conclui só com a folha preenchida anexada (sem assinatura no sistema)
+function concluiComAnexo(cod){ return !!(_forms.find(x=>x.codigo===cod)||{}).conclui_com_anexo; }
 function faltamAssin(r){
   const f=_forms.find(x=>x.codigo===r.formulario_cod);
   return (f?.assinaturas||[]).filter(a=>!(r.assinaturas||[]).some(x=>x.id===a.id));
@@ -1757,6 +1775,7 @@ function etapaReg(r){
   if(r.status==='concluido')return 'concluido';
   if(!regLancado(r))return (r.ficha_impressa_em||r.status==='rascunho'||r.status==='a_digitar')?'a_digitar':'a_preencher';
   if(!r.foto_ficha&&!formSemPapel(r.formulario_cod))return 'falta_foto';
+  if(concluiComAnexo(r.formulario_cod))return 'concluido';
   return faltamAssin(r).length?'assinaturas':'concluido';
 }
 function abrirReg(id){
@@ -1785,12 +1804,82 @@ function quadroRegsHtml(lista,titulo){
     </div></div>`;
 }
 
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TRAVAS — o que cada uma FAZ (antes 17 das 20 estavam ligadas no banco, mas
+// nenhum código as verificava). 'bloqueia' = não deixa salvar/assinar/concluir
+// o registro aqui no BPF; 'alerta' = aparece no Início; 'pendente' = aguarda
+// definição (ex.: POP-17) ou integração com outro módulo.
+// ═══════════════════════════════════════════════════════════════════════════
+function travaAtiva(c){ return !!(_travas.find(t=>t.codigo===c)||{}).ativa; }
+function capacitadoAte(nome){
+  if(!nome)return null;const n=_normP(nome);let melhor=null;
+  _regs.filter(r=>r.formulario_cod==='REG-POP20-01'&&!r.cancelado_em&&regLancado(r)).forEach(r=>{
+    const lista=String((r.campos||{}).participantes||'').split(/[\n,;]+/).map(_normP).filter(Boolean);
+    if(lista.includes(n)){const v=(r.campos||{}).validade||null;if(v&&(!melhor||v>melhor))melhor=v;}
+  });
+  (_ent.treinamentos||[]).forEach(t=>{const quem=_normP(t.participante||t.funcionario_nome||'');const v=t.validade||null;
+    if(quem===n&&v&&(!melhor||v>melhor))melhor=v;});
+  return melhor;
+}
+const TRAVAS_DEF={
+  fornecedor_nao_homologado:{modo:'bloqueia',onde:'REG-POP01-01',chk:(r,v)=>r.formulario_cod==='REG-POP01-01'&&v.fornecedor_homologado==='nao'
+    &&'Fornecedor de embalagem não homologado: o recebimento não pode ser concluído (SYS-020).'},
+  cor_delta_e:{modo:'bloqueia',onde:'REG-POP02-01',chk:(r,v)=>r.formulario_cod==='REG-POP02-01'&&Number(String(v.delta_e??'').replace(',','.'))>1&&v.decisao==='Liberado'
+    &&`ΔE ${v.delta_e} acima de 1,0: o lote de MP não pode ser "Liberado" (SYS-028).`},
+  mp_quimica_vencida:{modo:'bloqueia',onde:'REG-POP02-01',chk:(r,v)=>r.formulario_cod==='REG-POP02-01'&&v.quimica_vigente==='nao'&&v.decisao==='Liberado'
+    &&'Análise química da frente vencida: o lote de MP não pode ser "Liberado" (SYS-040).'},
+  visitante_sem_integracao:{modo:'bloqueia',onde:'REG-POP04-02',chk:(r,v)=>r.formulario_cod==='REG-POP04-02'&&v.video_assistido==='nao'
+    &&[].concat(v.areas||[]).some(a=>['Produção','Estocagem','Laboratório'].includes(a))
+    &&'Sem o vídeo de integração de BPF, a pessoa não pode entrar em Produção, Estocagem ou Laboratório (SYS-021).'},
+  registro_sem_anexo:{modo:'bloqueia',onde:'formulários com anexo obrigatório',fim:true,chk:(r,v,f)=>f&&f.exige_anexo&&!(r.anexos||[]).length
+    &&'Este registro exige anexo (laudo/arquivo) e não fecha sem ele (SYS-008).'},
+  sem_capacitacao:{modo:'bloqueia',onde:'POP-05',chk:(r,v)=>r.pop_cod==='POP-05'&&(()=>{const ate=capacitadoAte(r.preenchido_por);return !ate||ate<hoje();})()
+    &&`${r.preenchido_por||'O executante'} não tem capacitação vigente (lista de presença REG-POP20-01): o registro de higienização não fecha (SYS-009).`},
+  instrumento_vencido:{modo:'bloqueia',onde:'REG-POP18-01',chk:(r,v)=>r.formulario_cod==='REG-POP18-01'&&(v.balanca_calibrada==='nao'||(v.balanca_tag&&calibracaoVigente(v.balanca_tag)===false))
+    &&`Balança ${v.balanca_tag||''} com calibração vencida: não pode ser usada para aferir (SYS-005).`},
+  prestador_nao_acreditado:{modo:'bloqueia',onde:'REG-POP07-02',chk:(r,v)=>r.formulario_cod==='REG-POP07-02'&&v.prestador_acreditado==='nao'
+    &&'Prestador de calibração sem acreditação RBC/INMETRO vigente (SYS-030).'},
+  peso_fora_tolerancia:{modo:'bloqueia',onde:'REG-POP18-01',chk:(r,v,f)=>r.formulario_cod==='REG-POP18-01'&&f&&avaliar(f.campos||[],v).some(d=>/saco|big bag/i.test(d.campo))&&(!v.acao||v.acao==='Nenhum desvio')
+    &&'Peso fora da tolerância: informe a ação (ajuste e, se preciso, segregação para reprocessamento) (SYS-007).'},
+  laudo_externo_vencido:{modo:'bloqueia',onde:'REG-POP15-02',chk:(r,v)=>r.formulario_cod==='REG-POP15-02'&&_regs.some(x=>x.formulario_cod==='REG-POP15-01'&&!x.cancelado_em&&String((x.campos||{}).lote||'')===String(v.lote||'')&&(x.campos||{}).externas_vigentes==='nao')
+    &&'O boletim deste lote diz que as análises externas estão vencidas: o certificado não pode ser emitido (SYS-010).'},
+  documento_obsoleto:{modo:'bloqueia',onde:'gerar/imprimir ficha'},
+  sem_designacao:{modo:'bloqueia',onde:'assinatura'},
+  equip_sem_certificado:{modo:'bloqueia',onde:'cadastro de saída/retorno de equipamento'},
+  peso_padrao_vencido:{modo:'bloqueia',onde:'cadastro de calibração'},
+  treinamento_vencido:{modo:'alerta',onde:'Início'},
+  veiculo_reprovado:{modo:'alerta',onde:'Início'},
+  rotulo_sem_rt:{modo:'alerta',onde:'Início'},
+  lote_nao_liberado:{modo:'alerta',onde:'Início'},
+  unidade_nao_liberada:{modo:'pendente',onde:'carregamento.html (QR por unidade ainda não usado)'},
+  lab_nao_qualificado:{modo:'pendente',onde:'POP-17 — aguardando definição'},
+};
+// devolve as mensagens das travas ligadas que barram este registro
+function travasDoRegistro(r,vals,f,fim){
+  const out=[];
+  for(const [cod,d] of Object.entries(TRAVAS_DEF)){
+    if(!d.chk||!travaAtiva(cod))continue;
+    if(d.fim&&!fim)continue;
+    try{const m=d.chk(r,vals||r.campos||{},f);if(m)out.push(m);}catch(e){}
+  }
+  return out;
+}
+async function avisarTravas(msgs){
+  await uiAlerta(`<strong>Bloqueado por trava do BPF:</strong><ul style="margin:7px 0 0 16px;">${msgs.map(m=>`<li>${esc(m)}</li>`).join('')}</ul>
+    <div style="margin-top:8px;font-size:11.5px;color:#64748b;">As travas ficam em ⋯ Mais → 🔒 Travas.</div>`,{titulo:'Trava',tipo:'dang'});
+}
+
 // ── gerar o registro (substitui o "+ Novo": a ficha nasce pendente) ───────
 async function gerarRegistro(formCod,{pre,tarefa,origemMod,origemId,abrir=true}={}){
   if(!guardAction('bpf','edit'))return null;
   const f=_forms.find(x=>x.codigo===formCod);
   if(!f){toast('Formulário não encontrado','danger');return null;}
+  const docF=_docs.find(d=>d.codigo===f.codigo), docP=_docs.find(d=>d.codigo===f.pop_cod);
+  if(travaAtiva('documento_obsoleto')&&(docF?.status==='obsoleto'||docP?.status==='obsoleto')){
+    await avisarTravas([`${docF?.status==='obsoleto'?f.codigo:f.pop_cod} está OBSOLETO: não gera ficha nova (SYS-019).`]);return null;}
   const u=getUser();
+  if(f.codigo==='REG-POP04-02'){ const vd=docVideo(); if(vd){pre={...(pre||{}),video_versao:'rev. '+(vd.revisao||'—')};} }
   const row={formulario_cod:f.codigo,pop_cod:f.pop_cod,data:hoje(),hora:new Date().toTimeString().slice(0,5),
     campos:pre||{},status:'a_preencher',conforme:true,anexos:[],assinaturas:[],assinaturas_papel:{},
     origem_modulo:origemMod||null,origem_id:origemId||null,tarefa_id:tarefa?.id||null,
@@ -1848,6 +1937,14 @@ async function imprimirFichasPendentes(popCod){
   if(!res.error){l.forEach(r=>{r.ficha_impressa_em=agora;r.status='a_digitar';});toast(`${l.length} ficha(s) marcadas como impressas.`,'success');voltar();}
 }
 
+// vídeo de integração BPF (DDS curto para motoristas e visitantes) = documento IT-POP04-03
+function docVideo(){ return _docs.find(d=>d.codigo==='IT-POP04-03'); }
+function assistirVideo(){
+  const d=docVideo();
+  if(!d||!d.arquivo_path){uiAlerta('O vídeo ainda não foi anexado. Anexe em POPs & Documentos → IT-POP04-03 → 📎 Anexar.',{titulo:'Sem vídeo',tipo:'warn'});return;}
+  uiVisualizar(d.arquivo_path,`Vídeo de integração BPF — rev. ${d.revisao||''}.${String(d.arquivo_path).split('.').pop()}`);
+}
+
 // ── tela do registro: digitar, foto, assinaturas ─────────────────────────
 let _regAtual=null;
 function abrirRegistroFluxo(id){
@@ -1872,6 +1969,9 @@ function abrirRegistroFluxo(id){
     ${travado?`<div class="alerta al-info" style="font-size:12px;">Já foi revisado e assinado: o conteúdo ficou travado. Para corrigir, cancele o registro com motivo.</div>`:''}
     ${f.fonte_modulo&&FONTES[f.fonte_modulo]&&!travado?`<div class="rx-erp-sel"><label>📡 Vincular ao ERP (${esc(f.fonte_modulo)})</label>
       <select class="form-input" id="f__origem" onchange="aplicarOrigem()"><option value="">— sem vínculo —</option></select></div>`:''}
+    ${f.codigo==='REG-POP04-02'?`<div class="rx-erp-sel"><label>🎬 Vídeo de integração de BPF ${docVideo()?'(rev. '+esc(docVideo().revisao||'—')+')':''}</label>
+      <button class="btn btn-primary btn-sm" onclick="assistirVideo()">▶️ Passar o vídeo</button>
+      <span class="bx-mu" style="font-size:11.5px;margin-left:6px;">depois marque "Assistiu ao vídeo" — fica no histórico BPF da pessoa</span></div>`:''}
     ${r.origem_modulo==='laboratorio'&&r.formulario_cod==='REG-POP15-01'&&!travado?`<div class="rx-erp-sel"><label>🧪 Valores vindos do laboratório</label>
       <button class="btn btn-secondary btn-sm" onclick="atualizarDoLaboratorio('${r.id}')">🔄 Atualizar do laboratório</button>
       <span class="bx-mu" style="font-size:11.5px;margin-left:6px;">relê a análise (ex.: umidade lançada depois)</span></div>`:''}
@@ -1955,6 +2055,10 @@ async function salvarDigitacao(rascunho){
       if(!ok)return;
     }
   }
+  if(!rascunho){
+    const tv=travasDoRegistro({...r,preenchido_por:preench,anexos:_anexosTmp},vals,f,false);
+    if(tv.length){await avisarTravas(tv);return;}
+  }
   const pap={};(f.assinaturas||[]).forEach(a=>{const v=document.getElementById('rf-pap-'+a.id)?.value.trim();if(v)pap[a.id]=v;});
   const u=getUser(),agora=new Date().toISOString(),vEl=document.getElementById('f__validade'),oEl=document.getElementById('f__origem');
   const jaLancado=regLancado(r);
@@ -1994,7 +2098,10 @@ async function subirFotoFicha(inp){
     const foto={nome:file.name,path,tipo:file.type||'',tamanho:file.size,em:new Date().toISOString(),por:u?.nome||u?.email||'—'};
     const patch={foto_ficha:foto,atualizado_em:foto.em};
     // com foto e todas as assinaturas já no sistema, conclui
-    if(regLancado(r)&&!faltamAssin(r).length){patch.status='concluido';patch.concluido_em=foto.em;}
+    if(regLancado(r)&&(!faltamAssin(r).length||concluiComAnexo(r.formulario_cod))){
+      const tv=travasDoRegistro(r,r.campos||{},_forms.find(x=>x.codigo===r.formulario_cod),true);
+      if(!tv.length){patch.status='concluido';patch.concluido_em=foto.em;}
+    }
     const res=await db(_supabase.from('bpf_registros').update(patch).eq('id',r.id),'foto da ficha');
     if(res.error)return;
     await trilha(r.id,r.numero,r.foto_ficha?'foto trocada':'foto anexada',null,r.foto_ficha?.nome||null,file.name,'Foto da ficha preenchida');
@@ -2124,6 +2231,7 @@ async function assinar(regId,assId){
   const a=(f?.assinaturas||[]).find(x=>x.id===assId);if(!a)return;
   const u=getUser();
   if(!u){await uiAlerta('Sessão não identificada. Faça login novamente.',{titulo:'Sem usuário',tipo:'dang'});return;}
+  { const tv=travasDoRegistro(r,r.campos||{},f,true); if(tv.length){await avisarTravas(tv);return;} }
   if(!regLancado(r)||(!r.foto_ficha&&!formSemPapel(r.formulario_cod))){
     await uiAlerta('A assinatura no sistema libera depois que a ficha foi <strong>digitada</strong> e a <strong>foto da ficha</strong> anexada.',{titulo:'Ainda não',tipo:'warn'});return;}
   const tv=_travas.find(t=>t.codigo==='sem_designacao');
@@ -3452,7 +3560,10 @@ function renderTravas(){
       ${lst.map(t=>`<div class="trava"><div class="sw ${t.ativa?'on':''}" onclick="alternarTrava('${t.codigo}')"></div>
         <div style="flex:1;"><div class="nm">${esc(t.nome)} <span class="sys">${esc(t.sys_ref)}</span>
           ${t.severidade==='alerta'?'<span class="badge badge-warning">alerta</span>':''}</div>
-          <div class="ds">${esc(t.descricao||'')}</div></div>
+          <div class="ds">${esc(t.descricao||'')}</div>
+          ${(()=>{const d=TRAVAS_DEF[t.codigo];if(!d)return '<div class="ds" style="color:#b91c1c;font-weight:700;">⚠ sem regra no sistema</div>';
+            const m={bloqueia:['#166534','🔒 Bloqueia'],alerta:['#b45309','⚠️ Avisa'],pendente:['#64748b','⏳ Pendente']}[d.modo];
+            return `<div class="ds" style="color:${m[0]};font-weight:700;">${m[1]} — ${esc(d.onde)}${t.ativa?'':' · (desligada)'}</div>`;})()}</div>
         <span class="badge badge-gray">${esc(t.pop_cod||'—')}</span></div>`).join('')}</div>`;
   }
   document.getElementById('conteudo').innerHTML=h;
@@ -3586,9 +3697,11 @@ const GATILHO_FONTES={
       return {ref:'INS/'+m.id,id:m.id,quando:m.data,
         det:`Entrada de ${m.quantidade||'?'} ${i.unidade_estoque||''} de ${i.nome||'embalagem'} (${i.codigo||''})`
             +(m.fornecedor_destino?' — '+m.fornecedor_destino:''),
-        pre:{embalagem:i.nome||'',quantidade:m.quantidade||null,
-             fornecedor:m.fornecedor_destino||'',lote:m.lote_id||'',
-             hora:(m.criado_em||'').slice(11,16)||null}};
+        pre:{embalagem:`${i.nome||''} (${i.codigo||''})`,quantidade:m.quantidade||null,
+             fornecedor:m.fornecedor_destino||'',
+             // lote automático para controle quando a entrada não trouxe lote
+             lote:m.lote_id||('EMB-'+String(m.data||'').replace(/-/g,'').slice(2)+'-'+String(m.id).slice(0,4).toUpperCase()),
+             nota_fiscal:m.nota_fiscal||m.documento||'',hora:(m.criado_em||'').slice(11,16)||null}};
     });
   }},
   g_linha:{tab:'producao',dias:7,async busca(){
@@ -3692,6 +3805,15 @@ const GATILHO_FONTES={
     return l.filter(r=>r.status!=='encerrada').map(r=>({ref:'RC/'+r.id,id:r.id,quando:r.data_recebimento,
       det:`Reclamação ${r.numero||''} — ${r.cliente||''}`.trim(),
       pre:{numero_rc:r.numero||'',cliente:r.cliente||'',lote:r.lote_ref||'',prazo:r.prazo_ate||''}}));
+  }},
+  // POP-20/002: 15 dias depois do treinamento → avaliação de cada participante (observação prática em campo)
+  g_treino:{tab:'bpf_registros',async busca(){
+    const lim=new Date(Date.now()-15*864e5).toISOString().slice(0,10);
+    return _regs.filter(r=>r.formulario_cod==='REG-POP20-01'&&!r.cancelado_em&&regLancado(r)&&String(r.data)<=lim)
+      .flatMap(r=>String((r.campos||{}).participantes||'').split(/[\n,;]+/).map(x=>x.trim()).filter(Boolean).map(nome=>({
+        ref:'TREI/'+r.id+'/'+_normP(nome),id:r.id,quando:hoje(),
+        det:`Avaliação de eficácia — ${nome} · treinamento "${(r.campos||{}).tema||''}" de ${fmtD(r.data)}`,
+        pre:{treinamento:`${(r.campos||{}).tema||''} (${fmtD(r.data)})`,participante:nome}})));
   }},
   // ── calendário ──────────────────────────────────────────────
   g_pragas:{cal:'mensal'}, g_fossa:{cal:'mensal'}, g_agua:{cal:'mensal'},
