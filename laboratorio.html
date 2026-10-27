@@ -6869,33 +6869,14 @@ async function salvarLoteMP(){
   }
 }
 // ── BPF · POP-02 ─────────────────────────────────────────────────────────
-// O REG-POP02-01 nasce e se atualiza SOZINHO no banco (gatilho em caulim_lotes_mp,
-// função bpf_reg_pop02) com tudo que o lote já tem: lote, frentes e mistura,
+// O REG-POP02-01 nasce SOZINHO no banco (gatilho em caulim_lotes_mp, função
+// bpf_reg_pop02) em "A preencher", já com o que o lote tem: lote, frentes e mistura,
 // montante, variação, ΔE, granulometria, umidade, química externa vigente e decisão.
-// Aqui só falta a assinatura do Executante: quem salvou o lote assina com o login.
 async function registrarBpfLoteMP(nd){
   try{
-    const u=(typeof getUser==='function')?getUser():null;
-    const quem=(u&&(u.nome||u.email))||nd.analista_mp||'—';
-    const agora=new Date().toISOString();
-    let reg=null;
-    for(let i=0;i<4&&!reg;i++){   // o gatilho cria junto com o lote; espera um instante se precisar
-      const {data}=await _supabase.from('bpf_registros').select('id,numero,assinaturas').eq('formulario_cod','REG-POP02-01').eq('origem_id',String(nd.id)).is('cancelado_em',null).maybeSingle();
-      reg=data; if(!reg) await new Promise(r=>setTimeout(r,400));
-    }
-    if(!reg) return;
-    const {data:f}=await _supabase.from('bpf_formularios').select('assinaturas').eq('codigo','REG-POP02-01').maybeSingle();
-    const a0=((f&&f.assinaturas)||[])[0];
-    if(!a0||(reg.assinaturas||[]).some(x=>x.id===a0.id)) return;
-    const ass=(reg.assinaturas||[]).concat([{id:a0.id,label:a0.label,funcao:a0.funcao,nome:quem,perfil:(u&&u.perfil)||null,em:agora}]);
-    const {error}=await _supabase.from('bpf_registros').update({assinaturas:ass,lancado_por:quem}).eq('id',reg.id);
-    if(error) throw error;
-    try{ await _supabase.from('bpf_registro_trilha').insert({registro_id:reg.id,numero:reg.numero,acao:'assinado',
-      motivo:'Lote de MP '+(nd.numero||'')+' salvo no Laboratório · assinado como '+a0.label+' por '+quem,autor:quem}); }catch(e){}
-    toast('BPF: '+reg.numero+' preenchido com os dados do lote e assinado por '+quem+'. Falta a Qualidade no BPF.','success');
-  }catch(e){
-    console.warn('[BPF POP-02]',e);
-  }
+    const {data}=await _supabase.from('bpf_registros').select('numero').eq('formulario_cod','REG-POP02-01').eq('origem_id',String(nd.id)).is('cancelado_em',null).maybeSingle();
+    if(data) toast('BPF: '+data.numero+' criado em "A preencher" com os dados do lote.','success');
+  }catch(e){ console.warn('[BPF POP-02]',e); }
 }
 // ── ANÁLISES EXTERNAS ─────────────────────────────────────────────────────
 // Qualquer usuário do laboratório lança a análise (com anexos) e ela fica

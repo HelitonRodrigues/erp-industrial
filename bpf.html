@@ -2870,7 +2870,7 @@ function htmlFicha(f,pop){
         <td style="padding:7px 9px;width:33%;font-size:9.5px;line-height:1.6;">
           <strong>${esc(f.codigo)}</strong><br>
           POP de origem: ${esc(f.pop_cod)}${pop?' — '+esc(pop.titulo):''}<br>
-          ${(()=>{const dm=(_docs||[]).find(d=>d.codigo===f.codigo)||{};return `Revisão: ${esc(dm.revisao||'00')} · ${fmtD(dm.data_revisao||dm.data_emissao||'')} &nbsp;|&nbsp; Retenção: ${f.retencao_anos||4} anos`;})()}</td></tr>
+          ${(()=>{const dm=(_docs||[]).find(d=>d.codigo===f.codigo)||{};return `Revisão: ${esc(dm.revisao||'00')} · vigência ${fmtD(dm.data_vigencia||dm.data_revisao||dm.data_emissao||'')} &nbsp;|&nbsp; Retenção: ${f.retencao_anos||4} anos`;})()}</td></tr>
     </table>
     <div style="font-size:13px;font-weight:800;color:#042D4D;margin-bottom:3px;">${esc(f.titulo)}</div>
     <div style="font-size:9.5px;color:#555;margin-bottom:9px;">
@@ -3141,7 +3141,7 @@ let _docFiltro='pop',_docBusca='';
 const TIPO_DOC={manual:'Manual',pop:'POP',it:'Instrução',reg:'Registro'};
 function nomeArqDoc(path){ return String(path||'').split('/').pop().replace(/^[A-Z0-9-]+_(r\d+_)?\d{10,}_/,''); }
 function revsDe(cod){ return _revs.filter(r=>r.documento_cod===cod); }
-function dataVersao(d){ return d.data_revisao||d.data_emissao||(d.atualizado_em||'').slice(0,10)||null; }
+function dataVersao(d){ return d.data_vigencia||d.data_revisao||d.data_emissao||(d.atualizado_em||'').slice(0,10)||null; }
 function situacaoDoc(d){
   const dd=d.proxima_revisao?diasAte(d.proxima_revisao):null;
   if(d.status==='obsoleto')return {cls:'bx-tg-cinza',t:'Obsoleto'};
@@ -3229,7 +3229,7 @@ function htmlInstrucao(d){
       <td style="padding:7px 9px;"><img src="${LOGO_SILICATE}" alt="Silicate" style="height:28px;display:block;margin-bottom:4px;">
         <div style="font-size:9.5px;color:#555;">Silicate Indústria e Comércio Ltda · Sistema de Gestão da Qualidade · Boas Práticas de Fabricação</div></td>
       <td style="padding:7px 9px;width:36%;border-left:1px solid #042D4D;font-size:10px;line-height:1.55;"><b>${esc(d.codigo)}</b> · Instrução de trabalho<br>
-        POP de origem: ${esc(d.pop_cod||'')}${pop?' — '+esc(pop.titulo):''}<br>Revisão: ${esc(d.revisao||'00')} &nbsp;|&nbsp; Vigente desde: ${fmtD(d.data_revisao||d.data_emissao||'')}</td></tr></table>
+        POP de origem: ${esc(d.pop_cod||'')}${pop?' — '+esc(pop.titulo):''}<br>Revisão: ${esc(d.revisao||'00')} &nbsp;|&nbsp; Vigente desde: ${fmtD(d.data_vigencia||d.data_revisao||d.data_emissao||'')}</td></tr></table>
     <div style="font-size:19px;font-weight:800;color:#042D4D;margin:2px 0;">${esc(d.titulo)}</div>
     <div style="font-size:10px;color:#555;margin-bottom:10px;">${esc(c.onde?'Onde: '+c.onde:'')}${c.fonte?' · Texto do '+esc(c.fonte):''}</div>
     <div style="display:flex;gap:8px;margin-bottom:10px;">${[['Quem faz',c.quem_faz],['Quem confere',c.quem_confere],['Quando',c.quando],['Registro',c.registro]].map(([t,v])=>
@@ -3971,15 +3971,15 @@ const GATILHO_FONTES={
   // ── POP-03 (item 7): além da limpeza diária, limpa ao fim de cada lote, na troca de
   // variação, após manutenção na linha e após parada não programada — tudo vem da Produção
   // e da Manutenção, dentro do escopo (Linha 2 / Longa Vida · 25 kg e Big Bag).
-  g_limp_lote:{tab:'producao',dias:3,async busca(){
-    const l=await lst(_supabase.from('producao').select('*').order('data',{ascending:false}).limit(150));
+  g_limp_lote:{tab:'producao',dias:3,async busca(g){
+    const l=await lst(_supabase.from('producao').select('*').gte('data',g._desde||'2026-10-26').order('data',{ascending:false}).limit(3000));
     return l.filter(noEscopo).flatMap(p=>itensEscopoOP(p).map((it,i)=>({ref:'LIMP-LOTE/'+p.id+'/'+(it.lote||i),id:p.id,quando:p.data,
       det:`Limpeza — fim de lote ${it.lote||''} · ${p.linha||''} · OP ${p.op_numero||''}`,
       pre:{areas:`${p.linha||''} — linha, silos/moinho, ensacadeira e piso`,
            obs:`Motivo: fim de lote · OP ${p.op_numero||''} · lote ${it.lote||'—'} · ${it.produto||''} · ${p.turno||''}`}})));
   }},
-  g_limp_var:{tab:'producao',dias:3,async busca(){
-    const l=(await lst(_supabase.from('producao').select('*').order('data',{ascending:true}).limit(300))).filter(noEscopo);
+  g_limp_var:{tab:'producao',dias:3,async busca(g){
+    const l=(await lst(_supabase.from('producao').select('*').gte('data',g._desde||'2026-10-26').order('data',{ascending:true}).order('created_at',{ascending:true}).limit(3000))).filter(noEscopo);
     const prodOP=p=>itensEscopoOP(p).map(x=>x.produto).filter(Boolean).join(' + ');
     const out=[];const ult={};
     l.forEach(p=>{const lin=String(p.linha||'');const pr=prodOP(p);if(!pr)return;
@@ -3990,17 +3990,17 @@ const GATILHO_FONTES={
       ult[lin]={pr,op:p.op_numero||''};});
     return out;
   }},
-  g_limp_parada:{tab:'producao',dias:3,async busca(){
+  g_limp_parada:{tab:'producao',dias:3,async busca(g){
     const NAO_PROG=/PROBLEMA|QUEDA DE ENERGIA|DESARME|ALIMENTADOR|MARTELO/i;
-    const l=await lst(_supabase.from('producao').select('*').order('data',{ascending:false}).limit(150));
+    const l=await lst(_supabase.from('producao').select('*').gte('data',g._desde||'2026-10-26').order('data',{ascending:false}).limit(3000));
     return l.filter(noEscopo).filter(p=>itensEscopoOP(p).length).flatMap(p=>(Array.isArray(p.paradas_op)?p.paradas_op:[]).map((x,i)=>({x,i}))
       .filter(({x})=>NAO_PROG.test(String(x.motivo||''))).map(({x,i})=>({ref:'LIMP-PAR/'+p.id+'/'+i,id:p.id,quando:p.data,
         det:`Limpeza — após parada não programada (${x.motivo}) · ${p.linha||''} · OP ${p.op_numero||''}`,
         pre:{hora_ini:x.h_fim||null,areas:`${p.linha||''} — linha, silos/moinho, ensacadeira e piso`,
              obs:`Motivo: após parada não programada · ${x.motivo} ${x.h_ini||''}–${x.h_fim||''}${x.obs_parada_item?' · '+x.obs_parada_item:''} · OP ${p.op_numero||''}`}})));
   }},
-  g_limp_manut:{tab:'manutencao',dias:30,async busca(){
-    const l=await lst(_supabase.from('manutencao').select('*').order('data_abertura',{ascending:false}).limit(200));
+  g_limp_manut:{tab:'manutencao',dias:30,async busca(g){
+    const l=await lst(_supabase.from('manutencao').select('*').gte('data_abertura',g._desde||'2026-10-26').order('data_abertura',{ascending:false}).limit(2000));
     return l.filter(m=>m.linha&&linhaNoEscopo(m.linha)&&String(m.status||'').startsWith('conclu')).map(m=>({ref:'LIMP-MNT/'+m.id,id:m.id,
       quando:String(m.data_conclusao||m.data_abertura||'').slice(0,10),
       det:`Limpeza — após manutenção · OS ${m.numero||''} · ${m.linha} · ${m.equipamento||''}`,
@@ -4106,7 +4106,14 @@ const GATILHO_FONTES={
   }},
   // ── calendário ──────────────────────────────────────────────
   g_pragas:{cal:'mensal'}, g_fossa:{cal:'mensal'}, g_agua:{cal:'mensal'},
-  g_residuo:{cal:'diaria'}, g_limpeza:{cal:'diaria'}, g_cronog:{cal:'anual_dez'}
+  g_residuo:{cal:'diaria'}, g_cronog:{cal:'anual_dez'},
+  g_limpeza:{tab:'producao',async busca(g){
+    const l=(await lst(_supabase.from('producao').select('data,linha,produto,produtos_op').gte('data',g._desde||hoje()).limit(5000))).filter(noEscopo).filter(p=>itensEscopoOP(p).length);
+    const dias=new Set(l.map(p=>String(p.data).slice(0,10)));
+    const h=hoje(); if(new Date(h+'T12:00:00').getDay()!==0)dias.add(h);
+    return [...dias].sort().map(d=>({ref:'CAL/g_limpeza/'+d,id:null,quando:d,det:`${g.evento} — ${fmtD(d)}`,
+      pre:{areas:'Linha 2 / Longa Vida — linha, silos/moinho, ensacadeira e piso',obs:'Motivo: fim do expediente (limpeza diária)'}}));
+  }},
 };
 const lst=async q=>{const r=await q;if(r.error)throw r.error;return r.data||[];};
 // Lista de códigos de item que o gatilho aceita. null = sem lista configurada,
@@ -4152,14 +4159,15 @@ async function varrerGatilhos(silencioso){
     if(!rec)continue;
     try{
       let eventos=[];
+      // registros nascem a partir da VIGÊNCIA do POP (data do PDF); sem vigência, vale o "desde" do gatilho
+      const vig=(_pops.find(p=>p.codigo===g.pop_cod)||{}).data_vigencia||null;
+      g._desde=vig||(g.filtro&&g.filtro.desde)||null;
       if(rec.cal) eventos=eventosCalendario(g,rec.cal);
       else {
         eventos=await rec.busca(g);
-        if(rec.dias){const lim=new Date(Date.now()-rec.dias*864e5).toISOString().slice(0,10);
+        if(rec.dias&&!vig){const lim=new Date(Date.now()-rec.dias*864e5).toISOString().slice(0,10);
           eventos=eventos.filter(e=>!e.quando||String(e.quando).slice(0,10)>=lim);}
-        // "desde": nada antes da data de implantação vira ficha (evita gerar o passado)
-        const desde=g.filtro&&g.filtro.desde;
-        if(desde)eventos=eventos.filter(e=>!e.quando||String(e.quando).slice(0,10)>=desde);
+        if(g._desde)eventos=eventos.filter(e=>!e.quando||String(e.quando).slice(0,10)>=g._desde);
       }
       for(const e of eventos){
         if(_tarefas.some(t=>t.gatilho_cod===g.codigo&&t.origem_ref===e.ref))continue;
