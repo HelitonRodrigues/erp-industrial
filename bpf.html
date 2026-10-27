@@ -3940,11 +3940,23 @@ const GATILHO_FONTES={
              hora:m.criado_em?new Date(m.criado_em).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}):null}};
     });
   }},
-  g_linha:{tab:'producao',dias:7,async busca(){
-    const l=await lst(_supabase.from('producao').select('*').order('data',{ascending:false}).limit(120));
-    return l.filter(noEscopo).map(p=>({ref:'OP/'+p.id,id:p.id,quando:p.data,
-      det:`Abertura de OP${p.op_numero?' '+p.op_numero:''} — ${p.linha||''} ${p.turno||''}`.trim(),
-      pre:{unidade:p.linha||'',lote:(lotesDaOP(p)[0])||''}}));
+  // POP-06 (item 7): inspeção da linha ANTES DO INÍCIO DE CADA MOAGEM DE LOTE (alimentação animal), desde a vigência.
+  // Na troca de variação ou de lote de MP em relação ao lote anterior da mesma linha, avisa o descarte de transição (6.b).
+  g_linha:{tab:'producao',dias:7,async busca(g){
+    const l=(await lst(_supabase.from('producao').select('*').gte('data',g._desde||'2026-10-26').order('data',{ascending:true}).order('created_at',{ascending:true}).limit(3000))).filter(noEscopo);
+    const ult={};const out=[];
+    l.forEach(p=>{const lin=String(p.linha||'');
+      itensEscopoOP(p).forEach((it,i)=>{
+        const ant=ult[lin];const trocaVar=ant&&_normP(ant.prod)!==_normP(it.produto);const trocaMP=ant&&p.lote_mp&&ant.mp&&_normP(ant.mp)!==_normP(p.lote_mp);
+        const trans=trocaVar?`troca de variação (${ant.prod} → ${it.produto})`:trocaMP?`troca de lote de MP (${ant.mp} → ${p.lote_mp})`:'';
+        out.push({ref:'LOTE06/'+p.id+'/'+(it.lote||i),id:p.id,quando:p.data,
+          det:`Inspeção antes da moagem — lote ${it.lote||'—'} · ${lin} · OP ${p.op_numero||''}`,
+          pre:{unidade:lin,lote:it.lote||'',
+               obs:[`OP ${p.op_numero||''} · ${it.produto||''} · ${p.turno||''}`,p.lote_mp?'Lote de MP: '+p.lote_mp:'',
+                    trans?'Descarte de transição de cor obrigatório — '+trans+' (POP-06, 6.b)':'Mesma variação e mesmo lote de MP — sem descarte de transição'].filter(Boolean).join(' · ')}});
+        ult[lin]={prod:it.produto,mp:p.lote_mp||(ant&&ant.mp)};
+      });});
+    return out;
   }},
   // POP-04 (item 7): monitoramento de higiene e paramentação NOS DIAS DE PRODUÇÃO de alimentação animal
   g_uniforme:{tab:'producao',dias:7,async busca(g){
