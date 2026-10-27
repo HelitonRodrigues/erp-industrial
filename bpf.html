@@ -21,6 +21,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="js/supabase.js"></script>
 <script src="js/utils.js"></script>
+<script src="js/bpf-documentos.js"></script>
 <style>
 .pg-hdr{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;flex-wrap:wrap;gap:12px;}
 .pg-hdr h1{font-size:20px;font-weight:800;color:var(--primary);line-height:1.2;}
@@ -362,6 +363,15 @@
 .cb-o:hover,.cb-o.at{background:#ecfdf5;}
 .cb-v{padding:10px 12px;font-size:12.5px;color:#94a3b8;}
 .pp-reg-a .bx-btn{min-height:40px;}
+.rv-ag{display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap;background:#fffbeb;border:1px solid #fcd34d;border-radius:10px;padding:10px 12px;margin:0 0 12px;}
+.rv-ag b{color:#92400e;}.rv-alt{font-size:12.5px;color:#475569;margin-top:3px;}
+.ed-l{display:flex;gap:8px;border:1px solid #e2e8f0;border-radius:10px;padding:8px;margin-bottom:6px;background:#fff;}
+.ed-sec{background:#eef3f8;}
+.ed-ord{display:flex;flex-direction:column;gap:2px;}.ed-ord button{border:1px solid #e2e8f0;background:#fff;border-radius:6px;cursor:pointer;font-size:10px;padding:2px 6px;color:#64748b;}
+.ed-c{flex:1;min-width:0;}
+.ed-r1{display:flex;gap:6px;align-items:center;flex-wrap:wrap;}.ed-r1 input.form-input{flex:1;min-width:180px;}.ed-r1 select.form-input{width:auto;}
+.ed-r2{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:6px;font-size:12px;color:#64748b;}.ed-r2 .form-input{min-height:34px;}
+.ed-ck{font-size:12.5px;color:#475569;display:flex;gap:4px;align-items:center;white-space:nowrap;}
 .pp-it{display:flex;justify-content:space-between;gap:10px;align-items:center;border-top:1px solid #eef2f6;padding:10px 0;}
 .pp-it:first-of-type{border-top:none;}
 .dc .dc-hd{display:flex;gap:14px;align-items:flex-start;padding:18px 20px 14px;border-bottom:1px solid #eef2f6;}
@@ -1134,9 +1144,17 @@ async function mostrarPdf(el,src,nome){
     el.outerHTML=`<iframe class="vw-box" src="${u}#view=FitH" title="${esc(nome||'PDF')}" style="border:none;background:#525659;"></iframe>`;
     return;
   }
-  try{ await renderPdfNo(el,bytes.slice(0)); }
-  catch(e){ const u=URL.createObjectURL(new Blob([bytes],{type:'application/pdf'}));
-    el.outerHTML=`<div class="alerta al-info" style="margin:0;">Não deu para mostrar aqui. <a class="btn btn-primary btn-sm" href="${u}" target="_blank" rel="noopener">Abrir o PDF</a></div>`; }
+  const u=URL.createObjectURL(new Blob([bytes],{type:'application/pdf'}));
+  const plano=`<div class="alerta al-info" style="margin:0;">Este PDF não pôde ser desenhado aqui. <a class="btn btn-primary btn-sm" href="${u}" target="_blank" rel="noopener">Abrir o PDF</a></div>`;
+  try{
+    await renderPdfNo(el,bytes.slice(0));
+    // página toda branca = o leitor não conseguiu desenhar (fonte/formato): oferece abrir no leitor do aparelho
+    const cv=el.querySelector('canvas');
+    if(cv){ const c=cv.getContext('2d'); const w=cv.width,h=cv.height; const d=c.getImageData(Math.floor(w*0.1),Math.floor(h*0.05),Math.floor(w*0.8),Math.floor(h*0.6)).data;
+      let tinta=0; for(let i=0;i<d.length;i+=4*97){ if(d[i]<235||d[i+1]<235||d[i+2]<235){tinta++; if(tinta>20)break;} }
+      if(tinta<=20){ el.insertAdjacentHTML('beforebegin',plano); } }
+    el.insertAdjacentHTML('afterbegin',`<div style="text-align:right;margin-bottom:6px;"><a class="btn btn-secondary btn-sm" href="${u}" target="_blank" rel="noopener">Abrir no leitor do aparelho</a></div>`);
+  }catch(e){ el.outerHTML=plano; }
 }
 async function uiVisualizar(path,nome,bucket){
   const ext=String(nome||path).split('.').pop().toLowerCase();
@@ -1237,6 +1255,7 @@ async function carregar(){
   _pops=docs.filter(d=>d.tipo==='pop');
   // histórico de versões (uma linha por versão substituída, com o arquivo dela)
   _revs=await s(_supabase.from('bpf_documento_revisoes').select('*').order('created_at',{ascending:false}),'histórico de versões');
+  await carregarVersoesFichas();
   const dl=document.getElementById('lst-func');
   if(dl) dl.innerHTML=_funcionarios.map(f=>`<option value="${esc(f.nome)}">`).join('');
 
@@ -1526,8 +1545,14 @@ function abrirPop(cod,aba){
       <div class="pp-reg-a">
         <button class="bx-btn bx-btn-acc" onclick="novaFichaManual('${esc(f.codigo)}')" title="Abre uma ficha nova; o número só é criado quando você salvar">＋ Gerar ficha</button>
         <button class="bx-btn" onclick="imprimirFicha('${esc(f.codigo)}')" title="Imprime a ficha em branco">🖨️ Ficha em branco</button>
+        <button class="bx-btn" onclick="abrirEditorCampos('${esc(f.codigo)}')" title="Incluir, tirar ou mudar campos — vira uma revisão nova">✏️ Editar campos</button>
         ${d?`<button class="bx-btn" onclick="verDadosDoc('${d.id}')" title="Cadastro, arquivo e histórico do documento">📄 Documento ${esc(f.codigo)}</button>`:''}
       </div></div>
+      ${(()=>{const ag=versaoAguardando(f.codigo);return ag?`<div class="rv-ag"><div><b>📝 Revisão ${esc(ag.revisao)} aguardando aprovação</b> <span class="bx-mu">por ${esc(ag.criado_por||'—')} em ${fmtD(ag.criado_em)}</span>
+          <div class="rv-alt">${esc(ag.alteracoes||'')}</div></div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;"><button class="btn btn-secondary btn-sm" onclick="abrirEditorCampos('${esc(f.codigo)}')">✏️ Ajustar</button>
+          ${podeAprovarFicha(f.codigo)?`<button class="btn btn-primary btn-sm" onclick="aprovarVersaoFicha('${esc(f.codigo)}')">✅ Aprovar</button>`:''}
+          <button class="btn btn-ghost btn-sm" onclick="descartarVersaoFicha('${esc(f.codigo)}')">Descartar</button></div></div>`:'';})()}
       ${fechado?'':(regs.length?quadroRegsHtml(regs,''):'<div class="bx-mu" style="font-size:12.5px;">Nenhum registro ainda.</div>')}</div>`;
   });
   if(!fs.length&&(at==='todos'))
@@ -2153,7 +2178,7 @@ async function novoRegistro(formCod){ return gerarRegistro(formCod); }
 async function imprimirFichaReg(id){
   let r=_regs.find(x=>x.id===id);if(!r)return;
   if(r._novo){ if(!(await persistirNovo(r)))return; id=r.id; }
-  const f=_forms.find(x=>x.codigo===r.formulario_cod);if(!f)return;
+  const f=formDoRegistro(r);if(!f)return;
   const pre=Object.entries(r.campos||{}).filter(([k,v])=>v!==null&&v!==''&&typeof v!=='object')
     .map(([k,v])=>{const c=(f.campos||[]).find(x=>x.id===k);return c?`<b>${esc(c.label)}:</b> ${esc(v)}`:'';}).filter(Boolean);
   const topo=`<div style="font-family:'Plus Jakarta Sans',sans-serif;border:2px solid #042D4D;border-radius:6px;padding:7px 10px;margin-bottom:8px;font-size:11px;color:#111;">
@@ -2205,7 +2230,7 @@ let _regAtual=null;
 function abrirRegistroFluxo(id){
   { const h=new URLSearchParams(String(location.hash||'').replace(/^#/,'')); h.set('reg',id); lembrarTela(Object.fromEntries(h)); }
   const r=_regs.find(x=>x.id===id);if(!r)return;
-  const f=_forms.find(x=>x.codigo===r.formulario_cod);if(!f){verRegistro(id);return;}
+  const f=formDoRegistro(r);if(!f){verRegistro(id);return;}
   _regAtual=r;_formAtual=f;_anexosTmp=(r.anexos||[]).slice();_origem=null;
   const e=etapaReg(r);
   // trava quando um REVISOR (encarregado, qualidade…) assinou; a do executante não trava
@@ -2545,7 +2570,7 @@ async function trilha(regId,numero,acao,campo,ant,novo,motivo){
 
 async function verRegistro(id){
   const r=_regs.find(x=>x.id===id);if(!r)return;
-  const f=_forms.find(x=>x.codigo===r.formulario_cod);
+  const f=formDoRegistro(r);
   const campos=f?.campos||[],desvios=avaliar(campos,r.campos||{});
   const tr=await db(_supabase.from('bpf_registro_trilha').select('*').eq('registro_id',id).order('em',{ascending:false}).limit(60),'trilha');
   const trilhaHtml=(tr.data||[]).map(t=>`<div class="trilha-it"><span class="qd">${fmtDH(t.em)}</span>
@@ -2603,7 +2628,7 @@ async function verRegistro(id){
 async function assinar(regId,assId){
   if(!guardAction('bpf','edit'))return;
   const r=_regs.find(x=>x.id===regId);if(!r)return;
-  const f=_forms.find(x=>x.codigo===r.formulario_cod);
+  const f=formDoRegistro(r);
   const a=(f?.assinaturas||[]).find(x=>x.id===assId);if(!a)return;
   const u=getUser();
   if(!u){await uiAlerta('Sessão não identificada. Faça login novamente.',{titulo:'Sem usuário',tipo:'dang'});return;}
@@ -2664,7 +2689,7 @@ async function cancelarRegistro(regId){
 
 async function imprimirRegistro(id){
   const r=_regs.find(x=>x.id===id);if(!r)return;
-  const f=_forms.find(x=>x.codigo===r.formulario_cod);
+  const f=formDoRegistro(r);
   const campos=f?.campos||[],desvios=avaliar(campos,r.campos||{});
   // foto da ficha preenchida sai no PDF (imagem) — PDF anexado vira referência
   let fotoHtml='';
@@ -3642,6 +3667,9 @@ function renderDocs(){
         value="${esc(_docBusca)}" oninput="_docBusca=this.value;renderDocsLista()">
       <div class="bx-chips">${filtros.map(([k,t,fn])=>`<button class="bx-chip${_docFiltro===k?' on':''}" onclick="filtrarDocs('${k}')">${t}<b>${base.filter(fn).length}</b></button>`).join('')}</div>
     </div>
+    ${(()=>{const n=_docs.filter(d=>!d.arquivo_path&&((d.tipo==='reg'&&_forms.some(f=>f.codigo===d.codigo))||(d.tipo==='it'&&d.codigo!=='IT-POP04-03'))).length;return n?`<div class="alerta al-info" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;border-left:4px solid #16a34a;">
+      <span><b>${n} registro(s)/instrução(ões)</b> sem PDF. O sistema gera no layout dos POPs: REG a partir dos campos da ficha, IT a partir do texto do POP.</span>
+      <button class="btn btn-primary btn-sm" onclick="gerarPdfsPendentes()">📄 Gerar PDFs</button></div>`:'';})()}
     ${(()=>{const n=_docs.filter(d=>!d.arquivo_path&&papelDoDoc(d)).length;return n?`<div class="alerta al-info" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
       <span><b>${n} documento(s)</b> sem arquivo próprio têm o <b>formulário em papel antigo</b> guardado no banco.</span>
       <button class="btn btn-primary btn-sm" onclick="migrarTodosPapeis()">⇪ Usar como arquivo de cada um</button></div>`:'';})()}
@@ -3976,6 +4004,7 @@ function verDadosDoc(id){
     <div class="dlg-ft" style="flex-wrap:wrap;">
       ${d.arquivo_path?`<button class="btn btn-secondary" onclick="_fecharDlg();abrirNovaVersao('${d.id}')">⬆️ Nova versão</button>`:''}
       <button class="btn btn-secondary" onclick="verHistoricoDoc('${d.id}')">🕘 Histórico</button>
+      ${d.tipo==='reg'&&_forms.some(f=>f.codigo===d.codigo)?`<button class="btn btn-secondary" onclick="_fecharDlg();abrirEditorCampos('${esc(d.codigo)}')">✏️ Editar campos</button>`:''}
       <button class="btn btn-secondary" onclick="_fecharDlg();editarDocMestre('${d.id}')">✏️ Editar</button>
       ${d.tipo==='pop'?`<button class="btn btn-secondary" onclick="_fecharDlg();abrirConfigPop('${esc(d.codigo)}')">⚙️ Configurar</button>`:''}
       <button class="btn btn-primary" onclick="_fecharDlg();abrirDoc('${d.id}')">Ir ao fluxo ➜</button></div></div>`);
