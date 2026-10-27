@@ -41,6 +41,7 @@ const MODULO_MAP = [
   // QUALIDADE
   { id:'laboratorio',    page:'laboratorio.html',     label:'Laboratório',          group:'qualidade',    icon:'🧪' },
   { id:'bpf',            page:'bpf.html',             label:'BPF',                  group:'qualidade',    icon:'📋' },
+  { id:'qualidade',      page:'qualidade.html',       label:'Central da Qualidade', group:'qualidade',    icon:'🎯' },
   // OPERAÇÕES
   { id:'manutencao',     page:'manutencao.html',      label:'Manutenção',           group:'operacoes',    icon:'🔧' },
   { id:'frota',          page:'frota.html',           label:'Frota',                group:'operacoes',    icon:'🚜' },
@@ -424,6 +425,8 @@ function checkPerm(moduloId, acao) {
   if (PERFIS_ADMIN.includes(u.perfil)) return true;
   const perms = u.permissoes;
   if (!perms) return false;
+  // Central da Qualidade: quem abre BPF ou Laboratório abre a Central (vale até para sessão antiga)
+  if (moduloId==='qualidade' && !perms.qualidade) return _modAgg(perms.bpf, 'view') || _modAgg(perms.laboratorio, 'view');
   return _modAgg(perms[moduloId], acao);   // agrega abas → nível de módulo
 }
 
@@ -451,7 +454,8 @@ function requireAuth(moduloId) {
 
   // Verificar permissão de view para o módulo
   const perms = user.permissoes || {};
-  const temAcesso = perms[moduloId] && perms[moduloId].view;
+  const temAcesso = (perms[moduloId] && perms[moduloId].view)
+    || (moduloId==='qualidade' && ((perms.bpf&&perms.bpf.view)||(perms.laboratorio&&perms.laboratorio.view)));
 
   if (!temAcesso) {
     if (moduloId === 'dashboard') {
@@ -656,6 +660,7 @@ async function initSidebar(paginaAtiva) {
   // A sidebar chega por fetch — sem esperar, o rodapé dela ficava com o nome
   // de exemplo do partial em vez do usuário de verdade.
   await _esperarSidebar();
+  try{ AvisosQualidade.iniciar(); }catch(e){}
 
   // Dados do usuário na topbar e no rodapé da sidebar.
   // Nada de default 'Super Admin'/'SADM': se o dado faltar, mostra '—' e não
@@ -1074,9 +1079,67 @@ function exportarCSV(colunas, linhas, nomeArquivo) {
 // fica no BPF → POP-01 → ⚙️: ligada/desligada, modo (bloquear/avisar), onde age,
 // quais embalagens entram no BPF e quem pode liberar exceção.
 const _bpfNorm=s=>String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]/g,'');
-async function bpfAvisar(titulo,descricao,chave){
-  try{ await _supabase.from('notificacoes').insert({tipo:'alerta',modulo:'bpf',titulo,descricao,chave:chave||null,fonte:'bpf'}); }catch(e){}
+async function bpfAvisar(titulo,descricao,chave,pop){
+  let dest=[];
+  try{ const {data}=await _supabase.rpc('bpf_pessoas_pop',{p_pop:pop||'POP-01',p_papeis:['aviso','libera','responsavel']}); dest=data||[]; }catch(e){}
+  try{ await _supabase.from('notificacoes').insert({tipo:'urgente',modulo:'bpf',titulo,descricao,chave:chave||null,fonte:'bpf',destinatarios:dest}); }catch(e){}
 }
+
+// ── AVISOS PESSOAIS (Central da Qualidade) ───────────────────────────────
+// Em QUALQUER tela do ERP: confere a cada 60 s se chegou aviso com o nome do
+// usuário (notificacoes.destinatarios). Chegou → som + aviso na tela + aviso do
+// sistema (quando a aba está em segundo plano). Urgente toca 3 vezes.
+// Também dispara a checagem de fichas atrasadas (bpf_notificar_atrasos).
+const AvisosQualidade=(()=>{
+  let timer=null,ctx=null;
+  const chaveVistos=()=>'erp_avisos_vistos_'+((getUser()||{}).nome||'');
+  const vistos=()=>{try{return new Set(JSON.parse(localStorage.getItem(chaveVistos())||'[]'));}catch(e){return new Set();}};
+  const salvarVistos=s=>{try{localStorage.setItem(chaveVistos(),JSON.stringify([...s].slice(-400)));}catch(e){}};
+  function bip(urgente){
+    try{
+      const AC=window.AudioContext||window.webkitAudioContext;if(!AC)return;
+      ctx=ctx||new AC(); if(ctx.state==='suspended')ctx.resume();
+      const toca=(t0,f)=>{const o=ctx.createOscillator(),g=ctx.createGain();o.type='sine';o.frequency.value=f;
+        g.gain.setValueAtTime(0.0001,ctx.currentTime+t0);g.gain.exponentialRampToValueAtTime(0.5,ctx.currentTime+t0+0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001,ctx.currentTime+t0+0.35);o.connect(g);g.connect(ctx.destination);o.start(ctx.currentTime+t0);o.stop(ctx.currentTime+t0+0.4);};
+      const n=urgente?3:1; for(let i=0;i<n;i++){toca(i*0.9,880);toca(i*0.9+0.18,1320);}
+    }catch(e){}
+  }
+  function avisoSistema(n){
+    try{ if(document.hidden&&'Notification' in window&&Notification.permission==='granted')
+      new Notification(n.titulo||'Aviso da Qualidade',{body:n.descricao||'',icon:'icons/icon-192.png',tag:n.id}); }catch(e){}
+  }
+  async function conferir(){
+    const u=getUser(); if(!u||!u.nome) return;
+    try{
+      const ultimaAtraso=+(localStorage.getItem('erp_atrasos_ts')||0);
+      if(Date.now()-ultimaAtraso>5*60*1000){ localStorage.setItem('erp_atrasos_ts',String(Date.now())); _supabase.rpc('bpf_notificar_atrasos').then(()=>{},()=>{}); }
+      const desde=new Date(Date.now()-3*864e5).toISOString();
+      const {data}=await _supabase.from('notificacoes').select('id,tipo,titulo,descricao,created_at')
+        .contains('destinatarios',[u.nome]).gte('created_at',desde).order('created_at',{ascending:false}).limit(30);
+      const vs=vistos(); const novos=(data||[]).filter(n=>!vs.has(n.id));
+      const badge=document.getElementById('sb-badge-qualidade');
+      if(badge){badge.textContent=novos.length||'';badge.style.display=novos.length?'':'none';}
+      const avisados=JSON.parse(sessionStorage.getItem('erp_avisos_tocados')||'[]');
+      const tocar=novos.filter(n=>!avisados.includes(n.id));
+      if(tocar.length){
+        bip(tocar.some(n=>n.tipo==='urgente'));
+        tocar.slice(0,3).forEach(n=>{ if(typeof toast==='function')toast('🎯 '+(n.titulo||'Aviso')+(n.descricao?' — '+n.descricao:''),n.tipo==='urgente'?'danger':'info'); avisoSistema(n); });
+        sessionStorage.setItem('erp_avisos_tocados',JSON.stringify(avisados.concat(tocar.map(n=>n.id)).slice(-200)));
+      }
+    }catch(e){}
+  }
+  return {
+    iniciar(){ if(timer||!getUser()) return;
+      const a=document.querySelector('a[href="qualidade.html"]');
+      if(a&&!document.getElementById('sb-badge-qualidade')){const b=document.createElement('span');b.id='sb-badge-qualidade';
+        b.style.cssText='display:none;margin-left:auto;background:#dc2626;color:#fff;border-radius:999px;padding:0 7px;font-size:11px;font-weight:800;';a.appendChild(b);}
+      setTimeout(conferir,4000); timer=setInterval(conferir,60000);
+      document.addEventListener('click',()=>{try{const AC=window.AudioContext||window.webkitAudioContext;if(AC){ctx=ctx||new AC();if(ctx.state==='suspended')ctx.resume();}}catch(e){}},{once:true}); },
+    marcarVisto(ids){ const s=vistos(); (ids||[]).forEach(i=>s.add(i)); salvarVistos(s); conferir(); },
+    vistos, conferir, bip,
+  };
+})();
 /* itens: [{insumo_id, nome}] · fornecedor: {nome, cnpj} · onde: 'pedido' | 'recebimento'
    devolve null (tudo certo / trava desligada) ou {modo, msg, liberadores:[nomes], podeLiberar} */
 async function bpfTravaFornecedor({onde,itens,fornecedor}){
