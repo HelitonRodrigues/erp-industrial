@@ -21,7 +21,6 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="js/supabase.js"></script>
 <script src="js/utils.js"></script>
-<script src="js/bpf-documentos.js"></script>
 <style>
 .pg-hdr{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;flex-wrap:wrap;gap:12px;}
 .pg-hdr h1{font-size:20px;font-weight:800;color:var(--primary);line-height:1.2;}
@@ -516,7 +515,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 let _pops=[],_forms=[],_regs=[],_travas=[],_docs=[],_funcs=[],_desig=[];
-let _ncs=[],_auds=[],_treins=[],_anexos=[],_funcionarios=[];
+let _ncs=[],_auds=[],_treins=[],_funcionarios=[];
 let _ent={},_erpCache={},_erpLinhas={},_revs=[];
 let _sec='painel',_popSel=null,_entSel=null,_formAtual=null,_anexosTmp=[],_entEditId=null,_simplesCfg=null,_origem=null;
 
@@ -663,130 +662,6 @@ function produtosDaOP(r){
   if(p.length) return p.join(' · ');
   return r.produto||'';
 }
-function sacosDaOP(r){
-  const it=itensDaOP(r);
-  if(it.length) return it.reduce((s,x)=>s+(Number(x.total_sacos)||0),0);
-  return r.total_sacos??'';
-}
-// Derivadas disponíveis nos painéis: basta citar a chave em `cols`.
-const DERIV={
-  _lote:   {l:'Lote',      fn:lotesDaOP},
-  _prods:  {l:'Produtos',  fn:produtosDaOP},
-  _sacos:  {l:'Sacos',     fn:sacosDaOP},
-};
-
-// ── PAINÉIS DO ERP POR POP ─────────────────────────────────────────────────
-// Cada painel faz select('*') e mostra só as colunas que existirem no
-// retorno — assim uma coluna ausente não derruba a tela.
-// `pos` filtra no cliente o que o PostgREST não faz (comparação coluna×coluna).
-const ERP={
- 'POP-01':[
-   // Recebimentos de embalagem confirmados nas Solicitações (e compras antigas) — é deles que nasce o REG-POP01-01
-   {t:'Recebimentos de embalagem (Solicitações)',tab:'insumos_movimentos',lim:300,semEscopo:true,
-    cols:['data','_emb','_qtd','_forn','_nf','_ped'],
-    async busca(){
-      const g=_gatilhos.find(x=>x.codigo==='g_emb_insumo');const cods=(g&&g.filtro&&g.filtro.itens)||[];
-      if(!cods.length)return {data:[]};
-      const ins=await lst(_supabase.from('insumos').select('id,codigo,nome,unidade_estoque').in('codigo',cods));
-      const nome=Object.fromEntries(ins.map(i=>[i.id,i]));
-      const mv=await lst(_supabase.from('insumos_movimentos').select('*').eq('tipo','entrada').in('insumo_id',ins.map(i=>i.id)).in('origem',['RECEB_SOL','COMPRA']).order('data',{ascending:false}).limit(300));
-      const pids=[...new Set(mv.map(m=>m.origem_id).filter(Boolean))];
-      const peds=pids.length?Object.fromEntries((await lst(_supabase.from('compras_pedidos').select('id,numero,fornecedor').in('id',pids))).map(x=>[String(x.id),x])):{};
-      return {data:mv.map(m=>{const i=nome[m.insumo_id]||{},pd=peds[String(m.origem_id)]||{};
-        return {...m,_emb:i.nome||'',_qtd:Number(m.quantidade||0).toLocaleString('pt-BR')+' '+(i.unidade_estoque||''),
-          _forn:pd.fornecedor||(String(m.obs||'').match(/fornecedor ([^·\-]+)/)||[])[1]||'',
-          _nf:(String(m.obs||'').match(/NF\s*([\w.\-\/]+)/i)||[])[1]||'',
-          _ped:pd.numero?'#'+String(pd.numero).padStart(4,'0'):((String(m.obs||'').match(/pedido #(\d+)/)||[])[1]?'#'+String(m.obs).match(/pedido #(\d+)/)[1]:'')};})};
-    },
-    vazio:'Nenhum recebimento de embalagem BPF confirmado.'},
-   {t:'Fornecedores BPF (Compras)',tab:'almoxarifado_fornecedores',lim:100,semEscopo:true,
-    cols:['nome_fantasia','razao_social','cnpj','bpf_categoria','status_homologacao'],
-    filtro:q=>q.not('bpf_categoria','is',null),
-    vazio:'Nenhum fornecedor marcado como BPF — marque em ⚙️ Configurar.'}],
- 'POP-02':[
-   {t:'Lotes de matéria-prima (Laboratório)',tab:'caulim_lotes_mp',lim:25,
-    cols:['numero','data','variacao_declarada_id','status','montante_t','frente','origem']},
-   {t:'Minas e frentes de extração',tab:'caulim_minas_frentes',lim:40,cols:['nome','mina','frente','status','ativo']}],
- 'POP-03':[
-   {t:'Ordens de produção (Linha 2 e Longa Vida)',tab:'producao',lim:150,ord:['data',false],
-    cols:['data','op_numero','_lote','linha','turno','_prods','_sacos','encarregado','status']}],
- 'POP-04':[
-   {t:'Colaboradores ativos',tab:'funcionarios',lim:100,cols:['nome','funcao','setor','status'],
-    filtro:q=>q.eq('status','ativo')},
-   {t:'Entregas de EPI recentes',tab:'epi_entregas',lim:20,ord:['data_entrega',false],
-    cols:['data_entrega','funcionario_nome','epi_nome','nome','quantidade','assinado']}],
- 'POP-06':[
-   {t:'Ordens de produção (Linha 2 e Longa Vida)',tab:'producao',lim:150,ord:['data',false],
-    cols:['data','op_numero','_lote','linha','turno','_prods','_sacos','status']},
-   {t:'Linhas de produção no escopo',tab:'linhas_producao',lim:30,cols:['nome','codigo','status','capacidade_hora'],
-    pos:l=>ESCOPO.ativo?l.filter(x=>linhaNoEscopo(x.nome)):l}],
- 'POP-07':[
-   {t:'Equipamentos das linhas',tab:'equipamentos_linhas',lim:120,cols:['nome','tipo','linha','codigo','status'],
-    pos:l=>ESCOPO.ativo?l.filter(x=>linhaNoEscopo(x.linha)):l},
-   {t:'Equipamentos gerais',tab:'equipamentos_gerais',lim:80,cols:['nome','tipo','setor','codigo','status']},
-   {t:'Manutenções da Linha 2 e Longa Vida',tab:'manutencao',lim:150,ord:['data_abertura',false],
-    cols:['numero','data_abertura','tipo','equipamento','linha','responsavel','status']}],
- 'POP-09':[
-   {t:'Movimentações de resíduo (Almoxarifado)',tab:'almoxarifado_movimentos',lim:15,ord:['data',false],
-    cols:['data','item_nome','tipo','quantidade','observacao']}],
- 'POP-10':[
-   {t:'Ordens de produção (Linha 2 e Longa Vida)',tab:'producao',lim:150,ord:['data',false],
-    cols:['data','op_numero','_lote','linha','turno','_prods','_sacos','status']},
-   {t:'Pallets produzidos',tab:'producao_pallets',lim:300,ord:['data',false],
-    cols:['codigo','data','produto','linha','status','estoque_status','ordem_numero']}],
- 'POP-11':[
-   {t:'Carregamentos (para rastrear clientes do lote)',tab:'carregamentos',lim:25,ord:['data',false],
-    cols:['data','ordem_numero','motorista','placa','transportadora','total_pallets']}],
- 'POP-13':[
-   {t:'Ordens de produção (Linha 2 e Longa Vida)',tab:'producao',lim:150,ord:['data',false],
-    cols:['data','op_numero','_lote','linha','turno','_prods','_sacos','status']},
-   {t:'Lotes de matéria-prima (Laboratório)',tab:'caulim_lotes_mp',lim:60,ord:['data',false],
-    cols:['numero','data','montante_t','delta_e','cor_aprovada','umidade_pct','analista_mp']}],
- 'POP-14':[
-   {t:'Ordens de produção (Linha 2 e Longa Vida)',tab:'producao',lim:150,ord:['data',false],
-    cols:['data','op_numero','_lote','linha','turno','_prods','_sacos','status']},
-   {t:'Análises de linha no Laboratório',tab:'laboratorio',lim:150,ord:['data',false],
-    cols:['data','hora','linha','produto','status','umidade','responsavel']},
-   {t:'Pallets analisados pelo Laboratório',tab:'lab_pallet_analises',lim:200,ord:['data',false],
-    cols:['data','linha','produto','pallet_numero','resultado','assinatura_nome']}],
- 'POP-15':[
-   {t:'Análises de linha no Laboratório',tab:'laboratorio',lim:150,ord:['data',false],
-    cols:['data','hora','linha','produto','status','umidade','responsavel']},
-   {t:'Laudos emitidos (Laboratório)',tab:'lab_laudos',lim:100,ord:['emitido_em',false],semEscopo:true,
-    cols:['numero','produto','lote','emitido_em','veredito','status','emitido_por'],
-    vazio:'Nenhum laudo emitido no Laboratório ainda.'},
-   {t:'Pallets analisados pelo Laboratório',tab:'lab_pallet_analises',lim:200,ord:['data',false],
-    cols:['data','linha','produto','pallet_numero','resultado','assinatura_nome']}],
- 'POP-16':[
-   {t:'Pallets reprovados ou pendentes',tab:'producao_pallets',lim:300,ord:['data',false],
-    cols:['codigo','data','produto','linha','status','estoque_status'],
-    pos:r=>r.filter(x=>['reprovado','pendente','bloqueado'].includes(String(x.status||''))),
-    vazio:'Nenhum pallet reprovado, pendente ou bloqueado.'}],
- 'POP-17':[
-   {t:'Análises externas (Laboratório)',tab:'caulim_analises_externas',lim:40,
-    cols:['tipo','frente','laboratorio','data_liberacao','validade','status','relatorio_numero']}],
- 'POP-18':[
-   {t:'Ordens de produção (Linha 2 e Longa Vida)',tab:'producao',lim:150,ord:['data',false],
-    cols:['data','op_numero','_lote','linha','turno','_prods','_sacos','status']},
-   {t:'Aferições lançadas no Aferidor',tab:'aferidor_aditivacao',lim:150,ord:['data',false],
-    cols:['data','hora','numero','linha','op_numero','responsavel_coleta','status_lab']},
-   {t:'Pallets produzidos',tab:'producao_pallets',lim:300,ord:['data',false],
-    cols:['codigo','data','produto','linha','status','estoque_status']}],
- 'POP-19':[
-   {t:'Reclamações de clientes',tab:'bpf_reclamacoes',lim:100,ord:['data_recebimento',false],semEscopo:true,
-    cols:['numero','data_recebimento','cliente','lote_ref','status','prazo_ate']}],
- 'POP-20':[
-   {t:'Colaboradores ativos',tab:'funcionarios',lim:100,cols:['nome','funcao','setor'],
-    filtro:q=>q.eq('status','ativo')},
-   {t:'Treinamentos de EPI/segurança',tab:'epi_treinamentos',lim:20,ord:['data_realizacao',false],
-    cols:['data_realizacao','tema','assunto','instrutor','participantes','carga_horaria']}],
- 'POP-21':[
-   {t:'Romaneios',tab:'romaneios',lim:25,ord:['data_emissao',false],
-    cols:['numero','data_emissao','motorista','placa','transportadora','status','cliente']},
-   {t:'Carregamentos realizados',tab:'carregamentos',lim:20,ord:['data',false],
-    cols:['data','ordem_numero','motorista','placa','total_pallets']}],
-};
-
 // ── ENTIDADES ──────────────────────────────────────────────────────────────
 const ENTIDADES={
   instrumentos:{tabela:'bpf_instrumentos',titulo:'Instrumentos',icone:'📏',sys:'SYS-005/006',pop:'POP-07',
@@ -1047,8 +922,6 @@ const fmtDH=d=>{if(!d)return '—';const x=new Date(d);return x.toLocaleDateStri
 const diasAte=d=>d?Math.ceil((new Date(String(d).split('T')[0])-new Date(hoje()))/864e5):null;
 const cap=s=>String(s||'').replace(/_/g,' ').replace(/^./,c=>c.toUpperCase());
 const nomeFuncao=c=>_funcs.find(f=>f.codigo===c)?.nome||c||'—';
-const ehData=v=>typeof v==='string'&&/^\d{4}-\d{2}-\d{2}/.test(v);
-
 // ═══════════════════════════════════════════════════════════════════════════
 // DIÁLOGOS PRÓPRIOS — o módulo nunca usa alert/confirm/prompt do navegador
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1222,6 +1095,7 @@ async function init(){
     try{ await varrerGatilhos(true); }catch(e){ console.warn('[varredura]',e); }
   }
   // F5: volta para a mesma tela (POP, aba, documento, registro…); sem nada guardado, abre o Início
+  limparArquivosOrfaos();
   if(!restaurarTela()) ir(_temFila && (minhasTarefas().length||pendenciasAssinatura().filter(podeAssinar).length) ? 'fila' : 'painel');
   // vindo da tela da OP (producao.html): imprime as fichas daquela OP
   try{
@@ -1238,7 +1112,7 @@ async function init(){
 
 async function carregar(){
   const s=async(q,ctx)=>{const r=await db(q,ctx);return r.data||[];};
-  const [docs,forms,travas,funcs,desig,ncs,auds,treins,anexos,fn]=await Promise.all([
+  const [docs,forms,travas,funcs,desig,ncs,auds,treins,fn]=await Promise.all([
     s(_supabase.from('bpf_documentos_mestre').select('*').order('ordem').order('codigo'),'documentos'),
     s(_supabase.from('bpf_formularios').select('*').eq('ativo',true).order('pop_cod').order('ordem'),'formulários'),
     s(_supabase.from('bpf_travas').select('*').order('sys_ref'),'travas'),
@@ -1247,15 +1121,13 @@ async function carregar(){
     s(_supabase.from('bpf_ncs').select('*').order('data',{ascending:false}).limit(500),'NCs'),
     s(_supabase.from('bpf_auditorias').select('*').order('data',{ascending:false}).limit(300),'auditorias'),
     s(_supabase.from('bpf_treinamentos').select('*').order('data',{ascending:false}).limit(300),'treinamentos'),
-    s(_supabase.from('bpf_documentos').select('id,nome,tipo,tamanho,url,path_storage,enviado_por,created_at,documento_cod').order('created_at',{ascending:false}).limit(300),'anexos'),
     s(_supabase.from('funcionarios').select('id,nome,funcao').eq('status','ativo').order('nome'),'funcionários'),
   ]);
   _docs=docs;_forms=forms;_travas=travas;_funcs=funcs;_desig=desig;
-  _ncs=ncs;_auds=auds;_treins=treins;_anexos=anexos;_funcionarios=fn;
+  _ncs=ncs;_auds=auds;_treins=treins;_funcionarios=fn;
   _pops=docs.filter(d=>d.tipo==='pop');
   // histórico de versões (uma linha por versão substituída, com o arquivo dela)
   _revs=await s(_supabase.from('bpf_documento_revisoes').select('*').order('created_at',{ascending:false}),'histórico de versões');
-  await carregarVersoesFichas();
   const dl=document.getElementById('lst-func');
   if(dl) dl.innerHTML=_funcionarios.map(f=>`<option value="${esc(f.nome)}">`).join('');
 
@@ -1545,14 +1417,9 @@ function abrirPop(cod,aba){
       <div class="pp-reg-a">
         <button class="bx-btn bx-btn-acc" onclick="novaFichaManual('${esc(f.codigo)}')" title="Abre uma ficha nova; o número só é criado quando você salvar">＋ Gerar ficha</button>
         <button class="bx-btn" onclick="imprimirFicha('${esc(f.codigo)}')" title="Imprime a ficha em branco">🖨️ Ficha em branco</button>
-        <button class="bx-btn" onclick="abrirEditorCampos('${esc(f.codigo)}')" title="Incluir, tirar ou mudar campos — vira uma revisão nova">✏️ Editar campos</button>
+
         ${d?`<button class="bx-btn" onclick="verDadosDoc('${d.id}')" title="Cadastro, arquivo e histórico do documento">📄 Documento ${esc(f.codigo)}</button>`:''}
       </div></div>
-      ${(()=>{const ag=versaoAguardando(f.codigo);return ag?`<div class="rv-ag"><div><b>📝 Revisão ${esc(ag.revisao)} aguardando aprovação</b> <span class="bx-mu">por ${esc(ag.criado_por||'—')} em ${fmtD(ag.criado_em)}</span>
-          <div class="rv-alt">${esc(ag.alteracoes||'')}</div></div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap;"><button class="btn btn-secondary btn-sm" onclick="abrirEditorCampos('${esc(f.codigo)}')">✏️ Ajustar</button>
-          ${podeAprovarFicha(f.codigo)?`<button class="btn btn-primary btn-sm" onclick="aprovarVersaoFicha('${esc(f.codigo)}')">✅ Aprovar</button>`:''}
-          <button class="btn btn-ghost btn-sm" onclick="descartarVersaoFicha('${esc(f.codigo)}')">Descartar</button></div></div>`:'';})()}
       ${fechado?'':(regs.length?quadroRegsHtml(regs,''):'<div class="bx-mu" style="font-size:12.5px;">Nenhum registro ainda.</div>')}</div>`;
   });
   if(!fs.length&&(at==='todos'))
@@ -1562,14 +1429,11 @@ function abrirPop(cod,aba){
     h+=`<div class="bx-card pp-its${_popFechado.has('its')?' pp-fechado':''}"><div class="bx-ttl pp-reg-t" onclick="alternarBlocoPop('its')"><span class="pp-seta">${_popFechado.has('its')?'▸':'▾'}</span> 📋 Instruções de trabalho</div>
       ${_popFechado.has('its')?'':its.map(i=>`<div class="pp-it"><div><span class="bx-cod">${esc(i.codigo)}</span> · <b class="bx-tit">${esc(i.titulo)}</b>
           <div class="bx-sub">rev. ${esc(i.revisao||'—')} · ${esc(situacaoDoc(i).t)}</div></div>
-        <div style="white-space:nowrap;">${i.arquivo_path?`<button class="bx-ib" title="Visualizar" onclick="verArqDoc('${i.id}')">👁️</button><button class="bx-ib" title="Baixar" onclick="baixarArqDoc('${i.id}')">⬇️</button>`
+        <div style="white-space:nowrap;">${ehInstr(i)?`<button class="bx-ib" title="Ver a instrução" onclick="verInstrucaoDoc('${i.id}')">👁️</button><button class="bx-ib" title="Imprimir" onclick="imprimirInstrucao('${i.id}')">🖨️</button>`
+          :i.arquivo_path?`<button class="bx-ib" title="Visualizar" onclick="verArqDoc('${i.id}')">👁️</button><button class="bx-ib" title="Baixar" onclick="baixarArqDoc('${i.id}')">⬇️</button>`
           :`<button class="bx-ib bx-ib-anexar" onclick="abrirNovaVersao('${i.id}')">📎 Anexar</button>`}
           <button class="bx-ib" title="Cadastro" onclick="verDadosDoc('${i.id}')">📋</button></div></div>`).join('')}</div>`;
   if(at==='todos'){
-    const ant=_anexos.filter(a=>fs.some(f=>f.codigo===a.documento_cod));
-    if(ant.length) h+=`<details class="bx-outros pp-papel" style="margin-bottom:12px;"><summary>📜 Formulários em papel anteriores ao sistema (${ant.length})</summary>
-      <div style="padding-top:8px;">${ant.map(a=>`<div class="anx"><span>${esc(iconeArq(a.nome))}</span><span class="nm">${esc(a.nome)}</span>
-        <span style="color:#94a3b8;font-size:11px;">${esc(a.documento_cod)}</span><button class="btn btn-secondary btn-sm" onclick="verDocumento('${a.id}')">👁️ Ver</button></div>`).join('')}</div></details>`;
     if(ncsP.length)
       h+=`<div class="sec-card" style="margin-top:13px;"><h3>NCs deste POP (${ncsP.length})</h3>
         ${ncsP.slice(0,6).map(n=>`<div style="font-size:12px;padding:5px 0;border-bottom:1px solid #eef2f7;">
@@ -1595,99 +1459,8 @@ function voltarDoPop(){ const v=_voltarPara;_voltarPara=null; ir(v||'documentos'
 // filtrado por padrão, e quem não deve ser precisa dizer `semEscopo:true`.
 // Tabela sem coluna de linha/produto passa direto (noEscopo devolve true).
 // tabelas que têm a coluna "linha": o escopo (Linha 2 / Longa Vida) é filtrado já na consulta
-const COL_NOME={_emb:'Embalagem',_qtd:'Quantidade',_forn:'Fornecedor',_nf:'NF',_ped:'Pedido'};
-const TAB_COM_LINHA=['producao','producao_pallets','laboratorio','manutencao','lab_pallet_analises','aferidor_aditivacao'];
-async function buscaERP(p){
-  if(p.busca){ const r=await p.busca(); return {data:r.data||[],semOrdem:false,cortadas:false}; }
-  const monta=(comOrdem)=>{
-    let q=_supabase.from(p.tab).select('*').limit(p.lim||25);
-    if(p.filtro) q=p.filtro(q);
-    if(ESCOPO.ativo&&!p.semEscopo&&TAB_COM_LINHA.includes(p.tab)) q=q.in('linha',ESCOPO.linhas);
-    if(comOrdem&&p.ord) q=q.order(p.ord[0],{ascending:p.ord[1]});
-    return q;
-  };
-  let r=await monta(true);
-  let semOrdem=false;
-  if(r.error&&p.ord){
-    const r2=await monta(false);
-    if(!r2.error){ r=r2; semOrdem=true; }
-    else r=r2;
-  }
-  if(r.error) throw r.error;
-  let linhas=r.data||[];
-  const antes=linhas.length;
-  if(!p.semEscopo) linhas=linhas.filter(noEscopo);
-  const cortadas=antes-linhas.length;
-  if(p.pos) linhas=p.pos(linhas);
-  return {data:linhas,semOrdem,cortadas};
-}
-
-async function carregarERP(cod){
-  const paineis=ERP[cod]||[];
-  const out=document.getElementById('erp-out');if(!out)return;
-  const blocos=await Promise.all(paineis.map(async p=>{
-    const chave=cod+'|'+p.t;
-    let html;
-    try{
-      let res=_erpCache[chave];
-      if(!res||Date.now()-res.t>60000){res=await buscaERP(p);res.t=Date.now();_erpCache[chave]=res;}
-      html=tabelaERP(p,res.data||[],res.semOrdem,res.cortadas,cod);
-    }catch(e){
-      // Protocolo #7: falha aparece, não some — e diz o que fazer.
-      const msg=String(e.message||e);
-      const naoExiste=/does not exist|schema cache|relation/i.test(msg);
-      html=`<div class="sec-card" style="margin-bottom:10px;"><h3>${esc(p.t)}</h3>
-        <div class="alerta al-warn" style="margin:8px 0 0;">
-        ${naoExiste?`A tabela <code>${esc(p.tab)}</code> não existe neste banco — o módulo de origem provavelmente ainda não foi usado.`
-                   :`Não foi possível ler <code>${esc(p.tab)}</code>.`}
-        <div style="font-size:11px;margin-top:4px;color:#92400e;">${esc(msg)}</div></div></div>`;
-    }
-    return html;
-  }));
-  out.innerHTML=blocos.join('');
-}
 // fichas BPF que nasceram desta linha do ERP (origem_id = id da linha)
-function fichasDaLinhaERP(cod,row){
-  if(!row||row.id===undefined||row.id===null)return [];
-  return _regs.filter(r=>r.pop_cod===cod&&!r.cancelado_em&&String(r.origem_id||'')===String(row.id));
-}
-function tabelaERP(p,linhas,semOrdem,cortadas,cod){
-  if(!linhas.length)
-    return `<div class="sec-card" style="margin-bottom:10px;"><h3>${esc(p.t)}</h3>
-      <div class="sub" style="margin-top:5px;">${esc(p.vazio||'Nenhum registro encontrado em '+p.tab+'.')}
-      ${cortadas?` <strong>${cortadas} registro(s) foram ocultados por estarem fora do escopo do BPF.</strong>`:''}</div></div>`;
-  const chaves=Object.keys(linhas[0]);
-  // derivada entra mesmo sem existir como coluna no banco
-  let cols=(p.cols||[]).filter(c=>chaves.includes(c)||DERIV[c]);
-  if(!cols.length)cols=chaves.filter(k=>!['id','created_at','updated_at'].includes(k)).slice(0,6);
-  const idx=l=>linhas.indexOf(l);
-  _erpLinhas[p.tab]=linhas;
-  return `<div class="sec-card" style="margin-bottom:10px;padding-bottom:10px;">
-    <h3>${esc(p.t)} <span style="font-weight:600;color:#94a3b8;font-size:11px;">· ${linhas.length} registro(s) · ${esc(p.tab)}</span></h3>
-    ${semOrdem?`<div class="sub" style="color:#b45309;">Sem ordenação: a coluna <code>${esc(p.ord[0])}</code> não existe nesta tabela. Os dados são os mesmos.</div>`:''}
-    ${cortadas?`<div class="sub">${cortadas} registro(s) fora do escopo do BPF foram ocultados (outra linha ou outro produto).</div>`:''}
-    <div class="tbl-wrap" style="margin-top:9px;max-height:460px;overflow:auto;"><table class="tbl"><thead><tr>
-      ${cols.map(c=>`<th>${esc(DERIV[c]?DERIV[c].l:(COL_NOME[c]||cap(c)))}</th>`).join('')}${cod?'<th>Ficha BPF</th>':''}<th style="width:90px;">Ação</th></tr></thead><tbody>
-      ${linhas.slice(0,80).map(r=>`<tr>${cols.map(c=>{
-        let v=DERIV[c]?DERIV[c].fn(r):r[c];
-        if(v===null||v===undefined||v==='')return '<td style="color:#cbd5e1;">—</td>';
-        if(typeof v==='boolean')return `<td><span class="badge badge-${v?'success':'gray'}">${v?'sim':'não'}</span></td>`;
-        if(typeof v==='object')return `<td style="color:#94a3b8;font-size:11px;">{…}</td>`;
-        if(ehData(v))return `<td>${fmtD(v)}</td>`;
-        return `<td>${esc(String(v).slice(0,60))}</td>`;
-      }).join('')}${cod?`<td style="white-space:nowrap;">${(()=>{const fl=fichasDaLinhaERP(cod,r);
-          if(!fl.length)return '<span class="bx-mu" style="font-size:11.5px;">—</span>';
-          return fl.slice(0,4).map(x=>{const e=ETAPAS_REG.find(k=>k.k===etapaReg(x))||{cor:'#94a3b8',t:''};
-            return `<button class="bx-ib" style="border-color:${e.cor};color:${e.cor};font-size:11.5px;" title="${esc(e.t)}" onclick="abrirReg('${x.id}')">${esc(String(x.numero||'').split('-').pop())} ${e.t.split(' ')[0]}</button>`;}).join('')+(fl.length>4?` +${fl.length-4}`:'');})()}</td>`:''}<td><button class="btn btn-ghost btn-sm" onclick="verLinhaERP('${esc(p.tab)}',${idx(r)})">👁️ ver</button></td></tr>`).join('')}
-    </tbody></table></div>
-    ${linhas.length>80?`<div class="sub" style="margin-top:6px;">Mostrando os 80 mais recentes de ${linhas.length}.</div>`:''}</div>`;
-}
-
 // "ver" do registro leva ao documento certo (REG-POPxx-yy) na lista mestra
-function verDocDoForm(cod){
-  const d=_docs.find(x=>x.codigo===cod);
-  if(d)abrirDoc(d.id);else uiAlerta(`O documento <strong>${esc(cod)}</strong> não está na lista mestra.`,{titulo:'Não encontrado',tipo:'warn'});
-}
 function verRegistrosDo(c){ir('registros');const s=document.getElementById('f-form');if(s){s.value=c;aplicarFiltroRegs();}}
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1798,134 +1571,9 @@ function avaliarAoVivo(){
 // ═══════════════════════════════════════════════════════════════════════════
 // Fontes de pré-preenchimento: escolher a origem no ERP preenche todo campo
 // do formulário cujo id coincida com uma coluna do registro de origem.
-const FONTES={
-  producao:{tab:'producao',ord:['data',false],lim:150,escopo:true,
-    rot:r=>`OP ${r.op_numero||r.id} · ${fmtD(r.data)} · ${r.linha||''} · ${r.turno||''}`.trim()},
-  laboratorio:{tab:'caulim_lotes_producao',ord:['data_abertura',false],lim:60,
-    rot:r=>`Lote ${r.numero||r.id} · ${fmtD(r.data)} · ${r.status||''}`.trim()},
-  almoxarifado:{tab:'almoxarifado_movimentos',ord:['data',false],lim:60,
-    rot:r=>`${fmtD(r.data)} · ${r.item_nome||''} · ${r.quantidade||''}`.trim(),filtro:q=>q.eq('tipo','entrada')},
-  carregamento:{tab:'romaneios',ord:['data_emissao',false],lim:60,
-    rot:r=>`Romaneio ${r.numero||r.id} · ${r.motorista||''} · ${r.placa||''}`.trim()},
-  manutencao:{tab:'manutencao',ord:['data_abertura',false],lim:60,
-    rot:r=>`${fmtD(r.data_abertura||r.data)} · ${r.equipamento||''} · ${r.tipo||''}`.trim()},
-};
-async function novoRegistroLegado(formCod){
-  if(!guardAction('bpf','edit'))return;
-  const f=_forms.find(x=>x.codigo===formCod);
-  if(!f){toast('Formulário não encontrado','danger');return;}
-  _formAtual=f;_anexosTmp=[];_origem=null;_tarefaAtual=null;
-  const campos=f.campos||[];
-  document.getElementById('m-reg-tit').textContent=f.codigo+' — '+f.titulo;
-  document.getElementById('m-reg-body').innerHTML=`
-    ${f.exige_anexo?`<div class="alerta al-warn">Este registro <strong>não fecha sem arquivo anexado</strong> (SYS-008).</div>`:''}
-    ${f.fonte_modulo&&FONTES[f.fonte_modulo]?`<div class="sec-card" style="margin-bottom:11px;padding:12px 14px;">
-      <h3 style="font-size:12px;">Vincular a um registro do ERP</h3>
-      <div class="sub" style="margin-bottom:7px;">Traz os dados de <strong>${esc(f.fonte_modulo)}</strong> e preenche o que coincidir.</div>
-      <select class="form-input" id="f__origem" onchange="aplicarOrigem()"><option value="">— sem vínculo —</option></select></div>`:''}
-    <div class="form-row">
-      <div class="fld"><label>Data<span class="req">*</span></label><input type="date" class="form-input" id="f__data" value="${hoje()}"></div>
-      <div class="fld"><label>Hora</label><input type="time" class="form-input" id="f__hora" value="${new Date().toTimeString().slice(0,5)}"></div>
-      ${f.gera_validade?`<div class="fld"><label>Validade</label><input type="date" class="form-input" id="f__validade" value="${validadeSugerida(f)}"><span class="aj">Entra no alerta de vencimento</span></div>`:''}
-    </div>
-    <div class="form-row" id="campos-box">${campos.map(c=>campoHtml(c)).join('')}</div>
-    <div class="sec-card" style="margin-top:8px;"><h3>Anexos${f.exige_anexo?' <span class="req">*</span>':''}</h3>
-      <div id="anx-lst" style="margin:8px 0;"></div>
-      <input type="file" id="anx-in" multiple style="font-size:12px;" onchange="subirAnexos(this)"></div>
-    <div id="box-desvio" style="margin-top:6px;"></div>`;
-  document.getElementById('m-reg-foot').innerHTML=`
-    <button class="btn btn-secondary" onclick="closeModal('m-reg')">Cancelar</button>
-    <button class="btn btn-secondary" onclick="salvarRegistro(true)">Salvar rascunho</button>
-    <button class="btn btn-primary" onclick="salvarRegistro(false)">💾 Salvar e enviar p/ assinatura</button>`;
-  document.getElementById('m-reg').classList.remove('hidden');
-  renderAnexosTmp();avaliarAoVivo();
-  if(f.fonte_modulo&&FONTES[f.fonte_modulo]) carregarOrigens(f.fonte_modulo);
-}
-async function carregarOrigens(mod){
-  const cfg=FONTES[mod],sel=document.getElementById('f__origem');
-  if(!cfg||!sel)return;
-  try{
-    let q=_supabase.from(cfg.tab).select('*').limit(cfg.lim);
-    if(cfg.filtro)q=cfg.filtro(q);
-    if(cfg.ord)q=q.order(cfg.ord[0],{ascending:cfg.ord[1]});
-    let {data,error}=await q;
-    if(error){                                   // mesma blindagem dos painéis
-      const r2=await (cfg.filtro?cfg.filtro(_supabase.from(cfg.tab).select('*').limit(cfg.lim))
-                                :_supabase.from(cfg.tab).select('*').limit(cfg.lim));
-      if(r2.error)throw error;
-      data=r2.data;
-    }
-    let lista=data||[];
-    if(cfg.escopo)lista=lista.filter(noEscopo);   // só o que é nutrição animal
-    _origem={mod,lista};
-    sel.innerHTML='<option value="">— sem vínculo —</option>'+
-      lista.map(r=>`<option value="${esc(r.id)}">${esc(cfg.rot(r))}</option>`).join('');
-    if(cfg.escopo)sel.insertAdjacentHTML('afterend',
-      `<span class="aj">${lista.length} registro(s) de ${ESCOPO.linhas.join(' / ')} em 25 kg e Big Bag.</span>`);
-  }catch(e){
-    sel.insertAdjacentHTML('afterend',
-      `<div class="alerta al-warn" style="margin-top:7px;">Não foi possível listar <code>${esc(cfg.tab)}</code>: ${esc(e.message||e)}</div>`);
-  }
-}
 // Formata valor do ERP para leitura humana: array de objetos vira sub-tabela,
 // em vez do JSON cru que aparecia antes (produtos_op, paradas_op).
-function fmtValorERP(v){
-  if(v===null||v===undefined||v==='')return '<span style="color:#cbd5e1;">—</span>';
-  if(typeof v==='boolean')return `<span class="badge badge-${v?'success':'gray'}">${v?'sim':'não'}</span>`;
-  if(ehData(v))return fmtD(v);
-  if(Array.isArray(v)){
-    if(!v.length)return '<span style="color:#cbd5e1;">nenhum</span>';
-    if(typeof v[0]!=='object')return esc(v.join(', '));
-    const ks=[...new Set(v.flatMap(o=>Object.keys(o||{})))].slice(0,7);
-    return `<table class="tbl" style="font-size:11px;"><thead><tr>${ks.map(k=>`<th>${esc(cap(k))}</th>`).join('')}</tr></thead>
-      <tbody>${v.slice(0,14).map(o=>`<tr>${ks.map(k=>{
-        const c=o?.[k];
-        return `<td>${c===null||c===undefined||c===''?'—':esc(String(typeof c==='object'?JSON.stringify(c):c).slice(0,40))}</td>`;
-      }).join('')}</tr>`).join('')}</tbody></table>
-      ${v.length>14?`<div class="sub">+ ${v.length-14} item(ns).</div>`:''}`;
-  }
-  if(typeof v==='object')
-    return `<table class="tbl" style="font-size:11px;"><tbody>${Object.entries(v).slice(0,14).map(([k,c])=>
-      `<tr><td style="color:#64748b;">${esc(cap(k))}</td><td>${esc(String(typeof c==='object'?JSON.stringify(c):c).slice(0,60))}</td></tr>`).join('')}</tbody></table>`;
-  return esc(String(v));
-}
 // Abre a linha inteira do ERP — inclusive as colunas que não couberam na tabela.
-function verLinhaERP(tab,i){
-  const r=(_erpLinhas[tab]||[])[i];
-  if(!r){uiAlerta('Linha não encontrada. Recarregue a tela.',{titulo:'Dado indisponível',tipo:'warn'});return;}
-  const ordem=['op_numero','numero','codigo','data','linha','turno','produto','encarregado','total_sacos','status'];
-  const chaves=Object.keys(r).filter(k=>k!=='id'&&r[k]!==null&&r[k]!=='');
-  chaves.sort((a,b)=>{
-    const ia=ordem.indexOf(a),ib=ordem.indexOf(b);
-    return (ia<0?99:ia)-(ib<0?99:ib)||a.localeCompare(b);});
-  const linhas=chaves.map(k=>
-    `<tr><td style="width:34%;color:#64748b;vertical-align:top;">${esc(cap(k))}</td>
-     <td style="font-weight:600;">${fmtValorERP(r[k])}</td></tr>`).join('');
-  const fora=ESCOPO.ativo&&!noEscopo(r);
-  uiAlerta(`<div class="sub" style="margin-bottom:8px;">Origem: <code>${esc(tab)}</code> — leitura. Para alterar, use o módulo de origem.</div>
-    ${fora?'<div class="alerta al-warn">Este registro está FORA do escopo do BPF (não é Linha 2/Longa Vida em 25 kg ou Big Bag).</div>':''}
-    <div class="tbl-wrap" style="max-height:56vh;overflow:auto;"><table class="tbl"><tbody>${linhas}</tbody></table></div>`,
-    {titulo:'Registro do ERP',tipo:'info',ok:'Fechar'});
-}
-function aplicarOrigem(){
-  const sel=document.getElementById('f__origem');
-  if(!sel||!_origem)return;
-  const row=_origem.lista.find(r=>String(r.id)===sel.value);
-  if(!row)return;
-  let n=0;
-  for(const c of (_formAtual.campos||[])){
-    if(c.tipo==='secao')continue;
-    if(row[c.id]===undefined||row[c.id]===null||row[c.id]==='')continue;
-    const el=document.getElementById('f_'+c.id);if(!el)continue;
-    const v=row[c.id];
-    if(c.tipo==='sim_nao'){el.dataset.v=v===true||v==='sim'?'sim':'nao';setSN(c.id,el.dataset.v);setSN(c.id,el.dataset.v);}
-    else if(c.tipo==='multiselect')continue;
-    else if(typeof v!=='object'){el.value=ehData(v)?String(v).split('T')[0]:v;n++;}
-  }
-  if(row.data){const d=document.getElementById('f__data');if(d)d.value=String(row.data).split('T')[0];}
-  avaliarAoVivo();
-  toast(n?`${n} campo(s) preenchido(s) a partir do ERP.`:'Vínculo registrado. Nenhum campo coincidiu para preencher.', n?'success':'info');
-}
 function validadeSugerida(f){
   if(!f.validade_meses)return '';
   const d=new Date();d.setMonth(d.getMonth()+f.validade_meses);
@@ -2178,7 +1826,7 @@ async function novoRegistro(formCod){ return gerarRegistro(formCod); }
 async function imprimirFichaReg(id){
   let r=_regs.find(x=>x.id===id);if(!r)return;
   if(r._novo){ if(!(await persistirNovo(r)))return; id=r.id; }
-  const f=formDoRegistro(r);if(!f)return;
+  const f=_forms.find(x=>x.codigo===r.formulario_cod);if(!f)return;
   const pre=Object.entries(r.campos||{}).filter(([k,v])=>v!==null&&v!==''&&typeof v!=='object')
     .map(([k,v])=>{const c=(f.campos||[]).find(x=>x.id===k);return c?`<b>${esc(c.label)}:</b> ${esc(v)}`:'';}).filter(Boolean);
   const topo=`<div style="font-family:'Plus Jakarta Sans',sans-serif;border:2px solid #042D4D;border-radius:6px;padding:7px 10px;margin-bottom:8px;font-size:11px;color:#111;">
@@ -2230,7 +1878,7 @@ let _regAtual=null;
 function abrirRegistroFluxo(id){
   { const h=new URLSearchParams(String(location.hash||'').replace(/^#/,'')); h.set('reg',id); lembrarTela(Object.fromEntries(h)); }
   const r=_regs.find(x=>x.id===id);if(!r)return;
-  const f=formDoRegistro(r);if(!f){verRegistro(id);return;}
+  const f=_forms.find(x=>x.codigo===r.formulario_cod);if(!f){verRegistro(id);return;}
   _regAtual=r;_formAtual=f;_anexosTmp=(r.anexos||[]).slice();_origem=null;
   const e=etapaReg(r);
   // trava quando um REVISOR (encarregado, qualidade…) assinou; a do executante não trava
@@ -2512,56 +2160,6 @@ async function subirFotoFicha(inp){
   }catch(e){ await uiAlerta(`Não foi possível anexar a foto.<br><span style="font-size:11px;">${esc(e.message||e)}</span>`,{titulo:'Erro',tipo:'dang'}); }
 }
 
-async function salvarRegistro(rascunho){
-  if(!guardAction('bpf','edit'))return;
-  const f=_formAtual;if(!f)return;
-  const campos=f.campos||[],vals=lerForm(campos);
-  const data=document.getElementById('f__data').value;
-  if(!data){await uiAlerta('Informe a data do registro.',{titulo:'Data obrigatória',tipo:'warn'});return;}
-  if(!rascunho){
-    const falt=faltando(campos,vals);
-    if(falt.length){
-      await uiAlerta(`Faltam campos obrigatórios:<ul style="margin:7px 0 0 16px;">${falt.map(x=>`<li>${esc(x)}</li>`).join('')}</ul>
-        <div style="margin-top:8px;font-size:11.5px;color:#64748b;">Você pode salvar como rascunho e completar depois.</div>`,
-        {titulo:'Registro incompleto',tipo:'warn'});return;}
-    if(f.exige_anexo&&!_anexosTmp.length){
-      await uiAlerta('Este registro exige arquivo anexado e não pode ser concluído sem ele.<br><span class="sys">SYS-008</span>',
-        {titulo:'Anexo obrigatório',tipo:'dang'});return;}
-  }
-  const desvios=avaliar(campos,vals),conforme=desvios.length===0;
-  if(!rascunho&&!conforme){
-    const ok=await uiConfirma(
-      `Este registro tem <strong>${desvios.length} desvio(s)</strong>:
-       <ul style="margin:7px 0 0 16px;">${desvios.map(d=>`<li>${esc(d.campo)} — esperado <strong>${esc(d.esperado)}</strong>, obtido <strong>${esc(d.obtido)}</strong></li>`).join('')}</ul>
-       <div style="margin-top:9px;">Será salvo como <strong>NÃO CONFORME</strong>. Isso é o comportamento correto — o desvio fica registrado e rastreável.</div>`,
-      {titulo:'Registro não conforme',tipo:'warn',ok:'Salvar assim mesmo',cancelar:'Voltar e corrigir'});
-    if(!ok)return;
-  }
-  const status=rascunho?'rascunho':(conforme?'aguardando_assinatura':'nao_conforme');
-  const u=getUser(),vEl=document.getElementById('f__validade'),oEl=document.getElementById('f__origem');
-  const row={formulario_cod:f.codigo,pop_cod:f.pop_cod,data,
-    hora:document.getElementById('f__hora').value||null,
-    campos:vals,status,conforme,anexos:_anexosTmp,
-    validade:vEl&&vEl.value?vEl.value:null,
-    origem_modulo:oEl&&oEl.value?f.fonte_modulo:null,
-    origem_id:oEl&&oEl.value?oEl.value:null,
-    criado_por:u?.nome||u?.email||'sistema'};
-  const r=await db(_supabase.from('bpf_registros').insert(row).select().single(),'salvar registro');
-  if(r.error)return;
-  await trilha(r.data.id,r.data.numero,'criado',null,null,null,
-    rascunho?'Rascunho criado':(conforme?'Registro criado':`Criado com ${desvios.length} desvio(s): `+desvios.map(d=>d.campo).join('; ')));
-  await addLog('CREATE','BPF',r.data.numero,f.codigo+' — '+(conforme?'conforme':'NÃO CONFORME'));
-  if(_tarefaAtual&&!rascunho){                     // fecha a tarefa que gerou esta ficha
-    await db(_supabase.from('bpf_tarefas').update({status:'concluida',registro_id:r.data.id,
-      concluida_em:new Date().toISOString()}).eq('id',_tarefaAtual.id),'concluir tarefa');
-    await db(_supabase.from('bpf_registros').update({tarefa_id:_tarefaAtual.id}).eq('id',r.data.id),'vincular tarefa');
-    _tarefaAtual=null;
-  }
-  closeModal('m-reg');
-  toast(conforme?`${r.data.numero} salvo.`:`${r.data.numero} salvo como NÃO CONFORME.`,conforme?'success':'warning');
-  _anexosTmp=[];
-  await carregar();renderNav();voltar();
-}
 async function trilha(regId,numero,acao,campo,ant,novo,motivo){
   const u=getUser();
   await db(_supabase.from('bpf_registro_trilha').insert({registro_id:regId,numero,acao,campo,
@@ -2570,7 +2168,7 @@ async function trilha(regId,numero,acao,campo,ant,novo,motivo){
 
 async function verRegistro(id){
   const r=_regs.find(x=>x.id===id);if(!r)return;
-  const f=formDoRegistro(r);
+  const f=_forms.find(x=>x.codigo===r.formulario_cod);
   const campos=f?.campos||[],desvios=avaliar(campos,r.campos||{});
   const tr=await db(_supabase.from('bpf_registro_trilha').select('*').eq('registro_id',id).order('em',{ascending:false}).limit(60),'trilha');
   const trilhaHtml=(tr.data||[]).map(t=>`<div class="trilha-it"><span class="qd">${fmtDH(t.em)}</span>
@@ -2628,7 +2226,7 @@ async function verRegistro(id){
 async function assinar(regId,assId){
   if(!guardAction('bpf','edit'))return;
   const r=_regs.find(x=>x.id===regId);if(!r)return;
-  const f=formDoRegistro(r);
+  const f=_forms.find(x=>x.codigo===r.formulario_cod);
   const a=(f?.assinaturas||[]).find(x=>x.id===assId);if(!a)return;
   const u=getUser();
   if(!u){await uiAlerta('Sessão não identificada. Faça login novamente.',{titulo:'Sem usuário',tipo:'dang'});return;}
@@ -2689,7 +2287,7 @@ async function cancelarRegistro(regId){
 
 async function imprimirRegistro(id){
   const r=_regs.find(x=>x.id===id);if(!r)return;
-  const f=formDoRegistro(r);
+  const f=_forms.find(x=>x.codigo===r.formulario_cod);
   const campos=f?.campos||[],desvios=avaliar(campos,r.campos||{});
   // foto da ficha preenchida sai no PDF (imagem) — PDF anexado vira referência
   let fotoHtml='';
@@ -3278,7 +2876,7 @@ function htmlFicha(f,pop){
         <td style="padding:7px 9px;width:33%;font-size:9.5px;line-height:1.6;">
           <strong>${esc(f.codigo)}</strong><br>
           POP de origem: ${esc(f.pop_cod)}${pop?' — '+esc(pop.titulo):''}<br>
-          Revisão: ____ &nbsp;|&nbsp; Retenção: ${f.retencao_anos||4} anos</td></tr>
+          Revisão: ${esc(((_docs||[]).find(d=>d.codigo===f.codigo)||{}).revisao||'00')} &nbsp;|&nbsp; Retenção: ${f.retencao_anos||4} anos</td></tr>
     </table>
     <div style="font-size:13px;font-weight:800;color:#042D4D;margin-bottom:3px;">${esc(f.titulo)}</div>
     <div style="font-size:9.5px;color:#555;margin-bottom:9px;">
@@ -3413,71 +3011,6 @@ async function salvarDocMestre(){
   if(_sec==='pop'&&_popSel)abrirPop(_popSel);else if(_sec==='doc')abrirDoc(_docMestreId);else renderDocs();
 }
 // Publicar revisão nova: a anterior vira obsoleta e continua na lista (POP-12 6.1).
-async function duplicarRevisao(id){
-  const d=_docs.find(x=>x.id===id);if(!d)return;
-  const atual=parseInt(String(d.revisao).replace(/\D/g,''))||0;
-  const nova=String(atual+1).padStart(2,'0');
-  const ok=await uiConfirma(
-    `Publicar a <strong>revisão ${nova}</strong> de ${esc(d.codigo)}?
-     <div style="margin-top:9px;font-size:11.5px;color:#64748b;">O documento passa a constar como revisão ${nova} e vigente.
-     Registro do que era antes fica no histórico de revisões.</div>`,
-    {titulo:'Nova revisão',ok:'Publicar '+nova});
-  if(!ok)return;
-  const u=getUser();
-  await db(_supabase.from('bpf_documento_revisoes').insert({documento_cod:d.codigo,revisao:d.revisao,
-    data:d.data_revisao||hoje(),alteracao:'Substituída pela revisão '+nova,autor:u?.nome||u?.email||'sistema',
-    arquivo_path:d.arquivo_path}),'histórico de revisão');
-  const r=await db(_supabase.from('bpf_documentos_mestre').update({revisao:nova,status:'vigente',
-    data_revisao:hoje(),atualizado_em:new Date().toISOString()}).eq('id',id),'publicar revisão');
-  if(r.error)return;
-  await addLog('UPDATE','BPF',d.codigo,'Revisão '+d.revisao+' → '+nova);
-  closeModal('m-ent');toast(`${d.codigo} agora está na revisão ${nova}.`,'success');
-  await carregar();renderDocs();
-}
-function anexarDocMestre(id){ abrirNovaVersao(id); }   // fluxo único: anexar/nova versão guardam o histórico
-async function subirDocMestre(inp){
-  const file=inp.files[0];inp.value='';
-  if(!file||!_docMestreId)return;
-  const d=_docs.find(x=>x.id===_docMestreId);
-  if(file.size>25*1024*1024){await uiAlerta('Arquivo acima de 25 MB.',{titulo:'Grande demais',tipo:'warn'});return;}
-  const path=`bpf/mestre/${d?.codigo||'doc'}_${Date.now()}_${file.name.replace(/[^\w.\-]/g,'_')}`;
-  try{
-    const {error}=await _supabase.storage.from('documentos').upload(path,file);
-    if(error)throw error;
-    const r=await db(_supabase.from('bpf_documentos_mestre').update({arquivo_path:path,
-      atualizado_em:new Date().toISOString()}).eq('id',_docMestreId),'anexar arquivo');
-    if(r.error)return;
-    await addLog('UPDATE','BPF',d?.codigo||'',' Arquivo anexado: '+file.name);
-    toast('Arquivo anexado ao documento.','success');
-    await carregar();renderDocs();
-  }catch(e){ await uiAlerta(`Falha ao anexar.<br><span style="font-size:11px;">${esc(e.message||e)}</span>`,{titulo:'Erro',tipo:'dang'}); }
-}
-async function excluirDocMestre(id){
-  if(!guardAction('bpf','delete'))return;
-  const d=_docs.find(x=>x.id===id);if(!d)return;
-  const ehCatalogo=['pop','manual'].includes(d.tipo);
-  const temReg=d.tipo==='reg'&&_regs.some(r=>r.formulario_cod===d.codigo);
-  if(temReg){
-    await uiAlerta(`<strong>${esc(d.codigo)}</strong> já tem registro lançado.
-      <div style="margin-top:8px;">Excluir o documento deixaria esses registros sem a definição que os originou.
-      Marque como <strong>obsoleto</strong> em vez de excluir.</div>`,{titulo:'Não pode ser excluído',tipo:'dang'});return;
-  }
-  const ok=await uiConfirma(
-    `Excluir <strong>${esc(d.codigo)} — ${esc(d.titulo)}</strong> da lista mestra?
-     ${ehCatalogo?`<div class="alerta al-warn" style="margin:9px 0 0;">Este é um ${d.tipo==='manual'?'Manual':'POP'} do catálogo oficial,
-       vindo do Índice Mestre. Excluir tira um procedimento obrigatório da estrutura documental — um auditor vai perguntar.</div>`:''}
-     <div style="margin-top:9px;font-size:11.5px;color:#64748b;">O POP-12 6.1 manda controlar status vigente/obsoleto.
-     Se o documento saiu de vigência, o certo é marcar <strong>obsoleto</strong>: ele continua na lista e a rastreabilidade fica íntegra.</div>`,
-    {titulo:'Excluir documento',tipo:'warn',ok:'Excluir mesmo assim',perigo:true});
-  if(!ok)return;
-  if(d.arquivo_path){ try{ await _supabase.storage.from('documentos').remove([d.arquivo_path]); }catch(e){} }
-  const r=await db(_supabase.from('bpf_documentos_mestre').delete().eq('id',id),'excluir documento');
-  if(r.error)return;
-  await addLog('DELETE','BPF',d.codigo,'Removido da lista mestra');
-  toast('Documento excluído.','success');
-  await carregar();renderNav();renderDocs();
-}
-
 // ═══════════════════════════════════════════════════════════════════════════
 // CANAL PÚBLICO — link, QR e cartaz de parede
 // A manifestação anônima só funciona se o colaborador conseguir chegar até ela
@@ -3635,7 +3168,7 @@ function renderDocs(){
     ['todos','Todos',d=>true],['pop','POPs',d=>d.tipo==='pop'],['it','Instruções',d=>d.tipo==='it'],
     ['reg','Registros',d=>d.tipo==='reg'],['manual','Manual',d=>d.tipo==='manual'],
     ['revisar','Revisão vencendo',d=>d.proxima_revisao&&diasAte(d.proxima_revisao)<=60],
-    ['semarq','Sem arquivo',d=>!d.arquivo_path],
+    ['semarq','Sem arquivo',d=>!d.arquivo_path&&!ehFicha(d)&&!ehInstr(d)],
   ];
   const fAt=(filtros.find(f=>f[0]===_docFiltro)||filtros[1])[2];
   const base=_docs.filter(casa);
@@ -3652,8 +3185,9 @@ function renderDocs(){
       <td><span class="bx-tg ${sit.cls}">${sit.t}</span></td>
       <td class="bx-mu">${fmtD(dataVersao(d))}</td>
       <td class="bx-acoes">
-        ${d.arquivo_path?`<button class="bx-ib" title="Visualizar" onclick="verArqDoc('${d.id}')">👁️</button><button class="bx-ib" title="Baixar" onclick="baixarArqDoc('${d.id}')">⬇️</button>`
-          :papelDoDoc(d)?`<button class="bx-ib" title="Visualizar (formulário em papel antigo)" onclick="verArqDoc('${d.id}')">👁️</button><button class="bx-ib bx-ib-anexar" title="Anexar o arquivo oficial" onclick="abrirNovaVersao('${d.id}')">📎</button>`
+        ${ehFicha(d)?`<button class="bx-ib" title="Ver a ficha em branco" onclick="verFichaDoc('${d.id}')">👁️</button><button class="bx-ib" title="Imprimir a ficha em branco" onclick="imprimirFicha('${esc(d.codigo)}')">🖨️</button>`
+          :ehInstr(d)?`<button class="bx-ib" title="Ver a instrução" onclick="verInstrucaoDoc('${d.id}')">👁️</button><button class="bx-ib" title="Imprimir a instrução" onclick="imprimirInstrucao('${d.id}')">🖨️</button>`
+          :d.arquivo_path?`<button class="bx-ib" title="Visualizar" onclick="verArqDoc('${d.id}')">👁️</button><button class="bx-ib" title="Baixar" onclick="baixarArqDoc('${d.id}')">⬇️</button>`
           :`<button class="bx-ib bx-ib-anexar" title="Anexar o arquivo deste documento" onclick="abrirNovaVersao('${d.id}')">📎 Anexar</button>`}
         <button class="bx-ib" title="Ver o que está cadastrado" onclick="verDadosDoc('${d.id}')">📋</button>
         <button class="bx-ib" title="Editar o cadastro" onclick="editarDocMestre('${d.id}')">✏️</button>
@@ -3667,27 +3201,10 @@ function renderDocs(){
         value="${esc(_docBusca)}" oninput="_docBusca=this.value;renderDocsLista()">
       <div class="bx-chips">${filtros.map(([k,t,fn])=>`<button class="bx-chip${_docFiltro===k?' on':''}" onclick="filtrarDocs('${k}')">${t}<b>${base.filter(fn).length}</b></button>`).join('')}</div>
     </div>
-    ${(()=>{const n=_docs.filter(d=>!d.arquivo_path&&((d.tipo==='reg'&&_forms.some(f=>f.codigo===d.codigo))||(d.tipo==='it'&&d.codigo!=='IT-POP04-03'))).length;return n?`<div class="alerta al-info" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;border-left:4px solid #16a34a;">
-      <span><b>${n} registro(s)/instrução(ões)</b> sem PDF. O sistema gera no layout dos POPs: REG a partir dos campos da ficha, IT a partir do texto do POP.</span>
-      <button class="btn btn-primary btn-sm" onclick="gerarPdfsPendentes()">📄 Gerar PDFs</button></div>`:'';})()}
-    ${(()=>{const n=_docs.filter(d=>!d.arquivo_path&&papelDoDoc(d)).length;return n?`<div class="alerta al-info" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
-      <span><b>${n} documento(s)</b> sem arquivo próprio têm o <b>formulário em papel antigo</b> guardado no banco.</span>
-      <button class="btn btn-primary btn-sm" onclick="migrarTodosPapeis()">⇪ Usar como arquivo de cada um</button></div>`:'';})()}
     <div id="doc-lista">${l.length?`<div class="tbl-wrap"><table class="tbl bx-tbl"><thead><tr>
       <th style="width:120px;">Código</th><th>Documento</th><th style="width:60px;text-align:center;">Rev.</th><th style="width:170px;">Situação</th><th style="width:105px;">Versão de</th><th style="width:340px;text-align:right;">Ações</th>
       </tr></thead><tbody>${l.map(linha).join('')}</tbody></table></div>`
-      :'<div class="empty"><div class="ic">🔍</div><h3>Nenhum documento</h3><p>Nada com esse filtro ou busca.</p></div>'}</div>
-    <details class="bx-outros"><summary>📎 Outros arquivos do SGQ (${_anexos.length}) — formulários antigos e arquivos soltos</summary>
-      <div style="padding:10px 2px 2px;">
-      ${_anexos.length?_anexos.slice(0,100).map(a=>`<div class="anx">
-        <span>${esc(iconeArq(a.nome))}</span><span class="nm" title="${esc(a.nome)}">${esc(a.nome)}</span>
-        <span style="color:#94a3b8;font-size:11px;white-space:nowrap;">${a.documento_cod?'<b style="color:var(--primary);">'+esc(a.documento_cod)+'</b> · ':''}${a.tamanho?(a.tamanho/1024).toFixed(0)+' KB':''}${a.enviado_por?' · '+esc(a.enviado_por):''}</span>
-        <button class="btn btn-secondary btn-sm" onclick="verDocumento('${a.id}')">👁️ Ver</button>
-        <button class="btn btn-ghost btn-sm" onclick="renomearDocumento('${a.id}')">✏️</button>
-        <button class="btn btn-ghost btn-sm" style="color:var(--danger);" onclick="excluirDocumento('${a.id}')">🗑️</button>
-      </div>`).join(''):'<span style="font-size:12px;color:#94a3b8;">Nenhum arquivo solto.</span>'}
-      <input type="file" id="doc-in" multiple style="font-size:12px;margin-top:9px;" onchange="subirDocumento(this)"></div>
-    </details>`;
+      :'<div class="empty"><div class="ic">🔍</div><h3>Nenhum documento</h3><p>Nada com esse filtro ou busca.</p></div>'}</div>`;
 }
 // redesenha só a lista (a busca não perde o foco do campo)
 function renderDocsLista(){
@@ -3697,40 +3214,99 @@ function renderDocsLista(){
 }
 
 // ── arquivos: visualizar / baixar ─────────────────────────────────────────
-async function migrarPapelParaDoc(docId,silencioso){
-  const d=_docs.find(x=>x.id===docId);const a=papelDoDoc(d);if(!d||!a)return false;
-  if(!silencioso&&!(await uiConfirma(`Usar <b>${esc(a.nome)}</b> como arquivo oficial do <b>${esc(d.codigo)}</b> (rev. ${esc(d.revisao||'00')})?<div style="margin-top:6px;font-size:12px;color:#64748b;">O arquivo vai para o Storage; dá para trocar depois com ⬆️ Nova versão.</div>`,{titulo:'Usar como arquivo',ok:'Usar'})))return false;
-  try{
-    let b64=a.conteudo_base64;
-    if(!b64){const {data}=await _supabase.from('bpf_documentos').select('conteudo_base64').eq('id',a.id).maybeSingle();b64=data?.conteudo_base64;}
-    if(!b64)throw new Error('conteúdo não encontrado');
-    const limpo=String(b64).replace(/^data:[^,]*,/,'');const bin=atob(limpo);const arr=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)arr[i]=bin.charCodeAt(i);
-    const path=`bpf/mestre/${d.codigo}_r${String(d.revisao||'00').replace(/\W/g,'')}_${Date.now()}_${String(a.nome).replace(/[^\w.\-]/g,'_')}`;
-    const up=await _supabase.storage.from('documentos').upload(path,new Blob([arr],{type:a.tipo||'application/pdf'}));
-    if(up.error)throw up.error;
-    const u=getUser();
-    const r=await db(_supabase.from('bpf_documentos_mestre').update({arquivo_path:path,alteracao_atual:d.alteracao_atual||'Arquivo do formulário em papel (anterior ao sistema)',
-      revisado_por:d.revisado_por||u?.nome||null,atualizado_em:new Date().toISOString()}).eq('id',d.id),'usar como arquivo');
-    if(r.error)throw r.error;
-    await db(_supabase.from('bpf_documentos').update({path_storage:path}).eq('id',a.id),'ligar arquivo');
-    d.arquivo_path=path;a.path_storage=path;
-    await addLog('UPDATE','BPF',d.codigo,'Formulário em papel virou o arquivo do documento: '+a.nome);
-    if(!silencioso){toast(`${d.codigo} agora tem arquivo.`,'success');verDadosDoc(d.id);}
-    return true;
-  }catch(e){ if(!silencioso)await uiAlerta('Não foi possível: '+esc(e.message||e),{titulo:'Erro',tipo:'dang'}); return false; }
+// ═══ INSTRUÇÃO DE TRABALHO (IT) DE UMA PÁGINA ═══════════════════════════════
+// Para deixar no posto. O texto fica em bpf_documentos_mestre.conteudo (tirado do POP);
+// visualizar/imprimir na janela, nova versão sem anexo, texto ajustável.
+async function limparArquivosOrfaos(){
+  try{ const u=getUser()||{}; if(!['SADM','ADM'].includes(u.perfil)||sessionStorage.getItem('bpf_orfaos_ok'))return;
+    sessionStorage.setItem('bpf_orfaos_ok','1');
+    const {data}=await _supabase.rpc('bpf_arquivos_orfaos'); const l=(data||[]).map(x=>typeof x==='string'?x:Object.values(x)[0]).filter(Boolean);
+    for(let i=0;i<l.length;i+=50) await _supabase.storage.from('documentos').remove(l.slice(i,i+50));
+    if(l.length)console.info('[BPF] arquivos sem uso removidos:',l.length);
+  }catch(e){}
 }
-async function migrarTodosPapeis(){
-  const l=_docs.filter(d=>!d.arquivo_path&&papelDoDoc(d));
-  if(!l.length)return;
-  if(!(await uiConfirma(`Usar o formulário em papel antigo como arquivo oficial de <b>${l.length} documento(s)</b>?<div style="margin-top:6px;font-size:12px;color:#64748b;">${l.map(d=>esc(d.codigo)).join(', ')}</div>`,{titulo:'Usar como arquivo',ok:'Usar em todos'})))return;
-  let ok=0;for(const d of l){ if(await migrarPapelParaDoc(d.id,true))ok++; }
-  toast(`${ok} de ${l.length} documento(s) agora têm arquivo.`,ok===l.length?'success':'warning');
-  renderDocs();
+function ehInstr(d){ return d&&d.tipo==='it'&&!d.arquivo_path&&!!d.conteudo; }
+const _negr=t=>esc(t||'').replace(/\*\*([^*]+)\*\*/g,'<b>$1</b>');
+function htmlInstrucao(d){
+  const c=d.conteudo||{};const pop=_pops.find(p=>p.codigo===d.pop_cod);
+  const li=a=>(a||[]).map(x=>`<li style="margin:0 0 4px;">${_negr(x)}</li>`).join('');
+  return `<div style="font-family:'Plus Jakarta Sans',sans-serif;color:#111;font-size:12.5px;">
+    <table style="width:100%;border-collapse:collapse;border:1.5px solid #042D4D;margin-bottom:10px;"><tr>
+      <td style="padding:7px 9px;"><div style="font-size:14px;font-weight:800;color:#042D4D;">SILICATE INDÚSTRIA E COMÉRCIO LTDA</div>
+        <div style="font-size:9.5px;color:#555;">Sistema de Gestão da Qualidade · Boas Práticas de Fabricação</div></td>
+      <td style="padding:7px 9px;width:36%;border-left:1px solid #042D4D;font-size:10px;line-height:1.55;"><b>${esc(d.codigo)}</b> · Instrução de trabalho<br>
+        POP de origem: ${esc(d.pop_cod||'')}${pop?' — '+esc(pop.titulo):''}<br>Revisão: ${esc(d.revisao||'00')} &nbsp;|&nbsp; Vigente desde: ${fmtD(d.data_revisao||d.data_emissao||'')}</td></tr></table>
+    <div style="font-size:19px;font-weight:800;color:#042D4D;margin:2px 0;">${esc(d.titulo)}</div>
+    <div style="font-size:10px;color:#555;margin-bottom:10px;">${esc(c.onde?'Onde: '+c.onde:'')}${c.fonte?' · Texto do '+esc(c.fonte):''}</div>
+    <div style="display:flex;gap:8px;margin-bottom:10px;">${[['Quem faz',c.quem_faz],['Quem confere',c.quem_confere],['Quando',c.quando],['Registro',c.registro]].map(([t,v])=>
+      `<div style="flex:1;border:1px solid #c8d5e2;border-radius:6px;padding:6px 8px;font-size:10.5px;"><b style="display:block;color:#042D4D;font-size:9px;text-transform:uppercase;letter-spacing:.4px;margin-bottom:2px;">${t}</b>${esc(v||'—')}</div>`).join('')}</div>
+    <div style="background:#042D4D;color:#fff;font-weight:800;font-size:11px;padding:5px 9px;border-radius:4px;margin:10px 0 6px;letter-spacing:.3px;">PASSO A PASSO</div>
+    <table style="width:100%;border-collapse:collapse;">${(c.passos||[]).map((p,i)=>`<tr><td style="width:34px;padding:6px;border-bottom:1px solid #e2e8f0;vertical-align:top;">
+      <span style="display:inline-block;width:24px;height:24px;border-radius:50%;background:#C9FF64;color:#042D4D;font-weight:800;text-align:center;line-height:24px;">${i+1}</span></td>
+      <td style="padding:6px;border-bottom:1px solid #e2e8f0;font-size:13px;line-height:1.45;">${_negr(p)}</td></tr>`).join('')}</table>
+    <div style="display:flex;gap:10px;"><div style="flex:1;"><div style="background:#042D4D;color:#fff;font-weight:800;font-size:11px;padding:5px 9px;border-radius:4px;margin:10px 0 6px;">SE DER ERRADO</div><ul style="margin:0;padding-left:16px;">${li(c.se_errado)}</ul></div>
+      <div style="flex:1;"><div style="background:#042D4D;color:#fff;font-weight:800;font-size:11px;padding:5px 9px;border-radius:4px;margin:10px 0 6px;">LEMBRE</div><ul style="margin:0;padding-left:16px;">${li(c.lembre)}</ul></div></div>
+    <div style="margin-top:12px;border-top:1px solid #c8d5e2;padding-top:5px;font-size:9px;color:#666;display:flex;justify-content:space-between;">
+      <span>Silicate Indústria e Comércio Ltda · Sistema de Gestão da Qualidade · Documento controlado</span><span>${esc(d.codigo)} · Rev. ${esc(d.revisao||'00')}</span></div></div>`;
 }
-function papelDoDoc(d){ return d?_anexos.find(a=>a.documento_cod===d.codigo):null; }
+function verInstrucaoDoc(id){
+  const d=_docs.find(x=>x.id===id);if(!d)return;
+  _dlg(`<div class="dlg" style="max-width:1000px;width:96vw;"><div class="dlg-hd"><span class="dlg-ic">📋</span>
+    <div class="dlg-tt">${esc(d.codigo)} rev. ${esc(d.revisao||'00')} — instrução de trabalho</div></div>
+    <div class="dlg-bd" style="max-height:72vh;overflow:auto;background:#e2e8f0;padding:14px;"><div style="background:#fff;max-width:794px;margin:0 auto;padding:28px 30px;box-shadow:0 2px 8px rgba(0,0,0,.15);">${htmlInstrucao(d)}</div></div>
+    <div class="dlg-ft"><button class="btn btn-secondary" onclick="_fecharDlg();editarTextoIT('${d.id}')">✏️ Ajustar texto</button>
+      <button class="btn btn-primary" onclick="imprimirInstrucao('${d.id}')">🖨️ Imprimir / salvar PDF</button>
+      <button class="btn btn-secondary" onclick="_fecharDlg()">Fechar</button></div></div>`);
+}
+function imprimirInstrucao(id){
+  const d=_docs.find(x=>x.id===id);if(!d)return;
+  document.getElementById('print-area').innerHTML=htmlInstrucao(d);window.print();
+}
+function editarTextoIT(id){
+  if(!guardAction('bpf','edit'))return;
+  const d=_docs.find(x=>x.id===id);if(!d)return;const c=d.conteudo||{};
+  const lin=a=>(a||[]).join('\n');
+  document.getElementById('m-ent-tit').textContent='✏️ Ajustar texto — '+d.codigo;
+  document.getElementById('m-ent-body').innerHTML=`
+    <div class="bx-nv-info">Ajuste o texto da instrução. Para registrar a mudança como revisão nova, use depois <b>⬆️ Nova versão</b>. Use <b>**texto**</b> para negrito.</div>
+    <div class="form-row"><div class="form-group"><label class="form-label">Onde</label><input id="it-onde" class="form-input" value="${esc(c.onde||'')}"></div>
+      <div class="form-group"><label class="form-label">Quando</label><input id="it-quando" class="form-input" value="${esc(c.quando||'')}"></div></div>
+    <div class="form-row"><div class="form-group"><label class="form-label">Quem faz</label><input id="it-faz" class="form-input" value="${esc(c.quem_faz||'')}"></div>
+      <div class="form-group"><label class="form-label">Quem confere</label><input id="it-conf" class="form-input" value="${esc(c.quem_confere||'')}"></div>
+      <div class="form-group"><label class="form-label">Registro</label><input id="it-reg" class="form-input" value="${esc(c.registro||'')}"></div></div>
+    <div class="form-group"><label class="form-label">Passo a passo (um por linha)</label><textarea id="it-passos" class="form-input" rows="8">${esc(lin(c.passos))}</textarea></div>
+    <div class="form-row"><div class="form-group"><label class="form-label">Se der errado (um por linha)</label><textarea id="it-err" class="form-input" rows="4">${esc(lin(c.se_errado))}</textarea></div>
+      <div class="form-group"><label class="form-label">Lembre (um por linha)</label><textarea id="it-lem" class="form-input" rows="4">${esc(lin(c.lembre))}</textarea></div></div>`;
+  document.getElementById('m-ent-foot').innerHTML=`<button class="btn btn-secondary" onclick="closeModal('m-ent')">Cancelar</button>
+    <button class="btn btn-primary" onclick="salvarTextoIT('${d.id}')">💾 Salvar texto</button>`;
+  document.getElementById('m-ent').classList.remove('hidden');
+}
+async function salvarTextoIT(id){
+  const d=_docs.find(x=>x.id===id);if(!d)return;
+  const v=k=>document.getElementById(k).value.trim(), ls=k=>v(k).split('\n').map(x=>x.trim()).filter(Boolean);
+  const c={...(d.conteudo||{}),onde:v('it-onde'),quando:v('it-quando'),quem_faz:v('it-faz'),quem_confere:v('it-conf'),registro:v('it-reg'),
+    passos:ls('it-passos'),se_errado:ls('it-err'),lembre:ls('it-lem')};
+  if(!c.passos.length){await uiAlerta('Informe ao menos um passo.',{titulo:'Incompleto',tipo:'warn'});return;}
+  const r=await db(_supabase.from('bpf_documentos_mestre').update({conteudo:c,atualizado_em:new Date().toISOString()}).eq('id',id),'texto da IT');
+  if(r.error)return;
+  d.conteudo=c;await addLog('UPDATE','BPF',d.codigo,'Texto da instrução ajustado');
+  closeModal('m-ent');toast('Texto salvo.','success');verInstrucaoDoc(id);
+}
+function ehFicha(d){ return d&&d.tipo==='reg'&&_forms.some(f=>f.codigo===d.codigo); }
+function verFichaDoc(id){
+  const d=_docs.find(x=>x.id===id);if(!d)return;const f=_forms.find(x=>x.codigo===d.codigo);if(!f)return;
+  const html=htmlFicha(f,_pops.find(p=>p.codigo===f.pop_cod));
+  _dlg(`<div class="dlg" style="max-width:1000px;width:96vw;"><div class="dlg-hd"><span class="dlg-ic">📝</span>
+    <div class="dlg-tt">${esc(d.codigo)} rev. ${esc(d.revisao||'00')} — ficha em branco</div></div>
+    <div class="dlg-bd" style="max-height:72vh;overflow:auto;background:#e2e8f0;padding:14px;"><div style="background:#fff;max-width:794px;margin:0 auto;padding:28px 30px;box-shadow:0 2px 8px rgba(0,0,0,.15);">${html}</div></div>
+    <div class="dlg-ft"><button class="btn btn-primary" onclick="imprimirFicha('${esc(d.codigo)}')">🖨️ Imprimir / salvar PDF</button>
+      <button class="btn btn-secondary" onclick="_fecharDlg()">Fechar</button></div></div>`);
+}
 function verArqDoc(id){
   const d=_docs.find(x=>x.id===id);if(!d)return;
-  if(!d.arquivo_path){ const a=papelDoDoc(d); if(a)return verDocumento(a.id); return; }
+  if(ehFicha(d))return verFichaDoc(id);
+  if(ehInstr(d))return verInstrucaoDoc(id);
+  if(!d.arquivo_path)return;
   uiVisualizar(d.arquivo_path,`${d.codigo} rev. ${d.revisao||'—'} — ${d.titulo}.${String(d.arquivo_path).split('.').pop()}`);
 }
 async function baixarArquivo(path,nome,bucket){
@@ -3741,6 +3317,7 @@ async function baixarArquivo(path,nome,bucket){
   }catch(e){ await uiAlerta(`Não foi possível baixar.<br><span style="font-size:11px;">${esc(e.message||e)}</span>`,{titulo:'Erro',tipo:'dang'}); }
 }
 function baixarArqDoc(id){
+  { const d0=_docs.find(x=>x.id===id); if(ehFicha(d0))return imprimirFicha(d0.codigo); if(ehInstr(d0))return imprimirInstrucao(id); }
   const d=_docs.find(x=>x.id===id);if(!d||!d.arquivo_path)return;
   const ext=String(d.arquivo_path).split('.').pop();
   baixarArquivo(d.arquivo_path,`${d.codigo}_rev${d.revisao||''}.${ext}`);
@@ -3980,14 +3557,16 @@ function verDadosDoc(id){
         <div><small>Versões anteriores</small><b>${hs.length}</b></div>
       </div>
       <div class="dc-g"><div>
-        <div class="dc-box dc-arq ${d.arquivo_path?'':'dc-vazio'}">
-          ${d.arquivo_path?`<div class="dc-arq-i">${esc(ext||'ARQ')}</div><div style="flex:1;min-width:0;"><b class="dc-nm">${esc(nomeArqDoc(d.arquivo_path))}</b>
+        <div class="dc-box dc-arq ${d.arquivo_path||ehFicha(d)||ehInstr(d)?'':'dc-vazio'}">
+          ${ehInstr(d)?`<div class="dc-arq-i" style="background:#dbeafe;color:#1d4ed8;">IT</div><div style="flex:1;min-width:0;"><b class="dc-nm">Instrução de uma página</b>
+              <div class="dc-mu">rev. ${esc(d.revisao||'00')} · ${(d.conteudo.passos||[]).length} passos · texto do ${esc(d.conteudo.fonte||d.pop_cod||'')}</div>
+              <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;"><button class="btn btn-primary btn-sm" onclick="verInstrucaoDoc('${d.id}')">👁️ Visualizar</button><button class="btn btn-secondary btn-sm" onclick="imprimirInstrucao('${d.id}')">🖨️ Imprimir</button><button class="btn btn-ghost btn-sm" onclick="_fecharDlg();editarTextoIT('${d.id}')">✏️ Ajustar texto</button></div></div>`:''}
+          ${ehInstr(d)?'':ehFicha(d)?`<div class="dc-arq-i" style="background:#dcfce7;color:#166534;">FICHA</div><div style="flex:1;min-width:0;"><b class="dc-nm">Ficha em branco do ${esc(d.codigo)}</b>
+              <div class="dc-mu">rev. ${esc(d.revisao||'00')} · gerada pelo sistema a partir dos campos do registro</div>
+              <div style="display:flex;gap:6px;margin-top:8px;"><button class="btn btn-primary btn-sm" onclick="verFichaDoc('${d.id}')">👁️ Visualizar</button><button class="btn btn-secondary btn-sm" onclick="imprimirFicha('${esc(d.codigo)}')">🖨️ Imprimir</button></div></div>`
+          :d.arquivo_path?`<div class="dc-arq-i">${esc(ext||'ARQ')}</div><div style="flex:1;min-width:0;"><b class="dc-nm">${esc(nomeArqDoc(d.arquivo_path))}</b>
               <div class="dc-mu">rev. ${esc(d.revisao||'—')} · ${fmtD(dataVersao(d))}</div>
               <div style="display:flex;gap:6px;margin-top:8px;"><button class="btn btn-primary btn-sm" onclick="verArqDoc('${d.id}')">👁️ Visualizar</button><button class="btn btn-secondary btn-sm" onclick="baixarArqDoc('${d.id}')">⬇️ Baixar</button></div></div>`
-            :papelDoDoc(d)?`<div class="dc-arq-i" style="background:#fef3c7;color:#92400e;">PDF</div><div style="flex:1;min-width:0;"><b class="dc-nm">${esc(papelDoDoc(d).nome)}</b>
-              <div class="dc-mu">formulário em papel de antes do sistema (guardado no banco)</div>
-              <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;"><button class="btn btn-primary btn-sm" onclick="verDocumento('${papelDoDoc(d).id}')">👁️ Visualizar</button>
-                <button class="btn btn-secondary btn-sm" onclick="migrarPapelParaDoc('${d.id}')" title="Passa a ser o arquivo oficial deste documento (rev. ${esc(d.revisao||'00')})">⇪ Usar como arquivo do documento</button></div></div>`
             :`<div style="text-align:center;width:100%;"><div style="font-size:30px;">📄</div><b>Nenhum arquivo anexado</b>
               <div class="dc-mu" style="margin:4px 0 10px;">Anexe o PDF deste documento para poder visualizar e baixar.</div>
               <button class="btn btn-primary btn-sm" onclick="_fecharDlg();abrirNovaVersao('${d.id}')">📎 Anexar arquivo</button></div>`}
@@ -4002,9 +3581,8 @@ function verDadosDoc(id){
       </div></div>
     </div>
     <div class="dlg-ft" style="flex-wrap:wrap;">
-      ${d.arquivo_path?`<button class="btn btn-secondary" onclick="_fecharDlg();abrirNovaVersao('${d.id}')">⬆️ Nova versão</button>`:''}
+      ${d.arquivo_path||ehFicha(d)||ehInstr(d)?`<button class="btn btn-secondary" onclick="_fecharDlg();abrirNovaVersao('${d.id}')">⬆️ Nova versão</button>`:''}
       <button class="btn btn-secondary" onclick="verHistoricoDoc('${d.id}')">🕘 Histórico</button>
-      ${d.tipo==='reg'&&_forms.some(f=>f.codigo===d.codigo)?`<button class="btn btn-secondary" onclick="_fecharDlg();abrirEditorCampos('${esc(d.codigo)}')">✏️ Editar campos</button>`:''}
       <button class="btn btn-secondary" onclick="_fecharDlg();editarDocMestre('${d.id}')">✏️ Editar</button>
       ${d.tipo==='pop'?`<button class="btn btn-secondary" onclick="_fecharDlg();abrirConfigPop('${esc(d.codigo)}')">⚙️ Configurar</button>`:''}
       <button class="btn btn-primary" onclick="_fecharDlg();abrirDoc('${d.id}')">Ir ao fluxo ➜</button></div></div>`);
@@ -4015,7 +3593,7 @@ function verHistoricoDoc(id){
     <div class="dlg-tt">Histórico de versões — ${esc(d.codigo)}</div></div>
     <div class="dlg-bd" style="max-height:66vh;overflow:auto;">${historicoHtml(d)}</div>
     <div class="dlg-ft">
-      ${d.arquivo_path?`<button class="btn btn-secondary" onclick="_fecharDlg();abrirNovaVersao('${d.id}')">⬆️ Nova versão</button>`:''}
+      ${d.arquivo_path||ehFicha(d)||ehInstr(d)?`<button class="btn btn-secondary" onclick="_fecharDlg();abrirNovaVersao('${d.id}')">⬆️ Nova versão</button>`:''}
       <button class="btn btn-secondary" onclick="verDadosDoc('${d.id}')">📋 Cadastro</button>
       <button class="btn btn-ghost" onclick="_fecharDlg()">Fechar</button></div></div>`);
 }
@@ -4051,14 +3629,6 @@ function docCardHtml(d){
     </div></div>`;
 }
 // PDFs antigos (a ficha em papel usada antes do sistema) ligados a este documento
-function formulariosAntigosHtml(cod){
-  const l=_anexos.filter(a=>a.documento_cod===cod);
-  if(!l.length)return '';
-  return `<div class="bx-card"><div class="bx-ttl">📜 Versão em papel anterior ao sistema <span class="bx-mu">${l.length} arquivo(s)</span></div>
-    ${l.map(a=>`<div class="anx"><span>${esc(iconeArq(a.nome))}</span><span class="nm" title="${esc(a.nome)}">${esc(a.nome)}</span>
-      <span style="color:#94a3b8;font-size:11px;">${a.tamanho?(a.tamanho/1024).toFixed(0)+' KB':''}</span>
-      <button class="btn btn-secondary btn-sm" onclick="verDocumento('${a.id}')">👁️ Ver</button></div>`).join('')}</div>`;
-}
 function historicoHtml(d){
   const hs=revsDe(d.codigo);
   const atual=`<div class="bx-ev bx-ev-at"><div><div class="bx-ev-r">Rev. ${esc(d.revisao||'—')} <span class="bx-tg bx-tg-verde">atual</span></div>
@@ -4089,7 +3659,6 @@ function abrirDoc(id,foco){
       ${f?`<div class="bx-mu" style="font-size:12.5px;margin-bottom:8px;">${esc(cap(f.periodicidade||'—'))}${f.exige_anexo?' · anexo obrigatório':''}</div>`:''}
       ${regs.length?quadroRegsHtml(regs,''):'<div class="bx-mu" style="font-size:12.5px;">Nenhum registro ainda.</div>'}</div>`;
   }
-  h+=formulariosAntigosHtml(d.codigo);
   h+=historicoHtml(d);
   document.getElementById('conteudo').innerHTML=h;
   if(foco==='hist')setTimeout(()=>document.getElementById('bx-hist')?.scrollIntoView({behavior:'smooth'}),60);
@@ -4101,6 +3670,7 @@ function abrirNovaVersao(id){
   if(!guardAction('bpf','edit'))return;
   const d=_docs.find(x=>x.id===id);if(!d)return;
   _nvDocId=id;
+  if(ehFicha(d)||ehInstr(d))return abrirNovaVersaoFicha(d);
   const primeiro=!d.arquivo_path;
   const atual=parseInt(String(d.revisao||'').replace(/\D/g,''));
   const prox=primeiro?(d.revisao||'00'):String((isNaN(atual)?0:atual)+1).padStart(2,'0');
@@ -4122,6 +3692,39 @@ function abrirNovaVersao(id){
     <button class="btn btn-secondary" onclick="closeModal('m-ent')">Cancelar</button>
     <button class="btn btn-primary" id="nv-ok" onclick="salvarNovaVersao()">${primeiro?'📎 Anexar':'⬆️ Publicar revisão'}</button>`;
   document.getElementById('m-ent').classList.remove('hidden');
+}
+function abrirNovaVersaoFicha(d){
+  const atual=parseInt(String(d.revisao||'').replace(/\D/g,''));const prox=String((isNaN(atual)?0:atual)+1).padStart(2,'0');
+  document.getElementById('m-ent-tit').textContent='⬆️ Nova versão — '+d.codigo;
+  document.getElementById('m-ent-body').innerHTML=`
+    <div class="bx-nv-info">A <b>revisão ${esc(d.revisao||'00')}</b> vai para o histórico e ${d.tipo==='it'?'a instrução':'a ficha em branco'} passa a sair como <b>revisão nova</b>.${d.tipo==='it'?'':' Os registros já lançados continuam com a revisão em que foram feitos.'}</div>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Revisão *</label><input id="nv-rev" class="form-input" value="${esc(prox)}"></div>
+      <div class="form-group"><label class="form-label">Data desta versão *</label><input id="nv-data" type="date" class="form-input" value="${hoje()}"></div>
+    </div>
+    <div class="form-group"><label class="form-label">O que mudou *</label><textarea id="nv-alt" class="form-input" rows="3" placeholder="Ex.: Ajuste do título; nova orientação de preenchimento"></textarea></div>
+    <div class="form-group"><label class="form-label">Aprovado por</label><input id="nv-aprov" class="form-input" list="lst-func" value="${esc(d.aprovado_por||'')}"></div>`;
+  document.getElementById('m-ent-foot').innerHTML=`<button class="btn btn-secondary" onclick="closeModal('m-ent')">Cancelar</button>
+    <button class="btn btn-primary" id="nv-ok" onclick="salvarNovaVersaoFicha()">⬆️ Publicar revisão</button>`;
+  document.getElementById('m-ent').classList.remove('hidden');
+}
+async function salvarNovaVersaoFicha(){
+  const d=_docs.find(x=>x.id===_nvDocId);if(!d)return;
+  const rev=document.getElementById('nv-rev').value.trim(),data=document.getElementById('nv-data').value,alt=document.getElementById('nv-alt').value.trim(),aprov=document.getElementById('nv-aprov').value.trim();
+  if(!rev||!data||!alt){await uiAlerta('Informe a revisão, a data e o que mudou.',{titulo:'Incompleto',tipo:'warn'});return;}
+  if(rev===String(d.revisao||'')){await uiAlerta(`A revisão atual já é ${esc(rev)}.`,{titulo:'Revisão repetida',tipo:'warn'});return;}
+  const u=getUser(),quem=u?.nome||u?.email||'—';const f=_forms.find(x=>x.codigo===d.codigo);
+  try{
+    const h=await db(_supabase.from('bpf_documento_revisoes').insert({documento_cod:d.codigo,revisao:d.revisao||'00',data:dataVersao(d),alteracao:d.alteracao_atual||null,autor:d.revisado_por||d.aprovado_por||null,arquivo_path:null}),'histórico');
+    if(h.error)throw h.error;
+    const upd={revisao:rev,data_revisao:data,alteracao_atual:alt,revisado_por:quem,atualizado_em:new Date().toISOString()};
+    if(aprov){upd.aprovado_por=aprov;upd.aprovado_em=data;}
+    const r=await db(_supabase.from('bpf_documentos_mestre').update(upd).eq('id',d.id),'nova versão');if(r.error)throw r.error;
+    await addLog('UPDATE','BPF',d.codigo,'Revisão '+(d.revisao||'00')+' → '+rev+': '+alt);
+    if(_forms.some(x=>x.codigo==='REG-POP12-02')){ try{ await gerarRegistro('REG-POP12-02',{abrir:false,pre:{documento:d.codigo+' — '+d.titulo,revisao_entregue:rev,revisao_recolhida:d.revisao||'',obs:'Recolher as cópias impressas da rev. '+(d.revisao||'—')+'. O que mudou: '+alt}}); }catch(e){} }
+    closeModal('m-ent');toast(`${d.codigo} agora está na revisão ${rev}.`,'success');
+    await carregar();renderNav();if(_sec==='pop'&&_popSel)abrirPop(_popSel);else renderDocs();
+  }catch(e){ await uiAlerta('Não foi possível salvar: '+esc(e.message||e),{titulo:'Erro',tipo:'dang'}); }
 }
 async function salvarNovaVersao(){
   const d=_docs.find(x=>x.id===_nvDocId);if(!d)return;
@@ -4170,102 +3773,8 @@ async function salvarNovaVersao(){
   }catch(e){ await uiAlerta(`Não foi possível salvar.<br><span style="font-size:11px;">${esc(e.message||e)}</span>`,{titulo:'Erro',tipo:'dang'}); }
   finally{ if(btn)btn.disabled=false; }
 }
-function iconeArq(n){
-  const e=String(n||'').split('.').pop().toLowerCase();
-  if(e==='pdf')return '📕';
-  if(['png','jpg','jpeg','webp','gif','avif','bmp'].includes(e))return '🖼️';
-  if(['doc','docx','odt'].includes(e))return '📘';
-  if(['xls','xlsx','csv','ods'].includes(e))return '📗';
-  return '📎';
-}
 // Aceita os três formatos que já existiram no sistema: Storage, link externo
 // e o base64 antigo gravado direto no Postgres.
-async function verDocumento(id){
-  const a=_anexos.find(x=>x.id===id);
-  if(!a){await uiAlerta('Arquivo não encontrado.',{titulo:'Indisponível',tipo:'warn'});return;}
-  if(a.path_storage) return uiVisualizar(a.path_storage,a.nome);
-  if(a.url){window.open(a.url,'_blank','noopener');return;}
-  if(!a.conteudo_base64){   // o conteúdo antigo (base64 no banco) só é buscado quando abre
-    try{const {data}=await _supabase.from('bpf_documentos').select('conteudo_base64').eq('id',id).maybeSingle();a.conteudo_base64=data?.conteudo_base64||null;}catch(e){}
-  }
-  if(a.conteudo_base64){
-    const tipo=a.tipo||'application/octet-stream';
-    const src=String(a.conteudo_base64).startsWith('data:')?a.conteudo_base64:`data:${tipo};base64,${a.conteudo_base64}`;
-    const ext=String(a.nome||'').split('.').pop().toLowerCase();
-    let corpo;
-    if(['png','jpg','jpeg','webp','gif','avif','bmp'].includes(ext))
-      corpo=`<div class="vw-box" style="display:flex;align-items:center;justify-content:center;padding:8px;"><img src="${src}" alt="${esc(a.nome)}"></div>`;
-    else if(ext==='pdf') corpo=`<div class="vw-box" id="vw-pdf64"><span class="spin"></span> Abrindo PDF…</div>`;
-    else corpo=`<div class="alerta al-info" style="margin:0;">Pré-visualização não disponível para <strong>.${esc(ext)}</strong>.</div>`;
-    _dlg(`<div class="dlg" style="max-width:920px;"><div class="dlg-hd"><span class="dlg-ic">📎</span>
-      <div class="dlg-tt">${esc(a.nome)}</div></div>
-      <div class="dlg-bd">${corpo}
-        <div class="alerta al-warn" style="margin:10px 0 0;">Este arquivo está gravado como <strong>base64 no banco</strong>,
-        não no Storage. Funciona, mas pesa no Postgres — ao reenviá-lo, ele passa a usar o Storage.</div></div>
-      <div class="dlg-ft"><a class="btn btn-primary" href="${src}" download="${esc(a.nome)}">⬇️ Baixar</a>
-      <button class="btn btn-secondary" onclick="_fecharDlg()">Fechar</button></div></div>`);
-    const alvo=document.getElementById('vw-pdf64');
-    if(alvo){
-      const b64=String(a.conteudo_base64).replace(/^data:[^,]*,/,'');
-      const bin=atob(b64);const arr=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)arr[i]=bin.charCodeAt(i);
-      await mostrarPdf(alvo,arr,a.nome);
-    }
-    return;
-  }
-  await uiAlerta(`O registro <strong>${esc(a.nome)}</strong> existe na lista, mas não tem arquivo associado
-    (sem Storage, sem link e sem conteúdo).<div style="margin-top:8px;">Reenvie o arquivo e exclua esta linha órfã.</div>`,
-    {titulo:'Sem arquivo',tipo:'warn'});
-}
-async function renomearDocumento(id){
-  if(!guardAction('bpf','edit'))return;
-  const a=_anexos.find(x=>x.id===id);if(!a)return;
-  const novo=await uiTexto(`Nome atual: <strong>${esc(a.nome)}</strong>`,
-    {titulo:'Renomear arquivo',rotulo:'Novo nome (mantenha a extensão)',ok:'Renomear',linhas:1});
-  if(novo===null)return;
-  const r=await db(_supabase.from('bpf_documentos').update({nome:novo}).eq('id',id),'renomear documento');
-  if(r.error)return;
-  await addLog('UPDATE','BPF',novo,'Renomeado (era: '+a.nome+')');
-  toast('Renomeado.','success');
-  await carregar();renderDocs();
-}
-async function excluirDocumento(id){
-  if(!guardAction('bpf','delete'))return;
-  const a=_anexos.find(x=>x.id===id);if(!a)return;
-  const ok=await uiConfirma(
-    `Excluir <strong>${esc(a.nome)}</strong> dos arquivos do SGQ?
-     ${a.path_storage?'<div style="margin-top:9px;font-size:11.5px;color:#64748b;">O arquivo sai também do Storage.</div>':''}
-     <div class="alerta al-warn" style="margin:9px 0 0;">Se este for o PDF de um POP ou IT vigente, a lista mestra
-     fica sem a evidência do documento. Confirme que é cópia obsoleta ou duplicada.</div>`,
-    {titulo:'Excluir arquivo',tipo:'warn',ok:'Excluir',perigo:true});
-  if(!ok)return;
-  if(a.path_storage){
-    try{ await _supabase.storage.from('documentos').remove([a.path_storage]); }
-    catch(e){ toast('Removido do banco, mas o arquivo pode ter ficado no Storage: '+(e.message||e),'warning'); }
-  }
-  const r=await db(_supabase.from('bpf_documentos').delete().eq('id',id),'excluir documento');
-  if(r.error)return;
-  await addLog('DELETE','BPF',a.nome,'Arquivo do SGQ excluído');
-  toast('Arquivo excluído.','success');
-  await carregar();renderDocs();
-}
-async function subirDocumento(inp){
-  if(!guardAction('bpf','edit'))return;
-  const u=getUser();
-  for(const file of inp.files){
-    if(file.size>25*1024*1024){await uiAlerta(`<strong>${esc(file.name)}</strong> tem mais de 25 MB.`,{titulo:'Arquivo grande demais',tipo:'warn'});continue;}
-    const path=`bpf/docs/${Date.now()}_${file.name.replace(/[^\w.\-]/g,'_')}`;
-    try{
-      const {error}=await _supabase.storage.from('documentos').upload(path,file);
-      if(error)throw error;
-      const r=await db(_supabase.from('bpf_documentos').insert({nome:file.name,
-        tipo:file.type||'application/octet-stream',tamanho:file.size,path_storage:path,
-        enviado_por:u?.nome||u?.email||'Sistema'}),'registrar documento');
-      if(!r.error)toast(`${file.name} anexado.`,'success');
-    }catch(e){ await uiAlerta(`Não foi possível anexar <strong>${esc(file.name)}</strong>.<br><span style="font-size:11px;">${esc(e.message||e)}</span>`,{titulo:'Falha no anexo',tipo:'dang'}); }
-  }
-  inp.value='';await carregar();renderDocs();
-}
-
 // ═══════════════════════════════════════════════════════════════════════════
 // TRAVAS
 // ═══════════════════════════════════════════════════════════════════════════
@@ -4388,7 +3897,7 @@ function avisoEscopo(){
 let _dq={q:'',de:'',ate:''},_dqLote=null;
 
 // Receita de consulta de cada gatilho. Fica no JS pelo mesmo motivo que ERP e
-// FONTES ficam: cada tabela de origem tem uma forma própria e isso não cabe
+// Cada tabela de origem tem uma forma própria e isso não cabe
 // em coluna de banco. A tabela bpf_gatilhos guarda só a regra (ativo, prazo).
 const GATILHO_FONTES={
   g_emb_almox:{tab:'almoxarifado_movimentos',dias:30,async busca(g){
