@@ -356,7 +356,7 @@
       <div style="display:flex;gap:6px;flex-wrap:wrap;">
         <button class="btn btn-secondary btn-sm" onclick="visPassarVideo()">▶️ Passar o vídeo</button>
         <button class="btn btn-secondary btn-sm" onclick="visEnviarLink()">📲 Enviar no WhatsApp</button></div>
-      <label class="vis-ck"><input type="checkbox" id="vi-video"> Assistiu ao vídeo de integração</label>
+      <label class="vis-ck"><input type="checkbox" id="vi-video" disabled> Assistiu ao vídeo de integração <small style="font-weight:500;color:#64748b;">(marca sozinho só quando o vídeo é visto até o fim)</small></label>
       <label class="vis-ck"><input type="checkbox" id="vi-param"> Paramentação entregue (quando vai à produção)</label>
     </div>
     <div class="form-group" style="margin-top:10px;"><label class="form-label">Observação</label><input id="vi-obs" class="form-input"></div>
@@ -397,7 +397,7 @@
             </div>
           </div>
           <label style="display:flex;gap:8px;align-items:center;margin-top:8px;font-size:13px;font-weight:700;cursor:pointer;">
-            <input type="checkbox" id="ch-video"> Assistiu ao vídeo agora (grava no histórico BPF)</label>
+            <input type="checkbox" id="ch-video" disabled> Assistiu ao vídeo agora (grava no histórico BPF) <small style="font-weight:500;color:#64748b;">— marca sozinho só ao terminar o vídeo</small></label>
         </div>
         <div class="form-grid-2">
           <div class="form-group"><label class="form-label">Placa <span class="req">*</span></label><input id="ch-placa" onblur="bpfConferirIntegracao()" class="form-input" style="text-transform:uppercase;font-weight:800;" placeholder="ABC1D23" oninput="sugerirPorPlaca()"></div>
@@ -1263,18 +1263,45 @@ async function bpfConferirIntegracao(){
     }catch(e){_bpfInteg=null;st.textContent='Não foi possível conferir no BPF.';}
   },350);
 }
-async function passarVideoBpf(){
+// ▶️ Integração: o "assistiu" só é marcado se o vídeo rodou ATÉ O FIM, sem avançar.
+// Fechou antes, pulou ou rodou pouco tempo → não marca (e a caixa não aceita marcação à mão).
+async function passarVideoBpf(alvo){
+  alvo=alvo||'ch-video';
   const vid=await bpfCarregarVideo();
   if(!vid||!vid.arquivo_path){toast('O vídeo ainda não foi anexado no BPF (IT-POP04-03).','warning');return;}
   try{
-    const {data,error}=await _supabase.storage.from('documentos').createSignedUrl(vid.arquivo_path,900);
+    const {data,error}=await _supabase.storage.from('documentos').createSignedUrl(vid.arquivo_path,1800);
     if(error)throw error;
     const ov=document.createElement('div');
-    ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:20000;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;padding:16px;';
-    ov.innerHTML=`<video src="${data.signedUrl}" controls autoplay playsinline style="max-width:min(960px,100%);max-height:78vh;border-radius:10px;background:#000;"></video>
-      <button class="btn btn-primary" style="min-height:46px;">✅ Terminou — fechar e marcar "assistiu"</button>`;
-    ov.querySelector('button').onclick=()=>{ov.remove();const c=document.getElementById('ch-video');if(c)c.checked=true;};
+    ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:20000;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;padding:16px;';
+    ov.innerHTML=`<video src="${data.signedUrl}" autoplay playsinline style="max-width:min(960px,100%);max-height:72vh;border-radius:10px;background:#000;"></video>
+      <div style="width:min(960px,100%);height:8px;background:#334155;border-radius:99px;overflow:hidden;"><div class="vp-bar" style="height:100%;width:0;background:#C9FF64;"></div></div>
+      <div class="vp-txt" style="color:#e2e8f0;font-size:14px;">Assistindo… 0%</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:center;">
+        <button class="btn btn-secondary vp-play" style="min-height:46px;">⏯️ Pausar / continuar</button>
+        <button class="btn btn-primary vp-ok" style="min-height:46px;" disabled>✅ Concluir (libera ao terminar o vídeo)</button>
+        <button class="btn btn-secondary vp-x" style="min-height:46px;">Fechar sem concluir</button></div>`;
     document.body.appendChild(ov);
+    const v=ov.querySelector('video'),bar=ov.querySelector('.vp-bar'),txt=ov.querySelector('.vp-txt'),ok=ov.querySelector('.vp-ok');
+    let max=0,assistido=0,ult=0,terminou=false;
+    v.addEventListener('timeupdate',()=>{
+      const t=v.currentTime;
+      if(t>ult&&t-ult<1.5)assistido+=t-ult;          // só conta o tempo realmente rodado
+      ult=t; if(t>max&&t-max<1.5)max=t;
+      const d=v.duration||0, pct=d?Math.min(100,Math.round(assistido/d*100)):0;
+      bar.style.width=pct+'%'; txt.textContent=terminou?'Vídeo assistido até o fim ✅':'Assistindo… '+pct+'%';
+    });
+    v.addEventListener('seeking',()=>{ if(v.currentTime>max+1){ v.currentTime=max; toast('Não dá para avançar o vídeo de integração.','warning'); } ult=v.currentTime; });
+    v.addEventListener('ratechange',()=>{ if(v.playbackRate>1)v.playbackRate=1; });
+    v.addEventListener('ended',()=>{
+      const d=v.duration||0;
+      terminou=d>0&&assistido>=d*0.95;
+      if(terminou){ok.disabled=false;ok.textContent='✅ Concluir — assistiu';txt.textContent='Vídeo assistido até o fim ✅';}
+      else{txt.textContent='O vídeo não foi assistido por inteiro — volte e assista.';}
+    });
+    ov.querySelector('.vp-play').onclick=()=>{ v.paused?v.play():v.pause(); };
+    ov.querySelector('.vp-x').onclick=()=>{ v.pause(); ov.remove(); toast('Vídeo fechado antes do fim — não foi marcado como assistido.','warning'); };
+    ok.onclick=()=>{ if(!terminou)return; ov.remove(); const c=document.getElementById(alvo); if(c){c.checked=true;c.dispatchEvent(new Event('change'));} toast('Integração registrada: vídeo assistido até o fim.','success'); };
   }catch(e){toast('Não foi possível abrir o vídeo: '+(e.message||e),'danger');}
 }
 // link da página pública integracao.html, já com os dados do motorista
@@ -2129,12 +2156,7 @@ function visConferirIntegracao(){
     }catch(e){_visInteg=null;st.textContent='Não foi possível conferir no BPF.';}
   },350);
 }
-async function visPassarVideo(){
-  await passarVideoBpf();
-  // o botão "Terminou" do vídeo marca o ch-video da chegada; aqui marcamos o do visitante
-  const obs=new MutationObserver(()=>{ if(!document.querySelector('video')){ document.getElementById('vi-video').checked=true; obs.disconnect(); } });
-  obs.observe(document.body,{childList:true});
-}
+async function visPassarVideo(){ await passarVideoBpf('vi-video'); }
 function visEnviarLink(){
   const nome=document.getElementById('vi-nome').value.trim(),doc=document.getElementById('vi-doc').value.trim(),emp=document.getElementById('vi-empresa').value.trim();
   const cel=document.getElementById('vi-tel').value.replace(/\D/g,'');
