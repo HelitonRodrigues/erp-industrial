@@ -1069,6 +1069,64 @@ function exportarCSV(colunas, linhas, nomeArquivo) {
   a.click();
 }
 
+// ── BPF · trava de fornecedor de embalagem (POP-01) ──────────────────────
+// Usada no Compras (pedido) e nas Solicitações (recebimento). A configuração
+// fica no BPF → POP-01 → ⚙️: ligada/desligada, modo (bloquear/avisar), onde age,
+// quais embalagens entram no BPF e quem pode liberar exceção.
+const _bpfNorm=s=>String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]/g,'');
+async function bpfAvisar(titulo,descricao,chave){
+  try{ await _supabase.from('notificacoes').insert({tipo:'alerta',modulo:'bpf',titulo,descricao,chave:chave||null,fonte:'bpf'}); }catch(e){}
+}
+/* itens: [{insumo_id, nome}] · fornecedor: {nome, cnpj} · onde: 'pedido' | 'recebimento'
+   devolve null (tudo certo / trava desligada) ou {modo, msg, liberadores:[nomes], podeLiberar} */
+async function bpfTravaFornecedor({onde,itens,fornecedor}){
+  try{
+    const [{data:tv},{data:g}]=await Promise.all([
+      _supabase.from('bpf_travas').select('ativa,config').eq('codigo','fornecedor_nao_homologado').maybeSingle(),
+      _supabase.from('bpf_gatilhos').select('filtro').eq('codigo','g_emb_insumo').maybeSingle()]);
+    if(!tv||!tv.ativa) return null;
+    const cfg=tv.config||{}; if(!(cfg.onde||[]).includes(onde)) return null;
+    const cods=(g&&g.filtro&&g.filtro.itens)||[]; if(!cods.length) return null;
+    const {data:ins}=await _supabase.from('insumos').select('id,codigo,nome').in('codigo',cods);
+    const ids=new Set((ins||[]).map(x=>x.id)), nomes=new Set((ins||[]).map(x=>_bpfNorm(x.nome)));
+    const embs=(itens||[]).filter(i=>ids.has(i.insumo_id)||nomes.has(_bpfNorm(i.nome)));
+    if(!embs.length) return null;                       // nada de embalagem BPF nesta compra
+    const fn=_bpfNorm(fornecedor&&fornecedor.nome), fc=String((fornecedor&&fornecedor.cnpj)||'').replace(/\D/g,'');
+    const {data:regs}=await _supabase.from('bpf_registros').select('numero,campos,status,lancado_em,cancelado_em')
+      .eq('formulario_cod','REG-POP01-02').is('cancelado_em',null).limit(500);
+    const hoje=new Date().toISOString().slice(0,10);
+    const ok=(regs||[]).some(r=>{const c=r.campos||{};
+      const mesmo=(fc.length>=11&&String(c.cnpj||'').replace(/\D/g,'')===fc)||(fn&&(_bpfNorm(c.nome).includes(fn)||fn.includes(_bpfNorm(c.nome)))&&_bpfNorm(c.nome).length>=4);
+      return mesmo&&(r.lancado_em||r.status==='concluido')&&c.status==='Homologado'&&(!c.reavaliacao||c.reavaliacao>=hoje);});
+    if(ok) return null;
+    const u=getUser()||{};
+    const libs=cfg.liberadores||[];
+    return {modo:cfg.modo==='avisar'?'avisar':'bloquear',liberadores:libs,
+      podeLiberar:libs.some(n=>_bpfNorm(n)===_bpfNorm(u.nome)),
+      msg:`Fornecedor "${(fornecedor&&fornecedor.nome)||'—'}" não está homologado no BPF (POP-01) para embalagem: ${embs.map(i=>i.nome).join(', ')}.`};
+  }catch(e){ console.warn('[BPF trava fornecedor]',e); return null; }   // BPF fora do ar não para a compra
+}
+// aplica o resultado: true = pode seguir · false = parar
+async function bpfAplicarTrava(res,contexto){
+  if(!res) return true;
+  if(res.modo==='avisar'){
+    await bpfAvisar('BPF: fornecedor não homologado',res.msg+' ('+contexto+' seguiu com aviso)','forn_'+Date.now());
+    toast('⚠️ '+res.msg+' Seguiu com aviso — a Qualidade foi avisada.','warning');
+    return true;
+  }
+  if(res.podeLiberar){
+    const motivo=prompt(res.msg+'\n\nVocê pode liberar esta exceção. Informe o motivo (fica registrado):');
+    if(motivo&&motivo.trim()){
+      await bpfAvisar('BPF: exceção liberada (fornecedor)',res.msg+' · '+contexto+' · liberado por '+((getUser()||{}).nome||'—')+': '+motivo.trim(),'forn_lib_'+Date.now());
+      return true;
+    }
+    return false;
+  }
+  await bpfAvisar('BPF: bloqueio por fornecedor não homologado',res.msg+' · '+contexto,'forn_blq_'+Date.now());
+  alert('🚫 BLOQUEADO PELO BPF\n\n'+res.msg+'\n\nHomologue o fornecedor no BPF (POP-01 → REG-POP01-02)'+(res.liberadores.length?' ou peça liberação a: '+res.liberadores.join(', '):'')+'.');
+  return false;
+}
+
 // ── BUSCAR TODAS AS LINHAS ─────────────────────────────────
 /* O Supabase devolve NO MÁXIMO 1.000 linhas por consulta — mesmo com
    .limit(5000) ou .limit(50000). Passou disso, o resto some calado.
