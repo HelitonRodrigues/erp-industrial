@@ -155,6 +155,19 @@
 .filtros .form-group{margin:0;}
 @media(max-width:1100px){.layout,.conf-grid{grid-template-columns:1fr;}}
 @media(max-width:800px){.op-lista{max-height:none!important;}.tabs{overflow-x:auto;flex-wrap:nowrap;scrollbar-width:none;}.tabs .tab-btn{flex:0 0 auto;white-space:nowrap;}.cols-2,.escolha{grid-template-columns:1fr;}.v-placa{font-size:19px;}}
+.vis-top{display:flex;gap:10px;align-items:stretch;flex-wrap:wrap;margin-bottom:12px;}
+.vis-k{background:#fff;border:1px solid #e2e8f0;border-left:4px solid var(--primary);border-radius:12px;padding:10px 16px;min-width:150px;}
+.vis-k b{display:block;font-size:24px;color:var(--primary);}.vis-k span{font-size:12px;color:#64748b;font-weight:600;}
+.vis-novo{margin-left:auto;min-height:52px;font-size:15px;}
+.vis-lista{display:flex;flex-direction:column;gap:8px;}
+.vis-card{display:flex;gap:12px;align-items:center;background:#fff;border:1px solid #e2e8f0;border-left:5px solid #16a34a;border-radius:12px;padding:12px 14px;flex-wrap:wrap;}
+.vis-card.vis-alerta{border-left-color:#dc2626;}
+.vis-card b{color:var(--primary);}.vis-mu{font-size:12.5px;color:#64748b;margin-top:2px;}
+.vis-tag{display:inline-block;background:#eef2ff;color:#3730a3;font-size:11.5px;font-weight:700;border-radius:99px;padding:1px 8px;}
+.vis-vazio{background:#f8fafc;border:1px dashed #cbd5e1;border-radius:12px;padding:16px;text-align:center;color:#94a3b8;}
+.vis-bpf{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:12px;margin-top:6px;}
+.vis-ck{display:flex;gap:8px;align-items:center;font-size:14px;font-weight:600;color:#334155;width:100%;}
+.vis-ck input{width:20px;height:20px;}
 </style>
 </head>
 <body>
@@ -190,6 +203,7 @@
     <button class="tab-btn" id="tbtn-motoristas" onclick="showTab('motoristas')">👤 Motoristas</button>
     <button class="tab-btn" id="tbtn-fechamento" onclick="showTab('fechamento')">📊 Fechamento do dia</button>
     <button class="tab-btn" id="tbtn-historico" onclick="showTab('historico')">📚 Histórico</button>
+    <button class="tab-btn" id="tbtn-visitantes" onclick="showTab('visitantes')">🪪 Visitantes</button>
   </div>
 
   <!-- ══════════ FILA ══════════ -->
@@ -248,6 +262,29 @@
     </div>
   </div>
 
+  <!-- ══════════ VISITANTES (POP-04 · controle de acesso — separado do carregamento) ══════════ -->
+  <div id="tab-visitantes" style="display:none;">
+    <div class="vis-top">
+      <div class="vis-k"><b id="vis-k-dentro">0</b><span>Na empresa agora</span></div>
+      <div class="vis-k"><b id="vis-k-hoje">0</b><span>Entraram hoje</span></div>
+      <div class="vis-k"><b id="vis-k-sem">0</b><span>Sem integração BPF hoje</span></div>
+      <button class="btn btn-primary vis-novo" data-perm="portaria:create" onclick="abrirVisitante()">＋ Registrar visitante</button>
+    </div>
+    <div class="sec-tit"><h3>Na empresa agora</h3><span>Visitantes, prestadores, fornecedores e auditores — motoristas de carga ficam na Fila</span></div>
+    <div id="vis-dentro" class="vis-lista"></div>
+    <div class="card" style="margin-top:14px;">
+      <div class="filtros">
+        <div class="search-input-wrap" style="flex:1;min-width:200px;"><span class="search-icon">🔍</span><input type="text" class="form-input" id="vis-busca" placeholder="Nome, documento, empresa…" oninput="renderVisitantes()"></div>
+        <input type="date" class="form-input" id="vis-ini" style="max-width:160px;" onchange="carregarVisitantes()">
+        <input type="date" class="form-input" id="vis-fim" style="max-width:160px;" onchange="carregarVisitantes()">
+      </div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Entrada</th><th>Saída</th><th>Visitante</th><th>Tipo</th><th>Empresa</th><th>Motivo / áreas</th><th>Acompanhante</th><th>Integração BPF</th><th></th></tr></thead>
+        <tbody id="vis-body"></tbody>
+      </table></div>
+    </div>
+  </div>
+
   <!-- ══════════ FECHAMENTO DO DIA ══════════ -->
   <div id="tab-fechamento" style="display:none;">
     <div class="card" style="margin-bottom:16px;">
@@ -292,6 +329,41 @@
 </main>
 
 <!-- ══════════ MODAL: CHEGADA ══════════ -->
+<div id="m-visitante" class="modal-overlay hidden">
+  <div class="modal modal-lg">
+    <div class="modal-header"><div class="modal-title">🪪 Registrar visitante</div><button class="modal-close" onclick="closeModal('m-visitante')">✕</button></div>
+    <div class="form-row">
+      <div class="form-group" style="flex:2;"><label class="form-label">Nome completo *</label><input id="vi-nome" class="form-input" list="vi-lst" autocomplete="off" oninput="visConferirIntegracao()"><datalist id="vi-lst"></datalist></div>
+      <div class="form-group"><label class="form-label">Documento (RG/CPF)</label><input id="vi-doc" class="form-input" oninput="visConferirIntegracao()"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Tipo *</label><select id="vi-tipo" class="form-input">
+        <option>Visitante</option><option>Prestador de serviço</option><option>Fornecedor / entrega</option><option>Auditor / fiscal</option><option>Cliente</option><option>Outro</option></select></div>
+      <div class="form-group"><label class="form-label">Empresa</label><input id="vi-empresa" class="form-input"></div>
+      <div class="form-group"><label class="form-label">Telefone</label><input id="vi-tel" class="form-input" inputmode="tel"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group" style="flex:2;"><label class="form-label">Motivo da visita *</label><input id="vi-motivo" class="form-input" placeholder="Ex.: manutenção do compressor, auditoria, reunião"></div>
+      <div class="form-group"><label class="form-label">Crachá nº</label><input id="vi-cracha" class="form-input"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group" style="flex:2;"><label class="form-label">Áreas que vai acessar *</label><input id="vi-areas" class="form-input" list="vi-areas-lst" placeholder="Ex.: Produção Linha 2, Laboratório, Escritório"><datalist id="vi-areas-lst">
+        <option>Escritório / administração</option><option>Produção — Linha 2</option><option>Produção — Longa Vida</option><option>Estocagem / expedição</option><option>Laboratório</option><option>Manutenção / oficina</option><option>Pátio</option></datalist></div>
+      <div class="form-group"><label class="form-label">Acompanhado por *</label><input id="vi-acomp" class="form-input" list="vi-func-lst" placeholder="Funcionário responsável"><datalist id="vi-func-lst"></datalist></div>
+    </div>
+    <div class="vis-bpf">
+      <div><b>🎬 Integração BPF (POP-04)</b><div id="vi-bpf-st" style="font-size:13px;margin-top:3px;">Digite o nome para conferir.</div></div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">
+        <button class="btn btn-secondary btn-sm" onclick="visPassarVideo()">▶️ Passar o vídeo</button>
+        <button class="btn btn-secondary btn-sm" onclick="visEnviarLink()">📲 Enviar no WhatsApp</button></div>
+      <label class="vis-ck"><input type="checkbox" id="vi-video"> Assistiu ao vídeo de integração</label>
+      <label class="vis-ck"><input type="checkbox" id="vi-param"> Paramentação entregue (quando vai à produção)</label>
+    </div>
+    <div class="form-group" style="margin-top:10px;"><label class="form-label">Observação</label><input id="vi-obs" class="form-input"></div>
+    <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('m-visitante')">Cancelar</button>
+      <button class="btn btn-primary" id="vi-ok" onclick="salvarVisitante()">✅ Registrar entrada</button></div>
+  </div>
+</div>
 <div id="m-chegada" class="modal-overlay hidden">
   <div class="modal modal-xl">
     <div class="modal-header"><div class="modal-title" id="ch-titulo">Registrar chegada</div><button class="modal-close" onclick="closeModal('m-chegada')">✕</button></div>
@@ -1974,19 +2046,154 @@ function imprimirFechamento(){
   w.document.close(); setTimeout(()=>{try{w.focus();w.print();}catch(e){}},500);
 }
 
+/* ══ VISITANTES — controle de acesso (POP-04, 6.f) — separado do carregamento ══
+   Tabela própria: portaria_visitantes. Cada entrada vira o REG-POP04-02 no BPF
+   (gatilho g_visita), com a integração por vídeo e a paramentação. */
+let _vis=[],_visHist=[];
+const PRODUCAO_RE=/produ|linha|longa|estoca|expedi|laborat/i;
+async function carregarVisitantes(){
+  try{
+    const {data:dentro}=await _supabase.from('portaria_visitantes').select('*').is('saida',null).order('entrada',{ascending:false}).limit(200);
+    const ini=document.getElementById('vis-ini').value||hojeISO(), fim=document.getElementById('vis-fim').value||hojeISO();
+    const {data:hist}=await _supabase.from('portaria_visitantes').select('*').gte('entrada',ini+'T00:00:00-03:00').lte('entrada',fim+'T23:59:59-03:00').order('entrada',{ascending:false}).limit(1000);
+    _vis=dentro||[];_visHist=hist||[];
+  }catch(e){ _vis=[];_visHist=[]; }
+  renderVisitantes();
+}
+const hhmm=v=>v?new Date(v).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}):'—';
+const ddhh=v=>v?new Date(v).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'—';
+function renderVisitantes(){
+  const h=hojeISO();const hoje=_visHist.filter(v=>String(new Date(v.entrada).toLocaleDateString('sv-SE'))===h);
+  document.getElementById('vis-k-dentro').textContent=_vis.length;
+  document.getElementById('vis-k-hoje').textContent=hoje.length;
+  document.getElementById('vis-k-sem').textContent=hoje.filter(v=>!v.integrado).length;
+  document.getElementById('vis-dentro').innerHTML=_vis.length?_vis.map(v=>`<div class="vis-card${v.integrado?'':' vis-alerta'}">
+      <div style="flex:1;min-width:0;"><b>${esc(v.nome)}</b> <span class="vis-tag">${esc(v.tipo||'')}</span>
+        <div class="vis-mu">${esc(v.empresa||'—')} · ${esc(v.motivo||'')} · ${esc(v.areas||'')}</div>
+        <div class="vis-mu">Entrou ${hhmm(v.entrada)} · acompanhado por <b>${esc(v.acompanhante||'—')}</b>${v.cracha?' · crachá '+esc(v.cracha):''} · ${v.integrado?'✅ integrado':'❌ sem integração BPF'}</div></div>
+      <button class="btn btn-primary" data-perm="portaria:edit" onclick="saidaVisitante('${v.id}')">🚪 Registrar saída</button></div>`).join('')
+    :'<div class="vis-vazio">Nenhum visitante na empresa agora.</div>';
+  const q=normNome(document.getElementById('vis-busca').value||'');
+  const l=_visHist.filter(v=>!q||normNome([v.nome,v.documento,v.empresa,v.motivo].join(' ')).includes(q));
+  document.getElementById('vis-body').innerHTML=l.length?l.map(v=>`<tr>
+      <td>${ddhh(v.entrada)}</td><td>${v.saida?ddhh(v.saida):'<span style="color:#b45309;font-weight:700;">na empresa</span>'}</td>
+      <td><b>${esc(v.nome)}</b>${v.documento?'<div class="vis-mu">'+esc(v.documento)+'</div>':''}</td><td>${esc(v.tipo||'')}</td><td>${esc(v.empresa||'—')}</td>
+      <td>${esc(v.motivo||'')}<div class="vis-mu">${esc(v.areas||'')}</div></td><td>${esc(v.acompanhante||'—')}</td>
+      <td>${v.integrado?'✅ '+esc(v.video_versao||''):'❌'}${v.paramentacao?' · 🦺':''}</td>
+      <td>${v.saida?'':`<button class="btn btn-secondary btn-sm" data-perm="portaria:edit" onclick="saidaVisitante('${v.id}')">Saída</button>`}</td></tr>`).join('')
+    :'<tr><td colspan="9" style="text-align:center;color:#94a3b8;padding:18px;">Nenhum visitante no período.</td></tr>';
+  if(typeof applyActionGuards==='function')applyActionGuards();
+}
+async function abrirVisitante(){
+  ['vi-nome','vi-doc','vi-empresa','vi-tel','vi-motivo','vi-cracha','vi-areas','vi-acomp','vi-obs'].forEach(i=>document.getElementById(i).value='');
+  document.getElementById('vi-tipo').value='Visitante';document.getElementById('vi-video').checked=false;document.getElementById('vi-param').checked=false;
+  document.getElementById('vi-bpf-st').textContent='Digite o nome para conferir.';
+  try{ // quem já veio antes (autocompletar) e funcionários para "acompanhado por"
+    const [{data:ant},{data:fn}]=await Promise.all([
+      _supabase.from('portaria_visitantes').select('nome,documento,empresa,tipo,telefone').order('entrada',{ascending:false}).limit(500),
+      _supabase.from('funcionarios').select('nome').eq('status','ativo').order('nome').limit(1000)]);
+    window._visAnt=ant||[];
+    document.getElementById('vi-lst').innerHTML=[...new Map((ant||[]).map(a=>[normNome(a.nome),a])).values()].map(a=>`<option value="${esc(a.nome)}">`).join('');
+    document.getElementById('vi-func-lst').innerHTML=(fn||[]).map(f=>`<option value="${esc(f.nome)}">`).join('');
+  }catch(e){}
+  document.getElementById('m-visitante').classList.remove('hidden');
+  setTimeout(()=>document.getElementById('vi-nome').focus(),80);
+}
+// mesma regra da chegada do motorista: integrado = viu o vídeo na versão ATUAL (BPF ou registro anterior aqui)
+let _visTm=null,_visInteg=null;
+function visConferirIntegracao(){
+  clearTimeout(_visTm);
+  _visTm=setTimeout(async()=>{
+    const st=document.getElementById('vi-bpf-st');const nome=document.getElementById('vi-nome').value.trim(),doc=document.getElementById('vi-doc').value.replace(/\D/g,'');
+    const a=(window._visAnt||[]).find(x=>normNome(x.nome)===normNome(nome));
+    if(a){ if(!document.getElementById('vi-doc').value&&a.documento)document.getElementById('vi-doc').value=a.documento;
+      if(!document.getElementById('vi-empresa').value&&a.empresa)document.getElementById('vi-empresa').value=a.empresa;
+      if(!document.getElementById('vi-tel').value&&a.telefone)document.getElementById('vi-tel').value=a.telefone; }
+    const vid=await bpfCarregarVideo();
+    if(!vid||!vid.arquivo_path){_visInteg=null;st.innerHTML='<span style="color:#94a3b8;">Vídeo de integração ainda não cadastrado no BPF (IT-POP04-03).</span>';return;}
+    if(!nome&&!doc){_visInteg=null;st.textContent='Digite o nome para conferir.';return;}
+    const atual='rev. '+(vid.revisao||'—');
+    try{
+      const [{data:r},{data:v}]=await Promise.all([
+        _supabase.from('bpf_registros').select('data,campos,cancelado_em').eq('formulario_cod','REG-POP04-02').order('data',{ascending:false}).limit(1000),
+        _supabase.from('portaria_visitantes').select('entrada,nome,documento,integrado,video_versao').eq('integrado',true).order('entrada',{ascending:false}).limit(1000)]);
+      const bate=(n,d)=>(doc&&String(d||'').replace(/\D/g,'')===doc)||(nome&&normNome(n)===normNome(nome));
+      const vistos=[...(r||[]).filter(x=>!x.cancelado_em&&(x.campos||{}).video_assistido==='sim'&&bate((x.campos||{}).nome,(x.campos||{}).documento)).map(x=>({v:(x.campos||{}).video_versao,d:x.data})),
+                    ...(v||[]).filter(x=>bate(x.nome,x.documento)).map(x=>({v:x.video_versao,d:String(x.entrada).slice(0,10)}))];
+      const ok=vistos.find(x=>x.v===atual);
+      _visInteg=ok?'ok':vistos.length?'antigo':'nao';
+      if(ok)document.getElementById('vi-video').checked=true;
+      st.innerHTML=ok?`<span style="color:#166534;font-weight:700;">✅ Já integrado — viu o vídeo ${atual} em ${String(ok.d).split('-').reverse().join('/')}</span>`
+        :vistos.length?`<span style="color:#b45309;font-weight:700;">⚠️ Viu uma versão antiga — precisa rever (${atual})</span>`
+        :`<span style="color:#b91c1c;font-weight:700;">❌ Sem integração BPF — passe o vídeo antes de liberar a produção</span>`;
+    }catch(e){_visInteg=null;st.textContent='Não foi possível conferir no BPF.';}
+  },350);
+}
+async function visPassarVideo(){
+  await passarVideoBpf();
+  // o botão "Terminou" do vídeo marca o ch-video da chegada; aqui marcamos o do visitante
+  const obs=new MutationObserver(()=>{ if(!document.querySelector('video')){ document.getElementById('vi-video').checked=true; obs.disconnect(); } });
+  obs.observe(document.body,{childList:true});
+}
+function visEnviarLink(){
+  const nome=document.getElementById('vi-nome').value.trim(),doc=document.getElementById('vi-doc').value.trim(),emp=document.getElementById('vi-empresa').value.trim();
+  const cel=document.getElementById('vi-tel').value.replace(/\D/g,'');
+  const p=new URLSearchParams();if(nome)p.set('nome',nome);if(doc)p.set('cpf',doc);if(emp)p.set('empresa',emp);p.set('tipo','Visitante');
+  const link=location.origin+location.pathname.replace(/[^/]*$/,'')+'integracao.html?'+p.toString();
+  const txt=`Olá${nome?' '+nome.split(' ')[0]:''}! Antes de entrar na Silicate, assista ao vídeo de integração de Boas Práticas (2 min) e toque em "Vi o vídeo" no final:\n${link}`;
+  if(cel.length>=10)window.open('https://wa.me/55'+cel+'?text='+encodeURIComponent(txt),'_blank');
+  else if(navigator.share)navigator.share({title:'Integração BPF — Silicate',text:txt}).catch(()=>{});
+  else{navigator.clipboard?.writeText(txt);toast('Link copiado.','info');}
+}
+async function salvarVisitante(){
+  const g=i=>document.getElementById(i).value.trim();
+  const d={nome:g('vi-nome'),documento:g('vi-doc')||null,empresa:g('vi-empresa')||null,tipo:g('vi-tipo'),telefone:g('vi-tel')||null,
+    motivo:g('vi-motivo'),areas:g('vi-areas'),acompanhante:g('vi-acomp'),cracha:g('vi-cracha')||null,obs:g('vi-obs')||null,
+    integrado:document.getElementById('vi-video').checked,paramentacao:document.getElementById('vi-param').checked,registrado_por:quemSou(),entrada:new Date().toISOString()};
+  if(!d.nome||!d.motivo||!d.areas||!d.acompanhante){toast('Preencha nome, motivo, áreas e quem acompanha.','warning');return;}
+  const vid=await bpfCarregarVideo();
+  if(d.integrado)d.video_versao='rev. '+((vid&&vid.revisao)||'—');
+  // POP-04 6.f: produção/estocagem/laboratório só com integração; trava do BPF decide se barra
+  if(PRODUCAO_RE.test(d.areas)&&!d.integrado){
+    if(_bpfTrava){toast('Integração BPF obrigatória para entrar em produção, estocagem ou laboratório — passe o vídeo.','danger');return;}
+    if(!confirm('Sem integração BPF para área de produção/estocagem/laboratório. Registrar mesmo assim?'))return;
+  }
+  const b=document.getElementById('vi-ok');b.disabled=true;
+  try{
+    const {error}=await _supabase.from('portaria_visitantes').insert(d);
+    if(error)throw error;
+    await addLog('CREATE','PORTARIA_VISITANTE',d.nome,`Entrada de visitante: ${d.nome} (${d.tipo}) — ${d.motivo}`);
+    closeModal('m-visitante');toast('Entrada registrada.','success');carregarVisitantes();
+  }catch(e){toast('Erro: '+(e.message||e),'danger');}
+  finally{b.disabled=false;}
+}
+async function saidaVisitante(id){
+  const v=[..._vis,..._visHist].find(x=>x.id===id);if(!v)return;
+  if(!confirm(`Registrar a saída de ${v.nome} agora?`))return;
+  const {error}=await _supabase.from('portaria_visitantes').update({saida:new Date().toISOString(),saida_por:quemSou()}).eq('id',id);
+  if(error){toast('Erro: '+error.message,'danger');return;}
+  await addLog('UPDATE','PORTARIA_VISITANTE',v.nome,'Saída de visitante');
+  toast('Saída registrada.','success');carregarVisitantes();
+}
 /* ── abas e início ──────────────────────────────────────────────────────── */
 function showTab(t){
   _aba=t;
-  ['fila','ordens','motoristas','fechamento','historico'].forEach(x=>{
+  ['fila','ordens','motoristas','fechamento','historico','visitantes'].forEach(x=>{
     document.getElementById('tab-'+x).style.display=x===t?'':'none';
     document.getElementById('tbtn-'+x).classList.toggle('active',x===t);
   });
   if(t==='ordens')renderOrdens(); if(t==='motoristas')renderMotoristas(); if(t==='historico'&&!_hist.length)carregarHistorico();
   if(t==='fechamento')carregarFechamento();
+  if(t==='visitantes')carregarVisitantes();
+  // a aba de visitantes tem os próprios botões; os do topo são do carregamento
+  { const v=t==='visitantes'; const k=document.getElementById('kpis'); if(k)k.style.display=v?'none':'';
+    document.querySelectorAll('.page-header > div:last-child > button').forEach(b=>b.style.display=v?'none':''); }
+  document.querySelector('.page-header-left p').textContent=t==='visitantes'?'Controle de acesso de visitantes, prestadores, fornecedores e auditores (POP-04)':'Chegada dos caminhões, fila por ordem de chegada, ordem de carregamento e pesagem';
 }
 function relogio(){document.getElementById('relogio').textContent=new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});}
 async function init(){
-  document.getElementById('h-ini').value=hojeISO(); document.getElementById('h-fim').value=hojeISO(); document.getElementById('fe-dia').value=hojeISO();
+  document.getElementById('h-ini').value=hojeISO(); document.getElementById('h-fim').value=hojeISO();
+  document.getElementById('vis-ini').value=hojeISO(); document.getElementById('vis-fim').value=hojeISO(); document.getElementById('fe-dia').value=hojeISO();
   relogio(); setInterval(relogio,15000);
   prepararImportacao();
   await carregarTudo();

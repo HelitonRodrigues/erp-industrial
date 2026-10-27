@@ -3964,12 +3964,20 @@ const GATILHO_FONTES={
     const integ=_regs.filter(r=>r.formulario_cod==='REG-POP04-02'&&!r.cancelado_em&&r.origem_modulo==='celular');
     const hl=v=>v?new Date(v).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit',timeZone:'America/Sao_Paulo'}):null;
     const dl=v=>v?new Date(v).toLocaleDateString('sv-SE',{timeZone:'America/Sao_Paulo'}):null;
-    return l.map(x=>{const vi=integ.find(r=>_normP((r.campos||{}).nome)===_normP(x.nome_motorista));
+    // visitantes, prestadores, fornecedores e auditores (aba Visitantes da Portaria)
+    const vis=await lst(_supabase.from('portaria_visitantes').select('*').gte('entrada',(g._desde||hoje())+'T00:00:00').order('entrada').limit(3000)).catch(()=>[]);
+    const deVis=vis.map(v=>({ref:'VIS/'+v.id,id:v.id,quando:dl(v.entrada),
+      det:`Acesso — ${v.nome} · ${v.tipo||'Visitante'}${v.empresa?' · '+v.empresa:''} · ${v.motivo||''}`,
+      pre:{nome:v.nome||'',documento:v.documento||'',empresa:v.empresa||'',tipo:/prestador/i.test(v.tipo||'')?'Prestador':'Visitante',placa:'',
+        hora_entrada:hl(v.entrada),hora_saida:hl(v.saida),areas:v.areas||'',acompanhante:v.acompanhante||'',
+        video_assistido:v.integrado?'sim':'nao',video_versao:v.video_versao||null,
+        obs:[v.tipo&&!/^(visitante|prestador)/i.test(v.tipo)?v.tipo:'',v.motivo?'Motivo: '+v.motivo:'',v.cracha?'Crachá '+v.cracha:'',v.paramentacao?'Paramentação entregue':''].filter(Boolean).join(' · ')}}));
+    return deVis.concat(l.map(x=>{const vi=integ.find(r=>_normP((r.campos||{}).nome)===_normP(x.nome_motorista));
       return {ref:'PORT/'+x.id,id:x.id,quando:dl(x.hora_chegada),
         det:`Acesso — ${x.nome_motorista||'motorista'} · ${x.placa||''} · ${x.transportadora||''}`.replace(/ · $/,''),
         pre:{nome:x.nome_motorista||'',documento:x.cpf||'',empresa:x.transportadora||'',tipo:'Motorista',placa:[x.placa,x.placa2].filter(Boolean).join(' / '),
           hora_entrada:hl(x.hora_chegada),hora_saida:hl(x.hora_saida),areas:'Pátio / expedição — carregamento',
-          video_assistido:vi?'sim':null,video_versao:vi?((vi.campos||{}).video_versao||''):null}};});
+          video_assistido:vi?'sim':null,video_versao:vi?((vi.campos||{}).video_versao||''):null}};}));
   }},
   g_veiculo:{tab:'carregamentos',dias:30,async busca(){
     const l=await lst(_supabase.from('carregamentos').select('*').order('data',{ascending:false}).limit(120));
@@ -4227,7 +4235,9 @@ async function gerarRegistrosDasTarefas(){
     const f=_forms.find(x=>x.codigo===t.formulario_cod);
     const conforme=f?avaliar(f.campos||[],pre).length===0:true;
     return {formulario_cod:t.formulario_cod,pop_cod:t.pop_cod,
-      data:String(t.prazo||'').slice(0,10)||hoje(),hora:null,campos:pre,
+      // data do EVENTO (o prazo é depois): prazo − horas do gatilho, no horário de Brasília
+      data:(()=>{const g=_gatilhos.find(x=>x.codigo===t.gatilho_cod);const ms=Date.parse(t.prazo||'');
+        return isNaN(ms)?hoje():new Date(ms-((g&&g.prazo_horas)||24)*36e5).toLocaleDateString('sv-SE',{timeZone:'America/Sao_Paulo'});})(),hora:null,campos:pre,
       status:dig?(conforme?'aguardando_assinatura':'nao_conforme'):'a_preencher',conforme,
       anexos:[],assinaturas:[],assinaturas_papel:{},origem_modulo:t.origem_tabela||null,origem_id:t.origem_id||null,
       tarefa_id:t.id,criado_por:'Gatilho '+t.gatilho_cod,
@@ -4243,6 +4253,12 @@ async function gerarRegistrosDasTarefas(){
     const t=_tarefas.find(x=>x.id===reg.tarefa_id);if(t){t.registro_id=reg.id;if(reg.lancado_em)t.status='concluida';}
     _regs.unshift(reg);
   }
+  // numeração em ordem de data (o mais antigo desde a vigência é o 000001) — só mexe se nenhuma ficha ativa
+  // daquele registro já foi impressa, lançada ou assinada
+  const forms=[...new Set((r.data||[]).map(x=>x.formulario_cod))];
+  let mudou=false;
+  for(const fc of forms){ try{ const {data:n}=await _supabase.rpc('bpf_renumerar',{p_form:fc}); if(n)mudou=true; }catch(e){} }
+  if(mudou){ try{ await carregar(); }catch(e){} }
   return (r.data||[]).length;
 }
 // Pendências da fila criadas ANTES do fluxo novo: encerrar em lote, com motivo.
