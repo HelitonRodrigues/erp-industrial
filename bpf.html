@@ -331,6 +331,15 @@
 .cf-av{background:#fef3c7;border:1px solid #fcd34d;color:#92400e;border-radius:10px;padding:10px 12px;font-size:12.5px;margin-bottom:12px;}
 .cf-ok{background:#dcfce7;border:1px solid #86efac;color:#166534;border-radius:10px;padding:10px 12px;font-size:12.5px;margin-bottom:12px;}
 @media(max-width:1000px){.cf-g{grid-template-columns:1fr;}}
+.pp-abas{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 14px;}
+.pp-aba{min-height:40px;padding:0 14px;border-radius:999px;border:1.5px solid #e2e8f0;background:#fff;font-family:inherit;font-weight:700;font-size:13px;color:var(--primary);cursor:pointer;}
+.pp-aba span{background:#dc2626;color:#fff;border-radius:999px;padding:0 7px;font-size:11px;margin-left:6px;}
+.pp-aba.on{background:#16a34a;border-color:#16a34a;color:#fff;}
+.pp-reg-h{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap;margin-bottom:12px;}
+.pp-reg-a{display:flex;gap:6px;flex-wrap:wrap;}
+.pp-reg-a .bx-btn{min-height:40px;}
+.pp-it{display:flex;justify-content:space-between;gap:10px;align-items:center;border-top:1px solid #eef2f6;padding:10px 0;}
+.pp-it:first-of-type{border-top:none;}
 </style>
 </head>
 <body>
@@ -1386,73 +1395,92 @@ function renderPainel(){
 // ═══════════════════════════════════════════════════════════════════════════
 // POP + PAINÉIS DO ERP
 // ═══════════════════════════════════════════════════════════════════════════
-function abrirPop(cod){
+// ═══ PÁGINA DO POP — tudo do POP, organizado por registro (REG) e instrução (IT) ═══
+// Abas: Todos · cada REG · Instruções · Histórico. Cada REG tem o seu quadro
+// (A preencher → Concluídos), Gerar ficha e Ficha em branco (que já leva o nº).
+let _popAba={};          // aba escolhida em cada POP (lembra ao voltar)
+let _voltarPara=null;    // de onde a pessoa veio (botão ← Voltar)
+function abrirPop(cod,aba){
+  if(_sec&&_sec!=='pop'&&_sec!=='doc'&&_sec!=='cfg')_voltarPara=_sec;
   _sec='pop';_popSel=cod;_entSel=null;marcarNav(cod);marcarArea('pop');
   document.getElementById('nav').classList.remove('open');
   const p=_pops.find(x=>x.codigo===cod);if(!p)return;
-  cab(GRUPOS.find(g=>g.id===p.grupo)?.label||'—',p.codigo+' — '+p.titulo,'');
-  const fs=_forms.filter(f=>f.pop_cod===cod);
-  const its=_docs.filter(d=>d.tipo==='it'&&d.pop_cod===cod);
+  if(aba)_popAba[cod]=aba;
+  const fs=_forms.filter(f=>f.pop_cod===cod).sort((a,b)=>a.codigo.localeCompare(b.codigo,'pt',{numeric:true}));
+  const its=_docs.filter(d=>d.tipo==='it'&&d.pop_cod===cod).sort((a,b)=>a.codigo.localeCompare(b.codigo,'pt',{numeric:true}));
   const tvs=_travas.filter(t=>t.pop_cod===cod);
   const ncsP=_ncs.filter(n=>n.procedimento_cod===cod);
-  const regsP=_regs.filter(r=>r.pop_cod===cod).slice(0,8);
-
-  // topo: o documento do POP (ver, baixar, nova versão) — histórico vai no fim da página
+  const at=_popAba[cod]||'todos';
+  cab(GRUPOS.find(g=>g.id===p.grupo)?.label||'—',p.codigo+' — '+p.titulo,
+    `<button class="btn btn-secondary btn-sm" onclick="voltarDoPop()">← Voltar</button>`);
+  const pend=f=>_regs.filter(r=>r.formulario_cod===f.codigo&&!['concluido','cancelado'].includes(etapaReg(r))).length;
+  const abas=[['todos','Tudo do POP',null]].concat(fs.map(f=>[f.codigo,f.codigo,pend(f)]))
+    .concat(its.length?[['its','Instruções ('+its.length+')',null]]:[]).concat([['hist','🕘 Histórico',null]]);
   let h=docCardHtml(p)+(p.ncs_resolve?`<div class="alerta al-warn">Resolve: <strong>${esc(p.ncs_resolve)}</strong></div>`:'');
-
-  // O registro JÁ É o dado do ERP: as fichas nascem da OP/laboratório com os dados
-  // preenchidos. Por isso o painel "Dados do ERP" saiu e o quadro vem primeiro.
-  if(fs.length) h+=quadroRegsHtml(_regs.filter(r=>r.pop_cod===cod),'📝 Registros deste POP');
-  // Dados do ERP = a origem dos registros: cada linha mostra a ficha BPF que nasceu dela
-  if(ERP[cod]){
-    h+=`<div class="bx-card"><div class="bx-ttl">📡 Dados do ERP deste POP <span class="bx-mu">cada linha com a ficha BPF dela</span></div>
-      ${bannerEscopo()}
-      <div id="erp-out" style="margin-top:6px;"><span class="spin"></span> Carregando…</div></div>`;
-  }
-  { const ant=_anexos.filter(a=>fs.some(f=>f.codigo===a.documento_cod));
+  h+=`<div class="pp-abas">${abas.map(([k,t,n])=>`<button class="pp-aba${at===k?' on':''}" onclick="abrirPop('${esc(cod)}','${esc(k)}')">${esc(t)}${n?`<span>${n}</span>`:''}</button>`).join('')}</div>`;
+  const mostra=k=>at==='todos'||at===k;
+  // um bloco por registro (REG)
+  fs.filter(f=>mostra(f.codigo)).forEach(f=>{
+    const regs=_regs.filter(r=>r.formulario_cod===f.codigo);
+    const d=_docs.find(x=>x.codigo===f.codigo);
+    h+=`<div class="bx-card pp-reg"><div class="pp-reg-h"><div><span class="bx-cod">${esc(f.codigo)}</span> · <b class="bx-tit">${esc(f.titulo)}</b>
+        <div class="bx-sub">${esc(cap(f.periodicidade||'—'))}${f.exige_anexo?' · anexo obrigatório':''} · ${regs.filter(r=>!r.cancelado_em).length} registro(s)</div></div>
+      <div class="pp-reg-a">
+        <button class="bx-btn bx-btn-acc" onclick="gerarRegistro('${esc(f.codigo)}')" title="Cria o registro com número no sistema (quando não veio sozinho do ERP)">＋ Gerar ficha</button>
+        <button class="bx-btn" onclick="fichaEmBrancoNumerada('${esc(f.codigo)}')" title="Imprime a ficha já com o nº do registro, para arquivar">🖨️ Ficha em branco</button>
+        ${d?`<button class="bx-btn bx-btn-ghost" title="Documento ${esc(f.codigo)}" onclick="verDadosDoc('${d.id}')">📄</button>`:''}
+      </div></div>
+      ${regs.length?quadroRegsHtml(regs,''):'<div class="bx-mu" style="font-size:12.5px;">Nenhum registro ainda.</div>'}</div>`;
+  });
+  if(!fs.length&&(at==='todos'))
+    h+=`<div class="empty"><div class="ic">📄</div><h3>Sem registro próprio</h3><p>Este POP não gera registro; a regra dele aparece como trava.</p></div>`;
+  // instruções de trabalho (IT)
+  if(its.length&&mostra('its'))
+    h+=`<div class="bx-card"><div class="bx-ttl">📋 Instruções de trabalho</div>
+      ${its.map(i=>`<div class="pp-it"><div><span class="bx-cod">${esc(i.codigo)}</span> · <b class="bx-tit">${esc(i.titulo)}</b>
+          <div class="bx-sub">rev. ${esc(i.revisao||'—')} · ${esc(situacaoDoc(i).t)}</div></div>
+        <div style="white-space:nowrap;">${i.arquivo_path?`<button class="bx-ib" title="Visualizar" onclick="verArqDoc('${i.id}')">👁️</button><button class="bx-ib" title="Baixar" onclick="baixarArqDoc('${i.id}')">⬇️</button>`
+          :`<button class="bx-ib bx-ib-anexar" onclick="abrirNovaVersao('${i.id}')">📎 Anexar</button>`}
+          <button class="bx-ib" title="Cadastro" onclick="verDadosDoc('${i.id}')">📋</button></div></div>`).join('')}</div>`;
+  if(at==='todos'){
+    const ant=_anexos.filter(a=>fs.some(f=>f.codigo===a.documento_cod));
     if(ant.length) h+=`<details class="bx-outros" style="margin-bottom:12px;"><summary>📜 Formulários em papel anteriores ao sistema (${ant.length})</summary>
       <div style="padding-top:8px;">${ant.map(a=>`<div class="anx"><span>${esc(iconeArq(a.nome))}</span><span class="nm">${esc(a.nome)}</span>
-        <span style="color:#94a3b8;font-size:11px;">${esc(a.documento_cod)}</span><button class="btn btn-secondary btn-sm" onclick="verDocumento('${a.id}')">👁️ Ver</button></div>`).join('')}</div></details>`; }
-  if(fs.length) h+=`<div class="sec-card" style="margin-top:0;"><h3>Formulários do POP (${fs.length})</h3>
-    <div class="sub">Gerar ficha manual (quando não veio sozinha da OP), ficha em branco e o documento de cada formulário.</div></div>`;
-  if(!fs.length)
-    h+=`<div class="empty"><div class="ic">📄</div><h3>Sem registro próprio</h3><p>Este POP não gera registro; a regra dele aparece como trava.</p></div>`;
-  else{
-    h+=`<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Código</th><th>Título</th><th>Periodicidade</th><th>Lançados</th><th style="width:250px;">Ação</th></tr></thead><tbody>`;
-    for(const f of fs){
-      const n=_regs.filter(r=>r.formulario_cod===f.codigo&&!r.cancelado_em).length;
-      h+=`<tr><td class="num">${esc(f.codigo)}</td>
-        <td>${esc(f.titulo)}${f.exige_anexo?' <span class="badge badge-warning">anexo obrigatório</span>':''}</td>
-        <td style="color:#64748b;">${esc(cap(f.periodicidade||'—'))}</td><td><strong>${n}</strong></td>
-        <td style="white-space:nowrap;"><button class="btn btn-primary btn-sm" onclick="gerarRegistro('${f.codigo}')" title="Gera a ficha pendente; depois imprime, preenche no papel e digita">🖨️ Gerar ficha</button>
-            <button class="btn btn-secondary btn-sm" onclick="verDocDoForm('${f.codigo}')" title="Abrir o documento ${esc(f.codigo)}">ver</button>
-            <button class="btn btn-ghost btn-sm" onclick="verRegistrosDo('${f.codigo}')" title="Registros lançados">📂 ${n}</button>
-            <button class="btn btn-ghost btn-sm" onclick="imprimirFicha('${f.codigo}')" title="Imprimir ficha em branco">🖨️</button></td></tr>`;}
-    h+=`</tbody></table></div>`;
+        <span style="color:#94a3b8;font-size:11px;">${esc(a.documento_cod)}</span><button class="btn btn-secondary btn-sm" onclick="verDocumento('${a.id}')">👁️ Ver</button></div>`).join('')}</div></details>`;
+    if(ncsP.length)
+      h+=`<div class="sec-card" style="margin-top:13px;"><h3>NCs deste POP (${ncsP.length})</h3>
+        ${ncsP.slice(0,6).map(n=>`<div style="font-size:12px;padding:5px 0;border-bottom:1px solid #eef2f7;">
+          ${fmtD(n.data)} · ${esc(String(n.descricao||'').slice(0,90))}
+          <span class="badge badge-${n.status==='encerrado'?'success':'danger'}">${esc(n.status||'aberta')}</span></div>`).join('')}</div>`;
+    if(tvs.length)
+      h+=`<details class="bx-outros" style="margin-top:13px;"><summary>🔒 Travas deste procedimento (${tvs.length})</summary>
+        ${tvs.map(t=>`<div style="font-size:12px;padding:6px 0;border-bottom:1px solid #eef2f7;">
+          <span class="badge badge-${t.ativa?'success':'gray'}" style="margin-right:6px;">${t.ativa?'ativa':'desligada'}</span>
+          <strong>${esc(t.nome)}</strong><div style="color:#64748b;margin-top:2px;">${esc(t.descricao||'')}</div></div>`).join('')}</details>`;
   }
-
-
-  if(its.length)
-    h+=`<div class="sec-card" style="margin-top:13px;"><h3>Instruções de trabalho</h3>
-      ${its.map(i=>`<div style="font-size:12.5px;padding:7px 0;cursor:pointer;" onclick="abrirDoc('${i.id}')" title="Abrir"><span class="num">${esc(i.codigo)}</span> — <u>${esc(i.titulo)}</u>${i.arquivo_path?' 📄':''}
-        <span class="badge badge-${i.status==='vigente'?'success':'gray'}">${esc(i.status)}</span></div>`).join('')}</div>`;
-  if(ncsP.length)
-    h+=`<div class="sec-card" style="margin-top:13px;"><h3>NCs deste POP (${ncsP.length})</h3>
-      ${ncsP.slice(0,6).map(n=>`<div style="font-size:12px;padding:5px 0;border-bottom:1px solid #eef2f7;">
-        ${fmtD(n.data)} · ${esc(String(n.descricao||'').slice(0,90))}
-        <span class="badge badge-${n.status==='encerrado'?'success':'danger'}">${esc(n.status||'aberta')}</span></div>`).join('')}</div>`;
-
-  if(tvs.length)
-    h+=`<details class="bx-outros" style="margin-top:13px;"><summary>🔒 Travas deste procedimento (${tvs.length})</summary>
-      <div class="sub" style="margin:8px 0 9px;">O que este POP bloqueia no sistema.</div>
-      ${tvs.map(t=>`<div style="font-size:12px;padding:6px 0;border-bottom:1px solid #eef2f7;">
-        <span class="badge badge-${t.ativa?'success':'gray'}" style="margin-right:6px;">${t.ativa?'ativa':'desligada'}</span>
-        <strong>${esc(t.nome)}</strong> <span class="sys">${esc(t.sys_ref)}</span>
-        <div style="color:#64748b;margin-top:2px;">${esc(t.descricao||'')}</div></div>`).join('')}</details>`;
-
-  h+=historicoHtml(p);
+  if(at==='hist') h+=historicoHtml(p);
   document.getElementById('conteudo').innerHTML=h;
-  if(ERP[cod]) carregarERP(cod);
+}
+function voltarDoPop(){ const v=_voltarPara;_voltarPara=null; ir(v||'documentos'); }
+
+// 🖨️ Ficha em branco: já sai com o nº do registro (gerado no sistema) para arquivar
+async function fichaEmBrancoNumerada(formCod){
+  const n=await uiTexto('Quantas fichas imprimir? Cada uma recebe o próprio nº de registro no sistema (para arquivar e digitar depois).',{titulo:'Ficha em branco numerada',rotulo:'Quantidade',ok:'Gerar e imprimir',obrigatorio:true,linhas:1});
+  if(n===null)return;
+  const q=Math.max(1,Math.min(20,parseInt(String(n).replace(/\D/g,''))||1));
+  const ids=[];
+  for(let i=0;i<q;i++){ const r=await gerarRegistro(formCod,{abrir:false}); if(r)ids.push(r.id); }
+  if(!ids.length)return;
+  const l=ids.map(id=>_regs.find(r=>r.id===id)).filter(Boolean);
+  const f=_forms.find(x=>x.codigo===formCod);
+  document.getElementById('print-area').innerHTML=l.map(r=>`<div style="font-family:'Plus Jakarta Sans',sans-serif;border:2px solid #042D4D;border-radius:6px;padding:7px 10px;margin-bottom:8px;font-size:11px;color:#111;">
+      <b style="font-size:13px;color:#042D4D;">Registro nº ${esc(r.numero||'')}</b> · gerado em ${fmtD(r.data)} · <i>preenchimento manual</i></div>`+htmlFicha(f,_pops.find(p=>p.codigo===f.pop_cod))).join('');
+  window.print();
+  const agora=new Date().toISOString();
+  const res=await db(_supabase.from('bpf_registros').update({ficha_impressa_em:agora,status:'a_digitar'}).in('id',ids),'marcar fichas impressas');
+  if(!res.error)l.forEach(r=>{r.ficha_impressa_em=agora;r.status='a_digitar';});
+  toast(`${ids.length} ficha(s) numerada(s) — já aparecem em "A digitar".`,'success');
+  if(_sec==='pop'&&_popSel)abrirPop(_popSel);
 }
 
 // Consulta resiliente + escopo aplicado AQUI, na camada de busca.
@@ -1871,7 +1899,7 @@ function resumoReg(r){
 function verColunaRegs(pop,etapa,form,soForm){
   const e=ETAPAS_REG.find(x=>x.k===etapa);
   const l=_regs.filter(r=>r.pop_cod===pop&&(!soForm||r.formulario_cod===form)&&etapaReg(r)===etapa)
-    .sort((a,b)=>String(b.data||'').localeCompare(String(a.data||'')));
+    .sort((a,b)=>String(a.numero||'').localeCompare(String(b.numero||''),'pt',{numeric:true}));
   _dlg(`<div class="dlg" style="max-width:860px;width:96vw;"><div class="dlg-hd"><span class="dlg-ic">📋</span>
     <div class="dlg-tt">${esc(pop)} · ${e?e.t:etapa} — ${l.length} registro(s)</div></div>
     <div class="dlg-bd" style="max-height:66vh;overflow:auto;">${l.length?`<table class="tbl"><thead><tr><th>Nº</th><th>Data</th><th>Registro</th><th>Resumo</th><th></th></tr></thead><tbody>
@@ -1883,8 +1911,8 @@ function verColunaRegs(pop,etapa,form,soForm){
 }
 function quadroRegsHtml(lista,titulo){
   const ativos=lista.filter(r=>etapaReg(r)!=='cancelado');
-  const col=e=>ativos.filter(r=>etapaReg(r)===e.k);
-  return `<div class="bx-card"><div class="bx-ttl">${titulo||'📋 Andamento dos registros'} <span class="bx-mu">${ativos.length} registro(s)</span></div>
+  const col=e=>ativos.filter(r=>etapaReg(r)===e.k).sort((a,b)=>String(a.numero||'').localeCompare(String(b.numero||''),'pt',{numeric:true}));
+  return `<div class="${titulo===''?'':'bx-card'}">${titulo===''?'':`<div class="bx-ttl">${titulo||'📋 Andamento dos registros'} <span class="bx-mu">${ativos.length} registro(s)</span></div>`}
     <div class="rx-cols">${ETAPAS_REG.map(e=>{const l=col(e);const mostra=e.k==='concluido'?l.slice(0,5):l.slice(0,30);
       return `<div class="rx-col"><h4 class="rx-col-h" title="Ver todos" onclick="verColunaRegs('${esc((lista[0]||{}).pop_cod||'')}','${e.k}','${esc((lista[0]||{}).formulario_cod||'')}',${lista.every(r=>r.formulario_cod===(lista[0]||{}).formulario_cod)?1:0})">${e.t}<span>${l.length} ›</span></h4>
         ${e.k==='a_preencher'&&l.length>1?`<div class="rx-mais" style="margin:-2px 0 8px;" onclick="imprimirFichasPendentes('${esc(l[0].pop_cod)}')">🖨️ imprimir todas</div>`:''}
@@ -2089,8 +2117,7 @@ function abrirRegistroFluxo(id){
     ${travado?`<div class="alerta al-info" style="font-size:12px;">Já foi revisado e assinado: o conteúdo ficou travado. Para corrigir, cancele o registro com motivo.</div>`:''}
     ${(()=>{const t=r.tarefa_id?_tarefas.find(x=>x.id===r.tarefa_id):null;
       if(r.origem_id||t) return `<div class="rx-erp-sel"><label>🔗 Origem (automática)</label><div style="font-size:13px;color:#1e3a8a;">${esc((t&&t.origem_det)||resumoReg(r)||'vinculado ao ERP')}</div></div>`;
-      return f.fonte_modulo&&FONTES[f.fonte_modulo]&&!travado?`<div class="rx-erp-sel"><label>📡 Vincular ao ERP (${esc(f.fonte_modulo)})</label>
-      <select class="form-input" id="f__origem" onchange="aplicarOrigem()"><option value="">— sem vínculo —</option></select></div>`:'';})()}
+      return `<div class="rx-erp-sel" style="background:#f8fafc;border-color:#e2e8f0;"><label style="color:#475569;">✍️ Origem: manual</label><div style="font-size:12.5px;color:#64748b;">Ficha gerada à mão (não veio sozinha do ERP) — preencha os campos obrigatórios.</div></div>`;})()}
     ${f.codigo==='REG-POP04-02'?`<div class="rx-erp-sel"><label>🎬 Vídeo de integração de BPF ${docVideo()?'(rev. '+esc(docVideo().revisao||'—')+')':''}</label>
       <button class="btn btn-primary btn-sm" onclick="assistirVideo()">▶️ Passar o vídeo</button>
       <span class="bx-mu" style="font-size:11.5px;margin-left:6px;">depois marque "Assistiu ao vídeo" — fica no histórico BPF da pessoa</span></div>`:''}
@@ -2148,7 +2175,9 @@ function abrirRegistroFluxo(id){
     const el=document.getElementById('f_lote_mp');
     if(el){el.addEventListener('change',()=>conferirMpPop13(r));if(el.value)conferirMpPop13(r,true);}
   }
-  if(f.fonte_modulo&&FONTES[f.fonte_modulo]&&!travado&&document.getElementById('f__origem')) carregarOrigens(f.fonte_modulo);
+  // fornecedor: busca nos fornecedores do Compras
+  const fForn=document.getElementById('f_fornecedor');
+  if(fForn&&!travado){ fForn.setAttribute('list','lst-forn-bpf');fForn.placeholder='Digite para buscar o fornecedor';carregarListaFornecedores(); }
   if(travado)document.querySelectorAll('#campos-box input,#campos-box select,#campos-box textarea').forEach(el=>el.disabled=true);
 }
 // calc: "outroCampo*fator" — o campo fica só leitura e é recalculado ao digitar
@@ -2184,6 +2213,14 @@ async function conferirMpPop13(r,silencioso){
     avaliarAoVivo();
     if(!silencioso)toast('Lote de MP conferido no Laboratório.','success');
   }catch(e){ if(!silencioso)toast('Não foi possível consultar o Laboratório: '+(e.message||e),'warning'); }
+}
+let _fornNomes=null;
+async function carregarListaFornecedores(){
+  if(!_fornNomes){ const l=await lst(_supabase.from('almoxarifado_fornecedores').select('nome_fantasia,razao_social').order('nome_fantasia'));
+    _fornNomes=[...new Set(l.map(f=>f.nome_fantasia||f.razao_social).filter(Boolean))]; }
+  let dl=document.getElementById('lst-forn-bpf');
+  if(!dl){dl=document.createElement('datalist');dl.id='lst-forn-bpf';document.body.appendChild(dl);}
+  dl.innerHTML=_fornNomes.map(n=>`<option value="${esc(n)}">`).join('');
 }
 // ↩️ voltar o registro para uma etapa anterior (com motivo, fica na trilha)
 async function voltarEtapaReg(id){
@@ -3762,7 +3799,7 @@ function historicoHtml(d){
 // ── página de um documento (IT, REG, Manual). POP abre a página do POP. ──
 function abrirDoc(id,foco){
   const d=_docs.find(x=>x.id===id);if(!d)return;
-  if(d.tipo==='pop'){ abrirPop(d.codigo); if(foco==='hist')setTimeout(()=>document.getElementById('bx-hist')?.scrollIntoView({behavior:'smooth'}),60); return; }
+  if(d.tipo==='pop'){ abrirPop(d.codigo,foco==='hist'?'hist':undefined); return; }
   _sec='doc';_popSel=null;_entSel=null;marcarNav(d.pop_cod||null);marcarArea('doc');
   cab('POPs & Documentos'+(d.pop_cod?' › '+d.pop_cod:''),d.codigo+' — '+d.titulo,
     `<button class="btn btn-secondary btn-sm" onclick="ir('documentos')">← Documentos</button>${d.pop_cod&&_pops.some(p=>p.codigo===d.pop_cod)?` <button class="btn btn-secondary btn-sm" onclick="abrirPop('${d.pop_cod}')">Abrir ${esc(d.pop_cod)}</button>`:''}`);
