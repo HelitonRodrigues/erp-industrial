@@ -211,6 +211,10 @@
 .bx-tr:hover td{background:#f8fafc;}
 .bx-cod{font-family:ui-monospace,monospace;font-weight:800;color:var(--primary);white-space:nowrap;}
 .bx-tit{color:var(--primary);font-size:13.5px;}
+.bx-dados{display:grid;grid-template-columns:190px 1fr;gap:0;border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;}
+.bx-dl{background:#f8fafc;color:#64748b;font-size:12px;font-weight:700;padding:8px 12px;border-bottom:1px solid #eef2f6;}
+.bx-dv{font-size:13px;color:var(--primary);padding:8px 12px;border-bottom:1px solid #eef2f6;white-space:pre-wrap;}
+@media(max-width:700px){.bx-dados{grid-template-columns:1fr;}.bx-dl{border-bottom:none;padding-bottom:2px;}}
 .bx-tbl td:nth-child(2){min-width:280px;}
 .lay.docs-full{grid-template-columns:0 1fr;}
 .lay.docs-full .nav{opacity:0;pointer-events:none;}
@@ -3294,7 +3298,7 @@ function renderDocs(){
     const sub=d.tipo==='pop'
       ? [_docs.filter(x=>x.tipo==='it'&&x.pop_cod===d.codigo).length+' instrução(ões)',_forms.filter(f=>f.pop_cod===d.codigo).length+' registro(s)'].join(' · ')
       : (d.pop_cod?d.pop_cod+' · ':'')+TIPO_DOC[d.tipo];
-    return `<tr class="bx-tr" onclick="if(!event.target.closest('button'))abrirDoc('${d.id}')">
+    return `<tr class="bx-tr" onclick="if(!event.target.closest('button'))verDadosDoc('${d.id}')" title="Ver o cadastro deste documento">
       <td class="bx-cod">${esc(d.codigo)}</td>
       <td><b class="bx-tit">${esc(d.titulo)}</b><div class="bx-sub">${esc(sub)}</div></td>
       <td class="bx-c"><b>${esc(d.revisao||'—')}</b></td>
@@ -3303,8 +3307,10 @@ function renderDocs(){
       <td class="bx-acoes">
         ${d.arquivo_path?`<button class="bx-ib" title="Visualizar" onclick="verArqDoc('${d.id}')">👁️</button><button class="bx-ib" title="Baixar" onclick="baixarArqDoc('${d.id}')">⬇️</button>`
           :`<button class="bx-ib bx-ib-anexar" title="Anexar o arquivo deste documento" onclick="abrirNovaVersao('${d.id}')">📎 Anexar</button>`}
-        <button class="bx-ib" title="Histórico de versões" onclick="abrirDoc('${d.id}','hist')">🕘${nh?'<small>'+nh+'</small>':''}</button>
-        <button class="bx-ib bx-ib-pri" onclick="abrirDoc('${d.id}')">Abrir</button>
+        <button class="bx-ib" title="Ver o que está cadastrado" onclick="verDadosDoc('${d.id}')">📋</button>
+        <button class="bx-ib" title="Editar o cadastro" onclick="editarDocMestre('${d.id}')">✏️</button>
+        <button class="bx-ib" title="Histórico de versões" onclick="verHistoricoDoc('${d.id}')">🕘${nh?'<small>'+nh+'</small>':''}</button>
+        <button class="bx-ib bx-ib-pri" title="${d.tipo==='pop'?'Abre o POP com os registros (fluxo)':'Abre o documento com os registros'}" onclick="abrirDoc('${d.id}')">Ir ao fluxo ➜</button>
       </td></tr>`;
   };
   document.getElementById('conteudo').innerHTML=`
@@ -3314,7 +3320,7 @@ function renderDocs(){
       <div class="bx-chips">${filtros.map(([k,t,fn])=>`<button class="bx-chip${_docFiltro===k?' on':''}" onclick="filtrarDocs('${k}')">${t}<b>${base.filter(fn).length}</b></button>`).join('')}</div>
     </div>
     <div id="doc-lista">${l.length?`<div class="tbl-wrap"><table class="tbl bx-tbl"><thead><tr>
-      <th style="width:120px;">Código</th><th>Documento</th><th style="width:60px;text-align:center;">Rev.</th><th style="width:170px;">Situação</th><th style="width:105px;">Versão de</th><th style="width:250px;text-align:right;">Ações</th>
+      <th style="width:120px;">Código</th><th>Documento</th><th style="width:60px;text-align:center;">Rev.</th><th style="width:170px;">Situação</th><th style="width:105px;">Versão de</th><th style="width:340px;text-align:right;">Ações</th>
       </tr></thead><tbody>${l.map(linha).join('')}</tbody></table></div>`
       :'<div class="empty"><div class="ic">🔍</div><h3>Nenhum documento</h3><p>Nada com esse filtro ou busca.</p></div>'}</div>
     <details class="bx-outros"><summary>📎 Outros arquivos do SGQ (${_anexos.length}) — formulários antigos e arquivos soltos</summary>
@@ -3360,6 +3366,48 @@ function verArqRev(revId){
 function baixarArqRev(revId){
   const r=_revs.find(x=>x.id===revId);if(!r||!r.arquivo_path)return;
   baixarArquivo(r.arquivo_path,`${r.documento_cod}_rev${r.revisao}_obsoleta.${String(r.arquivo_path).split('.').pop()}`);
+}
+
+// ── janelas (modal) da lista: cadastro e histórico, sem sair da aba ───────
+function verDadosDoc(id){
+  const d=_docs.find(x=>x.id===id);if(!d)return;
+  const sit=situacaoDoc(d);const grupo=GRUPOS.find(g=>g.id===d.grupo)?.label;
+  const linhas=[
+    ['Código',d.codigo],['Tipo',TIPO_DOC[d.tipo]||d.tipo],['Título',d.titulo],
+    ['POP vinculado',d.pop_cod?`${d.pop_cod} — ${(_docs.find(x=>x.codigo===d.pop_cod)||{}).titulo||''}`:'—'],
+    ['Grupo',grupo||'—'],['Situação',sit.t],['Revisão',d.revisao||'—'],
+    ['Emissão',fmtD(d.data_emissao)],['Versão de',fmtD(dataVersao(d))],['Próxima revisão',fmtD(d.proxima_revisao)],
+    ['Aprovado por',d.aprovado_por||'—'],['Publicado por',d.revisado_por||'—'],
+    ['O que mudou nesta versão',d.alteracao_atual||'—'],
+    ['Substitui',d.substitui||'—'],['Resolve (NCs)',d.ncs_resolve||'—'],
+    ['Arquivo',d.arquivo_path?nomeArqDoc(d.arquivo_path):'sem arquivo anexado'],
+    ['Versões anteriores',String(revsDe(d.codigo).length)],
+    ['Observação',d.observacao||'—'],
+  ];
+  if(d.tipo==='pop'){
+    linhas.push(['Instruções (IT)',_docs.filter(x=>x.tipo==='it'&&x.pop_cod===d.codigo).map(x=>x.codigo).join(', ')||'—']);
+    linhas.push(['Registros (REG)',_forms.filter(f=>f.pop_cod===d.codigo).map(f=>f.codigo).join(', ')||'—']);
+  }
+  _dlg(`<div class="dlg" style="max-width:760px;width:96vw;"><div class="dlg-hd"><span class="dlg-ic">📋</span>
+    <div class="dlg-tt">${esc(d.codigo)} · ${esc(d.titulo)}</div></div>
+    <div class="dlg-bd" style="max-height:62vh;overflow:auto;"><div class="bx-dados">${linhas.filter(([a,b])=>b&&b!=='—'||['Código','Título','Situação','Revisão','Arquivo'].includes(a)).map(([a,b])=>`<div class="bx-dl">${esc(a)}</div><div class="bx-dv">${esc(b)}</div>`).join('')}</div></div>
+    <div class="dlg-ft" style="flex-wrap:wrap;">
+      ${d.arquivo_path?`<button class="btn btn-secondary" onclick="verArqDoc('${d.id}')">👁️ Visualizar</button><button class="btn btn-secondary" onclick="baixarArqDoc('${d.id}')">⬇️ Baixar</button>`
+        :`<button class="btn btn-secondary" onclick="_fecharDlg();abrirNovaVersao('${d.id}')">📎 Anexar</button>`}
+      <button class="btn btn-secondary" onclick="verHistoricoDoc('${d.id}')">🕘 Histórico</button>
+      <button class="btn btn-secondary" onclick="_fecharDlg();editarDocMestre('${d.id}')">✏️ Editar</button>
+      <button class="btn btn-primary" onclick="_fecharDlg();abrirDoc('${d.id}')">Ir ao fluxo ➜</button>
+      <button class="btn btn-ghost" onclick="_fecharDlg()">Fechar</button></div></div>`);
+}
+function verHistoricoDoc(id){
+  const d=_docs.find(x=>x.id===id);if(!d)return;
+  _dlg(`<div class="dlg" style="max-width:760px;width:96vw;"><div class="dlg-hd"><span class="dlg-ic">🕘</span>
+    <div class="dlg-tt">Histórico de versões — ${esc(d.codigo)}</div></div>
+    <div class="dlg-bd" style="max-height:66vh;overflow:auto;">${historicoHtml(d)}</div>
+    <div class="dlg-ft">
+      ${d.arquivo_path?`<button class="btn btn-secondary" onclick="_fecharDlg();abrirNovaVersao('${d.id}')">⬆️ Nova versão</button>`:''}
+      <button class="btn btn-secondary" onclick="verDadosDoc('${d.id}')">📋 Cadastro</button>
+      <button class="btn btn-ghost" onclick="_fecharDlg()">Fechar</button></div></div>`);
 }
 
 // ── cartão do documento (topo da página do POP / do documento) ────────────
