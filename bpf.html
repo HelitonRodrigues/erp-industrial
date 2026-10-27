@@ -1003,31 +1003,24 @@ async function renderPdfNo(el,src){
     await pg.render({canvasContext:cv.getContext('2d'),viewport:vp}).promise;
   }
 }
-const _ehCelular=()=>/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)||window.innerWidth<700;
-// mostra um PDF dentro do elemento: computador = leitor do navegador (blob, abre direto);
-// celular = pdf.js (o navegador do celular não mostra PDF dentro da página)
+// Leitor do próprio navegador só no computador que comprovadamente mostra PDF dentro da página.
+// Celular/tablet (mesmo em "versão para computador") não mostra — lá o PDF é desenhado pelo pdf.js.
+const _leitorNativo=()=>navigator.pdfViewerEnabled===true
+  && !/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)
+  && !(navigator.maxTouchPoints>0 && matchMedia('(pointer: coarse)').matches);
 async function mostrarPdf(el,src,nome){
   let bytes=null;
   try{
     if(typeof src==='string'){const r=await fetch(src);if(!r.ok)throw new Error('HTTP '+r.status);bytes=new Uint8Array(await r.arrayBuffer());}
     else bytes=src;
   }catch(e){ el.outerHTML=`<div class="alerta al-dang" style="margin:0;">Não foi possível baixar o PDF (${esc(e.message||e)}).</div>`; return; }
-  if(!_ehCelular()){
+  if(_leitorNativo()){
     const u=URL.createObjectURL(new Blob([bytes],{type:'application/pdf'}));
     el.outerHTML=`<iframe class="vw-box" src="${u}#view=FitH" title="${esc(nome||'PDF')}" style="border:none;background:#525659;"></iframe>`;
     return;
   }
-  const u=URL.createObjectURL(new Blob([bytes],{type:'application/pdf'}));
-  const plano=`<div class="alerta al-info" style="margin:0;">Este PDF não pôde ser desenhado aqui. <a class="btn btn-primary btn-sm" href="${u}" target="_blank" rel="noopener">Abrir o PDF</a></div>`;
-  try{
-    await renderPdfNo(el,bytes.slice(0));
-    // página toda branca = o leitor não conseguiu desenhar (fonte/formato): oferece abrir no leitor do aparelho
-    const cv=el.querySelector('canvas');
-    if(cv){ const c=cv.getContext('2d'); const w=cv.width,h=cv.height; const d=c.getImageData(Math.floor(w*0.1),Math.floor(h*0.05),Math.floor(w*0.8),Math.floor(h*0.6)).data;
-      let tinta=0; for(let i=0;i<d.length;i+=4*97){ if(d[i]<235||d[i+1]<235||d[i+2]<235){tinta++; if(tinta>20)break;} }
-      if(tinta<=20){ el.insertAdjacentHTML('beforebegin',plano); } }
-    el.insertAdjacentHTML('afterbegin',`<div style="text-align:right;margin-bottom:6px;"><a class="btn btn-secondary btn-sm" href="${u}" target="_blank" rel="noopener">Abrir no leitor do aparelho</a></div>`);
-  }catch(e){ el.outerHTML=plano; }
+  try{ await renderPdfNo(el,bytes.slice(0)); }
+  catch(e){ el.outerHTML=`<div class="alerta al-dang" style="margin:0;">Não foi possível mostrar o PDF aqui (${esc(e.message||e)}). Use o botão ⬇️ Baixar.</div>`; }
 }
 async function uiVisualizar(path,nome,bucket){
   const ext=String(nome||path).split('.').pop().toLowerCase();
