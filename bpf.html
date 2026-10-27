@@ -303,6 +303,9 @@
 
 /* ══ configuração do POP ══ */
 .cf-g{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+.cf-pick{display:block;width:100%;text-align:left;border:1px solid #e2e8f0;border-radius:10px;background:#fff;padding:10px 12px;margin-bottom:6px;cursor:pointer;font-family:inherit;font-size:13.5px;color:var(--primary);}
+.cf-pick:hover{border-color:var(--primary);background:#f8fafc;}
+.cf-pick small{display:block;color:#64748b;font-size:11.5px;margin-top:2px;}
 .cf-c{background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:14px 16px;margin-bottom:12px;}
 .cf-t{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:6px;}
 .cf-t b{font-size:14px;color:var(--primary);}
@@ -367,6 +370,7 @@
         <button onclick="ir('fichas')">🖨️ Fichas em branco</button>
         <button id="tab-dossie" onclick="ir('dossie')">🗂️ Dossiê</button>
         <button id="tab-canal" onclick="ir('canal')">📣 Canal</button>
+        <button onclick="escolherConfigPop()">🛠️ Configuração dos POPs</button>
         <button id="tab-gatilhos" onclick="ir('gatilhos')">⚙️ Gatilhos</button>
         <button id="tab-travas" onclick="ir('travas')">🔒 Travas</button>
       </div>
@@ -3438,6 +3442,15 @@ function funcoesAssinaturaDoPop(cod){
   const s=new Set();(_formsAll.length?_formsAll:_forms).filter(f=>f.pop_cod===cod).forEach(f=>(f.assinaturas||[]).forEach(a=>a.funcao&&s.add(a.funcao)));
   return [...s];
 }
+// escolher qual POP configurar (menu ⋯ Mais / Gatilhos / Travas)
+function escolherConfigPop(){
+  const pops=_pops.slice().sort((a,b)=>a.codigo.localeCompare(b.codigo,'pt',{numeric:true}));
+  const nG=c=>_gatilhos.filter(g=>g.pop_cod===c).length, nT=c=>_travas.filter(t=>t.pop_cod===c).length, nP=c=>_desig.filter(d=>d.ativo&&d.pop_cod===c).length;
+  _dlg(`<div class="dlg" style="max-width:720px;width:96vw;"><div class="dlg-hd"><span class="dlg-ic">🛠️</span><div class="dlg-tt">Configuração dos POPs — escolha o POP</div></div>
+    <div class="dlg-bd" style="max-height:64vh;overflow:auto;">${pops.map(p=>`<button class="cf-pick" onclick="_fecharDlg();abrirConfigPop('${esc(p.codigo)}')">
+      <b>${esc(p.codigo)}</b> ${esc(p.titulo)}<small>${nP(p.codigo)} pessoa(s) · ${nG(p.codigo)} gatilho(s) · ${nT(p.codigo)} trava(s)</small></button>`).join('')}</div>
+    <div class="dlg-ft"><button class="btn btn-ghost" onclick="_fecharDlg()">Fechar</button></div></div>`);
+}
 async function abrirConfigPop(cod){
   if(!guardAction('bpf','edit'))return;
   const p=_docs.find(d=>d.codigo===cod&&d.tipo==='pop');if(!p)return;
@@ -3863,7 +3876,7 @@ async function subirDocumento(inp){
 // TRAVAS
 // ═══════════════════════════════════════════════════════════════════════════
 function renderTravas(){
-  cab('BPF / SGQ','Travas do sistema','');
+  cab('BPF / SGQ','Travas do sistema',`<button class="btn btn-primary btn-sm" onclick="escolherConfigPop()">⚙️ Configuração dos POPs</button>`);
   const ativas=_travas.filter(t=>t.ativa).length;
   let h=`<div class="alerta al-info">Cada trava do fluxograma é uma linha de <code>bpf_travas</code>; ligar e desligar não exige deploy.
     <strong>Ligue uma de cada vez</strong>, testando o módulo alvo — se ligar tudo junto e o cadastro travar, você não descobre qual causou.
@@ -3877,6 +3890,7 @@ function renderTravas(){
         <div style="flex:1;"><div class="nm">${esc(t.nome)} <span class="sys">${esc(t.sys_ref)}</span>
           ${t.severidade==='alerta'?'<span class="badge badge-warning">alerta</span>':''}</div>
           <div class="ds">${esc(t.descricao||'')}</div>
+          ${t.pop_cod&&_pops.some(x=>x.codigo===t.pop_cod)?`<button class="btn btn-secondary btn-sm" style="margin:4px 0;" onclick="abrirConfigPop('${esc(t.pop_cod)}')">⚙️ Configurar no ${esc(t.pop_cod)}</button>`:''}
           ${(()=>{const d=TRAVAS_DEF[t.codigo];if(!d)return '<div class="ds" style="color:#b91c1c;font-weight:700;">⚠ sem regra no sistema</div>';
             const m={bloqueia:['#166534','🔒 Bloqueia'],alerta:['#b45309','⚠️ Avisa'],pendente:['#64748b','⏳ Pendente'],naoaplica:['#64748b','— Não se aplica hoje']}[d.modo];
             return `<div class="ds" style="color:${m[0]};font-weight:700;">${m[1]} — ${esc(d.onde)}${t.ativa?'':' · (desligada)'}</div>`;})()}</div>
@@ -4447,7 +4461,8 @@ async function abrirTarefa(id){
 // ── TELA: GATILHOS ─────────────────────────────────────────────────────────
 function renderGatilhos(){
   cab('BPF / SGQ','Gatilhos',
-    _temFila?`<button class="btn btn-secondary btn-sm" onclick="varrerGatilhos()">↻ Procurar eventos agora</button>`:'');
+    `<button class="btn btn-primary btn-sm" onclick="escolherConfigPop()">⚙️ Configuração dos POPs</button>`+
+    (_temFila?` <button class="btn btn-secondary btn-sm" onclick="varrerGatilhos()">↻ Procurar eventos agora</button>`:''));
   if(!_temFila){
     document.getElementById('conteudo').innerHTML=`<div class="alerta al-warn">
       <strong>Rode <code>sql/002_bpf_fila.sql</code> primeiro.</strong> Ele cria <code>bpf_gatilhos</code> e
@@ -4465,7 +4480,9 @@ function renderGatilhos(){
   const grupos={};_gatilhos.forEach(g=>{(grupos[g.pop_cod]=grupos[g.pop_cod]||[]).push(g);});
   for(const [pop,l] of Object.entries(grupos)){
     const p=_pops.find(x=>x.codigo===pop);
-    h+=`<div class="sec-card" style="margin-top:12px;"><h3>${esc(pop)} — ${esc(p?.titulo||'')}</h3>
+    h+=`<div class="sec-card" style="margin-top:12px;"><h3 style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
+        <span>${esc(pop)} — ${esc(p?.titulo||'')}</span>
+        ${p?`<button class="btn btn-primary btn-sm" onclick="abrirConfigPop('${esc(pop)}')">⚙️ Configurar este POP</button>`:''}</h3>
       ${l.map(g=>{
         const f=_forms.find(x=>x.codigo===g.formulario_cod);
         const fn=funcaoColeta(g.formulario_cod);
