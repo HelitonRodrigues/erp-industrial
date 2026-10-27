@@ -122,6 +122,13 @@
         </div>
         <p style="font-size:11px;color:#94a3b8;margin-top:4px;">Para edição: deixe em branco para não alterar a senha.</p>
       </div>
+      <!-- BPF: o que este usuário vê (vem da configuração de cada POP no BPF) -->
+      <div id="u-bpf" style="display:none;margin-top:14px;border:1px solid #e2e8f0;border-radius:10px;padding:10px 12px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+          <b style="color:var(--primary);font-size:13px;">✅ BPF — o que este usuário vê</b>
+          <a class="btn btn-secondary btn-sm" href="bpf.html" target="_blank" rel="noopener">Abrir o BPF</a></div>
+        <div id="u-bpf-lista" style="margin-top:8px;font-size:12.5px;"></div>
+      </div>
       <div id="u-form-error" class="hidden alert alert-danger"></div>
     </div>
     <div class="modal-footer">
@@ -387,6 +394,32 @@ function abrirModalUsuario(id){
   document.getElementById('u-func-importado').style.display='none';
   previewPermissoes();
   document.getElementById('modal-usuario').classList.remove('hidden');
+  bpfDoUsuario(u);
+}
+// Lista os POPs do BPF em que o usuário foi colocado (BPF → POP → ⚙️ Configurar).
+// É a designação que decide o que ele vê dentro do BPF; o perfil decide se abre o módulo.
+const _PAPEL_BPF={responsavel:'Responsável',ve:'Vê',lanca:'Lança',assina:'Assina',aviso:'Recebe aviso',libera:'Libera exceção'};
+async function bpfDoUsuario(u){
+  const box=document.getElementById('u-bpf'),out=document.getElementById('u-bpf-lista');
+  if(!box)return; if(!u){box.style.display='none';return;}
+  box.style.display='';out.textContent='Carregando…';
+  try{
+    const [{data:ds},{data:pops},{data:fs}]=await Promise.all([
+      _supabase.from('bpf_designacoes').select('pop_cod,funcao_cod,papeis,ativo,usuario_id,funcionario_nome').eq('ativo',true),
+      _supabase.from('bpf_documentos_mestre').select('codigo,titulo').eq('tipo','pop'),
+      _supabase.from('bpf_funcoes').select('codigo,nome')]);
+    const meus=(ds||[]).filter(d=>d.usuario_id===u.id||String(d.funcionario_nome||'').trim().toLowerCase()===String(u.nome||'').trim().toLowerCase());
+    const perfil=_perfis.find(p=>p.codigo===u.perfil);const abre=!!(perfil&&perfil.permissoes&&perfil.permissoes.bpf&&perfil.permissoes.bpf.view)||['SADM','ADM','DIR'].includes(u.perfil);
+    const total=['SADM','ADM','QLD','AUD','DIR','GPR','SGR'].includes(u.perfil);
+    const tit=c=>((pops||[]).find(p=>p.codigo===c)||{}).titulo||'';
+    const fn=c=>((fs||[]).find(f=>f.codigo===c)||{}).nome||c||'';
+    out.innerHTML=(abre?'':'<div style="color:#92400e;background:#fef3c7;border-radius:8px;padding:6px 8px;margin-bottom:6px;">⚠️ O perfil deste usuário não abre o BPF.</div>')
+      +(total?'<div style="color:#166534;margin-bottom:6px;">Pelo perfil ('+u.perfil+'), vê <b>todos os POPs</b> do BPF.</div>':'')
+      +(meus.length?meus.sort((a,b)=>String(a.pop_cod).localeCompare(String(b.pop_cod))).map(d=>`<div style="padding:5px 0;border-top:1px solid #f1f5f9;">
+          <b>${d.pop_cod||'Todos os POPs'}</b> ${tit(d.pop_cod)?'· '+tit(d.pop_cod):''}
+          <div style="color:#64748b;">${(d.papeis||[]).map(x=>_PAPEL_BPF[x]||x).join(' · ')}${d.funcao_cod&&(d.papeis||[]).includes('assina')?' — assina como <b>'+fn(d.funcao_cod)+'</b>':''}</div></div>`).join('')
+        :(total?'':'<div style="color:#64748b;">Não está em nenhum POP — dentro do BPF não vê nada. Para incluir: BPF → POP → ⚙️ Configurar → Quem participa.</div>'));
+  }catch(e){ out.textContent='Não foi possível ler o BPF.'; }
 }
 
 // ── SALVAR ──

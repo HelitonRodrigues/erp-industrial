@@ -300,6 +300,31 @@
 .rx-anx summary{cursor:pointer;font-weight:700;color:var(--primary);font-size:12.5px;}
 @media(max-width:1100px){.rx-cols{grid-template-columns:repeat(2,minmax(0,1fr));}}
 @media(max-width:700px){.rx-cols,.rx-2{grid-template-columns:1fr;}}
+
+/* ══ configuração do POP ══ */
+.cf-g{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+.cf-c{background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:14px 16px;margin-bottom:12px;}
+.cf-t{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:6px;}
+.cf-t b{font-size:14px;color:var(--primary);}
+.cf-sub{font-size:12px;color:#64748b;}
+.cf-lb{font-size:11px;font-weight:800;color:#64748b;text-transform:uppercase;letter-spacing:.04em;margin:10px 0 6px;}
+.cf-ch{display:inline-flex;align-items:center;gap:5px;border:1.5px solid #e2e8f0;border-radius:99px;padding:5px 11px;font-size:12.5px;font-weight:600;color:var(--primary);margin:0 6px 6px 0;background:#fff;cursor:pointer;font-family:inherit;}
+.cf-ch small{color:#94a3b8;font-weight:600;}
+.cf-ch.on{background:#ecfdf5;border-color:#86efac;color:#166534;}
+.cf-ch.on:before{content:'✓';}
+.cf-seg{display:inline-flex;border:1.5px solid #e2e8f0;border-radius:10px;overflow:hidden;margin-right:6px;}
+.cf-seg button{border:none;background:#fff;padding:6px 12px;font-size:12.5px;font-weight:700;color:var(--primary);cursor:pointer;font-family:inherit;}
+.cf-seg button.on{background:#16a34a;color:#fff;}
+.cf-tg{width:46px;height:26px;border-radius:99px;background:#16a34a;position:relative;flex-shrink:0;border:none;cursor:pointer;}
+.cf-tg:after{content:'';position:absolute;right:3px;top:3px;width:20px;height:20px;border-radius:50%;background:#fff;}
+.cf-tg.off{background:#cbd5e1;}.cf-tg.off:after{left:3px;right:auto;}
+.cf-pes{border:1px solid #eef2f6;border-radius:10px;padding:10px 12px;margin-bottom:8px;}
+.cf-pes-h{display:flex;justify-content:space-between;gap:8px;margin-bottom:6px;}
+.cf-pes-h b{color:var(--primary);}
+.cf-warn{font-size:12px;color:#92400e;background:#fef3c7;border-radius:8px;padding:5px 8px;margin-top:6px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+.cf-av{background:#fef3c7;border:1px solid #fcd34d;color:#92400e;border-radius:10px;padding:10px 12px;font-size:12.5px;margin-bottom:12px;}
+.cf-ok{background:#dcfce7;border:1px solid #86efac;color:#166534;border-radius:10px;padding:10px 12px;font-size:12.5px;margin-bottom:12px;}
+@media(max-width:1000px){.cf-g{grid-template-columns:1fr;}}
 </style>
 </head>
 <body>
@@ -1837,6 +1862,17 @@ function quadroRegsHtml(lista,titulo){
 // definição (ex.: POP-17) ou integração com outro módulo.
 // ═══════════════════════════════════════════════════════════════════════════
 function travaAtiva(c){ return !!(_travas.find(t=>t.codigo===c)||{}).ativa; }
+function travaCfg(c){ return (_travas.find(t=>t.codigo===c)||{}).config||{}; }
+// homologação vigente do fornecedor pelos registros REG-POP01-02 → {ate, numero} ou null
+function homologacaoFornecedor(nome,cnpj){
+  const n=_normP(nome),c=String(cnpj||'').replace(/\D/g,'');
+  const l=_regsAll.concat(_regs).filter((r,i,a)=>a.indexOf(r)===i).filter(r=>r.formulario_cod==='REG-POP01-02'&&!r.cancelado_em&&regLancado(r)&&(r.campos||{}).status==='Homologado'&&(()=>{
+    const rc=r.campos||{},rn=_normP(rc.nome);
+    return (c.length>=11&&String(rc.cnpj||'').replace(/\D/g,'')===c)||(rn.length>=4&&n&&(rn.includes(n)||n.includes(rn)));})());
+  if(!l.length)return null;
+  const best=l.map(r=>({ate:(r.campos||{}).reavaliacao||null,numero:r.numero})).sort((a,b)=>String(b.ate||'9999').localeCompare(String(a.ate||'9999')))[0];
+  return best;
+}
 function capacitadoAte(nome){
   if(!nome)return null;const n=_normP(nome);let melhor=null;
   _regs.filter(r=>r.formulario_cod==='REG-POP20-01'&&!r.cancelado_em&&regLancado(r)).forEach(r=>{
@@ -1848,8 +1884,11 @@ function capacitadoAte(nome){
   return melhor;
 }
 const TRAVAS_DEF={
-  fornecedor_nao_homologado:{modo:'bloqueia',onde:'REG-POP01-01',chk:(r,v)=>r.formulario_cod==='REG-POP01-01'&&v.fornecedor_homologado==='nao'
-    &&'Fornecedor de embalagem não homologado: o recebimento não pode ser concluído (SYS-020).'},
+  fornecedor_nao_homologado:{modo:'bloqueia',onde:'Compras (pedido) · Solicitações (recebimento) · check list REG-POP01-01',
+    ondeOpcoes:[['pedido','Pedido de compra (Compras)'],['recebimento','Recebimento (Solicitações)'],['checklist','Check list BPF (REG-POP01-01)']],
+    chk:(r,v)=>r.formulario_cod==='REG-POP01-01'&&(travaCfg('fornecedor_nao_homologado').onde||['checklist']).includes('checklist')
+      &&(v.fornecedor_homologado==='nao'||(v.fornecedor&&(()=>{const h=homologacaoFornecedor(v.fornecedor);return !h||(h.ate&&h.ate<hoje());})()))
+      &&`Fornecedor "${v.fornecedor||'—'}" sem homologação vigente no BPF: o recebimento não pode ser concluído (SYS-020).`},
   cor_delta_e:{modo:'bloqueia',onde:'REG-POP02-01',chk:(r,v)=>r.formulario_cod==='REG-POP02-01'&&Number(String(v.delta_e??'').replace(',','.'))>1&&v.decisao==='Liberado'
     &&`ΔE ${v.delta_e} acima de 1,0: o lote de MP não pode ser "Liberado" (SYS-028).`},
   mp_quimica_vencida:{modo:'bloqueia',onde:'REG-POP02-01',chk:(r,v)=>r.formulario_cod==='REG-POP02-01'&&v.quimica_vigente==='nao'&&v.decisao==='Liberado'
@@ -1890,10 +1929,18 @@ function travasDoRegistro(r,vals,f,fim){
   for(const [cod,d] of Object.entries(TRAVAS_DEF)){
     if(!d.chk||!travaAtiva(cod))continue;
     if(d.fim&&!fim)continue;
-    try{const m=d.chk(r,vals||r.campos||{},f);if(m)out.push(m);}catch(e){}
+    try{const m=d.chk(r,vals||r.campos||{},f);
+      if(m){ if(travaCfg(cod).modo==='avisar'){ toast('⚠️ '+m,'warning'); avisarBpf(cod,m,r.pop_cod); } else out.push(m); }
+    }catch(e){}
   }
   return out;
 }
+// aviso para quem está marcado no POP (sino do ERP = notificações)
+async function avisarBpf(cod,msg,pop){
+  try{ await _supabase.from('notificacoes').insert({tipo:'alerta',modulo:'bpf',titulo:'BPF '+(pop||'')+': '+((_travas.find(t=>t.codigo===cod)||{}).nome||cod),
+    descricao:msg+(pop?' · avisar: '+pessoasDoPop(pop,'aviso').map(d=>d.funcionario_nome).join(', '):''),chave:'bpf_'+cod+'_'+Date.now(),fonte:'bpf'}); }catch(e){}
+}
+function pessoasDoPop(pop,papel){ return _desig.filter(d=>d.ativo&&d.pop_cod===pop&&(!papel||(d.papeis||[]).includes(papel))); }
 async function avisarTravas(msgs){
   await uiAlerta(`<strong>Bloqueado por trava do BPF:</strong><ul style="margin:7px 0 0 16px;">${msgs.map(m=>`<li>${esc(m)}</li>`).join('')}</ul>
     <div style="margin-top:8px;font-size:11.5px;color:#64748b;">As travas ficam em ⋯ Mais → 🔒 Travas.</div>`,{titulo:'Trava',tipo:'dang'});
@@ -3368,6 +3415,161 @@ function baixarArqRev(revId){
   baixarArquivo(r.arquivo_path,`${r.documento_cod}_rev${r.revisao}_obsoleta.${String(r.arquivo_path).split('.').pop()}`);
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// ⚙️ CONFIGURAÇÃO DO POP — quem participa (por NOME), gatilhos e travas
+// Pessoas = usuários do ERP (usuarios.html). Ao salvar, grava a designação
+// (bpf_designacoes): é ela que decide quais POPs a pessoa vê e em que papel
+// pode assinar. O perfil (perfis.html) continua decidindo se ela abre o BPF.
+// ═══════════════════════════════════════════════════════════════════════════
+const PAPEIS=[['responsavel','Responsável'],['ve','Vê o POP e registros'],['lanca','Preenche / lança'],['assina','Assina'],['aviso','Recebe aviso'],['libera','Libera exceção']];
+let _cfg=null;   // estado da tela enquanto edita
+async function carregarDadosCfg(){
+  const [us,pf,fo,ins,pc]=await Promise.all([
+    lst(_supabase.from('usuarios').select('id,nome,funcao,perfil,setor,status').order('nome')),
+    lst(_supabase.from('perfis').select('codigo,nome,permissoes')),
+    lst(_supabase.from('almoxarifado_fornecedores').select('id,razao_social,nome_fantasia,cnpj,bpf_categoria').order('nome_fantasia')),
+    lst(_supabase.from('insumos').select('id,codigo,nome,tipo').order('nome')),
+    lst(_supabase.from('bpf_pop_config').select('*'))]);
+  return {us:us.filter(u=>(u.status||'ativo')!=='inativo'),pf,fo,ins,pc};
+}
+function perfilAbreBpf(pf,cod){ const p=pf.find(x=>x.codigo===cod); if(!p)return false; if(['SADM','ADM','DIR','GER'].includes(cod)&&!p.permissoes)return true;
+  const b=(p.permissoes||{}).bpf; return !!(b&&b.view); }
+function funcoesAssinaturaDoPop(cod){
+  const s=new Set();(_formsAll.length?_formsAll:_forms).filter(f=>f.pop_cod===cod).forEach(f=>(f.assinaturas||[]).forEach(a=>a.funcao&&s.add(a.funcao)));
+  return [...s];
+}
+async function abrirConfigPop(cod){
+  if(!guardAction('bpf','edit'))return;
+  const p=_docs.find(d=>d.codigo===cod&&d.tipo==='pop');if(!p)return;
+  document.getElementById('conteudo').innerHTML='<div style="padding:30px;"><span class="spin"></span> Carregando configuração…</div>';
+  const dados=await carregarDadosCfg();
+  const pc=(dados.pc.find(x=>x.pop_cod===cod)||{}).config||{};
+  _cfg={cod,dados,
+    pessoas:_desig.filter(d=>d.ativo&&d.pop_cod===cod).map(d=>({id:d.id,usuario_id:d.usuario_id,nome:d.funcionario_nome,funcao_cod:d.funcao_cod,papeis:[...(d.papeis||[])]})),
+    removidos:[],
+    gat:_gatilhos.filter(g=>g.pop_cod===cod).map(g=>({...g,filtro:{...(g.filtro||{})}})),
+    trv:_travas.filter(t=>t.pop_cod===cod).map(t=>({...t,config:{modo:'bloquear',onde:[],liberadores:[],...(t.config||{})}})),
+    forn:dados.fo.map(f=>({...f})),
+    canais:pc.canais||['sino','inicio']};
+  _sec='cfg';_popSel=cod;marcarArea('pop');
+  pintarConfigPop();
+}
+function avisosCfg(){
+  const c=_cfg,a=[];
+  if(!c.pessoas.some(x=>x.papeis.includes('responsavel')))a.push('ninguém marcado como Responsável');
+  if(!c.pessoas.some(x=>x.papeis.includes('aviso')))a.push('ninguém recebe aviso quando algo der errado');
+  c.pessoas.filter(x=>!x.usuario_id).forEach(x=>a.push(`${x.nome} não tem login no ERP (aparece só como nome no papel)`));
+  c.pessoas.filter(x=>x.usuario_id).forEach(x=>{const u=c.dados.us.find(y=>y.id===x.usuario_id);
+    if(u&&!perfilAbreBpf(c.dados.pf,u.perfil))a.push(`o perfil ${u.perfil} de ${u.nome} não abre o BPF`);});
+  c.gat.filter(g=>g.ativo).forEach(g=>{
+    if(Array.isArray(g.filtro.itens)&&!g.filtro.itens.length)a.push(`gatilho "${g.evento||g.codigo}" ligado sem nenhum item marcado — não vai gerar nada`);
+    if(g.codigo==='g_forn'&&!c.forn.some(f=>f.bpf_categoria))a.push('gatilho de fornecedor ligado sem nenhum fornecedor BPF marcado');});
+  c.trv.filter(t=>t.ativa&&t.config.modo!=='avisar').forEach(t=>{
+    if(!c.pessoas.some(x=>x.papeis.includes('libera')))a.push(`trava "${t.nome}" bloqueia e ninguém pode liberar exceção`);
+    const d=TRAVAS_DEF[t.codigo]; if(d&&d.ondeOpcoes&&!t.config.onde.length)a.push(`trava "${t.nome}" ligada sem marcar onde age`);});
+  return a;
+}
+function pintarConfigPop(){
+  const c=_cfg,p=_docs.find(d=>d.codigo===c.cod),D=c.dados;
+  const fAss=funcoesAssinaturaDoPop(c.cod);
+  const av=avisosCfg();
+  const chip=(on,txt,js,title)=>`<button type="button" class="cf-ch${on?' on':''}" onclick="${js}" ${title?`title="${esc(title)}"`:''}>${txt}</button>`;
+  const seg=(op,atual,js)=>`<span class="cf-seg">${op.map(([v,t])=>`<button type="button" class="${String(v)===String(atual)?'on':''}" onclick="${js.replace('$V',v)}">${t}</button>`).join('')}</span>`;
+  const tg=(on,js)=>`<button type="button" class="cf-tg${on?'':' off'}" onclick="${js}" aria-label="ligar/desligar"></button>`;
+  cab('POPs & Documentos › '+c.cod,'⚙️ Configuração — '+p.titulo,
+    `<button class="btn btn-secondary btn-sm" onclick="abrirPop('${c.cod}')">← Voltar ao POP</button> <button class="btn btn-primary btn-sm" onclick="salvarConfigPop()">💾 Salvar configuração</button>`);
+  const pessoasHtml=c.pessoas.map((x,i)=>{const u=D.us.find(y=>y.id===x.usuario_id);
+    const abre=u?perfilAbreBpf(D.pf,u.perfil):null;
+    return `<div class="cf-pes"><div class="cf-pes-h"><div><b>${esc(x.nome)}</b>
+        <div class="cf-sub">${u?`${esc(u.funcao||'sem função no cadastro')} · perfil <b>${esc(u.perfil||'—')}</b>${u.setor?' · '+esc(u.setor):''}`:'sem login no ERP — só aparece como nome no papel'}</div>
+        ${u&&!abre?`<div class="cf-warn">⚠️ o perfil ${esc(u.perfil)} não abre o BPF <button class="btn btn-secondary btn-sm" onclick="liberarBpfPerfil('${esc(u.perfil)}')">Liberar BPF no perfil ${esc(u.perfil)}</button></div>`:''}</div>
+      <button class="btn btn-ghost btn-sm" title="Tirar deste POP" onclick="_cfg.removidos.push(_cfg.pessoas.splice(${i},1)[0]);pintarConfigPop()">✕</button></div>
+      <div>${PAPEIS.map(([k,t])=>chip(x.papeis.includes(k),t,`cfgPapel(${i},'${k}')`)).join('')}</div>
+      ${x.papeis.includes('assina')?`<div class="cf-sub" style="margin-top:6px;">Assina como: <select class="form-input" style="display:inline-block;width:auto;min-height:34px;" onchange="_cfg.pessoas[${i}].funcao_cod=this.value">
+        <option value="">— escolha —</option>${[...new Set(fAss.concat(x.funcao_cod?[x.funcao_cod]:[]))].map(fc=>`<option value="${esc(fc)}" ${fc===x.funcao_cod?'selected':''}>${esc(nomeFuncao(fc))}</option>`).join('')}</select></div>`:''}
+    </div>`;}).join('')||'<div class="cf-sub">Ninguém neste POP ainda.</div>';
+  const gatHtml=c.gat.map((g,i)=>{
+    const itensCfg=Array.isArray(g.filtro.itens);
+    const embs=D.ins.filter(x=>/saco|big\s*bag|embalag/i.test(x.nome+' '+(x.tipo||'')));
+    return `<div class="cf-c"><div class="cf-t"><b>⚡ ${esc(g.evento||g.codigo)}</b>${tg(g.ativo,`_cfg.gat[${i}].ativo=!_cfg.gat[${i}].ativo;pintarConfigPop()`)}</div>
+      <div class="cf-sub">Gera a ficha <b>${esc(g.formulario_cod)}</b>.</div>
+      ${itensCfg?`<div class="cf-lb">Itens que entram no BPF</div>${embs.map(x=>chip(g.filtro.itens.includes(x.codigo),esc(x.nome)+` <small>${esc(x.codigo)}</small>`,`cfgItem(${i},'${esc(x.codigo)}')`)).join('')}`:''}
+      ${g.codigo==='g_forn'?`<div class="cf-lb">Fornecedores BPF (cadastro do Compras)</div>
+        ${c.forn.map((f,j)=>chip(!!f.bpf_categoria,esc(f.nome_fantasia||f.razao_social),`cfgForn(${j})`)).join('')}
+        <div class="cf-lb">Reavaliar a cada · avisar antes</div>${seg([[12,'12 meses'],[24,'24 meses']],g.filtro.meses||12,`_cfg.gat[${i}].filtro.meses=$V;pintarConfigPop()`)} ${seg([[30,'30 dias'],[60,'60 dias']],g.filtro.avisar_dias||30,`_cfg.gat[${i}].filtro.avisar_dias=$V;pintarConfigPop()`)}`:''}
+      <div class="cf-lb">Prazo para preencher a ficha</div>${seg([[2,'2 h'],[8,'8 h'],[24,'24 h'],[72,'3 dias'],[168,'7 dias']],g.prazo_horas||24,`_cfg.gat[${i}].prazo_horas=$V;pintarConfigPop()`)}
+    </div>`;}).join('')||'<div class="cf-sub">Este POP não tem gatilho.</div>';
+  const trvHtml=c.trv.map((t,i)=>{const d=TRAVAS_DEF[t.codigo]||{};
+    return `<div class="cf-c"><div class="cf-t"><b>🔒 ${esc(t.nome)}</b>${tg(t.ativa,`_cfg.trv[${i}].ativa=!_cfg.trv[${i}].ativa;pintarConfigPop()`)}</div>
+      <div class="cf-sub">${esc(t.descricao||'')}</div>
+      <div class="cf-lb">Modo</div>${seg([['bloquear','Bloquear'],['avisar','Só avisar']],t.config.modo||'bloquear',`_cfg.trv[${i}].config.modo='$V';pintarConfigPop()`)}
+      ${d.ondeOpcoes?`<div class="cf-lb">Onde age</div>${d.ondeOpcoes.map(([k,tx])=>chip(t.config.onde.includes(k),tx,`cfgOnde(${i},'${k}')`)).join('')}`:`<div class="cf-sub" style="margin-top:6px;">Age em: ${esc(d.onde||'—')}</div>`}
+      <div class="cf-sub" style="margin-top:8px;">Quem libera exceção: <b>${esc(c.pessoas.filter(x=>x.papeis.includes('libera')).map(x=>x.nome).join(', ')||'ninguém')}</b> (marque "Libera exceção" na pessoa)</div>
+    </div>`;}).join('')||'<div class="cf-sub">Este POP não tem trava.</div>';
+  document.getElementById('conteudo').innerHTML=`<div class="cf">
+    ${av.length?`<div class="cf-av">⚠️ <b>${av.length} aviso(s):</b> ${av.map(esc).join(' · ')}</div>`:'<div class="cf-ok">✅ Configuração completa.</div>'}
+    <div class="cf-g"><div>
+      <div class="cf-c"><div class="cf-t"><b>👥 Quem participa</b></div>
+        <div style="display:flex;gap:6px;margin-bottom:10px;"><input class="form-input" id="cf-busca" list="cf-lst-us" placeholder="Digite o nome do usuário (ex.: Cesar)" style="flex:1;">
+          <button class="btn btn-primary btn-sm" onclick="cfgAddPessoa()">+ Adicionar</button></div>
+        <datalist id="cf-lst-us">${D.us.map(u=>`<option value="${esc(u.nome)}">${esc((u.funcao||'')+' · '+(u.perfil||''))}</option>`).join('')}</datalist>
+        ${pessoasHtml}
+        <div class="cf-lb">Como avisar</div>${chip(c.canais.includes('sino'),'🔔 Sino do ERP (Notificações)',"cfgCanal('sino')")}${chip(c.canais.includes('inicio'),'📋 Início do BPF',"cfgCanal('inicio')")}
+      </div>
+      ${trvHtml}
+    </div><div>${gatHtml}</div></div></div>`;
+}
+function cfgPapel(i,k){const p=_cfg.pessoas[i];p.papeis=p.papeis.includes(k)?p.papeis.filter(x=>x!==k):p.papeis.concat(k);if(k==='assina'&&!p.papeis.includes('ve'))p.papeis.push('ve');pintarConfigPop();}
+function cfgItem(i,cod){const f=_cfg.gat[i].filtro;f.itens=f.itens.includes(cod)?f.itens.filter(x=>x!==cod):f.itens.concat(cod);pintarConfigPop();}
+function cfgForn(j){const f=_cfg.forn[j];f.bpf_categoria=f.bpf_categoria?null:'embalagem';f._mudou=true;pintarConfigPop();}
+function cfgOnde(i,k){const o=_cfg.trv[i].config.onde;_cfg.trv[i].config.onde=o.includes(k)?o.filter(x=>x!==k):o.concat(k);pintarConfigPop();}
+function cfgCanal(k){_cfg.canais=_cfg.canais.includes(k)?_cfg.canais.filter(x=>x!==k):_cfg.canais.concat(k);pintarConfigPop();}
+function cfgAddPessoa(){
+  const n=document.getElementById('cf-busca').value.trim();
+  const u=_cfg.dados.us.find(x=>_normP(x.nome)===_normP(n));
+  if(!u){toast('Escolha um usuário da lista.','warning');return;}
+  if(_cfg.pessoas.some(x=>x.usuario_id===u.id||_normP(x.nome)===_normP(u.nome))){toast(u.nome+' já está neste POP.','info');return;}
+  _cfg.pessoas.push({id:null,usuario_id:u.id,nome:u.nome,funcao_cod:null,papeis:['ve']});
+  pintarConfigPop();
+}
+async function liberarBpfPerfil(perfil){
+  const p=_cfg.dados.pf.find(x=>x.codigo===perfil);if(!p)return;
+  const ok=await uiConfirma(`Liberar o módulo BPF para o perfil <b>${esc(p.nome)}</b>?<div style="margin-top:6px;font-size:12px;color:#64748b;">É seguro: dentro do BPF cada pessoa só vê os POPs em que foi colocada. Quem tem esse perfil e não está em nenhum POP continua sem ver nada.</div>`,{titulo:'Liberar BPF',ok:'Liberar'});
+  if(!ok)return;
+  const perm={...(p.permissoes||{})};perm.bpf={...(perm.bpf||{}),view:true,create:true,edit:true,delete:!!(perm.bpf&&perm.bpf.delete),export:true};
+  const r=await db(_supabase.from('perfis').update({permissoes:perm}).eq('codigo',perfil),'liberar BPF no perfil');
+  if(r.error)return;
+  p.permissoes=perm;await addLog('UPDATE','PERFIS',perfil,'BPF liberado no perfil (configuração do '+_cfg.cod+')');
+  toast('BPF liberado no perfil '+p.nome+'.','success');pintarConfigPop();
+}
+async function salvarConfigPop(){
+  const c=_cfg;if(!c)return;
+  const semFuncao=c.pessoas.filter(x=>x.papeis.includes('assina')&&!x.funcao_cod);
+  if(semFuncao.length){await uiAlerta('Escolha "Assina como" para: '+semFuncao.map(x=>esc(x.nome)).join(', '),{titulo:'Falta a função',tipo:'warn'});return;}
+  const u=getUser(),quem=u?.nome||u?.email||'—',agora=new Date().toISOString();
+  try{
+    for(const x of c.pessoas){
+      const row={usuario_id:x.usuario_id,funcionario_nome:x.nome,pop_cod:c.cod,funcao_cod:x.funcao_cod||null,papeis:x.papeis,ativo:true};
+      if(x.id){const r=await db(_supabase.from('bpf_designacoes').update(row).eq('id',x.id),'designação');if(r.error)throw r.error;}
+      else{const r=await db(_supabase.from('bpf_designacoes').insert({...row,data_inicio:hoje(),designado_por:quem}),'designação');if(r.error)throw r.error;}
+    }
+    for(const x of c.removidos.filter(x=>x.id)){
+      const r=await db(_supabase.from('bpf_designacoes').update({ativo:false,data_fim:hoje()}).eq('id',x.id),'retirar designação');if(r.error)throw r.error;}
+    for(const g of c.gat){
+      const r=await db(_supabase.from('bpf_gatilhos').update({ativo:g.ativo,prazo_horas:g.prazo_horas,filtro:g.filtro}).eq('codigo',g.codigo),'gatilho');if(r.error)throw r.error;}
+    const libs=c.pessoas.filter(x=>x.papeis.includes('libera')).map(x=>x.nome);
+    for(const t of c.trv){
+      const r=await db(_supabase.from('bpf_travas').update({ativa:t.ativa,config:{...t.config,liberadores:libs}}).eq('codigo',t.codigo),'trava');if(r.error)throw r.error;}
+    for(const f of c.forn.filter(f=>f._mudou)){
+      const r=await db(_supabase.from('almoxarifado_fornecedores').update({bpf_categoria:f.bpf_categoria}).eq('id',f.id),'fornecedor BPF');if(r.error)throw r.error;}
+    const r=await db(_supabase.from('bpf_pop_config').upsert({pop_cod:c.cod,config:{canais:c.canais},atualizado_em:agora,atualizado_por:quem}),'configuração do POP');
+    if(r.error)throw r.error;
+    await addLog('UPDATE','BPF',c.cod,`Configuração do POP salva: ${c.pessoas.length} pessoa(s), ${c.gat.filter(g=>g.ativo).length} gatilho(s) e ${c.trv.filter(t=>t.ativa).length} trava(s) ligados`);
+    toast('Configuração do '+c.cod+' salva.','success');
+    await carregar();renderNav();abrirConfigPop(c.cod);
+  }catch(e){ await uiAlerta('Não foi possível salvar: '+esc(e.message||e),{titulo:'Erro',tipo:'dang'}); }
+}
+
 // ── janelas (modal) da lista: cadastro e histórico, sem sair da aba ───────
 function verDadosDoc(id){
   const d=_docs.find(x=>x.id===id);if(!d)return;
@@ -3396,6 +3598,7 @@ function verDadosDoc(id){
         :`<button class="btn btn-secondary" onclick="_fecharDlg();abrirNovaVersao('${d.id}')">📎 Anexar</button>`}
       <button class="btn btn-secondary" onclick="verHistoricoDoc('${d.id}')">🕘 Histórico</button>
       <button class="btn btn-secondary" onclick="_fecharDlg();editarDocMestre('${d.id}')">✏️ Editar</button>
+      ${d.tipo==='pop'?`<button class="btn btn-secondary" onclick="_fecharDlg();abrirConfigPop('${esc(d.codigo)}')">⚙️ Configurar</button>`:''}
       <button class="btn btn-primary" onclick="_fecharDlg();abrirDoc('${d.id}')">Ir ao fluxo ➜</button>
       <button class="btn btn-ghost" onclick="_fecharDlg()">Fechar</button></div></div>`);
 }
@@ -3436,6 +3639,7 @@ function docCardHtml(d){
           :`<button class="bx-btn bx-btn-acc" onclick="abrirNovaVersao('${d.id}')">📎 Anexar arquivo</button>`}
         ${d.tipo==='reg'?`<button class="bx-btn" onclick="imprimirFicha('${esc(d.codigo)}')">🖨️ Ficha em branco</button>`:''}
         <button class="bx-btn bx-btn-ghost" title="Editar dados do documento" onclick="editarDocMestre('${d.id}')">✏️</button>
+        ${d.tipo==='pop'?`<button class="bx-btn" title="Quem participa, gatilhos e travas deste POP" onclick="abrirConfigPop('${esc(d.codigo)}')">⚙️ Configurar</button>`:''}
       </div>
     </div></div>`;
 }
@@ -3804,8 +4008,16 @@ const GATILHO_FONTES={
     const nome=Object.fromEntries(ins.map(x=>[x.id,x]));
     const mv=await lst(_supabase.from('insumos_movimentos').select('*')
       .eq('tipo','entrada').order('data',{ascending:false}).limit(300));
-    return mv.filter(m=>emb.has(m.insumo_id)).map(m=>{
+    const mvE=mv.filter(m=>emb.has(m.insumo_id));
+    // recebimento pela Solicitação: origem_id = pedido de compra → fornecedor; a NF vem no texto da entrada
+    const pids=[...new Set(mvE.filter(m=>m.origem==='RECEB_SOL'&&m.origem_id).map(m=>m.origem_id))];
+    const peds=pids.length?Object.fromEntries((await lst(_supabase.from('compras_pedidos').select('id,numero,fornecedor').in('id',pids))).map(p=>[String(p.id),p])):{};
+    return mvE.map(m=>{
       const i=nome[m.insumo_id]||{};
+      const ped=peds[String(m.origem_id)]||null;
+      const nf=(String(m.obs||'').match(/NF\s*([\w.\-\/]+)/i)||[])[1]||'';
+      m.fornecedor_destino=m.fornecedor_destino||(ped&&ped.fornecedor)||'';
+      m.nota_fiscal=m.nota_fiscal||nf;
       return {ref:'INS/'+m.id,id:m.id,quando:m.data,
         det:`Entrada de ${m.quantidade||'?'} ${i.unidade_estoque||''} de ${i.nome||'embalagem'} (${i.codigo||''})`
             +(m.fornecedor_destino?' — '+m.fornecedor_destino:''),
@@ -3917,6 +4129,20 @@ const GATILHO_FONTES={
     return l.filter(r=>r.status!=='encerrada').map(r=>({ref:'RC/'+r.id,id:r.id,quando:r.data_recebimento,
       det:`Reclamação ${r.numero||''} — ${r.cliente||''}`.trim(),
       pre:{numero_rc:r.numero||'',cliente:r.cliente||'',lote:r.lote_ref||'',prazo:r.prazo_ate||''}}));
+  }},
+  // POP-01/002: fornecedor marcado como BPF no Compras, sem homologação ou reavaliação vencendo
+  g_forn:{tab:'almoxarifado_fornecedores',async busca(g){
+    const cfg=g.filtro||{};const dias=Number(cfg.avisar_dias||30);
+    const fs=await lst(_supabase.from('almoxarifado_fornecedores').select('id,razao_social,nome_fantasia,cnpj,contato,fone,email,bpf_categoria').not('bpf_categoria','is',null));
+    const lim=new Date(Date.now()+dias*864e5).toISOString().slice(0,10);
+    return fs.flatMap(f=>{
+      const h=homologacaoFornecedor(f.nome_fantasia||f.razao_social,f.cnpj);
+      if(h&&h.ate&&h.ate>lim)return [];
+      const nome=f.nome_fantasia||f.razao_social||'';
+      return [{ref:'FORN/'+f.id+'/'+(h?.ate||'novo'),id:f.id,quando:hoje(),
+        det:`${nome} — ${h?(h.ate<hoje()?'homologação VENCIDA em '+fmtD(h.ate):'reavaliação em '+fmtD(h.ate)):'fornecedor BPF sem homologação'}`,
+        pre:{nome,cnpj:f.cnpj||'',categoria:'A — contato direto (MP e embalagens)',tipo_forn:f.bpf_categoria==='mp'?'Matéria-prima':'Embalagem',status:'Em homologação'}}];
+    });
   }},
   // POP-20/002: 15 dias depois do treinamento → avaliação de cada participante (observação prática em campo)
   g_treino:{tab:'bpf_registros',async busca(){
