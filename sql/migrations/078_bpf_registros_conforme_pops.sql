@@ -1,0 +1,7 @@
+-- 078 — BPF: registros de cada POP iguais ao item 12 de cada POP (aplicado direto no banco em 27/10/2026)
+-- • POP-17: códigos estavam trocados → REG-POP17-01 = Cadastro e qualificação de laboratório externo;
+--   REG-POP17-02 = Controle de laudos de análises externas e validades (gatilho g_laudo → 17-02).
+-- • POP-20: REG-POP20-01 = Registro de treinamento e avaliação de eficácia (a eficácia virou seção da ficha;
+--   gatilho g_treino desligado); REG-POP20-02 = Cronograma anual de treinamentos e auditorias internas
+--   (ficha nova; gatilho g_cronog → 20-02); REG-POP20-03 = Relatório de auditoria interna.
+-- • Títulos dos 34 registros = nomes exatos do item 12 de cada POP (formulário e lista mestra).
