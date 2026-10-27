@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Central da Qualidade — ERP Industrial</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/supabase.js"></script>
+<script src="js/utils.js"></script>
+<!-- ═══════════════════════════════════════════════════════════════════
+     CENTRAL DA QUALIDADE (10/2026)
+     Caixa pessoal: o que é de CADA pessoa no BPF e no Laboratório, conforme
+     o que foi marcado em BPF → POP → ⚙️ Configurar (designações + papéis).
+     Avisos com som chegam em qualquer tela do ERP (AvisosQualidade, utils.js).
+     ═══════════════════════════════════════════════════════════════════ -->
+<style>
+.cq{--ln:#e2e8f0;--mu:#64748b;--ok:#16a34a}
+.cq-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap}
+.cq-head h1{font-size:24px;font-weight:800;color:var(--primary)}.cq-head p{color:var(--mu);font-size:13px;margin-top:2px}
+.cq-som{min-height:44px;padding:0 16px;border-radius:10px;border:1.5px solid var(--ln);background:#fff;font-family:inherit;font-weight:700;color:var(--primary);cursor:pointer}
+.cq-som.on{background:#ecfdf5;border-color:#86efac;color:#166534}
+.cq-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:14px}
+.cq-k{background:#fff;border:1px solid var(--ln);border-left:4px solid var(--ln);border-radius:12px;padding:14px 16px;cursor:pointer}
+.cq-k .l{font-size:12px;font-weight:600;color:var(--mu)}.cq-k .v{font-size:26px;font-weight:800;color:var(--primary);margin-top:4px}.cq-k .s{font-size:12px;color:#94a3b8}
+.cq-k.r{border-left-color:#dc2626}.cq-k.r .v{color:#dc2626}.cq-k.a{border-left-color:#7c3aed}.cq-k.b{border-left-color:#2563eb}.cq-k.l2{border-left-color:#f59e0b}
+.cq-nav{display:flex;gap:6px;padding:6px;background:#fff;border:1px solid var(--ln);border-radius:16px;margin-bottom:14px;flex-wrap:wrap}
+.cq-nav button{flex:1 0 auto;min-height:48px;border:none;border-radius:12px;background:transparent;font-family:inherit;font-weight:700;font-size:14.5px;color:var(--primary);cursor:pointer}
+.cq-nav button.on{background:var(--primary);color:var(--accent)}
+.cq-grp{background:#fff;border:1px solid var(--ln);border-radius:14px;padding:14px 16px;margin-bottom:12px}
+.cq-grp h3{font-size:14.5px;font-weight:800;color:var(--primary);margin:0 0 10px;display:flex;gap:8px;align-items:center}
+.cq-grp h3 span{background:#f1f5f9;border-radius:99px;padding:1px 9px;font-size:12px}
+.cq-it{display:flex;justify-content:space-between;gap:12px;align-items:center;border:1px solid #eef2f6;border-left:4px solid #94a3b8;border-radius:10px;padding:10px 12px;margin-bottom:8px}
+.cq-it b{color:var(--primary);font-size:13.5px}.cq-it .m{font-size:12px;color:var(--mu);margin-top:2px}
+.cq-it .tg{font-size:11.5px;font-weight:700;padding:2px 9px;border-radius:99px;white-space:nowrap}
+.cq-vazio{font-size:13px;color:#94a3b8;padding:6px 0}
+.cq-av{display:flex;gap:10px;align-items:flex-start;border-bottom:1px solid #f1f5f9;padding:10px 0}
+.cq-av.novo b{color:#b91c1c}.cq-av .q{font-size:12px;color:var(--mu)}
+@media(max-width:900px){.cq-kpis{grid-template-columns:repeat(2,1fr)}.cq-it{flex-direction:column;align-items:stretch}}
+</style>
+</head>
+<body>
+<div id="sidebar-container"></div>
+<header class="topbar" id="topbar">
+  <button class="topbar-open-sidebar" onclick="toggleSidebar()">☰</button>
+  <div class="topbar-title">CENTRAL DA QUALIDADE</div>
+  <div class="topbar-right">
+    <div class="topbar-user">
+      <div class="user-avatar" style="width:32px;height:32px;font-size:12px;" id="top-avatar">—</div>
+      <div><div class="topbar-user-name" id="top-user-name">—</div><div class="topbar-user-profile" id="top-user-perfil">—</div></div>
+    </div>
+    <button class="btn btn-ghost btn-sm" onclick="doLogout()" style="color:#64748b;">Sair</button>
+  </div>
+</header>
+<main class="main-content" id="main-content"><div class="cq">
+  <div class="cq-head">
+    <div><h1>🎯 Central da Qualidade</h1><p id="cq-sub">O que é seu no BPF e no Laboratório</p></div>
+    <button class="cq-som" id="cq-som" onclick="ativarAvisos()">🔔 Ativar som e avisos neste aparelho</button>
+  </div>
+  <div class="cq-kpis" id="cq-kpis"></div>
+  <div class="cq-nav" id="cq-nav">
+    <button class="on" data-t="caixa" onclick="aba('caixa')">📥 Minha caixa</button>
+    <button data-t="avisos" onclick="aba('avisos')">🔔 Avisos <span id="cq-nav-av"></span></button>
+    <button data-t="equipe" id="cq-nav-eq" onclick="aba('equipe')" style="display:none;">👥 Equipe</button>
+  </div>
+  <div id="cq-out"><div style="padding:24px;"><span class="spin"></span> Carregando…</div></div>
+</div></main>
+<script>
+const LEITURA_TOTAL=['SADM','ADM','QLD','AUD','DIR','GPR','SGR'];
+const norm=s=>String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]/g,'');
+const fmtD=d=>d?String(d).slice(0,10).split('-').reverse().join('/'):'—';
+const fmtDH=d=>d?new Date(d).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'—';
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let D=null,_aba='caixa';
+const ETAPA={a_preencher:['🖨️ A preencher','#94a3b8'],a_digitar:['⌨️ A digitar','#2563eb'],falta_foto:['📷 Falta foto','#f59e0b'],assinaturas:['✍️ Assinar','#7c3aed']};
+function etapa(r,f){
+  const lanc=!!r.lancado_em||['aguardando_assinatura','nao_conforme'].includes(r.status);
+  if(!lanc)return (r.ficha_impressa_em||r.status==='a_digitar'||r.status==='rascunho')?'a_digitar':'a_preencher';
+  if(!r.foto_ficha&&!(f&&f.sem_papel))return 'falta_foto';
+  if(f&&f.conclui_com_anexo)return 'concluido';
+  return faltam(r,f).length?'assinaturas':'concluido';
+}
+function faltam(r,f){ return ((f&&f.assinaturas)||[]).filter(a=>!(r.assinaturas||[]).some(x=>x.id===a.id)); }
+
+async function carregar(){
+  const u=getUser();const perms=u.permissoes||{};
+  const [ds,fs,regs,tars,pops,fn]=await Promise.all([
+    _supabase.from('bpf_designacoes').select('funcionario_nome,usuario_id,pop_cod,funcao_cod,papeis,ativo').eq('ativo',true),
+    _supabase.from('bpf_formularios').select('codigo,titulo,pop_cod,assinaturas,sem_papel,conclui_com_anexo'),
+    selectTodos(_supabase.from('bpf_registros').select('id,numero,formulario_cod,pop_cod,data,status,lancado_em,foto_ficha,assinaturas,campos,tarefa_id,ficha_impressa_em,cancelado_em').not('status','in','(concluido,cancelado)'),{max:3000}),
+    selectTodos(_supabase.from('bpf_tarefas').select('id,prazo,registro_id,pop_cod,origem_det,formulario_cod,status').eq('status','aberta').gte('criado_em','2026-10-26'),{max:3000}),
+    _supabase.from('bpf_documentos_mestre').select('codigo,titulo').eq('tipo','pop'),
+    _supabase.from('bpf_funcoes').select('codigo,nome')]);
+  const todas=(ds.data||[]);
+  const minhas=todas.filter(d=>(u.id&&d.usuario_id===u.id)||norm(d.funcionario_nome)===norm(u.nome));
+  const gestor=LEITURA_TOTAL.includes(u.perfil);
+  let lab=[];
+  const veLab=gestor||(perms.laboratorio&&perms.laboratorio.view)||['SADM','ADM'].includes(u.perfil);
+  if(veLab){ const d15=new Date(Date.now()-15*864e5).toISOString().slice(0,10);
+    const r=await _supabase.from('producao_pallets').select('id,codigo,data,produto,linha,status,estoque_status').in('status',['reprovado','aguardando_decisao']).gte('data',d15).order('data',{ascending:false}).limit(300);
+    lab=(r.data||[]).filter(p=>p.estoque_status!=='carregado'); }
+  D={u,gestor,todas,minhas,forms:fs.data||[],regs:(regs.data||[]).filter(r=>!r.cancelado_em),tars:tars.data||[],pops:pops.data||[],funcoes:fn.data||[],lab,veLab};
+  montar();
+}
+// itens de UMA pessoa (lista de designações dela); gestor sem designação = tudo
+function itensDe(desigs,todos){
+  const F=c=>D.forms.find(f=>f.codigo===c);
+  const pap=(pop,p)=>todos||desigs.some(d=>(!d.pop_cod||d.pop_cod===pop)&&(d.papeis||[]).includes(p));
+  const fun=pop=>desigs.filter(d=>(!d.pop_cod||d.pop_cod===pop)&&(d.papeis||[]).includes('assina')).map(d=>d.funcao_cod);
+  const agora=new Date().toISOString();
+  const atr=D.tars.filter(t=>t.prazo<agora&&(pap(t.pop_cod,'responsavel')||pap(t.pop_cod,'lanca')||pap(t.pop_cod,'aviso')));
+  const fazer=[],assinar=[];
+  D.regs.forEach(r=>{const f=F(r.formulario_cod);const e=etapa(r,f);
+    if(['a_preencher','a_digitar','falta_foto'].includes(e)&&pap(r.pop_cod,'lanca'))fazer.push({r,f,e});
+    if(e==='assinaturas'){const fl=faltam(r,f);const mf=fun(r.pop_cod);
+      if(todos?fl.length:fl.some(a=>mf.includes(a.funcao)))assinar.push({r,f,e,fl});}});
+  return {atr,fazer,assinar};
+}
+function montar(){
+  const mine=itensDe(D.minhas,D.gestor&&!D.minhas.length);
+  D.mine=mine;
+  const nAv=(D.avisos||[]).filter(n=>!AvisosQualidade.vistos().has(n.id)).length;
+  document.getElementById('cq-sub').textContent=D.minhas.length?`Você está em ${[...new Set(D.minhas.map(d=>d.pop_cod||'todos'))].length} POP(s) do BPF`:(D.gestor?'Visão de gestão: pendências de todos os POPs':'Você ainda não foi colocado em nenhum POP — peça à Qualidade (BPF → POP → ⚙️ Configurar)');
+  const k=[['r','Atrasadas',mine.atr.length,'passaram do prazo',"aba('caixa')"],['b','Para fazer',mine.fazer.length,'preencher · digitar · foto',"aba('caixa')"],
+           ['a','Para assinar',mine.assinar.length,'aguardando você',"aba('caixa')"],['l2','Laboratório',D.veLab?D.lab.length:'—',D.veLab?'pallets reprovados / em decisão':'sem acesso',"aba('caixa')"]];
+  document.getElementById('cq-kpis').innerHTML=k.map(([c,l,v,s,on])=>`<div class="cq-k ${c}" onclick="${on}"><div class="l">${l}</div><div class="v">${v}</div><div class="s">${s}</div></div>`).join('');
+  document.getElementById('cq-nav-eq').style.display=D.gestor?'':'none';
+  document.getElementById('cq-nav-av').textContent=nAv?`(${nAv})`:'';
+  aba(_aba);
+}
+function aba(t){
+  _aba=t;document.querySelectorAll('#cq-nav button').forEach(b=>b.classList.toggle('on',b.dataset.t===t));
+  if(t==='caixa')caixa();else if(t==='avisos')avisos();else equipe();
+}
+const nomeF=c=>(D.funcoes.find(f=>f.codigo===c)||{}).nome||c;
+const resumo=r=>{const c=r.campos||{};return [c.op&&'OP '+c.op,c.lote||c.lote_producao,c.embalagem,c.nome,c.fornecedor].filter(Boolean).slice(0,3).join(' · ');};
+const abrir=id=>`<a class="btn btn-primary btn-sm" href="bpf.html?reg=${id}">Abrir no BPF ➜</a>`;
+function caixa(){
+  const m=D.mine;
+  const item=(cor,tit,meta,tag,btn)=>`<div class="cq-it" style="border-left-color:${cor}"><div><b>${tit}</b><div class="m">${meta}</div></div><div style="display:flex;gap:8px;align-items:center;">${tag}${btn}</div></div>`;
+  const regPorId=id=>D.regs.find(r=>r.id===id);
+  let h=`<div class="cq-grp"><h3>⏰ Atrasadas <span>${m.atr.length}</span></h3>${m.atr.length?m.atr.sort((a,b)=>a.prazo.localeCompare(b.prazo)).map(t=>{const r=regPorId(t.registro_id);
+      return item('#dc2626',`${esc(t.pop_cod)} · ${esc(t.formulario_cod)}${r?' · '+esc(r.numero):''}`,`${esc(t.origem_det||'')} · prazo era <b style="color:#dc2626">${fmtDH(t.prazo)}</b>`,'',r?abrir(r.id):'<a class="btn btn-secondary btn-sm" href="bpf.html">Abrir o BPF</a>');}).join(''):'<div class="cq-vazio">Nada atrasado. 👍</div>'}</div>`;
+  h+=`<div class="cq-grp"><h3>✍️ Para você assinar <span>${m.assinar.length}</span></h3>${m.assinar.length?m.assinar.map(({r,f,fl})=>item('#7c3aed',`${esc(r.pop_cod)} · ${esc(f?f.titulo:r.formulario_cod)} · ${esc(r.numero)}`,`${esc(resumo(r))} · falta: ${fl.map(a=>esc(a.label)).join(', ')}`,'',abrir(r.id))).join(''):'<div class="cq-vazio">Nenhuma assinatura pendente.</div>'}</div>`;
+  h+=`<div class="cq-grp"><h3>📝 Para preencher, digitar ou fotografar <span>${m.fazer.length}</span></h3>${m.fazer.length?m.fazer.sort((a,b)=>String(a.r.data).localeCompare(String(b.r.data))).map(({r,f,e})=>item(ETAPA[e][1],`${esc(r.pop_cod)} · ${esc(f?f.titulo:r.formulario_cod)} · ${esc(r.numero)}`,`${fmtD(r.data)} · ${esc(resumo(r))}`,`<span class="tg" style="background:${ETAPA[e][1]}22;color:${ETAPA[e][1]}">${ETAPA[e][0]}</span>`,abrir(r.id))).join(''):'<div class="cq-vazio">Nenhuma ficha com você.</div>'}</div>`;
+  if(D.veLab){
+    const g={};D.lab.forEach(p=>{const k=(p.status==='reprovado'?'❌ Reprovado':'⏳ Aguardando decisão')+' · '+(p.produto||'—')+' · '+(p.linha||'—');(g[k]=g[k]||[]).push(p);});
+    h+=`<div class="cq-grp"><h3>🧪 Laboratório — pallets no estoque <span>${D.lab.length}</span></h3>${Object.keys(g).length?Object.entries(g).map(([k,l])=>item(k.startsWith('❌')?'#dc2626':'#f59e0b',esc(k),`${l.length} pallet(s) · ${l.slice(0,6).map(p=>esc(p.codigo)).join(', ')}${l.length>6?'…':''} · desde ${fmtD(l[l.length-1].data)}`,'','<a class="btn btn-secondary btn-sm" href="laboratorio.html">Abrir o Laboratório ➜</a>')).join(''):'<div class="cq-vazio">Nenhum pallet reprovado ou aguardando decisão nos últimos 15 dias.</div>'}</div>`;
+  }
+  document.getElementById('cq-out').innerHTML=h;
+}
+async function avisos(){
+  const u=D.u;const out=document.getElementById('cq-out');
+  const desde=new Date(Date.now()-30*864e5).toISOString();
+  const {data}=await _supabase.from('notificacoes').select('id,tipo,titulo,descricao,created_at').contains('destinatarios',[u.nome]).gte('created_at',desde).order('created_at',{ascending:false}).limit(200);
+  D.avisos=data||[];const vs=AvisosQualidade.vistos();
+  const novos=D.avisos.filter(n=>!vs.has(n.id));
+  out.innerHTML=`<div class="cq-grp"><h3>🔔 Avisos para você (30 dias) <span>${novos.length} novo(s)</span>
+      ${novos.length?`<button class="btn btn-secondary btn-sm" style="margin-left:auto;" onclick="vistoTodos()">✓ Marcar todos como vistos</button>`:''}</h3>
+    ${D.avisos.length?D.avisos.map(n=>`<div class="cq-av ${vs.has(n.id)?'':'novo'}"><div style="font-size:20px;">${n.tipo==='urgente'?'🚨':'🔔'}</div>
+      <div style="flex:1;"><b>${esc(n.titulo)}</b><div class="q">${esc(n.descricao||'')}</div><div class="q">${fmtDH(n.created_at)}</div></div>
+      ${vs.has(n.id)?'<span class="q">visto</span>':`<button class="btn btn-ghost btn-sm" onclick="AvisosQualidade.marcarVisto(['${n.id}']);avisos();">✓ Visto</button>`}</div>`).join('')
+      :'<div class="cq-vazio">Nenhum aviso para você nos últimos 30 dias.</div>'}</div>`;
+  document.getElementById('cq-nav-av').textContent=novos.length?`(${novos.length})`:'';
+}
+function vistoTodos(){ AvisosQualidade.marcarVisto((D.avisos||[]).map(n=>n.id)); avisos(); }
+function equipe(){
+  const pessoas={};D.todas.forEach(d=>{const k=d.funcionario_nome||'—';(pessoas[k]=pessoas[k]||[]).push(d);});
+  const linhas=Object.entries(pessoas).map(([nome,ds])=>{const it=itensDe(ds,false);return {nome,pops:[...new Set(ds.map(d=>d.pop_cod||'todos'))],...it,login:ds.some(d=>d.usuario_id)};})
+    .sort((a,b)=>(b.atr.length-a.atr.length)||((b.fazer.length+b.assinar.length)-(a.fazer.length+a.assinar.length)));
+  document.getElementById('cq-out').innerHTML=`<div class="cq-grp"><h3>👥 Pendências por pessoa</h3>
+    <div class="table-wrap"><table><thead><tr><th>Pessoa</th><th>POPs</th><th style="text-align:right;">Atrasadas</th><th style="text-align:right;">Para fazer</th><th style="text-align:right;">Para assinar</th></tr></thead><tbody>
+    ${linhas.map(l=>`<tr><td><b>${esc(l.nome)}</b>${l.login?'':' <span style="font-size:11px;color:#94a3b8;">(sem login)</span>'}</td><td style="font-size:12px;">${l.pops.map(esc).join(', ')}</td>
+      <td style="text-align:right;${l.atr.length?'color:#dc2626;font-weight:800;':''}">${l.atr.length}</td><td style="text-align:right;">${l.fazer.length}</td><td style="text-align:right;">${l.assinar.length}</td></tr>`).join('')}
+    </tbody></table></div></div>`;
+}
+async function ativarAvisos(){
+  try{ AvisosQualidade.bip(false); }catch(e){}
+  try{ if('Notification' in window&&Notification.permission!=='granted')await Notification.requestPermission(); }catch(e){}
+  const b=document.getElementById('cq-som');b.classList.add('on');
+  b.textContent='Notification' in window&&Notification.permission==='granted'?'🔔 Som e avisos ativos neste aparelho':'🔔 Som ativo (aviso do sistema bloqueado no navegador)';
+  try{localStorage.setItem('erp_avisos_ativos','1');}catch(e){}
+}
+fetch('partials/sidebar.html').then(r=>r.text()).then(h=>{document.getElementById('sidebar-container').innerHTML=h;
+  document.querySelector('[href="qualidade.html"]')?.classList.add('active');if(typeof openGroup==='function')openGroup('qualidade');});
+initSidebar('qualidade.html').then(()=>{ if(!getUser())return;
+  if(localStorage.getItem('erp_avisos_ativos')==='1'){const b=document.getElementById('cq-som');b.classList.add('on');b.textContent='🔔 Som e avisos ativos neste aparelho';}
+  carregar().then(()=>avisosContagem()).catch(e=>{document.getElementById('cq-out').innerHTML='<div class="alert alert-danger">Não foi possível carregar: '+esc(e.message||e)+'</div>';});
+  setInterval(()=>carregar().catch(()=>{}),120000);
+});
+async function avisosContagem(){ const u=D.u;const desde=new Date(Date.now()-30*864e5).toISOString();
+  const {data}=await _supabase.from('notificacoes').select('id').contains('destinatarios',[u.nome]).gte('created_at',desde).limit(200);
+  D.avisos=data||[];const n=D.avisos.filter(x=>!AvisosQualidade.vistos().has(x.id)).length;document.getElementById('cq-nav-av').textContent=n?`(${n})`:''; }
+</script>
+</body>
+</html>
