@@ -3968,6 +3968,45 @@ const GATILHO_FONTES={
            servico:m.servico_realizado||m.solucao||m.descricao||'',pecas:typeof m.pecas_trocadas==='string'?m.pecas_trocadas:(typeof m.pecas==='string'?m.pecas:''),
            horimetro:m.horimetro||null}}));
   }},
+  // ── POP-03 (item 7): além da limpeza diária, limpa ao fim de cada lote, na troca de
+  // variação, após manutenção na linha e após parada não programada — tudo vem da Produção
+  // e da Manutenção, dentro do escopo (Linha 2 / Longa Vida · 25 kg e Big Bag).
+  g_limp_lote:{tab:'producao',dias:3,async busca(){
+    const l=await lst(_supabase.from('producao').select('*').order('data',{ascending:false}).limit(150));
+    return l.filter(noEscopo).flatMap(p=>itensEscopoOP(p).map((it,i)=>({ref:'LIMP-LOTE/'+p.id+'/'+(it.lote||i),id:p.id,quando:p.data,
+      det:`Limpeza — fim de lote ${it.lote||''} · ${p.linha||''} · OP ${p.op_numero||''}`,
+      pre:{areas:`${p.linha||''} — linha, silos/moinho, ensacadeira e piso`,
+           obs:`Motivo: fim de lote · OP ${p.op_numero||''} · lote ${it.lote||'—'} · ${it.produto||''} · ${p.turno||''}`}})));
+  }},
+  g_limp_var:{tab:'producao',dias:3,async busca(){
+    const l=(await lst(_supabase.from('producao').select('*').order('data',{ascending:true}).limit(300))).filter(noEscopo);
+    const prodOP=p=>itensEscopoOP(p).map(x=>x.produto).filter(Boolean).join(' + ');
+    const out=[];const ult={};
+    l.forEach(p=>{const lin=String(p.linha||'');const pr=prodOP(p);if(!pr)return;
+      const ant=ult[lin];
+      if(ant&&_normP(ant.pr)!==_normP(pr))out.push({ref:'LIMP-VAR/'+p.id,id:p.id,quando:p.data,
+        det:`Limpeza — troca de variação na ${lin}: ${ant.pr} → ${pr}`,
+        pre:{areas:`${lin} — linha, silos/moinho, ensacadeira e piso`,obs:`Motivo: troca de variação · ${ant.pr} (OP ${ant.op}) → ${pr} (OP ${p.op_numero||''})`}});
+      ult[lin]={pr,op:p.op_numero||''};});
+    return out;
+  }},
+  g_limp_parada:{tab:'producao',dias:3,async busca(){
+    const NAO_PROG=/PROBLEMA|QUEDA DE ENERGIA|DESARME|ALIMENTADOR|MARTELO/i;
+    const l=await lst(_supabase.from('producao').select('*').order('data',{ascending:false}).limit(150));
+    return l.filter(noEscopo).filter(p=>itensEscopoOP(p).length).flatMap(p=>(Array.isArray(p.paradas_op)?p.paradas_op:[]).map((x,i)=>({x,i}))
+      .filter(({x})=>NAO_PROG.test(String(x.motivo||''))).map(({x,i})=>({ref:'LIMP-PAR/'+p.id+'/'+i,id:p.id,quando:p.data,
+        det:`Limpeza — após parada não programada (${x.motivo}) · ${p.linha||''} · OP ${p.op_numero||''}`,
+        pre:{hora_ini:x.h_fim||null,areas:`${p.linha||''} — linha, silos/moinho, ensacadeira e piso`,
+             obs:`Motivo: após parada não programada · ${x.motivo} ${x.h_ini||''}–${x.h_fim||''}${x.obs_parada_item?' · '+x.obs_parada_item:''} · OP ${p.op_numero||''}`}})));
+  }},
+  g_limp_manut:{tab:'manutencao',dias:30,async busca(){
+    const l=await lst(_supabase.from('manutencao').select('*').order('data_abertura',{ascending:false}).limit(200));
+    return l.filter(m=>m.linha&&linhaNoEscopo(m.linha)&&String(m.status||'').startsWith('conclu')).map(m=>({ref:'LIMP-MNT/'+m.id,id:m.id,
+      quando:String(m.data_conclusao||m.data_abertura||'').slice(0,10),
+      det:`Limpeza — após manutenção · OS ${m.numero||''} · ${m.linha} · ${m.equipamento||''}`,
+      pre:{hora_ini:m.hora_fin||null,areas:`${m.linha} — ${m.equipamento||'linha'} e entorno`,
+           obs:`Motivo: após intervenção de manutenção · OS ${m.numero||''} · ${m.equipamento||''} · ${String(m.servico_realizado||m.solucao||m.descricao||'').slice(0,120)}`}}));
+  }},
   // POP-07/002: instrumento sem calibração ou vencendo em 60 dias
   g_calib:{tab:'bpf_instrumentos',async busca(){
     return (_ent.instrumentos||[]).filter(i=>i.status!=='inativo').flatMap(i=>{
