@@ -1099,7 +1099,7 @@ async function carregar(){
     s(_supabase.from('bpf_ncs').select('*').order('data',{ascending:false}).limit(500),'NCs'),
     s(_supabase.from('bpf_auditorias').select('*').order('data',{ascending:false}).limit(300),'auditorias'),
     s(_supabase.from('bpf_treinamentos').select('*').order('data',{ascending:false}).limit(300),'treinamentos'),
-    s(_supabase.from('bpf_documentos').select('*').order('created_at',{ascending:false}).limit(300),'anexos'),
+    s(_supabase.from('bpf_documentos').select('id,nome,tipo,tamanho,url,path_storage,enviado_por,created_at,documento_cod').order('created_at',{ascending:false}).limit(300),'anexos'),
     s(_supabase.from('funcionarios').select('id,nome,funcao').eq('status','ativo').order('nome'),'funcionários'),
   ]);
   _docs=docs;_forms=forms;_travas=travas;_funcs=funcs;_desig=desig;
@@ -1358,6 +1358,10 @@ function abrirPop(cod){
       ${bannerEscopo()}
       <div id="erp-out" style="margin-top:6px;"><span class="spin"></span> Carregando…</div></div>`;
   }
+  { const ant=_anexos.filter(a=>fs.some(f=>f.codigo===a.documento_cod));
+    if(ant.length) h+=`<details class="bx-outros" style="margin-bottom:12px;"><summary>📜 Formulários em papel anteriores ao sistema (${ant.length})</summary>
+      <div style="padding-top:8px;">${ant.map(a=>`<div class="anx"><span>${esc(iconeArq(a.nome))}</span><span class="nm">${esc(a.nome)}</span>
+        <span style="color:#94a3b8;font-size:11px;">${esc(a.documento_cod)}</span><button class="btn btn-secondary btn-sm" onclick="verDocumento('${a.id}')">👁️ Ver</button></div>`).join('')}</div></details>`; }
   if(fs.length) h+=`<div class="sec-card" style="margin-top:0;"><h3>Formulários do POP (${fs.length})</h3>
     <div class="sub">Gerar ficha manual (quando não veio sozinha da OP), ficha em branco e o documento de cada formulário.</div></div>`;
   if(!fs.length)
@@ -1587,6 +1591,8 @@ function avaliar(campos,vals){
         if(c.min!==undefined&&n<c.min)d.push({campo:c.label,esperado:'≥ '+c.min,obtido:n});
         if(c.max!==undefined&&n>c.max)d.push({campo:c.label,esperado:'≤ '+c.max,obtido:n});
       }}}
+  { const e=parseFloat(String(vals.erro??'').replace(',','.')), m=parseFloat(String(vals.emp??'').replace(',','.'));
+    if(!isNaN(e)&&!isNaN(m)&&Math.abs(e)>Math.abs(m)) d.push({campo:'Erro encontrado',esperado:'≤ EMA '+m,obtido:e}); }
   return d;
 }
 function faltando(campos,vals){
@@ -1866,9 +1872,13 @@ const TRAVAS_DEF={
   treinamento_vencido:{modo:'alerta',onde:'Início'},
   veiculo_reprovado:{modo:'bloqueia',onde:'carregamento.html (não salva a carga) + aviso no Início'},
   rotulo_sem_rt:{modo:'alerta',onde:'tela da OP (producao.html) mostra o rótulo aprovado de cada produto'},
-  lote_nao_liberado:{modo:'alerta',onde:'Início'},
-  unidade_nao_liberada:{modo:'pendente',onde:'carregamento.html (QR por unidade ainda não usado)'},
-  lab_nao_qualificado:{modo:'pendente',onde:'POP-17 — aguardando definição'},
+  lote_nao_liberado:{modo:'bloqueia',onde:'carregamento.html já não carrega pallet reprovado ou aguardando decisão do Laboratório + aviso no Início'},
+  unidade_nao_liberada:{modo:'naoaplica',onde:'a fábrica não usa QR por unidade — passa a valer quando usar'},
+  lab_nao_qualificado:{modo:'bloqueia',onde:'REG-POP17-01 (análise externa)',chk:(r,v)=>r.formulario_cod==='REG-POP17-01'&&(()=>{
+      if(v.lab_qualificado==='nao')return true;
+      const p=(_ent.prestadores_qualif||[]).find(x=>_normP(x.nome)===_normP(v.laboratorio));
+      return !!p&&((p.validade&&p.validade<hoje())||p.acreditacao==='Sem acreditação'||['suspenso','reprovado','inativo'].includes(String(p.status||'')));
+    })()&&`Laboratório externo "${v.laboratorio||''}" sem qualificação vigente (ISO/IEC 17025): a análise não pode ser usada (SYS-024).`},
 };
 // devolve as mensagens das travas ligadas que barram este registro
 function travasDoRegistro(r,vals,f,fim){
@@ -2036,6 +2046,10 @@ function abrirRegistroFluxo(id){
     <button class="btn btn-primary" onclick="salvarDigitacao(false)">💾 ${regLancado(r)?'Salvar alterações':'Salvar digitação'}</button>`}`;
   document.getElementById('m-reg').classList.remove('hidden');
   renderAnexosTmp();aplicarCalc();avaliarAoVivo();
+  if(f.codigo==='REG-POP13-01'&&!travado){
+    const el=document.getElementById('f_lote_mp');
+    if(el){el.addEventListener('change',()=>conferirMpPop13(r));if(el.value)conferirMpPop13(r,true);}
+  }
   if(f.fonte_modulo&&FONTES[f.fonte_modulo]&&!travado) carregarOrigens(f.fonte_modulo).then(()=>{const s=document.getElementById('f__origem');if(s&&r.origem_id)s.value=r.origem_id;});
   if(travado)document.querySelectorAll('#campos-box input,#campos-box select,#campos-box textarea').forEach(el=>el.disabled=true);
 }
@@ -2051,6 +2065,28 @@ function aplicarCalc(){
   }
 }
 document.addEventListener('input',e=>{ if(e.target.closest&&e.target.closest('#campos-box'))aplicarCalc(); });
+// POP-13 — limite de MP por produto: o lote de MP digitado é buscado no
+// Laboratório; preenche o produto/variação da MP, se ela foi aprovada (cor/ΔE)
+// e se é compatível com TODOS os produtos da OP (ex.: MP Branco em OP de Cinza = não).
+async function conferirMpPop13(r,silencioso){
+  const num=(document.getElementById('f_lote_mp')?.value||'').trim();if(!num)return;
+  const set=(id,v)=>{const el=document.getElementById('f_'+id);if(!el)return;
+    if(el.querySelector&&el.querySelector('.sn-btn')){el.dataset.v='';if(v)setSN(id,v);}else el.value=v??'';};
+  try{
+    const {data:mps}=await _supabase.from('caulim_lotes_mp').select('numero,cor_aprovada,especificacao').ilike('numero',num).limit(1);
+    const mp=(mps||[])[0];
+    if(!mp){ if(!silencioso)toast(`Lote de MP ${num} não encontrado no Laboratório — preencha os campos da MP à mão.`,'warning'); return; }
+    const esp=mp.especificacao||{};const varr=esp.variacao||esp.produto||'';
+    set('mp_produto',[esp.produto,esp.variacao].filter(Boolean).join(' · '));
+    set('mp_aprovada',mp.cor_aprovada===true?'sim':mp.cor_aprovada===false?'nao':'');
+    let prods=[];
+    if(r.origem_id){const {data:op}=await _supabase.from('producao').select('produtos_op,produto').eq('id',r.origem_id).maybeSingle();
+      prods=op?itensDaOP(op).map(i=>i.produto).filter(Boolean):[];if(!prods.length&&op?.produto)prods=[op.produto];}
+    if(prods.length&&varr){const alvo=_normP(varr);set('mp_compativel',prods.every(p=>_normP(p).includes(alvo))?'sim':'nao');}
+    avaliarAoVivo();
+    if(!silencioso)toast('Lote de MP conferido no Laboratório.','success');
+  }catch(e){ if(!silencioso)toast('Não foi possível consultar o Laboratório: '+(e.message||e),'warning'); }
+}
 async function salvarDigitacao(rascunho){
   if(!guardAction('bpf','edit'))return;
   const r=_regAtual,f=_formAtual;if(!r||!f)return;
@@ -3285,7 +3321,7 @@ function renderDocs(){
       <div style="padding:10px 2px 2px;">
       ${_anexos.length?_anexos.slice(0,100).map(a=>`<div class="anx">
         <span>${esc(iconeArq(a.nome))}</span><span class="nm" title="${esc(a.nome)}">${esc(a.nome)}</span>
-        <span style="color:#94a3b8;font-size:11px;white-space:nowrap;">${a.tamanho?(a.tamanho/1024).toFixed(0)+' KB':''}${a.enviado_por?' · '+esc(a.enviado_por):''}</span>
+        <span style="color:#94a3b8;font-size:11px;white-space:nowrap;">${a.documento_cod?'<b style="color:var(--primary);">'+esc(a.documento_cod)+'</b> · ':''}${a.tamanho?(a.tamanho/1024).toFixed(0)+' KB':''}${a.enviado_por?' · '+esc(a.enviado_por):''}</span>
         <button class="btn btn-secondary btn-sm" onclick="verDocumento('${a.id}')">👁️ Ver</button>
         <button class="btn btn-ghost btn-sm" onclick="renomearDocumento('${a.id}')">✏️</button>
         <button class="btn btn-ghost btn-sm" style="color:var(--danger);" onclick="excluirDocumento('${a.id}')">🗑️</button>
@@ -3355,6 +3391,15 @@ function docCardHtml(d){
       </div>
     </div></div>`;
 }
+// PDFs antigos (a ficha em papel usada antes do sistema) ligados a este documento
+function formulariosAntigosHtml(cod){
+  const l=_anexos.filter(a=>a.documento_cod===cod);
+  if(!l.length)return '';
+  return `<div class="bx-card"><div class="bx-ttl">📜 Versão em papel anterior ao sistema <span class="bx-mu">${l.length} arquivo(s)</span></div>
+    ${l.map(a=>`<div class="anx"><span>${esc(iconeArq(a.nome))}</span><span class="nm" title="${esc(a.nome)}">${esc(a.nome)}</span>
+      <span style="color:#94a3b8;font-size:11px;">${a.tamanho?(a.tamanho/1024).toFixed(0)+' KB':''}</span>
+      <button class="btn btn-secondary btn-sm" onclick="verDocumento('${a.id}')">👁️ Ver</button></div>`).join('')}</div>`;
+}
 function historicoHtml(d){
   const hs=revsDe(d.codigo);
   const atual=`<div class="bx-ev bx-ev-at"><div><div class="bx-ev-r">Rev. ${esc(d.revisao||'—')} <span class="bx-tg bx-tg-verde">atual</span></div>
@@ -3384,6 +3429,7 @@ function abrirDoc(id,foco){
       ${f?`<div class="bx-mu" style="font-size:12.5px;margin-bottom:8px;">${esc(cap(f.periodicidade||'—'))}${f.exige_anexo?' · anexo obrigatório':''}</div>`:''}
       ${regs.length?quadroRegsHtml(regs,''):'<div class="bx-mu" style="font-size:12.5px;">Nenhum registro ainda.</div>'}</div>`;
   }
+  h+=formulariosAntigosHtml(d.codigo);
   h+=historicoHtml(d);
   document.getElementById('conteudo').innerHTML=h;
   if(foco==='hist')setTimeout(()=>document.getElementById('bx-hist')?.scrollIntoView({behavior:'smooth'}),60);
@@ -3479,6 +3525,9 @@ async function verDocumento(id){
   if(!a){await uiAlerta('Arquivo não encontrado.',{titulo:'Indisponível',tipo:'warn'});return;}
   if(a.path_storage) return uiVisualizar(a.path_storage,a.nome);
   if(a.url){window.open(a.url,'_blank','noopener');return;}
+  if(!a.conteudo_base64){   // o conteúdo antigo (base64 no banco) só é buscado quando abre
+    try{const {data}=await _supabase.from('bpf_documentos').select('conteudo_base64').eq('id',id).maybeSingle();a.conteudo_base64=data?.conteudo_base64||null;}catch(e){}
+  }
   if(a.conteudo_base64){
     const tipo=a.tipo||'application/octet-stream';
     const src=String(a.conteudo_base64).startsWith('data:')?a.conteudo_base64:`data:${tipo};base64,${a.conteudo_base64}`;
@@ -3577,7 +3626,7 @@ function renderTravas(){
           ${t.severidade==='alerta'?'<span class="badge badge-warning">alerta</span>':''}</div>
           <div class="ds">${esc(t.descricao||'')}</div>
           ${(()=>{const d=TRAVAS_DEF[t.codigo];if(!d)return '<div class="ds" style="color:#b91c1c;font-weight:700;">⚠ sem regra no sistema</div>';
-            const m={bloqueia:['#166534','🔒 Bloqueia'],alerta:['#b45309','⚠️ Avisa'],pendente:['#64748b','⏳ Pendente']}[d.modo];
+            const m={bloqueia:['#166534','🔒 Bloqueia'],alerta:['#b45309','⚠️ Avisa'],pendente:['#64748b','⏳ Pendente'],naoaplica:['#64748b','— Não se aplica hoje']}[d.modo];
             return `<div class="ds" style="color:${m[0]};font-weight:700;">${m[1]} — ${esc(d.onde)}${t.ativa?'':' · (desligada)'}</div>`;})()}</div>
         <span class="badge badge-gray">${esc(t.pop_cod||'—')}</span></div>`).join('')}</div>`;
   }
