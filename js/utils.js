@@ -1099,10 +1099,10 @@ const AvisosQualidade=(()=>{
     try{
       const AC=window.AudioContext||window.webkitAudioContext;if(!AC)return;
       ctx=ctx||new AC(); if(ctx.state==='suspended')ctx.resume();
-      const toca=(t0,f)=>{const o=ctx.createOscillator(),g=ctx.createGain();o.type='sine';o.frequency.value=f;
-        g.gain.setValueAtTime(0.0001,ctx.currentTime+t0);g.gain.exponentialRampToValueAtTime(0.5,ctx.currentTime+t0+0.02);
+      const toca=(t0,f)=>{const o=ctx.createOscillator(),g=ctx.createGain();o.type='square';o.frequency.value=f;
+        g.gain.setValueAtTime(0.0001,ctx.currentTime+t0);g.gain.exponentialRampToValueAtTime(1.0,ctx.currentTime+t0+0.02);
         g.gain.exponentialRampToValueAtTime(0.0001,ctx.currentTime+t0+0.35);o.connect(g);g.connect(ctx.destination);o.start(ctx.currentTime+t0);o.stop(ctx.currentTime+t0+0.4);};
-      const n=urgente?3:1; for(let i=0;i<n;i++){toca(i*0.9,880);toca(i*0.9+0.18,1320);}
+      const n=urgente?4:2; for(let i=0;i<n;i++){toca(i*0.8,880);toca(i*0.8+0.18,1320);toca(i*0.8+0.36,1760);}
     }catch(e){}
   }
   function avisoSistema(n){
@@ -1220,6 +1220,57 @@ async function bpfTravaGenerica(codigo,{onde,violou,msg,contexto}){
   await bpfAvisar(titulo+' — bloqueado',msg+' · '+contexto,codigo+'_blq_'+Date.now(),tv.pop_cod);
   alert('🚫 BLOQUEADO PELO BPF — '+tv.nome+'\n\n'+msg+(libs.length?'\n\nPeça liberação a: '+libs.join(', '):''));
   return false;
+}
+
+// ── ASSINATURA DE PRÓPRIO PUNHO (BPF e Central da Qualidade) ───────────
+// Abre um quadro para assinar com o dedo, a caneta ou o mouse. Devolve a imagem (PNG) ou null.
+// "Guardar neste aparelho" deixa a pessoa reaproveitar a MESMA assinatura dela depois.
+function padAssinatura({titulo,quem,funcao,detalhe}){
+  const E=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const chave='bpf_assinatura_'+String(quem||'').toLowerCase();
+  let salva=null;try{salva=localStorage.getItem(chave);}catch(e){}
+  return new Promise(res=>{
+    const ov=document.createElement('div');
+    ov.style.cssText='position:fixed;inset:0;background:rgba(2,20,40,.55);z-index:30000;display:flex;align-items:center;justify-content:center;padding:12px;';
+    ov.innerHTML=`<div style="background:#fff;border-radius:16px;max-width:640px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.3);font-family:'Plus Jakarta Sans',sans-serif;">
+      <div style="padding:14px 18px;border-bottom:1px solid #e2e8f0;font-weight:800;color:#042D4D;font-size:15.5px;">✍️ ${E(titulo||'Assinatura')}</div>
+      <div style="padding:14px 18px;">
+        <div style="font-size:13px;margin-bottom:8px;"><b>${E(quem)}</b> · ${E(funcao||'')} · ${new Date().toLocaleString('pt-BR')}</div>
+        ${detalhe?`<div style="font-size:12px;color:#64748b;margin:-2px 0 8px;">${E(detalhe)}</div>`:''}
+        <div style="position:relative;border:2px dashed #94a3b8;border-radius:12px;background:#fff;touch-action:none;">
+          <canvas data-c style="width:100%;height:210px;display:block;border-radius:12px;cursor:crosshair;"></canvas>
+          <div data-dica style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#cbd5e1;font-size:15px;pointer-events:none;">Assine aqui com o dedo, a caneta ou o mouse</div>
+          <div style="position:absolute;left:18px;right:18px;bottom:40px;border-bottom:1px solid #cbd5e1;pointer-events:none;"></div></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:9px;align-items:center;">
+          <button data-limpar class="btn btn-secondary btn-sm">🧹 Limpar</button>
+          ${salva?'<button data-salva class="btn btn-secondary btn-sm">↺ Usar minha assinatura guardada</button>':''}
+          <label style="margin-left:auto;font-size:12.5px;display:flex;gap:6px;align-items:center;"><input type="checkbox" data-guardar ${salva?'checked':''}> Guardar neste aparelho</label></div>
+        <div style="margin-top:9px;font-size:11.5px;color:#64748b;">A assinatura fica no registro e na trilha de auditoria e não pode ser removida.</div></div>
+      <div style="padding:12px 18px;border-top:1px solid #e2e8f0;display:flex;gap:8px;justify-content:flex-end;">
+        <button data-cancel class="btn btn-secondary">Cancelar</button><button data-ok class="btn btn-primary" disabled>✍️ Assinar</button></div></div>`;
+    document.body.appendChild(ov);
+    const q=s=>ov.querySelector(s);
+    const cv=q('[data-c]'),ctx=cv.getContext('2d');
+    const dpr=Math.max(1,window.devicePixelRatio||1);const W=cv.clientWidth,H=cv.clientHeight;
+    cv.width=W*dpr;cv.height=H*dpr;ctx.scale(dpr,dpr);ctx.lineWidth=2.4;ctx.lineCap='round';ctx.lineJoin='round';ctx.strokeStyle='#0b1f4a';ctx.fillStyle='#0b1f4a';
+    let des=false,tem=false,ult=null;
+    const pos=e=>{const b=cv.getBoundingClientRect();return {x:e.clientX-b.left,y:e.clientY-b.top};};
+    const marca=()=>{tem=true;q('[data-ok]').disabled=false;q('[data-dica]').style.display='none';};
+    cv.addEventListener('pointerdown',e=>{e.preventDefault();try{cv.setPointerCapture(e.pointerId);}catch(x){}des=true;ult=pos(e);ctx.beginPath();ctx.arc(ult.x,ult.y,1.1,0,7);ctx.fill();marca();});
+    cv.addEventListener('pointermove',e=>{if(!des)return;e.preventDefault();const p=pos(e);ctx.beginPath();ctx.moveTo(ult.x,ult.y);ctx.lineTo(p.x,p.y);ctx.stroke();ult=p;});
+    ['pointerup','pointercancel','pointerleave'].forEach(t=>cv.addEventListener(t,()=>{des=false;}));
+    q('[data-limpar]').onclick=()=>{ctx.clearRect(0,0,W,H);tem=false;q('[data-ok]').disabled=true;q('[data-dica]').style.display='flex';};
+    const bs=q('[data-salva]');
+    if(bs)bs.onclick=()=>{const im=new Image();im.onload=()=>{ctx.clearRect(0,0,W,H);const k=Math.min(W/im.width,H/im.height);ctx.drawImage(im,(W-im.width*k)/2,(H-im.height*k)/2,im.width*k,im.height*k);marca();};im.src=salva;};
+    const fim=v=>{ov.remove();res(v);};
+    q('[data-cancel]').onclick=()=>fim(null);
+    q('[data-ok]').onclick=()=>{
+      if(!tem)return;
+      const o=document.createElement('canvas');o.width=500;o.height=Math.round(500*H/W);o.getContext('2d').drawImage(cv,0,0,o.width,o.height);
+      const img=o.toDataURL('image/png');
+      try{ if(q('[data-guardar]').checked)localStorage.setItem(chave,img); else localStorage.removeItem(chave); }catch(e){}
+      fim(img);};
+  });
 }
 
 // ── BUSCAR TODAS AS LINHAS ─────────────────────────────────
