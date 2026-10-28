@@ -5293,6 +5293,14 @@ async function salvarLaudo(finalizar){
     atualizado_em:new Date().toISOString(),
   };
   if(finalizar){
+    // BPF · POP-15/16/17: laudo só com análise externa vigente e lote liberado
+    const hj=new Date().toISOString().slice(0,10);
+    const ext=asArray(c.externas);
+    const venc=ext.filter(x=>x&&x.validade&&String(x.validade).slice(0,10)<hj);
+    if((!ext.length||venc.length)&&!(await bpfTravaGenerica('laudo_externo_vencido',{onde:'laboratorio',violou:true,
+        msg:ext.length?`Análise(s) externa(s) vencida(s): ${venc.map(x=>x.tipo||x.analise||x.nome||'análise').join(', ')}.`:'Laudo sem análise externa vigente vinculada.',contexto:'Laudo da OP '+(op.op_numero||'')}))) return;
+    if(String(vd.status||'').toUpperCase()!=='APROVADO'&&!(await bpfTravaGenerica('lote_nao_liberado',{onde:'laboratorio',violou:true,
+        msg:`Lote com veredito "${vd.status||'—'}" — não liberado pela Qualidade.`,contexto:'Laudo da OP '+(op.op_numero||'')}))) return;
     row.assinado_em=new Date().toISOString();
     try{ row.assinatura_hash=await assinarEletronicamente((c.rt.nome||'')+(op.op_numero||'')+vd.status); }
     catch(e){ toast('Não foi possível gerar a assinatura eletrônica (precisa de HTTPS). O laudo não foi finalizado.','danger'); return; }
@@ -6847,6 +6855,15 @@ async function salvarLoteMP(){
       std:st, caracterizacao:caract.map(e=>({ensaio:e.rot,valor:e.valor,min:e.min,max:e.max,situacao:e.status}))},
     umidade_pct:numOrNull(gv('mp-umidade')),analista_mp:analista};
 
+  // BPF · POP-02: cor fora do ΔE e análise química da variação vencida
+  if(de!=null&&Number(de)>1.0){
+    if(!(await bpfTravaGenerica('cor_delta_e',{onde:'laboratorio',violou:true,msg:`Lote de MP com ΔE ${Number(de).toFixed(2)} (limite 1,0).`,contexto:'Lote de MP '+(row.numero||'')}))) return;
+  }
+  try{
+    const {data:ext}=await _supabase.from('caulim_analises_externas').select('id,validade,status,tipo').eq('tipo','quimica').eq('variacao_principal_id',row.variacao_declarada_id||'00000000-0000-0000-0000-000000000000');
+    const vig=(ext||[]).some(e=>!['pendente_assinatura','devolvida'].includes(e.status)&&(!e.validade||e.validade>=row.data));
+    if(!vig&&!(await bpfTravaGenerica('mp_quimica_vencida',{onde:'laboratorio',violou:true,msg:'Sem análise química externa vigente para a variação deste lote (POP-17).',contexto:'Lote de MP '+(row.numero||'')}))) return;
+  }catch(e){}
   const btn=document.getElementById('btn-salvar-lote-mp');
   if(btn){btn.disabled=true;btn.innerHTML='<span class="spin"></span>';}
   try{

@@ -3504,7 +3504,8 @@ async function bpfVeiculoReprovado(placa){
 }
 async function salvarCarregamento(){
   const rep=await bpfVeiculoReprovado(_carrOrdem&&_carrOrdem.placa);
-  if(rep){
+  if(rep&&!(await bpfTravaGenerica('veiculo_reprovado',{onde:'carregamento',violou:true,
+      msg:`Veículo ${_carrOrdem.placa} REPROVADO na inspeção (${rep.numero}).`,contexto:'Carregamento da ordem '+(_carrOrdem.numero||'')}))){
     toast(`🚫 BPF: veículo ${_carrOrdem.placa} REPROVADO na inspeção (${rep.numero}). Carregamento bloqueado até regularizar e registrar nova inspeção aprovada.`,'danger');
     return;
   }
@@ -3601,6 +3602,12 @@ async function gravarCarregamento(opts){
       escala_id:escalaRef?escalaRef.id:null,escala_nome:escalaRef?escalaRef.nome:null,escala_turno:escalaRef?escalaRef.turno:null,
       carregado_em:agora});
   });
+  // BPF · trava "unidade_nao_liberada": pallet que não está APROVADO (reprovado, em decisão ou em análise) não carrega
+  { const naoLib=[...usados].map(id=>_pallets.find(x=>x.id===id)).filter(p=>p&&!['disponivel','carregado'].includes(situacaoPallet(p)));
+    if(naoLib.length&&!(await bpfTravaGenerica('unidade_nao_liberada',{onde:'carregamento',violou:true,
+        msg:`${naoLib.length} unidade(s) sem liberação da Qualidade: ${naoLib.slice(0,8).map(p=>(p.codigo||p.numero||'pallet')+' ('+(SIT_LBL[situacaoPallet(p)]||'')+')').join(', ')}${naoLib.length>8?'…':''}.`,
+        contexto:'Carregamento da ordem '+(_carrOrdem.numero||'')}))){
+      btn.disabled=false;btn.textContent='💾 Salvar carregamento';return false; } }
   const devolver=[..._carrPreIds].filter(id=>!usados.has(id));
 
   /* 2) UMA transação no banco: pallets + documento + romaneio (migration 005).

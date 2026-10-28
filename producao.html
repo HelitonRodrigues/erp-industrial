@@ -1918,6 +1918,20 @@ async function salvarLanc(){
   const eficDispTxt=document.getElementById('l-efic-disp')?.textContent?.trim()||'—';
   const eficProdTxt=document.getElementById('l-efic-prod')?.textContent?.trim()||'—';
   const dados={data,dia_semana:document.getElementById('l-dia').value,linha,turno,op_numero:_opNumAtual||null,encarregado:document.getElementById('l-enc').value||null,equipe,produto:priProd,ht:parseFloat(totHT.toFixed(2))||0,hp:parseFloat(totHP.toFixed(2))||0,total_sacos:totSacos,eficiencia:efic,efic_disp:eficDispTxt,efic_prod:eficProdTxt,produtos_op:produtosOP,paradas_op:paradas,obs_parada:document.getElementById('l-obs-parada').value||null,consumo_lenha:parseFloat(document.getElementById('l-lenha').value)||null,lote_mp:document.getElementById('l-lote-mp').value||null,lote_aditivo:document.getElementById('l-lote-ad').value||null,obs:document.getElementById('l-obs').value||null,status:totSacos===0?'parada':'em_analise',atualizado_em:new Date().toISOString()};
+  // BPF · POP-15/18: produto com rótulo sem aprovação do RT e aferição de peso fora da tolerância
+  try{
+    const prodsOP=[...new Set((dados.produtos_op||[]).map(x=>x&&x.produto).concat([dados.produto]).filter(Boolean))];
+    const {data:rots}=await _supabase.from('bpf_registros').select('campos,status,cancelado_em').eq('formulario_cod','REG-POP15-03').is('cancelado_em',null).limit(2000);
+    const n=x=>String(x||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]/g,'');
+    const escopo=x=>/(^|[^0-9])25\s*kg|big\s*-?\s*bag|\bbag\b/i.test(String(x||''));
+    const semRt=prodsOP.filter(p=>escopo(p)&&!(rots||[]).some(r=>r.status==='concluido'&&n((r.campos||{}).produto)===n(p)));
+    if(semRt.length&&!(await bpfTravaGenerica('rotulo_sem_rt',{onde:'producao',violou:true,msg:`Produto sem rótulo aprovado pelo RT (REG-POP15-03): ${semRt.join(', ')}.`,contexto:'OP '+(dados.op_numero||'nova')}))) return;
+    if(_eL){
+      const {data:af}=await _supabase.from('bpf_registros').select('numero,conforme,lancado_em').eq('formulario_cod','REG-POP18-01').eq('origem_id',String(_eL)).is('cancelado_em',null);
+      const fora=(af||[]).filter(r=>r.lancado_em&&r.conforme===false);
+      if(fora.length&&!(await bpfTravaGenerica('peso_fora_tolerancia',{onde:'producao',violou:true,msg:`Aferição de peso fora da tolerância: ${fora.map(r=>r.numero).join(', ')}.`,contexto:'OP '+(dados.op_numero||'')}))) return;
+    }
+  }catch(e){ console.warn('[BPF travas produção]',e); }
   btn.innerHTML='<span class="spin"></span>';btn.disabled=true;
   if(!_opNumAtual){gerarNumOP();document.getElementById('l-op-num').textContent=_opNumAtual;}
   if(!_opLoteAtual)gerarLoteAuto();
