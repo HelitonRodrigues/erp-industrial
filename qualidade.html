@@ -88,8 +88,8 @@ async function carregar(){
   const [ds,fs,regs,tars,pops,fn]=await Promise.all([
     _supabase.from('bpf_designacoes').select('funcionario_nome,usuario_id,pop_cod,funcao_cod,papeis,ativo').eq('ativo',true),
     _supabase.from('bpf_formularios').select('codigo,titulo,pop_cod,assinaturas,sem_papel,conclui_com_anexo'),
-    selectTodos(_supabase.from('bpf_registros').select('id,numero,formulario_cod,pop_cod,data,status,lancado_em,foto_ficha,assinaturas,campos,tarefa_id,ficha_impressa_em,cancelado_em').not('status','in','(concluido,cancelado)'),{max:3000}),
-    selectTodos(_supabase.from('bpf_tarefas').select('id,prazo,registro_id,pop_cod,origem_det,formulario_cod,status').eq('status','aberta').gte('criado_em','2026-10-26'),{max:3000}),
+    selectTodos(_supabase.from('bpf_registros').select('id,numero,formulario_cod,pop_cod,data,status,lancado_em,foto_ficha,assinaturas,campos,tarefa_id,ficha_impressa_em,cancelado_em').not('status','in','(concluido,cancelado)'),{max:50000}),
+    selectTodos(_supabase.from('bpf_tarefas').select('id,prazo,registro_id,pop_cod,origem_det,formulario_cod,status').eq('status','aberta').gte('criado_em','2026-10-26'),{max:50000}),
     _supabase.from('bpf_documentos_mestre').select('codigo,titulo').eq('tipo','pop'),
     _supabase.from('bpf_funcoes').select('codigo,nome')]);
   const todas=(ds.data||[]);
@@ -109,7 +109,8 @@ function itensDe(desigs,todos){
   const pap=(pop,p)=>todos||desigs.some(d=>(!d.pop_cod||d.pop_cod===pop)&&(d.papeis||[]).includes(p));
   const fun=pop=>desigs.filter(d=>(!d.pop_cod||d.pop_cod===pop)&&(d.papeis||[]).includes('assina')).map(d=>d.funcao_cod);
   const agora=new Date().toISOString();
-  const atr=D.tars.filter(t=>t.prazo<agora&&(pap(t.pop_cod,'responsavel')||pap(t.pop_cod,'lanca')||pap(t.pop_cod,'aviso')));
+  const sete=new Date(Date.now()-7*864e5).toISOString();
+  const atr=D.tars.filter(t=>t.prazo<agora&&t.prazo>=sete&&(pap(t.pop_cod,'responsavel')||pap(t.pop_cod,'lanca')||pap(t.pop_cod,'aviso')));
   const fazer=[],assinar=[];
   D.regs.forEach(r=>{const f=F(r.formulario_cod);const e=etapa(r,f);
     if(['a_preencher','a_digitar','falta_foto'].includes(e)&&pap(r.pop_cod,'lanca'))fazer.push({r,f,e});
@@ -143,7 +144,14 @@ function caixa(){
   let h=`<div class="cq-grp"><h3>⏰ Atrasadas <span>${m.atr.length}</span></h3>${m.atr.length?m.atr.sort((a,b)=>a.prazo.localeCompare(b.prazo)).map(t=>{const r=regPorId(t.registro_id);
       return item('#dc2626',`${esc(t.pop_cod)} · ${esc(t.formulario_cod)}${r?' · '+esc(r.numero):''}`,`${esc(t.origem_det||'')} · prazo era <b style="color:#dc2626">${fmtDH(t.prazo)}</b>`,'',r?abrir(r.id):'<a class="btn btn-secondary btn-sm" href="bpf.html">Abrir o BPF</a>');}).join(''):'<div class="cq-vazio">Nada atrasado. 👍</div>'}</div>`;
   h+=`<div class="cq-grp"><h3>✍️ Para você assinar <span>${m.assinar.length}</span></h3>${m.assinar.length?m.assinar.map(({r,f,fl})=>item('#7c3aed',`${esc(r.pop_cod)} · ${esc(f?f.titulo:r.formulario_cod)} · ${esc(r.numero)}`,`${esc(resumo(r))} · falta: ${fl.map(a=>esc(a.label)).join(', ')}`,'',abrir(r.id))).join(''):'<div class="cq-vazio">Nenhuma assinatura pendente.</div>'}</div>`;
-  h+=`<div class="cq-grp"><h3>📝 Para preencher, digitar ou fotografar <span>${m.fazer.length}</span></h3>${m.fazer.length?m.fazer.sort((a,b)=>String(a.r.data).localeCompare(String(b.r.data))).map(({r,f,e})=>item(ETAPA[e][1],`${esc(r.pop_cod)} · ${esc(f?f.titulo:r.formulario_cod)} · ${esc(r.numero)}`,`${fmtD(r.data)} · ${esc(resumo(r))}`,`<span class="tg" style="background:${ETAPA[e][1]}22;color:${ETAPA[e][1]}">${ETAPA[e][0]}</span>`,abrir(r.id))).join(''):'<div class="cq-vazio">Nenhuma ficha com você.</div>'}</div>`;
+  { const g={};m.fazer.forEach(({r,f,e})=>{const k=r.formulario_cod;(g[k]=g[k]||{f,pop:r.pop_cod,n:0,et:{},min:r.data,max:r.data});const o=g[k];o.n++;o.et[e]=(o.et[e]||0)+1;
+      if(String(r.data)<String(o.min))o.min=r.data;if(String(r.data)>String(o.max))o.max=r.data;});
+    const ks=Object.keys(g).sort();
+    h+=`<div class="cq-grp"><h3>📝 Para preencher, digitar ou fotografar <span>${m.fazer.length}</span></h3>${ks.length?ks.map(k=>{const o=g[k];
+      return item('#2563eb',`${esc(o.pop)} · ${esc(k)} — ${esc(o.f?o.f.titulo:'')}`,
+        `${o.n} ficha(s) · ${Object.entries(o.et).map(([e,n])=>`${(ETAPA[e]||[e])[0]} ${n}`).join(' · ')} · de ${fmtD(o.min)} a ${fmtD(o.max)}`,'',
+        `<a class="btn btn-primary btn-sm" href="bpf.html#pop=${encodeURIComponent(o.pop)}&aba=${encodeURIComponent(k)}">Abrir no BPF ➜</a>`);}).join('')
+      :'<div class="cq-vazio">Nenhuma ficha com você.</div>'}</div>`; }
   if(D.veLab){
     const g={};D.lab.forEach(p=>{const k=(p.status==='reprovado'?'❌ Reprovado':'⏳ Aguardando decisão')+' · '+(p.produto||'—')+' · '+(p.linha||'—');(g[k]=g[k]||[]).push(p);});
     h+=`<div class="cq-grp"><h3>🧪 Laboratório — pallets no estoque <span>${D.lab.length}</span></h3>${Object.keys(g).length?Object.entries(g).map(([k,l])=>item(k.startsWith('❌')?'#dc2626':'#f59e0b',esc(k),`${l.length} pallet(s) · ${l.slice(0,6).map(p=>esc(p.codigo)).join(', ')}${l.length>6?'…':''} · desde ${fmtD(l[l.length-1].data)}`,'','<a class="btn btn-secondary btn-sm" href="laboratorio.html">Abrir o Laboratório ➜</a>')).join(''):'<div class="cq-vazio">Nenhum pallet reprovado ou aguardando decisão nos últimos 15 dias.</div>'}</div>`;
