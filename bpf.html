@@ -774,9 +774,57 @@ const nomeFuncao=c=>_funcs.find(f=>f.codigo===c)?.nome||c||'—';
 // ═══════════════════════════════════════════════════════════════════════════
 // DIÁLOGOS PRÓPRIOS — o módulo nunca usa alert/confirm/prompt do navegador
 // ═══════════════════════════════════════════════════════════════════════════
+// imprime só depois que TODAS as imagens da folha carregaram (logo, assinaturas, foto) —
+// sem isso o navegador às vezes imprime antes e a logo sai em branco
+function imprimirAgora(){
+  const imgs=[...document.querySelectorAll('#print-area img')];
+  return Promise.all(imgs.map(im=>im.complete&&im.naturalWidth?Promise.resolve():new Promise(ok=>{im.onload=im.onerror=ok;setTimeout(ok,6000);})
+    .then(()=>im.decode?im.decode().catch(()=>{}):null))).then(()=>window.print());
+}
 function _fecharDlg(){document.getElementById('dlg-host').innerHTML='';}
 function _dlg(html){document.getElementById('dlg-host').innerHTML=`<div class="dlg-ov" id="dlg-ov">${html}</div>`;}
 const _ICO={info:'ℹ️',ok:'✅',warn:'⚠️',dang:'⛔',pergunta:'❓'};
+// ── Assinatura de próprio punho: desenha com o dedo, caneta ou mouse. Devolve a imagem (PNG) ou null.
+// "Guardar neste aparelho" deixa a pessoa reaproveitar a MESMA assinatura dela nas próximas vezes.
+function padAssinatura({titulo,quem,funcao}){
+  const chave='bpf_assinatura_'+String(quem||'').toLowerCase();
+  let salva=null;try{salva=localStorage.getItem(chave);}catch(e){}
+  return new Promise(res=>{
+    _dlg(`<div class="dlg" style="max-width:620px;width:96vw;"><div class="dlg-hd"><span class="dlg-ic">✍️</span><div class="dlg-tt">${esc(titulo||'Assinatura')}</div></div>
+      <div class="dlg-bd">
+        <div style="font-size:13px;margin-bottom:8px;"><b>${esc(quem||'')}</b> · ${esc(funcao||'')} · ${new Date().toLocaleString('pt-BR')}</div>
+        <div style="position:relative;border:2px dashed #94a3b8;border-radius:12px;background:#fff;touch-action:none;">
+          <canvas id="ass-cv" style="width:100%;height:200px;display:block;border-radius:12px;cursor:crosshair;"></canvas>
+          <div id="ass-dica" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#cbd5e1;font-size:15px;pointer-events:none;">Assine aqui com o dedo, a caneta ou o mouse</div>
+          <div style="position:absolute;left:18px;right:18px;bottom:38px;border-bottom:1px solid #cbd5e1;pointer-events:none;"></div></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:9px;align-items:center;">
+          <button class="btn btn-secondary btn-sm" id="ass-limpar">🧹 Limpar</button>
+          ${salva?'<button class="btn btn-secondary btn-sm" id="ass-salva">↺ Usar minha assinatura guardada</button>':''}
+          <label style="margin-left:auto;font-size:12.5px;display:flex;gap:6px;align-items:center;"><input type="checkbox" id="ass-guardar" ${salva?'checked':''}> Guardar neste aparelho</label></div>
+        <div style="margin-top:9px;font-size:11.5px;color:#64748b;">A assinatura fica no registro e na trilha de auditoria e não pode ser removida.</div></div>
+      <div class="dlg-ft"><button class="btn btn-secondary" id="ass-cancel">Cancelar</button><button class="btn btn-primary" id="ass-ok" disabled>✍️ Assinar</button></div></div>`);
+    const cv=document.getElementById('ass-cv'),ctx=cv.getContext('2d');
+    const dpr=Math.max(1,window.devicePixelRatio||1);const W=cv.clientWidth,H=cv.clientHeight;
+    cv.width=W*dpr;cv.height=H*dpr;ctx.scale(dpr,dpr);ctx.lineWidth=2.4;ctx.lineCap='round';ctx.lineJoin='round';ctx.strokeStyle='#0b1f4a';
+    let des=false,tem=false,ult=null;
+    const pos=e=>{const b=cv.getBoundingClientRect();return {x:e.clientX-b.left,y:e.clientY-b.top};};
+    const marca=()=>{tem=true;document.getElementById('ass-ok').disabled=false;document.getElementById('ass-dica').style.display='none';};
+    cv.addEventListener('pointerdown',e=>{e.preventDefault();cv.setPointerCapture(e.pointerId);des=true;ult=pos(e);ctx.beginPath();ctx.arc(ult.x,ult.y,1.1,0,7);ctx.fillStyle='#0b1f4a';ctx.fill();marca();});
+    cv.addEventListener('pointermove',e=>{if(!des)return;e.preventDefault();const p=pos(e);ctx.beginPath();ctx.moveTo(ult.x,ult.y);ctx.lineTo(p.x,p.y);ctx.stroke();ult=p;});
+    ['pointerup','pointercancel','pointerleave'].forEach(t=>cv.addEventListener(t,()=>{des=false;}));
+    document.getElementById('ass-limpar').onclick=()=>{ctx.clearRect(0,0,W,H);tem=false;document.getElementById('ass-ok').disabled=true;document.getElementById('ass-dica').style.display='flex';};
+    const bs=document.getElementById('ass-salva');
+    if(bs)bs.onclick=()=>{const im=new Image();im.onload=()=>{ctx.clearRect(0,0,W,H);const k=Math.min(W/im.width,H/im.height);ctx.drawImage(im,(W-im.width*k)/2,(H-im.height*k)/2,im.width*k,im.height*k);marca();};im.src=salva;};
+    document.getElementById('ass-cancel').onclick=()=>{_fecharDlg();res(null);};
+    document.getElementById('ass-ok').onclick=()=>{
+      if(!tem)return;
+      // imagem leve (fundo transparente, 500 px de largura) para guardar no registro
+      const o=document.createElement('canvas');o.width=500;o.height=Math.round(500*H/W);o.getContext('2d').drawImage(cv,0,0,o.width,o.height);
+      const img=o.toDataURL('image/png');
+      try{ if(document.getElementById('ass-guardar').checked)localStorage.setItem(chave,img); else localStorage.removeItem(chave); }catch(e){}
+      _fecharDlg();res(img);};
+  });
+}
 
 function uiAlerta(msg,{titulo='Aviso',tipo='info',ok='Entendi'}={}){
   return new Promise(res=>{
@@ -931,6 +979,7 @@ async function init(){
   }
   try{ if(localStorage.getItem('bpf-nav-off')==='1') alternarNav(true); }catch(e){}
   await carregar();
+  dadosEmpresa().catch(()=>{});
   renderNav();
   // A varredura é PULL: roda ao abrir o módulo, não é trigger no Postgres.
   if(_temFila && _gatilhos.some(g=>g.ativo)){
@@ -1176,7 +1225,7 @@ async function verAcesso(id){const emp=await dadosEmpresa();const u=_acessos.fin
     <div class="dlg-bd" style="max-height:70vh;overflow:auto;background:#e2e8f0;padding:14px;"><div style="background:#fff;max-width:794px;margin:0 auto;padding:24px 28px;">${htmlAcesso(u,emp)}</div></div>
     <div class="dlg-ft"><button class="btn btn-secondary" onclick="baixarAcessos('${id}')">⬇️ Baixar PDF</button><button class="btn btn-primary" onclick="imprimirAcessos('${id}')">🖨️ Imprimir</button><button class="btn btn-secondary" onclick="_fecharDlg()">Fechar</button></div></div>`);}
 async function imprimirAcessos(id){if(!_acessos.length)await carregarAcessos();const emp=await dadosEmpresa();const u=id&&_acessos.find(x=>x.id===id);
-  document.getElementById('print-area').innerHTML=u?htmlAcesso(u,emp):htmlAcessosLista(emp);window.print();}
+  document.getElementById('print-area').innerHTML=u?htmlAcesso(u,emp):htmlAcessosLista(emp);imprimirAgora();}
 async function baixarAcessos(id){if(!_acessos.length)await carregarAcessos();const emp=await dadosEmpresa();const u=id&&_acessos.find(x=>x.id===id);
   await baixarPdfHtml(u?htmlAcesso(u,emp):htmlAcessosLista(emp),u?`Acesso BPF - ${String(u.nome).replace(/[\\/:*?"<>|]/g,'')}.pdf`:'Pessoas com acesso ao BPF.pdf');}
 let _fornBpf=[];
@@ -1241,7 +1290,7 @@ async function verFornBpf(id){const emp=await dadosEmpresa();const f=_fornBpf.fi
     <div class="dlg-bd" style="max-height:70vh;overflow:auto;background:#e2e8f0;padding:14px;"><div style="background:#fff;max-width:794px;margin:0 auto;padding:24px 28px;">${htmlFornBpf(f,emp)}</div></div>
     <div class="dlg-ft"><button class="btn btn-secondary" onclick="baixarFornBpf('${id}')">⬇️ Baixar PDF</button><button class="btn btn-primary" onclick="imprimirFornBpf('${id}')">🖨️ Imprimir</button><button class="btn btn-secondary" onclick="_fecharDlg()">Fechar</button></div></div>`);}
 async function imprimirFornBpf(id){const emp=await dadosEmpresa();const f=id&&_fornBpf.find(x=>x.id===id);
-  document.getElementById('print-area').innerHTML=f?htmlFornBpf(f,emp):htmlFornBpfLista(emp);window.print();}
+  document.getElementById('print-area').innerHTML=f?htmlFornBpf(f,emp):htmlFornBpfLista(emp);imprimirAgora();}
 async function baixarFornBpf(id){const emp=await dadosEmpresa();const f=id&&_fornBpf.find(x=>x.id===id);
   await baixarPdfHtml(f?htmlFornBpf(f,emp):htmlFornBpfLista(emp),f?`Fornecedor BPF - ${String(f.nome_fantasia||f.razao_social).replace(/[\\/:*?"<>|]/g,'')}.pdf`:'Fornecedores BPF - lista.pdf');}
 function filtrarNav(t){
@@ -1809,7 +1858,7 @@ async function imprimirFichaReg(id){
   if(r._novo){ if(!(await persistirNovo(r)))return; id=r.id; }
   const f=_forms.find(x=>x.codigo===r.formulario_cod);if(!f)return;
   document.getElementById('print-area').innerHTML=htmlFicha(f,_pops.find(p=>p.codigo===f.pop_cod),r);
-  window.print();
+  imprimirAgora();
   if(!r.ficha_impressa_em){
     const agora=new Date().toISOString();
     const st=r.status==='a_preencher'?'a_digitar':r.status;
@@ -1829,7 +1878,7 @@ async function imprimirFichasPendentes(popCod,opId){
     const f=_forms.find(x=>x.codigo===r.formulario_cod);if(!f)return '';
     return htmlFicha(f,_pops.find(p=>p.codigo===f.pop_cod),r);
   }).join('');
-  window.print();
+  imprimirAgora();
   const agora=new Date().toISOString();
   const ids=l.map(r=>r.id);
   const res=await db(_supabase.from('bpf_registros').update({ficha_impressa_em:agora,status:'a_digitar'}).in('id',ids),'marcar fichas impressas');
@@ -1905,7 +1954,7 @@ function abrirRegistroFluxo(id){
         const pode=regLancado(r)&&(!!foto||formSemPapel(f.codigo));
         return `<tr><td><b>${esc(a.label)}</b><div class="bx-mu" style="font-size:10.5px;">${esc(nomeFuncao(a.funcao))}</div></td>
           ${semPapel?'':`<td><input class="form-input rx-pap" id="rf-pap-${esc(a.id)}" list="lst-func" value="${esc(pap[a.id]||'')}" placeholder="nome na ficha" ${travado?'disabled':''}></td>`}
-          <td>${fe?`<span class="rx-ok">✓ ${esc(fe.nome)} · ${fmtDH(fe.em)}</span>`
+          <td>${fe?`${fe.img?`<img src="${fe.img}" alt="assinatura" style="height:46px;display:block;">`:''}<span class="rx-ok">✓ ${esc(fe.nome)} · ${fmtDH(fe.em)}</span>`
             :pode?`<button class="btn btn-secondary btn-sm" onclick="assinar('${r.id}','${a.id}')">✍️ Assinar</button>`
             :'<span class="bx-mu" style="font-size:11.5px;">após digitação e foto</span>'}</td></tr>`;}).join('')
         ||'<tr><td colspan="3" class="bx-mu">Sem assinatura exigida.</td></tr>'}
@@ -2180,7 +2229,7 @@ async function verRegistro(id){
           <span><strong>${esc(a.label)}</strong>${a.obrigatoria?' <span class="req">*</span>':''}
             <div style="color:#94a3b8;font-size:10.5px;">${esc(nomeFuncao(a.funcao))}${(r.assinaturas_papel||{})[a.id]?' · no papel: '+esc(r.assinaturas_papel[a.id]):''}</div></span>
           ${fe?`<span style="text-align:right;"><span class="badge badge-success">assinado</span>
-            <div style="font-size:10.5px;color:#64748b;margin-top:2px;">${esc(fe.nome)} · ${fmtDH(fe.em)}</div></span>`
+            ${fe.img?`<img src="${fe.img}" alt="assinatura" style="height:40px;display:block;margin-top:3px;">`:''}<div style="font-size:10.5px;color:#64748b;margin-top:2px;">${esc(fe.nome)} · ${fmtDH(fe.em)}</div></span>`
            :(r.cancelado_em?'<span class="badge badge-gray">—</span>'
              :`<button class="btn btn-secondary btn-sm" onclick="assinar('${r.id}','${a.id}')">✍️ Assinar</button>`)}
         </div>`;}).join('')||'<div style="color:#94a3b8;font-size:12px;">Sem assinatura exigida.</div>'}</div>
@@ -2213,15 +2262,10 @@ async function assinar(regId,assId){
         <div style="margin-top:7px;font-size:11.5px;color:#64748b;">Cadastre a designação em <strong>👤 Designações de função</strong>.</div>
         <div style="margin-top:5px;" class="sys">SYS-036</div>`,{titulo:'Sem designação',tipo:'dang'});return;}
   }
-  const ok=await uiConfirma(
-    `Assinar como <strong>${esc(a.label)}</strong>?
-     <div style="margin-top:9px;padding:9px 11px;background:#f8fafc;border-radius:8px;font-size:11.5px;">
-       ${esc(u.nome||u.email)}<br>${esc(nomeFuncao(a.funcao))}<br>${new Date().toLocaleString('pt-BR')}</div>
-     <div style="margin-top:9px;font-size:11.5px;color:#64748b;">A assinatura fica na trilha de auditoria e não pode ser removida.</div>`,
-    {titulo:'Assinatura eletrônica',ok:'Assinar'});
-  if(!ok)return;
+  const img=await padAssinatura({titulo:'Assinar como '+a.label+' — '+r.numero,quem:u.nome||u.email,funcao:nomeFuncao(a.funcao)});
+  if(!img)return;
   const novas=[...(r.assinaturas||[]).filter(x=>x.id!==assId),
-    {id:assId,label:a.label,funcao:a.funcao,nome:u.nome||u.email,perfil:u.perfil||null,em:new Date().toISOString()}];
+    {id:assId,label:a.label,funcao:a.funcao,nome:u.nome||u.email,perfil:u.perfil||null,em:new Date().toISOString(),img}];
   // conclui quando a cadeia inteira (executante → encarregado → qualidade…) assinou no sistema
   const cadeia=(f?.assinaturas||[]).map(x=>x.id);
   const todas=cadeia.every(id=>novas.some(x=>x.id===id));
@@ -2230,7 +2274,7 @@ async function assinar(regId,assId){
   const res=await db(_supabase.from('bpf_registros').update(patch).eq('id',regId),'assinar');
   if(res.error)return;
   Object.assign(r,patch);
-  await trilha(regId,r.numero,'assinado',a.label,null,u.nome||u.email,'Assinatura eletrônica');
+  await trilha(regId,r.numero,'assinado',a.label,null,u.nome||u.email,'Assinatura de próprio punho (tela)');
   if(patch.status==='concluido')await trilha(regId,r.numero,'concluido',null,null,null,'Todas as assinaturas obrigatórias coletadas');
   toast(patch.status==='concluido'?`Assinado. ${r.numero} concluído.`:'Assinado.','success');
   const estavaNoFluxo=!document.getElementById('m-reg').classList.contains('hidden');
@@ -2258,6 +2302,7 @@ async function cancelarRegistro(regId){
 
 async function imprimirRegistro(id){
   const r=_regs.find(x=>x.id===id);if(!r)return;
+  const emp=await dadosEmpresa();
   const f=_forms.find(x=>x.codigo===r.formulario_cod);
   const campos=f?.campos||[],desvios=avaliar(campos,r.campos||{});
   // foto da ficha preenchida sai no PDF (imagem) — PDF anexado vira referência
@@ -2276,11 +2321,7 @@ async function imprimirRegistro(id){
   }
   document.getElementById('print-area').innerHTML=`
     <div style="font-family:'Plus Jakarta Sans',sans-serif;color:#032036;">
-      <div style="border-bottom:2.5px solid #042D4D;padding-bottom:10px;margin-bottom:14px;">
-        <div style="font-size:16px;font-weight:800;color:#042D4D;">SILICATE — SISTEMA DE GESTÃO DA QUALIDADE</div>
-        <div style="font-size:13px;font-weight:700;margin-top:3px;">${esc(f?.codigo||'')} — ${esc(f?.titulo||'')}</div>
-        <div style="font-size:11px;color:#64748b;margin-top:2px;">${esc(r.pop_cod)} · Registro nº <strong>${esc(r.numero)}</strong> · Retenção 4 anos</div>
-      </div>
+      ${cabEmpresa(emp,(f?.codigo||'')+' — '+(f?.titulo||''),`${esc(r.pop_cod)} · Registro nº <strong>${esc(r.numero)}</strong> · Retenção 4 anos`)}
       <table style="width:100%;font-size:11px;border-collapse:collapse;margin-bottom:12px;">
         <tr><td style="padding:3px 0;color:#64748b;width:25%;">Data</td><td><strong>${fmtD(r.data)}</strong></td>
             <td style="color:#64748b;width:20%;">Hora</td><td><strong>${r.hora?String(r.hora).slice(0,5):'—'}</strong></td></tr>
@@ -2313,7 +2354,7 @@ async function imprimirRegistro(id){
         ${(f?.assinaturas||[]).map(a=>{const fe=(r.assinaturas||[]).find(x=>x.id===a.id);
           return `<tr><td style="padding:5px 6px;border-bottom:1px solid #eee;"><strong>${esc(a.label)}</strong><br><span style="color:#64748b;">${esc(nomeFuncao(a.funcao))}</span></td>
             <td style="padding:5px 6px;border-bottom:1px solid #eee;">${esc((r.assinaturas_papel||{})[a.id]||'—')}</td>
-            <td style="padding:5px 6px;border-bottom:1px solid #eee;">${fe?`${esc(fe.nome)} em ${fmtDH(fe.em)}`:'<em style="color:#94a3b8;">pendente</em>'}</td></tr>`;}).join('')||''}
+            <td style="padding:5px 6px;border-bottom:1px solid #eee;">${fe?`${fe.img?`<img src="${fe.img}" style="height:44px;display:block;">`:''}${esc(fe.nome)} em ${fmtDH(fe.em)}`:'<em style="color:#94a3b8;">pendente</em>'}</td></tr>`;}).join('')||''}
         </table>
       </div>
       ${fotoHtml}
@@ -2324,7 +2365,7 @@ async function imprimirRegistro(id){
   // espera a foto carregar antes de abrir a impressão
   const img=document.querySelector('#print-area img');
   if(img&&!img.complete)await new Promise(ok=>{img.onload=img.onerror=ok;setTimeout(ok,6000);});
-  window.print();
+  imprimirAgora();
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -2589,7 +2630,7 @@ async function verCadastro(k,id){
 async function imprimirCadastro(k,id){
   const emp=await dadosEmpresa();
   document.getElementById('print-area').innerHTML=id?htmlCadastroItem(k,(_ent[k]||[]).find(x=>x.id===id)||{},emp):htmlCadastroLista(k,emp);
-  window.print();
+  imprimirAgora();
 }
 let _h2p=null;
 async function baixarPdfHtml(html,nome){
@@ -2905,7 +2946,7 @@ function htmlFicha(f,pop,reg){
   return `<div style="font-family:'Plus Jakarta Sans',sans-serif;color:#111;page-break-after:always;">
     <table style="width:100%;border-collapse:collapse;border:1.5px solid #042D4D;margin-bottom:10px;">
       <tr><td style="padding:7px 9px;border-right:1px solid #042D4D;">
-          <img src="${LOGO_SILICATE}" alt="Silicate" style="height:26px;display:block;margin-bottom:4px;">
+          <img src="${(_empresa&&_empresa.logo)||LOGO_SILICATE}" alt="logo" style="max-height:30px;max-width:190px;display:block;margin-bottom:4px;">
           <div style="font-size:9px;color:#555;">Silicate Indústria e Comércio Ltda · Sistema de Gestão da Qualidade · Boas Práticas de Fabricação</div></td>
         <td style="padding:7px 9px;width:33%;font-size:9.5px;line-height:1.6;">
           <strong>${esc(f.codigo)}</strong>${reg&&reg.numero?`<br><span style="font-size:11.5px;font-weight:800;color:#042D4D;">Registro nº ${esc(reg.numero)}</span>`:''}<br>
@@ -2953,7 +2994,7 @@ function imprimirFicha(cod){
   const f=_forms.find(x=>x.codigo===cod);
   if(!f){uiAlerta('Formulário não encontrado.',{titulo:'Indisponível',tipo:'warn'});return;}
   document.getElementById('print-area').innerHTML=htmlFicha(f,_pops.find(p=>p.codigo===f.pop_cod));
-  window.print();
+  imprimirAgora();
 }
 async function imprimirTodasFichas(popCod){
   const lista=popCod?_forms.filter(f=>f.pop_cod===popCod):_forms;
@@ -2966,7 +3007,7 @@ async function imprimirTodasFichas(popCod){
   if(!ok)return;
   document.getElementById('print-area').innerHTML=
     lista.map(f=>htmlFicha(f,_pops.find(p=>p.codigo===f.pop_cod))).join('');
-  window.print();
+  imprimirAgora();
 }
 function renderFichas(){
   cab('POP-12 · Controle de documentos','Fichas para impressão',
@@ -3168,7 +3209,7 @@ function imprimirCartaz(){
         ${col?'Canal de manifestações do colaborador · POP-19 · IN MAPA nº 04/2007, item 8.1'
              :'Canal de reclamações de clientes · POP-19 · SGQ Silicate'}</div>
     </div>`;
-  window.print();
+  imprimirAgora();
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -3266,7 +3307,7 @@ function htmlInstrucao(d){
   const li=a=>(a||[]).map(x=>`<li style="margin:0 0 4px;">${_negr(x)}</li>`).join('');
   return `<div style="font-family:'Plus Jakarta Sans',sans-serif;color:#111;font-size:12.5px;">
     <table style="width:100%;border-collapse:collapse;border:1.5px solid #042D4D;margin-bottom:10px;"><tr>
-      <td style="padding:7px 9px;"><img src="${LOGO_SILICATE}" alt="Silicate" style="height:28px;display:block;margin-bottom:4px;">
+      <td style="padding:7px 9px;"><img src="${(_empresa&&_empresa.logo)||LOGO_SILICATE}" alt="logo" style="max-height:30px;max-width:190px;display:block;margin-bottom:4px;">
         <div style="font-size:9.5px;color:#555;">Silicate Indústria e Comércio Ltda · Sistema de Gestão da Qualidade · Boas Práticas de Fabricação</div></td>
       <td style="padding:7px 9px;width:36%;border-left:1px solid #042D4D;font-size:10px;line-height:1.55;"><b>${esc(d.codigo)}</b> · Instrução de trabalho<br>
         POP de origem: ${esc(d.pop_cod||'')}${pop?' — '+esc(pop.titulo):''}<br>Revisão: ${esc(d.revisao||'00')} &nbsp;|&nbsp; Vigente desde: ${fmtD(d.data_vigencia||d.data_revisao||d.data_emissao||'')}</td></tr></table>
@@ -3294,7 +3335,7 @@ function verInstrucaoDoc(id){
 }
 function imprimirInstrucao(id){
   const d=_docs.find(x=>x.id===id);if(!d)return;
-  document.getElementById('print-area').innerHTML=htmlInstrucao(d);window.print();
+  document.getElementById('print-area').innerHTML=htmlInstrucao(d);imprimirAgora();
 }
 function editarTextoIT(id){
   if(!guardAction('bpf','edit'))return;
@@ -5032,7 +5073,7 @@ function imprimirDossie(){
     <div style="border-bottom:2.5px solid #042D4D;padding-bottom:8px;margin-bottom:10px;"><b style="font-size:15px;color:#042D4D;">SILICATE — DOSSIÊ DE AUDITORIA</b>
     <div style="font-size:10.5px;color:#64748b;">Gerado em ${new Date().toLocaleString('pt-BR')}</div></div>${out.innerHTML}</div>`;
   document.querySelectorAll('#print-area .no-print,#print-area button').forEach(e=>e.remove());
-  window.print();
+  imprimirAgora();
 }
 // POP-10/001 é do "tipo dossiê": gera o registro de rastreabilidade já preenchido com o que o dossiê achou
 async function gerarRastreabilidade(lote){
