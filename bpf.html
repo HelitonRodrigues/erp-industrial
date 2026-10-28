@@ -1834,13 +1834,7 @@ async function imprimirFichaReg(id){
   let r=_regs.find(x=>x.id===id);if(!r)return;
   if(r._novo){ if(!(await persistirNovo(r)))return; id=r.id; }
   const f=_forms.find(x=>x.codigo===r.formulario_cod);if(!f)return;
-  const pre=Object.entries(r.campos||{}).filter(([k,v])=>v!==null&&v!==''&&typeof v!=='object')
-    .map(([k,v])=>{const c=(f.campos||[]).find(x=>x.id===k);return c?`<b>${esc(c.label)}:</b> ${esc(v)}`:'';}).filter(Boolean);
-  const topo=`<div style="font-family:'Plus Jakarta Sans',sans-serif;border:2px solid #042D4D;border-radius:6px;padding:7px 10px;margin-bottom:8px;font-size:11px;color:#111;">
-    <b style="font-size:13px;color:#042D4D;">Registro nº ${esc(r.numero||'')}</b> · gerado em ${fmtD(r.data)}${r.origem_id?' · origem '+esc(r.origem_modulo||'')+' '+esc(r.origem_id):''}
-    ${pre.length?'<div style="margin-top:4px;">'+pre.join(' &nbsp;·&nbsp; ')+'</div>':''}
-    <div style="margin-top:4px;color:#555;">Preencha à caneta. Depois de lançado no sistema, a foto desta folha fica anexada ao registro.</div></div>`;
-  document.getElementById('print-area').innerHTML=topo+htmlFicha(f,_pops.find(p=>p.codigo===f.pop_cod));
+  document.getElementById('print-area').innerHTML=htmlFicha(f,_pops.find(p=>p.codigo===f.pop_cod),r);
   window.print();
   if(!r.ficha_impressa_em){
     const agora=new Date().toISOString();
@@ -1859,11 +1853,7 @@ async function imprimirFichasPendentes(popCod,opId){
   if(!ok)return;
   document.getElementById('print-area').innerHTML=l.map(r=>{
     const f=_forms.find(x=>x.codigo===r.formulario_cod);if(!f)return '';
-    const pre=Object.entries(r.campos||{}).filter(([k,v])=>v!==null&&v!==''&&typeof v!=='object')
-      .map(([k,v])=>{const c=(f.campos||[]).find(x=>x.id===k);return c?`<b>${esc(c.label)}:</b> ${esc(v)}`:'';}).filter(Boolean);
-    return `<div style="font-family:'Plus Jakarta Sans',sans-serif;border:2px solid #042D4D;border-radius:6px;padding:7px 10px;margin-bottom:8px;font-size:11px;color:#111;">
-      <b style="font-size:13px;color:#042D4D;">Registro nº ${esc(r.numero||'')}</b> · ${fmtD(r.data)}${pre.length?'<div style="margin-top:4px;">'+pre.join(' &nbsp;·&nbsp; ')+'</div>':''}</div>`
-      +htmlFicha(f,_pops.find(p=>p.codigo===f.pop_cod));
+    return htmlFicha(f,_pops.find(p=>p.codigo===f.pop_cod),r);
   }).join('');
   window.print();
   const agora=new Date().toISOString();
@@ -2848,8 +2838,11 @@ function renderTreinamentos(){
 // (documento sem controle de revisão) e o item 8.2 da IN 04/2007, que exige
 // data e assinatura do responsável em registro de papel.
 // ═══════════════════════════════════════════════════════════════════════════
-function linhaFicha(c){
+function linhaFicha(c,val){
   const un=c.unidade?` (${esc(c.unidade)})`:'';
+  const tem=val!==undefined&&val!==null&&val!==''&&typeof val!=='object';
+  const V=t=>`<span style="font-weight:700;color:#0b3a8c;border-bottom:1px solid #333;padding:0 4px;">${esc(t)}</span>`;
+  const mk=(o,on)=>on?`(<b style="color:#0b3a8c;">X</b>) <b style="color:#0b3a8c;">${esc(o)}</b>`:`( ) ${esc(o)}`;
   const req=c.obrigatorio?' <span style="color:#c00;">*</span>':'';
   const box=(w)=>`<span style="display:inline-block;border-bottom:1px solid #333;min-width:${w};height:13px;"></span>`;
   if(c.tipo==='secao')
@@ -2857,32 +2850,32 @@ function linhaFicha(c){
       letter-spacing:.5px;color:#042D4D;border-bottom:1.5px solid #042D4D;">${esc(c.label)}</td></tr>`;
   let campo;
   switch(c.tipo){
-    case 'sim_nao': campo='( ) Sim &nbsp;&nbsp; ( ) Não &nbsp;&nbsp; ( ) N/A'; break;
+    case 'sim_nao': campo=[['sim','Sim'],['nao','Não'],['na','N/A']].map(([k,t])=>mk(t,tem&&String(val).toLowerCase()===k)).join(' &nbsp;&nbsp; '); break;
     case 'select': case 'multiselect':
-      campo=(c.opcoes||[]).map(o=>`( ) ${esc(o)}`).join('&nbsp;&nbsp; ')||box('60%'); break;
+      campo=(c.opcoes||[]).map(o=>mk(o,tem&&String(val)===String(o))).join('&nbsp;&nbsp; ')||(tem?V(val):box('60%')); break;
     case 'numero':{
       const lim=(c.min!==undefined||c.max!==undefined)
         ?` <span style="color:#666;font-size:9px;">[${c.min!==undefined?'mín '+c.min:''}${c.min!==undefined&&c.max!==undefined?' · ':''}${c.max!==undefined?'máx '+c.max:''}]</span>`:'';
-      campo=box('90px')+lim; break;}
-    case 'data': campo='____ / ____ / ________'; break;
-    case 'hora': campo='______ : ______'; break;
-    case 'textarea': campo=box('100%')+'<br style="line-height:20px;">'+box('100%'); break;
-    default: campo=box('100%');
+      campo=(tem?V(String(val).replace('.',',')):box('90px'))+lim; break;}
+    case 'data': campo=tem?V(fmtD(val)):'____ / ____ / ________'; break;
+    case 'hora': campo=tem?V(String(val).slice(0,5)):'______ : ______'; break;
+    case 'textarea': campo=tem?`<div style="font-weight:700;color:#0b3a8c;border-bottom:1px solid #333;padding:2px 4px;">${esc(val)}</div>`+box('100%'):box('100%')+'<br style="line-height:20px;">'+box('100%'); break;
+    default: campo=tem?V(val):box('100%');
   }
   return `<tr><td style="padding:5px 6px;border-bottom:1px solid #e5e7eb;width:46%;vertical-align:top;">
       ${esc(c.label)}${un}${req}${c.ajuda?`<div style="font-size:8.5px;color:#777;line-height:1.35;">${esc(c.ajuda)}</div>`:''}</td>
     <td style="padding:5px 6px;border-bottom:1px solid #e5e7eb;font-size:10px;">${campo}</td></tr>`;
 }
 const LOGO_SILICATE='data:image/png;base64,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';
-function htmlFicha(f,pop){
-  const campos=f.campos||[], assin=f.assinaturas||[];
+function htmlFicha(f,pop,reg){
+  const campos=f.campos||[], assin=f.assinaturas||[];const vals=(reg&&reg.campos)||{};
   return `<div style="font-family:'Plus Jakarta Sans',sans-serif;color:#111;page-break-after:always;">
     <table style="width:100%;border-collapse:collapse;border:1.5px solid #042D4D;margin-bottom:10px;">
       <tr><td style="padding:7px 9px;border-right:1px solid #042D4D;">
           <img src="${LOGO_SILICATE}" alt="Silicate" style="height:26px;display:block;margin-bottom:4px;">
           <div style="font-size:9px;color:#555;">Silicate Indústria e Comércio Ltda · Sistema de Gestão da Qualidade · Boas Práticas de Fabricação</div></td>
         <td style="padding:7px 9px;width:33%;font-size:9.5px;line-height:1.6;">
-          <strong>${esc(f.codigo)}</strong><br>
+          <strong>${esc(f.codigo)}</strong>${reg&&reg.numero?`<br><span style="font-size:11.5px;font-weight:800;color:#042D4D;">Registro nº ${esc(reg.numero)}</span>`:''}<br>
           POP de origem: ${esc(f.pop_cod)}${pop?' — '+esc(pop.titulo):''}<br>
           ${(()=>{const dm=(_docs||[]).find(d=>d.codigo===f.codigo)||{};return `Revisão: ${esc(dm.revisao||'00')} · vigência ${fmtD(dm.data_vigencia||dm.data_revisao||dm.data_emissao||'')} &nbsp;|&nbsp; Retenção: ${f.retencao_anos||4} anos`;})()}</td></tr>
     </table>
@@ -2894,10 +2887,10 @@ function htmlFicha(f,pop){
       &nbsp;|&nbsp; Escopo: ${ESCOPO.linhas.join(' / ')} — sacaria 25 kg e Big Bag</div>
     <table style="width:100%;border-collapse:collapse;font-size:10.5px;">
       <tr><td style="padding:5px 6px;border-bottom:1px solid #e5e7eb;width:46%;">Data</td>
-          <td style="padding:5px 6px;border-bottom:1px solid #e5e7eb;font-size:10px;">____ / ____ / ________</td></tr>
-      <tr><td style="padding:5px 6px;border-bottom:1px solid #e5e7eb;">Hora</td>
-          <td style="padding:5px 6px;border-bottom:1px solid #e5e7eb;font-size:10px;">______ : ______</td></tr>
-      ${campos.map(linhaFicha).join('')}
+          <td style="padding:5px 6px;border-bottom:1px solid #e5e7eb;font-size:10px;">${reg&&reg.data?`<b style="color:#0b3a8c;">${fmtD(reg.data)}</b>`:'____ / ____ / ________'}</td></tr>
+      ${campos.some(c=>c.id==='hora')?'':`<tr><td style="padding:5px 6px;border-bottom:1px solid #e5e7eb;">Hora</td>
+          <td style="padding:5px 6px;border-bottom:1px solid #e5e7eb;font-size:10px;">${reg&&reg.hora?`<b style="color:#0b3a8c;">${esc(String(reg.hora).slice(0,5))}</b>`:'______ : ______'}</td></tr>`}
+      ${campos.map(c=>linhaFicha(c,vals[c.id])).join('')}
       ${f.gera_validade?`<tr><td style="padding:5px 6px;border-bottom:1px solid #e5e7eb;">Validade do registro</td>
         <td style="padding:5px 6px;border-bottom:1px solid #e5e7eb;font-size:10px;">____ / ____ / ________</td></tr>`:''}
     </table>
@@ -2919,7 +2912,7 @@ function htmlFicha(f,pop){
     <div style="margin-top:11px;font-size:8.5px;color:#777;border-top:1px solid #ccc;padding-top:5px;line-height:1.5;">
       Registro de papel deve conter data e assinatura do responsável por cada etapa (IN MAPA 04/2007, item 8.2).
       Correção não se faz com rasura: risque uma vez, escreva o valor certo ao lado, com rubrica, data e motivo.
-      Guarda: ${f.retencao_anos||4} anos. Ficha gerada pelo SGQ em ${new Date().toLocaleDateString('pt-BR')}.
+      Guarda: ${f.retencao_anos||4} anos. Ficha gerada pelo SGQ em ${new Date().toLocaleDateString('pt-BR')}.${reg?' Em azul: dados que o sistema já tinha — confira; o resto, à caneta.':''}
       <span style="float:right;">${esc(f.codigo)}</span></div>
   </div>`;
 }
@@ -3907,6 +3900,10 @@ let _dq={q:'',de:'',ate:''},_dqLote=null;
 // Receita de consulta de cada gatilho. Fica no JS pelo mesmo motivo que ERP e
 // Cada tabela de origem tem uma forma própria e isso não cabe
 // em coluna de banco. A tabela bpf_gatilhos guarda só a regra (ativo, prazo).
+// meses desde a vigência até hoje: [{k:'2026-08', q:data do evento, t:'08/2026'}]
+function mesesDesde(g){const out=[];const ini=(g._desde||hoje()).slice(0,7);let [y,m]=ini.split('-').map(Number);const fim=hoje().slice(0,7);
+  while(`${y}-${String(m).padStart(2,'0')}`<=fim){const k=`${y}-${String(m).padStart(2,'0')}`;out.push({k,q:k===ini?(g._desde||k+'-01'):k+'-01',t:`${k.slice(5)}/${k.slice(0,4)}`});m++;if(m>12){m=1;y++;}}
+  return out;}
 const GATILHO_FONTES={
   g_emb_almox:{tab:'almoxarifado_movimentos',dias:30,async busca(g){
     // Só os itens listados em bpf_gatilhos.filtro.itens. Lista vazia = não dispara.
@@ -4014,11 +4011,13 @@ const GATILHO_FONTES={
       pre:{placa:c.placa||'',motorista:c.motorista||'',transportadora:c.transportadora||'',ordem:c.ordem_numero||''}}));
   }},
   // POP-07/001: toda manutenção da Linha 2 e Longa Vida, trazendo a OS
-  g_manut:{tab:'manutencao',dias:30,async busca(){
-    const l=await lst(_supabase.from('manutencao').select('*').order('data_abertura',{ascending:false}).limit(200));
+  g_manut:{tab:'manutencao',dias:30,async busca(g){
+    const l=await lst(_supabase.from('manutencao').select('*').gte('data_abertura',g._desde||'2026-10-26').order('data_abertura',{ascending:false}).limit(3000));
+    const tipoOS=t=>/prevent/i.test(t)?'Preventiva':/emerg/i.test(t)?'Emergencial':/condi|predit/i.test(t)?'Por condição':'Corretiva';
+    const linOS=x=>/longa/i.test(x)?'Longa Vida':'Linha 2';
     return l.filter(m=>m.linha&&linhaNoEscopo(m.linha)).map(m=>({ref:'MNT/'+m.id,id:m.id,quando:String(m.data_abertura||m.data||'').slice(0,10),
       det:`OS ${m.numero||''} — ${m.linha} · ${m.equipamento||''} ${m.tipo||''}`.trim(),
-      pre:{os:m.numero?String(m.numero):'',linha:m.linha||'',equipamento:m.equipamento||'',tipo:cap(m.tipo||''),
+      pre:{os:m.numero?String(m.numero):'',linha:linOS(m.linha),equipamento:m.equipamento||'',tipo:tipoOS(m.tipo||''),gatilho:/prevent/i.test(m.tipo||'')?'Calendário':'Falha',
            servico:m.servico_realizado||m.solucao||m.descricao||'',pecas:typeof m.pecas_trocadas==='string'?m.pecas_trocadas:(typeof m.pecas==='string'?m.pecas:''),
            horimetro:m.horimetro||null}}));
   }},
@@ -4069,7 +4068,7 @@ const GATILHO_FONTES={
       if(u&&d>60)return [];
       return [{ref:'CAL/'+i.id+'/'+(u?.validade||'sem'),id:i.id,quando:hoje(),
         det:`${i.tag} — ${i.nome}: ${u?(d<0?'calibração VENCIDA em '+fmtD(u.validade):'vence em '+d+' dia(s)'):'sem calibração registrada'}`,
-        pre:{instrumento_tag:i.tag,tipo:'calibracao',emp:i.emp??null,faixa:[i.faixa_min,i.faixa_max].some(v=>v!=null)?`${i.faixa_min??'—'} a ${i.faixa_max??'—'} ${i.unidade||''}`:''}}];
+        pre:{instrumento_tag:i.tag,tipo:'Calibração externa',emp:i.emp??null,faixa:[i.faixa_min,i.faixa_max].some(v=>v!=null)?`${i.faixa_min??'—'} a ${i.faixa_max??'—'} ${i.unidade||''}`:''}}];
     });
   }},
   g_lote_mp:{tab:'caulim_lotes_mp',dias:120,async busca(){
@@ -4159,7 +4158,44 @@ const GATILHO_FONTES={
         pre:{treinamento:`${(r.campos||{}).tema||''} (${fmtD(r.data)})`,participante:nome}})));
   }},
   // ── calendário ──────────────────────────────────────────────
-  g_pragas:{cal:'mensal'}, g_fossa:{cal:'mensal'},
+  // ── POP-07/02 (item 7): verificação com peso-padrão no início de cada TURNO de produção, por balança da linha
+  g_verif07:{tab:'producao',async busca(g){
+    const l=(await lst(_supabase.from('producao').select('data,linha,turno,produto,produtos_op').gte('data',g._desde||hoje()).limit(5000))).filter(noEscopo);
+    const bal=(_ent.instrumentos||[]).filter(i=>i.status!=='inativo');
+    const ens=bal.find(i=>i.tag==='BAL-ENS'), bag=bal.find(i=>i.tag==='BAL-BAG');
+    const set=new Map();
+    l.forEach(p=>{itensEscopoOP(p).forEach(it=>{const ehBag=/big\s*-?\s*bag|\bbag\b/i.test(it.produto||'');const b=ehBag?bag:ens;if(!b)return;
+      const k=`${String(p.data).slice(0,10)}|${p.turno||'—'}|${b.tag}`;if(!set.has(k))set.set(k,{d:String(p.data).slice(0,10),t:p.turno||'',b,lin:p.linha||''});});});
+    return [...set.values()].sort((a,b)=>(a.d+a.t).localeCompare(b.d+b.t)).map(x=>({ref:`VERIF/${x.d}/${x.t}/${x.b.tag}`,id:x.b.id,quando:x.d,
+      det:`Verificação com peso-padrão — ${x.b.tag} · ${fmtD(x.d)} · turno ${x.t}`,
+      pre:{instrumento_tag:x.b.tag,tipo:'Verificação interna',emp:x.b.emp??null,
+           faixa:[x.b.faixa_min,x.b.faixa_max].some(v=>v!=null)?`${x.b.faixa_min??'—'} a ${x.b.faixa_max??'—'} ${x.b.unidade||''}`.trim():null,
+           obs:`Início do turno ${x.t} · ${x.lin} (POP-07, 6.f)`}}));
+  }},
+  // ── POP-08 (item 7): inspeção mensal de armadilhas, barreiras e lonas
+  g_pragas:{tab:'calendario',async busca(g){return mesesDesde(g).map(k=>({ref:'CAL/g_pragas/'+k.k,id:null,quando:k.q,det:`Inspeção mensal de pragas — ${k.t}`,
+    pre:{tipo_inspecao:'Inspeção mensal',obs:`Competência ${k.t} — pontos 1 a 8, barreiras contra pombos e integridade das lonas`}}));}},
+  // ── POP-09 (item 7): resíduo doméstico — recolhimento diário (dias com a fábrica em operação)
+  g_residuo:{tab:'producao',async busca(g){
+    const l=await lst(_supabase.from('producao').select('data').gte('data',g._desde||hoje()).limit(8000));
+    const dias=new Set(l.map(p=>String(p.data).slice(0,10)));const h=hoje();if(new Date(h+'T12:00:00').getDay()!==0)dias.add(h);
+    return [...dias].sort().map(d=>({ref:'CAL/g_residuo/'+d,id:null,quando:d,det:`Recolhimento diário de resíduo doméstico — ${fmtD(d)}`,
+      pre:{tipo_residuo:'Doméstico',obs:'Recolhimento diário (POP-09, item 7)'}}));
+  }},
+  // ── POP-09/02 (item 7): verificação mensal da fossa séptica / sumidouro
+  g_fossa:{tab:'calendario',async busca(g){return mesesDesde(g).map(k=>({ref:'CAL/g_fossa/'+k.k,id:null,quando:k.q,det:`Verificação mensal da fossa séptica — ${k.t}`,
+    pre:{tipo:'Inspeção mensal',obs:`Competência ${k.t} — nível e condições do sistema`}}));}},
+  // ── POP-10 (item 7): rastreabilidade em todo lote produzido
+  g_rastro:{tab:'producao',async busca(g){
+    const l=(await lst(_supabase.from('producao').select('*').gte('data',g._desde||hoje()).order('data').limit(5000))).filter(noEscopo);
+    let mps=[];try{mps=await lst(_supabase.from('caulim_lotes_mp').select('numero,frente_nome,frentes'));}catch(e){}
+    return l.flatMap(p=>itensEscopoOP(p).map((it,i)=>{const mp=mps.find(m=>_normP(m.numero)===_normP(p.lote_mp));
+      const fr=mp?((Array.isArray(mp.frentes)&&mp.frentes.length?mp.frentes.map(x=>x.nome).join(' + '):mp.frente_nome)||''):'';
+      const un=Number(it.total_sacos||it.sacos||it.quantidade||0)||null;
+      return {ref:'RASTRO/'+p.id+'/'+(it.lote||i),id:p.id,quando:p.data,det:`Rastreabilidade do lote ${it.lote||'—'} · ${p.linha||''} · OP ${p.op_numero||''}`,
+        pre:{lote_producao:it.lote||'',lote_mp:p.lote_mp||'',frente:fr,unidades:un,granel:'nao',
+             obs:`OP ${p.op_numero||''} · ${it.produto||''} · ${p.linha||''} · ${p.turno||''}`}};}));
+  }},
   // ── POP-05 (item 7): laudo SABESP mensal · análise interna anual · higienização anual ·
   // e nova análise após intervenção na rede/reservatório (OS da Manutenção) — desde a vigência
   g_agua:{tab:'calendario',async busca(g){
@@ -4189,7 +4225,7 @@ const GATILHO_FONTES={
       quando:String(m.data_conclusao||m.data_abertura||'').slice(0,10),det:`Nova análise de potabilidade após intervenção — OS ${m.numero||''} · ${m.equipamento||''}`,
       pre:{origem:'Análise interna (anual)',ponto:m.equipamento||'',obs:`Análise extra antes de liberar o consumo — após intervenção na rede/reservatório (POP-05, item 7) · OS ${m.numero||''}: ${String(m.servico_realizado||m.descricao||'').slice(0,100)}`}}));
   }},
-  g_residuo:{cal:'diaria'}, g_cronog:{cal:'anual_dez'},
+  g_cronog:{cal:'anual_dez'},
   g_limpeza:{tab:'producao',async busca(g){
     const l=(await lst(_supabase.from('producao').select('data,linha,produto,produtos_op').gte('data',g._desde||hoje()).limit(5000))).filter(noEscopo).filter(p=>itensEscopoOP(p).length);
     const dias=new Set(l.map(p=>String(p.data).slice(0,10)));
