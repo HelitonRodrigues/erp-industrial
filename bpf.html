@@ -3773,22 +3773,6 @@ function mesesDesde(g){const out=[];const ini=(g._desde||hoje()).slice(0,7);let 
 // anos desde a vigência até hoje: [{y:2026, q:data do evento}]
 function anosDesde(g){const y0=+(g._desde||hoje()).slice(0,4),y1=+hoje().slice(0,4),o=[];for(let y=y0;y<=y1;y++)o.push({y,q:y===y0?(g._desde||y+'-01-01'):y+'-01-01'});return o;}
 const GATILHO_FONTES={
-  g_emb_almox:{tab:'almoxarifado_movimentos',dias:30,async busca(g){
-    // Só os itens listados em bpf_gatilhos.filtro.itens. Lista vazia = não dispara.
-    const cods=itensDoGatilho(g); if(!cods) return [];
-    const it=await lst(selectTodos(_supabase.from('almoxarifado').select('id,nome,codigo,categoria')));
-    const emb=new Set(it.filter(x=>cods.includes(x.codigo)).map(x=>x.id));
-    const nome=Object.fromEntries(it.map(x=>[x.id,x]));
-    const mv=await lst(_supabase.from('almoxarifado_movimentos').select('*')
-      .eq('tipo','entrada').order('data',{ascending:false}).limit(300));
-    return mv.filter(m=>emb.has(m.insumo_id)).map(m=>{
-      const i=nome[m.insumo_id]||{};
-      return {ref:'ALMOX/'+m.id, id:m.id, quando:m.data,
-        det:`Entrada de ${m.quantidade||'?'} ${i.nome||'embalagem'}${m.nota_fiscal?' — NF '+m.nota_fiscal:''}${m.fornecedor_destino?' — '+m.fornecedor_destino:''}`,
-        pre:{embalagem:i.nome||'',quantidade:m.quantidade||null,nota_fiscal:m.nota_fiscal||'',
-             lote:m.lote||'',fornecedor:m.fornecedor_destino||'',hora:(m.created_at||'').slice(11,16)||null}};
-    });
-  }},
   g_emb_insumo:{tab:'insumos_movimentos',dias:30,async busca(g){
     // Nutrição animal: apenas os códigos listados no gatilho (hoje ALM-0456 e ALM-0448).
     // Sem isto, o gatilho pegaria Liganex, Ligapro, Sikal, Topdry — que não são do escopo.
@@ -3939,13 +3923,6 @@ const GATILHO_FONTES={
         pre:{instrumento_tag:i.tag,tipo:'Calibração externa',emp:i.emp??null,faixa:[i.faixa_min,i.faixa_max].some(v=>v!=null)?`${i.faixa_min??'—'} a ${i.faixa_max??'—'} ${i.unidade||''}`:''}}];
     });
   }},
-  g_lote_mp:{tab:'caulim_lotes_mp',dias:120,async busca(){
-    const l=await lst(_supabase.from('caulim_lotes_mp').select('*').order('data',{ascending:false}).limit(120));
-    return l.map(m=>({ref:'MP/'+m.id,id:m.id,quando:m.data,
-      det:`Lote de MP ${m.numero||m.id} — ${m.montante_t||'?'} t`,
-      pre:{lote_mp:m.numero||'',montante_t:m.montante_t||null,mistura_pct:m.mistura_pct||null,
-           umidade:m.umidade_pct||null,delta_e:m.delta_e||null}}));
-  }},
   // ── OP (tabela producao) — antes estes três liam caulim_lotes_producao, que
   // está VAZIA: por isso nunca geravam nada. Agora nascem da própria OP.
   // POP-13: uma ficha por OP, com TODOS os lotes/produtos dela.
@@ -4015,15 +3992,6 @@ const GATILHO_FONTES={
         det:`${nome} — ${h?(h.ate<hoje()?'homologação VENCIDA em '+fmtD(h.ate):'reavaliação em '+fmtD(h.ate)):'fornecedor BPF sem homologação'}`,
         pre:{nome,cnpj:f.cnpj||'',categoria:'A — contato direto (MP e embalagens)',tipo_forn:f.bpf_categoria==='mp'?'Matéria-prima':'Embalagem',status:'Em homologação'}}];
     });
-  }},
-  // POP-20: a avaliação de eficácia faz parte do próprio REG-POP20-01 (gatilho desligado no banco)
-  g_treino:{tab:'bpf_registros',async busca(){
-    const lim=new Date(Date.now()-15*864e5).toISOString().slice(0,10);
-    return _regs.filter(r=>r.formulario_cod==='REG-POP20-01'&&!r.cancelado_em&&regLancado(r)&&String(r.data)<=lim)
-      .flatMap(r=>String((r.campos||{}).participantes||'').split(/[\n,;]+/).map(x=>x.trim()).filter(Boolean).map(nome=>({
-        ref:'TREI/'+r.id+'/'+_normP(nome),id:r.id,quando:hoje(),
-        det:`Avaliação de eficácia — ${nome} · treinamento "${(r.campos||{}).tema||''}" de ${fmtD(r.data)}`,
-        pre:{treinamento:`${(r.campos||{}).tema||''} (${fmtD(r.data)})`,participante:nome}})));
   }},
   // ── calendário ──────────────────────────────────────────────
   // ── POP-07/02 (item 7): verificação com peso-padrão no início de cada TURNO de produção, por balança da linha
