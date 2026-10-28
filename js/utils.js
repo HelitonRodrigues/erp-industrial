@@ -1190,6 +1190,38 @@ async function bpfAplicarTrava(res,contexto){
   return false;
 }
 
+// ── TRAVA BPF GENÉRICA ─────────────────────────────────────────────────
+// Usada pelos módulos (Carregamento, Laboratório, Produção) para conferir uma trava
+// ligada em BPF → Travas. Respeita a configuração do POP: modo (bloquear / só avisar),
+// onde age (cfg.onde) e quem pode liberar a exceção (cfg.liberadores, com motivo).
+// Devolve true = pode seguir · false = parar. BPF fora do ar não para a operação.
+async function bpfTravaGenerica(codigo,{onde,violou,msg,contexto}){
+  if(!violou) return true;
+  let tv=null;
+  try{ const {data}=await _supabase.from('bpf_travas').select('ativa,config,nome,pop_cod').eq('codigo',codigo).maybeSingle(); tv=data; }catch(e){ return true; }
+  if(!tv||!tv.ativa) return true;
+  const cfg=tv.config||{};
+  if(onde&&Array.isArray(cfg.onde)&&cfg.onde.length&&!cfg.onde.includes(onde)) return true;
+  const u=getUser()||{}; const libs=cfg.liberadores||[];
+  const titulo='BPF '+(tv.pop_cod||'')+': '+(tv.nome||codigo);
+  if(cfg.modo==='avisar'){
+    await bpfAvisar(titulo,msg+' · '+contexto+' (seguiu com aviso)',codigo+'_'+Date.now(),tv.pop_cod);
+    toast('⚠️ '+msg+' Seguiu com aviso — a Qualidade foi avisada.','warning');
+    return true;
+  }
+  if(libs.some(n=>_bpfNorm(n)===_bpfNorm(u.nome))){
+    const motivo=prompt('🚫 '+tv.nome+'\n\n'+msg+'\n\nVocê pode liberar esta exceção. Informe o motivo (fica registrado):');
+    if(motivo&&motivo.trim()){
+      await bpfAvisar(titulo+' — exceção liberada',msg+' · '+contexto+' · liberado por '+(u.nome||'—')+': '+motivo.trim(),codigo+'_lib_'+Date.now(),tv.pop_cod);
+      return true;
+    }
+    return false;
+  }
+  await bpfAvisar(titulo+' — bloqueado',msg+' · '+contexto,codigo+'_blq_'+Date.now(),tv.pop_cod);
+  alert('🚫 BLOQUEADO PELO BPF — '+tv.nome+'\n\n'+msg+(libs.length?'\n\nPeça liberação a: '+libs.join(', '):''));
+  return false;
+}
+
 // ── BUSCAR TODAS AS LINHAS ─────────────────────────────────
 /* O Supabase devolve NO MÁXIMO 1.000 linhas por consulta — mesmo com
    .limit(5000) ou .limit(50000). Passou disso, o resto some calado.
