@@ -416,6 +416,10 @@
 .tf-ch b,.tf-pop b{background:#f1f5f9;border-radius:99px;padding:0 7px;margin-left:4px;}
 .tf-ch.on,.tf-pop.on{background:var(--primary);border-color:var(--primary);color:var(--accent);}
 .tf-pops{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+body.bpf-op [onclick*="abrirConfigPop"],body.bpf-op [onclick*="escolherConfigPop"],body.bpf-op [onclick*="abrirNovaVersao"],
+body.bpf-op [onclick*="editarTextoIT"],body.bpf-op [onclick*="ir('gatilhos')"],body.bpf-op [onclick*="ir('travas')"],
+body.bpf-op [onclick*="verFornecedoresBpf"],body.bpf-op [onclick*="verAcessosBpf"],body.bpf-op [onclick*="abrirEnt("],
+body.bpf-op [onclick*="togGatilho"],body.bpf-op [onclick*="alternarTrava"]{display:none!important;}
 </style>
 </head>
 <body>
@@ -937,6 +941,7 @@ async function init(){
     document.getElementById('top-avatar').textContent=(u.nome||u.email||'?').slice(0,2).toUpperCase();
   }
   try{ if(localStorage.getItem('bpf-nav-off')==='1') alternarNav(true); }catch(e){}
+  if(!ehGestorBpf())document.body.classList.add('bpf-op');
   await carregar();
   dadosEmpresa().catch(()=>{});
   renderNav();
@@ -1100,6 +1105,7 @@ function renderNav(){
         <span class="tx"><span class="tx-t">${esc(p.titulo)}</span>${st.tot?`<span class="nv-bar"><i style="width:${pct}%"></i></span>`:''}</span>
         ${d?'<span class="al"></span>':''}${st.pend?`<span class="nv-p">${st.pend}</span>`:st.tot?'<span class="nv-ok">✓</span>':''}</div>`;}
   }
+  if(!ehGestorBpf()){document.getElementById('nav-list').innerHTML=h;return;}
   h+=`<div class="nav-grp">Cadastros e controles</div>`;
   h+=`<div class="nav-it" data-cod="ent:acessos" data-busca="pessoas acesso usuarios auditoria" onclick="verAcessosBpf()">
       <span class="cod">👥</span><span class="tx"><span class="tx-t">Pessoas com acesso ao BPF</span></span></div>`;
@@ -1115,6 +1121,16 @@ function renderNav(){
   document.getElementById('nav-list').innerHTML=h;
 }
 let _sitPop={};
+// ── quem administra o BPF (configurar POP, gatilhos, travas, cadastros, nova versão de documento) ──
+const PERFIS_GESTAO_BPF=['SADM','ADM','QLD','DIR','GPR','SGR','AUD'];
+function ehGestorBpf(){const u=getUser()||{};return PERFIS_GESTAO_BPF.includes(u.perfil);}
+// a pessoa só vê o botão de assinar da FUNÇÃO para a qual está designada naquele POP
+function assinaFuncao(r,a){
+  const u=getUser()||{};if(['SADM','ADM'].includes(u.perfil))return true;
+  if(!a||!a.funcao)return true;
+  return _desig.some(d=>d.ativo&&d.funcao_cod===a.funcao&&(!d.pop_cod||d.pop_cod===r.pop_cod)&&(d.papeis||['assina']).includes('assina')
+    &&((d.usuario_id&&d.usuario_id===u.id)||_normP(d.funcionario_nome)===_normP(u.nome))&&(!d.data_fim||d.data_fim>=hoje()));
+}
 // grupos recolhidos em Gatilhos (gat:POP-xx) e Travas (trv:módulo) — lembrados ao atualizar
 let _grpFechado=new Set((()=>{try{return JSON.parse(localStorage.getItem('bpf_grupos_fechados')||'[]');}catch(e){return [];}})());
 function salvarGrupos(){try{localStorage.setItem('bpf_grupos_fechados',JSON.stringify([..._grpFechado]));}catch(e){}}
@@ -1144,6 +1160,7 @@ async function carregarAcessos(){
   }).filter(Boolean);
 }
 async function verAcessosBpf(){
+  if(!ehGestorBpf()){toast('Somente a gestão da Qualidade acessa esta parte do BPF.','warning');return;}
   _sec='acessos';marcarNav('ent:acessos');lembrarTela({sec:'acessos'});
   cab('Cadastros','Pessoas com acesso ao BPF',`<button class="btn btn-secondary btn-sm" onclick="imprimirAcessos()">🖨️ Imprimir lista</button>
     <button class="btn btn-secondary btn-sm" onclick="baixarAcessos()">⬇️ Baixar lista</button>`);
@@ -1199,6 +1216,7 @@ function homologFornecedor(f){
   return {r,c,conc,ok,d};
 }
 async function verFornecedoresBpf(){
+  if(!ehGestorBpf()){toast('Somente a gestão da Qualidade acessa esta parte do BPF.','warning');return;}
   _sec='forn';marcarNav('ent:forn_bpf');lembrarTela({sec:'forn'});
   cab('POP-01 · Cadastros','Fornecedores BPF',`<button class="btn btn-secondary btn-sm" onclick="imprimirFornBpf()">🖨️ Imprimir lista</button>
     <button class="btn btn-secondary btn-sm" onclick="baixarFornBpf()">⬇️ Baixar lista</button>
@@ -1914,6 +1932,7 @@ function abrirRegistroFluxo(id){
         return `<tr><td><b>${esc(a.label)}</b><div class="bx-mu" style="font-size:10.5px;">${esc(nomeFuncao(a.funcao))}</div></td>
           ${semPapel?'':`<td><input class="form-input rx-pap" id="rf-pap-${esc(a.id)}" list="lst-func" value="${esc(pap[a.id]||'')}" placeholder="nome na ficha" ${travado?'disabled':''}></td>`}
           <td>${fe?`${fe.img?`<img src="${fe.img}" alt="assinatura" style="height:46px;display:block;">`:''}<span class="rx-ok">✓ ${esc(fe.nome)} · ${fmtDH(fe.em)}</span>`
+            :!assinaFuncao(r,a)?`<span class="bx-mu" style="font-size:11.5px;">aguardando ${esc(a.label)}</span>`
             :pode?`<button class="btn btn-secondary btn-sm" onclick="assinar('${r.id}','${a.id}')">✍️ Assinar</button>`
             :'<span class="bx-mu" style="font-size:11.5px;">após digitação e foto</span>'}</td></tr>`;}).join('')
         ||'<tr><td colspan="3" class="bx-mu">Sem assinatura exigida.</td></tr>'}
@@ -2190,6 +2209,7 @@ async function verRegistro(id){
           ${fe?`<span style="text-align:right;"><span class="badge badge-success">assinado</span>
             ${fe.img?`<img src="${fe.img}" alt="assinatura" style="height:40px;display:block;margin-top:3px;">`:''}<div style="font-size:10.5px;color:#64748b;margin-top:2px;">${esc(fe.nome)} · ${fmtDH(fe.em)}</div></span>`
            :(r.cancelado_em?'<span class="badge badge-gray">—</span>'
+             :!assinaFuncao(r,a)?`<span class="badge badge-gray">aguardando ${esc(a.label)}</span>`
              :`<button class="btn btn-secondary btn-sm" onclick="assinar('${r.id}','${a.id}')">✍️ Assinar</button>`)}
         </div>`;}).join('')||'<div style="color:#94a3b8;font-size:12px;">Sem assinatura exigida.</div>'}</div>
     <div class="sec-card" style="margin-top:13px;"><h3>Trilha de auditoria</h3>
@@ -2209,6 +2229,7 @@ async function assinar(regId,assId){
   const a=(f?.assinaturas||[]).find(x=>x.id===assId);if(!a)return;
   const u=getUser();
   if(!u){await uiAlerta('Sessão não identificada. Faça login novamente.',{titulo:'Sem usuário',tipo:'dang'});return;}
+  if(!assinaFuncao(r,a)){await uiAlerta(`Esta assinatura é de <strong>${esc(a.label)}</strong> (${esc(nomeFuncao(a.funcao))}). Você não está designado para ela no ${esc(r.pop_cod)}.`,{titulo:'Assinatura de outra função',tipo:'warn'});return;}
   { const tv=travasDoRegistro(r,r.campos||{},f,true); if(tv.length){await avisarTravas(tv);return;} }
   if(!regLancado(r)||(!r.foto_ficha&&!formSemPapel(r.formulario_cod))){
     await uiAlerta('A assinatura no sistema libera depois que a ficha foi <strong>digitada</strong> e a <strong>foto da ficha</strong> anexada.',{titulo:'Ainda não',tipo:'warn'});return;}
@@ -2606,6 +2627,7 @@ async function baixarCadastro(k,id){
   else await baixarPdfHtml(htmlCadastroLista(k,emp),`${e.titulo} - lista.pdf`);
 }
 function abrirEnt(k){
+  if(!ehGestorBpf()){toast('Somente a gestão da Qualidade acessa esta parte do BPF.','warning');return;}
   lembrarTela({ent:k});
   if(ENTIDADES[k]&&!entNoEscopo(ENTIDADES[k])){
     toast('Este cadastro pertence a um POP fora da sua designação.','warning');return;}
@@ -3297,6 +3319,7 @@ function imprimirInstrucao(id){
   document.getElementById('print-area').innerHTML=htmlInstrucao(d);imprimirAgora();
 }
 function editarTextoIT(id){
+  if(!ehGestorBpf()){toast('Somente a gestão da Qualidade acessa esta parte do BPF.','warning');return;}
   if(!guardAction('bpf','edit'))return;
   const d=_docs.find(x=>x.id===id);if(!d)return;const c=d.conteudo||{};
   const lin=a=>(a||[]).join('\n');
@@ -3390,6 +3413,7 @@ function funcoesAssinaturaDoPop(cod){
 }
 // escolher qual POP configurar (menu ⋯ Mais / Gatilhos / Travas)
 function escolherConfigPop(){
+  if(!ehGestorBpf()){toast('Somente a gestão da Qualidade acessa esta parte do BPF.','warning');return;}
   const pops=_pops.slice().sort((a,b)=>a.codigo.localeCompare(b.codigo,'pt',{numeric:true}));
   const nG=c=>_gatilhos.filter(g=>g.pop_cod===c).length, nT=c=>_travas.filter(t=>t.pop_cod===c).length, nP=c=>_desig.filter(d=>d.ativo&&d.pop_cod===c).length;
   _dlg(`<div class="dlg" style="max-width:720px;width:96vw;"><div class="dlg-hd"><span class="dlg-ic">🛠️</span><div class="dlg-tt">Configuração dos POPs — escolha o POP</div></div>
@@ -3398,6 +3422,7 @@ function escolherConfigPop(){
     <div class="dlg-ft"><button class="btn btn-ghost" onclick="_fecharDlg()">Fechar</button></div></div>`);
 }
 async function abrirConfigPop(cod){
+  if(!ehGestorBpf()){toast('Somente a gestão da Qualidade acessa esta parte do BPF.','warning');return;}
   lembrarTela({cfg:cod});
   if(!guardAction('bpf','edit'))return;
   const p=_docs.find(d=>d.codigo===cod&&d.tipo==='pop');if(!p)return;
@@ -3701,6 +3726,7 @@ function abrirDoc(id,foco){
 // ── nova versão / anexar arquivo ──────────────────────────────────────────
 let _nvDocId=null;
 function abrirNovaVersao(id){
+  if(!ehGestorBpf()){toast('Somente a gestão da Qualidade acessa esta parte do BPF.','warning');return;}
   if(!guardAction('bpf','edit'))return;
   const d=_docs.find(x=>x.id===id);if(!d)return;
   _nvDocId=id;
@@ -3813,6 +3839,7 @@ async function salvarNovaVersao(){
 // TRAVAS
 // ═══════════════════════════════════════════════════════════════════════════
 function renderTravas(){
+  if(!ehGestorBpf()){ir('painel');return;}
   cab('BPF / SGQ','Travas do sistema',`<button class="btn btn-secondary btn-sm" onclick="todosGrupos('trv',true)">▸ Recolher todos</button>
     <button class="btn btn-secondary btn-sm" onclick="todosGrupos('trv',false)">▾ Abrir todos</button>
     <button class="btn btn-primary btn-sm" onclick="escolherConfigPop()">⚙️ Configuração dos POPs</button>`);
@@ -4633,6 +4660,7 @@ async function abrirTarefa(id){
 
 // ── TELA: GATILHOS ─────────────────────────────────────────────────────────
 function renderGatilhos(){
+  if(!ehGestorBpf()){ir('painel');return;}
   cab('BPF / SGQ','Gatilhos',
     `<button class="btn btn-secondary btn-sm" onclick="todosGrupos('gat',true)">▸ Recolher todos</button>
      <button class="btn btn-secondary btn-sm" onclick="todosGrupos('gat',false)">▾ Abrir todos</button>
