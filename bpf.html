@@ -1134,11 +1134,10 @@ async function carregar(){
 
   // Recentes + TUDO em aberto: "estado atual" não pode ser filtrado por
   // recência, senão some registro antigo ainda pendente de assinatura.
-  const [rec,ab]=await Promise.all([
-    s(_supabase.from('bpf_registros').select('*').order('data',{ascending:false}).limit(500),'registros'),
-    s(_supabase.from('bpf_registros').select('*').in('status',['rascunho','a_preencher','a_digitar','aguardando_assinatura','nao_conforme']).limit(500),'registros em aberto'),
-  ]);
-  const m=new Map();[...rec,...ab].forEach(r=>m.set(r.id,r));
+  // TODOS os registros (paginado): com o levantamento desde a vigência são milhares, e qualquer
+  // corte deixaria POP com fichas faltando no quadro e na contagem
+  const todosRegs=await selectTodos(_supabase.from('bpf_registros').select('*').order('data',{ascending:false}),{max:50000}).then(r=>r.data||[]).catch(()=>[]);
+  const m=new Map();todosRegs.forEach(r=>m.set(r.id,r));
   _regs=[...m.values()].sort((a,b)=>String(b.data).localeCompare(String(a.data)));
 
   // Camada de fila (002_bpf_fila.sql). Se as tabelas ainda não existem, o
@@ -1146,7 +1145,7 @@ async function carregar(){
   try{
     const [gt,tf]=await Promise.all([
       lst(_supabase.from('bpf_gatilhos').select('*').order('pop_cod').order('codigo')),
-      lst(_supabase.from('bpf_tarefas').select('*').order('prazo').limit(1000)),
+      selectTodos(_supabase.from('bpf_tarefas').select('*').order('prazo'),{max:50000}).then(r=>{if(r.error)throw r.error;return r.data||[];}),
     ]);
     _gatilhos=gt; _tarefas=tf; _temFila=true;
   }catch(e){ _gatilhos=[]; _tarefas=[]; _temFila=false; }
@@ -4302,7 +4301,7 @@ async function varrerGatilhos(silencioso){
     // ignoreDuplicates cobre a corrida entre dois usuários abrindo o módulo junto.
     const r=await db(_supabase.from('bpf_tarefas').upsert(novas,{onConflict:'gatilho_cod,origem_ref',ignoreDuplicates:true}),'criar tarefas');
     if(r.error)return 0;
-    _tarefas=await lst(_supabase.from('bpf_tarefas').select('*').order('prazo')).catch(()=>_tarefas);
+    _tarefas=await selectTodos(_supabase.from('bpf_tarefas').select('*').order('prazo'),{max:50000}).then(r=>r.data||_tarefas).catch(()=>_tarefas);
     await gerarRegistrosDasTarefas();
   }
   if(erros.length&&!silencioso)
