@@ -412,6 +412,10 @@
 .grp-t{cursor:pointer;user-select:none;}
 .grp-n{font-size:11.5px;font-weight:700;color:#64748b;background:#f1f5f9;border-radius:99px;padding:1px 8px;margin-left:6px;}
 .grp-fch h3{margin-bottom:0!important;}
+.tf-ch,.tf-pop{min-height:34px;border:1.5px solid #e2e8f0;background:#fff;border-radius:99px;padding:0 12px;font-family:inherit;font-size:12.5px;font-weight:700;color:var(--primary);cursor:pointer;}
+.tf-ch b,.tf-pop b{background:#f1f5f9;border-radius:99px;padding:0 7px;margin-left:4px;}
+.tf-ch.on,.tf-pop.on{background:var(--primary);border-color:var(--primary);color:var(--accent);}
+.tf-pops{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
 </style>
 </head>
 <body>
@@ -1089,6 +1093,8 @@ function renderNav(){
         ${d?'<span class="al"></span>':''}${st.pend?`<span class="nv-p">${st.pend}</span>`:st.tot?'<span class="nv-ok">✓</span>':''}</div>`;}
   }
   h+=`<div class="nav-grp">Cadastros e controles</div>`;
+  h+=`<div class="nav-it" data-cod="ent:acessos" data-busca="pessoas acesso usuarios auditoria" onclick="verAcessosBpf()">
+      <span class="cod">👥</span><span class="tx"><span class="tx-t">Pessoas com acesso ao BPF</span></span></div>`;
   h+=`<div class="nav-it" data-cod="ent:forn_bpf" data-busca="fornecedores bpf compras homologação pop-01" onclick="verFornecedoresBpf()">
       <span class="cod">🏭</span><span class="tx"><span class="tx-t">Fornecedores BPF (Compras)</span></span></div>`;
   for(const [k,e] of Object.entries(ENTIDADES)){
@@ -1111,6 +1117,68 @@ function todosGrupos(tipo,fechar){
 }
 // ── Fornecedores BPF: a lista vem do cadastro de fornecedores do COMPRAS (marcados como BPF);
 // a homologação é o REG-POP01-02 mais recente de cada um (POP-01). Uma só fonte, sem repetição.
+// ── Pessoas com acesso ao BPF: perfil com permissão no módulo + designadas nos POPs (lista para auditoria) ──
+let _acessos=[];
+const PAPEIS_BPF={responsavel:'Responsável',ve:'Vê',lanca:'Preenche/lança',assina:'Assina',aviso:'Recebe aviso',libera:'Libera exceção'};
+async function carregarAcessos(){
+  const [us,pf]=await Promise.all([lst(_supabase.from('usuarios').select('id,nome,email,login,perfil,funcao,setor,status,ultimo_acesso').order('nome')).catch(()=>[]),
+    lst(_supabase.from('perfis').select('codigo,nome,permissoes')).catch(()=>[])]);
+  const pBpf=new Set(pf.filter(p=>(p.permissoes&&p.permissoes.bpf&&p.permissoes.bpf.view)).map(p=>p.codigo).concat(['SADM','ADM']));
+  const nomePerfil=c=>(pf.find(p=>p.codigo===c)||{}).nome||c;
+  const des=_desig.filter(d=>d.ativo);
+  _acessos=us.filter(u=>String(u.status||'ativo')!=='inativo').map(u=>{
+    const ds=des.filter(d=>(d.usuario_id&&d.usuario_id===u.id)||_normP(d.funcionario_nome)===_normP(u.nome));
+    const porPerfil=pBpf.has(u.perfil);
+    if(!porPerfil&&!ds.length)return null;
+    const pops={};ds.forEach(d=>{const k=d.pop_cod||'Todos';(pops[k]=pops[k]||new Set());(d.papeis||[]).forEach(x=>pops[k].add(PAPEIS_BPF[x]||x));if(d.funcao_cod)pops[k].add('assina como '+nomeFuncao(d.funcao_cod));});
+    return {...u,perfil_nome:nomePerfil(u.perfil),como:porPerfil?(ds.length?'Perfil + designação nos POPs':'Perfil com acesso ao BPF'):'Designação nos POPs',
+      pops:Object.keys(pops).sort().map(k=>({pop:k,papeis:[...pops[k]]}))};
+  }).filter(Boolean);
+}
+async function verAcessosBpf(){
+  _sec='acessos';marcarNav('ent:acessos');lembrarTela({sec:'acessos'});
+  cab('Cadastros','Pessoas com acesso ao BPF',`<button class="btn btn-secondary btn-sm" onclick="imprimirAcessos()">🖨️ Imprimir lista</button>
+    <button class="btn btn-secondary btn-sm" onclick="baixarAcessos()">⬇️ Baixar lista</button>`);
+  document.getElementById('conteudo').innerHTML='<div style="padding:20px;"><span class="spin"></span> Carregando…</div>';
+  await carregarAcessos();
+  document.getElementById('conteudo').innerHTML=`<div class="alerta al-info">Quem acessa o BPF: pelo <b>perfil</b> (permissão no módulo) ou por estar <b>designado em um POP</b> (⚙️ Configurar). Lista pronta para auditoria — visualizar, baixar e imprimir.</div>
+    ${_acessos.length?`<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Pessoa</th><th>Perfil</th><th>Função / setor</th><th>Como acessa</th><th>POPs e papéis</th><th>Último acesso</th><th></th></tr></thead><tbody>
+    ${_acessos.map(u=>`<tr><td><b>${esc(u.nome)}</b><div style="font-size:11.5px;color:#64748b;">${esc(u.email||u.login||'')}</div></td>
+      <td>${esc(u.perfil_nome)}</td><td style="font-size:12.5px;">${esc([u.funcao,u.setor].filter(Boolean).join(' · ')||'—')}</td>
+      <td style="font-size:12.5px;">${esc(u.como)}</td>
+      <td style="font-size:12px;">${u.pops.length?u.pops.map(x=>`<b>${esc(x.pop)}</b>: ${esc(x.papeis.join(', '))}`).join('<br>'):'Todos os POPs (pelo perfil)'}</td>
+      <td style="font-size:12px;">${u.ultimo_acesso?new Date(u.ultimo_acesso).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}):'—'}</td>
+      <td style="white-space:nowrap;"><button class="bx-ib" title="Visualizar" onclick="verAcesso('${u.id}')">👁️</button><button class="bx-ib" title="Baixar PDF" onclick="baixarAcessos('${u.id}')">⬇️</button><button class="bx-ib" title="Imprimir" onclick="imprimirAcessos('${u.id}')">🖨️</button></td></tr>`).join('')}
+    </tbody></table></div>`:'<div class="empty"><div class="ic">👥</div><h3>Ninguém com acesso</h3></div>'}`;
+}
+function htmlAcesso(u,emp){
+  const linhas=[['Nome',u.nome],['E-mail / login',u.email||u.login],['Perfil no ERP',u.perfil_nome],['Função',u.funcao],['Setor',u.setor],['Situação',u.status||'ativo'],['Como acessa o BPF',u.como],
+    ['Último acesso',u.ultimo_acesso?new Date(u.ultimo_acesso).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}):'']];
+  return `<div style="font-family:'Plus Jakarta Sans',sans-serif;color:#111;page-break-after:always;">${cabEmpresa(emp,'Pessoa com acesso ao BPF','Controle de acesso · Sistema de Gestão da Qualidade')}
+    <div style="font-size:16px;font-weight:800;color:#042D4D;margin-bottom:8px;">👤 ${esc(u.nome)}</div>
+    <table style="width:100%;border-collapse:collapse;font-size:11px;">${linhas.map(([a,b])=>`<tr><td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;width:34%;color:#475569;">${esc(a)}</td><td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;font-weight:600;">${esc(b||'—')}</td></tr>`).join('')}</table>
+    <div style="margin-top:12px;font-size:11px;font-weight:800;color:#042D4D;">POPs e papéis</div>
+    <table style="width:100%;border-collapse:collapse;font-size:10.5px;margin-top:4px;"><tr><th style="background:#042D4D;color:#fff;padding:5px 6px;text-align:left;width:22%;">POP</th><th style="background:#042D4D;color:#fff;padding:5px 6px;text-align:left;">Papéis</th></tr>
+      ${u.pops.length?u.pops.map(x=>`<tr><td style="padding:5px 6px;border-bottom:1px solid #e5e7eb;">${esc(x.pop)}</td><td style="padding:5px 6px;border-bottom:1px solid #e5e7eb;">${esc(x.papeis.join(', '))}</td></tr>`).join('')
+        :'<tr><td colspan="2" style="padding:5px 6px;">Todos os POPs (pelo perfil)</td></tr>'}</table>
+    <div style="margin-top:26px;display:flex;gap:30px;font-size:10px;color:#555;"><div style="flex:1;border-top:1px solid #333;padding-top:3px;">Assinatura do colaborador</div><div style="flex:1;border-top:1px solid #333;padding-top:3px;">Gerente de Qualidade</div></div>
+    ${_rodapeDoc}</div>`;
+}
+function htmlAcessosLista(emp){
+  return `<div style="font-family:'Plus Jakarta Sans',sans-serif;color:#111;">${cabEmpresa(emp,'Pessoas com acesso ao BPF — lista',`${_acessos.length} pessoa(s)`)}
+    <table style="width:100%;border-collapse:collapse;font-size:9.5px;"><tr>${['Pessoa','Perfil','Função / setor','Como acessa','POPs e papéis'].map(t=>`<th style="background:#042D4D;color:#fff;padding:5px 6px;text-align:left;">${t}</th>`).join('')}</tr>
+    ${_acessos.map(u=>`<tr><td style="padding:5px 6px;border-bottom:1px solid #e5e7eb;"><b>${esc(u.nome)}</b><br>${esc(u.email||u.login||'')}</td><td style="padding:5px 6px;border-bottom:1px solid #e5e7eb;">${esc(u.perfil_nome)}</td>
+      <td style="padding:5px 6px;border-bottom:1px solid #e5e7eb;">${esc([u.funcao,u.setor].filter(Boolean).join(' · ')||'—')}</td><td style="padding:5px 6px;border-bottom:1px solid #e5e7eb;">${esc(u.como)}</td>
+      <td style="padding:5px 6px;border-bottom:1px solid #e5e7eb;">${u.pops.length?u.pops.map(x=>esc(x.pop+': '+x.papeis.join(', '))).join('<br>'):'Todos os POPs (pelo perfil)'}</td></tr>`).join('')}</table>${_rodapeDoc}</div>`;
+}
+async function verAcesso(id){const emp=await dadosEmpresa();const u=_acessos.find(x=>x.id===id);if(!u)return;
+  _dlg(`<div class="dlg" style="max-width:900px;width:96vw;"><div class="dlg-hd"><span class="dlg-ic">👤</span><div class="dlg-tt">Pessoa com acesso ao BPF</div></div>
+    <div class="dlg-bd" style="max-height:70vh;overflow:auto;background:#e2e8f0;padding:14px;"><div style="background:#fff;max-width:794px;margin:0 auto;padding:24px 28px;">${htmlAcesso(u,emp)}</div></div>
+    <div class="dlg-ft"><button class="btn btn-secondary" onclick="baixarAcessos('${id}')">⬇️ Baixar PDF</button><button class="btn btn-primary" onclick="imprimirAcessos('${id}')">🖨️ Imprimir</button><button class="btn btn-secondary" onclick="_fecharDlg()">Fechar</button></div></div>`);}
+async function imprimirAcessos(id){if(!_acessos.length)await carregarAcessos();const emp=await dadosEmpresa();const u=id&&_acessos.find(x=>x.id===id);
+  document.getElementById('print-area').innerHTML=u?htmlAcesso(u,emp):htmlAcessosLista(emp);window.print();}
+async function baixarAcessos(id){if(!_acessos.length)await carregarAcessos();const emp=await dadosEmpresa();const u=id&&_acessos.find(x=>x.id===id);
+  await baixarPdfHtml(u?htmlAcesso(u,emp):htmlAcessosLista(emp),u?`Acesso BPF - ${String(u.nome).replace(/[\\/:*?"<>|]/g,'')}.pdf`:'Pessoas com acesso ao BPF.pdf');}
 let _fornBpf=[];
 const CAT_BPF={embalagem:'Embalagem',materia_prima:'Matéria-prima',aditivo:'Aditivo',servico:'Serviço',insumo:'Insumo'};
 function homologFornecedor(f){
@@ -1205,6 +1273,7 @@ function restaurarTela(){
       if(h.get('reg')&&_regs.some(r=>r.id===h.get('reg')))abrirReg(h.get('reg'));return true;}
     if(h.get('ent')&&ENTIDADES[h.get('ent')]){abrirEnt(h.get('ent'));return true;}
     if(h.get('sec')==='forn'){verFornecedoresBpf();return true;}
+    if(h.get('sec')==='acessos'){verAcessosBpf();return true;}
     if(h.get('sec')){ir(h.get('sec'));if(h.get('reg')&&_regs.some(r=>r.id===h.get('reg')))abrirReg(h.get('reg'));return true;}
   }catch(e){console.warn('[restaurar tela]',e);}
   return false;
@@ -4472,7 +4541,7 @@ function cadeiaHtml(f,r){
     const cls=j?'done':(prox&&prox.id===a.id?'now':'wait');
     return `<div class="st ${cls}"><div class="n">${esc(a.label)}</div>
       <div class="q">${esc(nomeFuncao(a.funcao))}</div>
-      <div class="w">${j?'✓ '+esc(j.nome)+' · '+new Date(j.em).toLocaleString('pt-BR').slice(0,16)
+      <div class="w">${j?'✓ '+esc(j.nome)+' · '+new Date(j.em).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'})
         :(cls==='now'?'aguardando agora':'aguarda a etapa anterior')}</div></div>`;}).join('')}</div>`;
 }
 function renderFila(){
@@ -4499,7 +4568,7 @@ function renderFila(){
       <div class="tk-msg">${esc(msgTarefa(t))}</div>
       <div class="tk-mt"><strong>${esc(t.formulario_cod)}</strong><span>${esc(f?.titulo||'')}</span>
         <span>${esc(t.origem_det||t.origem_ref)}</span>
-        ${t.prazo?`<span>Prazo: <strong>${new Date(t.prazo).toLocaleString('pt-BR').slice(0,16)}</strong></span>`:''}
+        ${t.prazo?`<span>Prazo: <strong>${new Date(t.prazo).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'})}</strong></span>`:''}
         ${at?'<span class="badge badge-danger">Atrasado</span>':''}</div>
       </div><div class="tk-ac">
       <button class="btn btn-primary btn-sm" onclick="abrirTarefa('${t.id}')">Preencher →</button>
@@ -4603,20 +4672,58 @@ function renderGatilhos(){
               ${g.obs?'<br>'+esc(g.obs):''}</div>
           </div><span class="badge badge-gray">${esc(g.periodicidade)}</span></div>`;}).join('')}</div>`;
   }
-  const abertas=_tarefas.filter(t=>t.status==='aberta');
-  h+=`<div class="sec-card" style="margin-top:14px;"><h3>Tarefas abertas (${abertas.length})</h3>
-    <div class="sub">Todas, de todas as funções — esta tela é de configuração.</div></div>`;
-  h+=abertas.length?`<div class="tbl-wrap"><table class="tbl"><thead><tr>
-    <th>Ficha</th><th>Origem</th><th>Coleta</th><th>Quem</th><th>Prazo</th></tr></thead><tbody>
-    ${abertas.map(t=>{const pes=pessoasDaFuncao(t.funcao_cod,t.pop_cod);
-      return `<tr><td class="num">${esc(t.formulario_cod)}</td>
-      <td>${esc(t.origem_det||t.origem_ref)}<br><span style="font-size:10.5px;color:#94a3b8;">${esc(t.origem_ref)}</span></td>
-      <td>${esc(nomeFuncao(t.funcao_cod))}</td>
-      <td>${pes.length?esc(pes.join(', ')):'<span class="badge badge-danger">sem designação</span>'}</td>
-      <td${tarefaAtrasada(t)?' style="color:var(--danger);font-weight:700;"':''}>${t.prazo?new Date(t.prazo).toLocaleString('pt-BR').slice(0,16):'—'}</td></tr>`;}).join('')}
-    </tbody></table></div>`:`<div class="empty"><div class="ic">📭</div><h3>Nenhuma tarefa aberta</h3>
-      <p>${on?'Clique em "Procurar eventos agora".':'Ligue ao menos um gatilho acima.'}</p></div>`;
+  h+=`<div id="tf-box" style="margin-top:14px;"></div>`;
   document.getElementById('conteudo').innerHTML=h;
+  renderTarefasAbertas();
+  return;
+  document.getElementById('conteudo').innerHTML=h;
+}
+// ── Tarefas abertas: resumo por POP, filtros e páginas (com o levantamento são milhares) ──
+let _tf={pop:'',form:'',sit:'',ini:'',fim:'',q:'',pag:0};
+const _tfData=t=>{const g=_gatilhos.find(x=>x.codigo===t.gatilho_cod);const ms=Date.parse(t.prazo||'');
+  return isNaN(ms)?'':new Date(ms-((g&&g.prazo_horas)||24)*36e5).toLocaleDateString('sv-SE',{timeZone:'America/Sao_Paulo'});};
+function tfSit(t){const agora=Date.now(),p=Date.parse(t.prazo||'');if(isNaN(p))return 'prazo';
+  if(p>=agora)return 'prazo'; if(p>=agora-7*864e5)return 'atrasada'; return 'levantamento';}
+function renderTarefasAbertas(){
+  const box=document.getElementById('tf-box');if(!box)return;
+  const todas=_tarefas.filter(t=>t.status==='aberta');
+  const F=_tf,q=_normP(F.q);
+  const l=todas.filter(t=>(!F.pop||t.pop_cod===F.pop)&&(!F.form||t.formulario_cod===F.form)&&(!F.sit||tfSit(t)===F.sit)
+    &&(!F.ini||_tfData(t)>=F.ini)&&(!F.fim||_tfData(t)<=F.fim)&&(!q||_normP([t.origem_det,t.origem_ref,t.formulario_cod].join(' ')).includes(q)))
+    .sort((a,b)=>_tfData(a).localeCompare(_tfData(b)));
+  const porPop={};todas.forEach(t=>{porPop[t.pop_cod]=(porPop[t.pop_cod]||0)+1;});
+  const cont={prazo:0,atrasada:0,levantamento:0};todas.forEach(t=>cont[tfSit(t)]++);
+  const POR=50,pags=Math.max(1,Math.ceil(l.length/POR));if(F.pag>=pags)F.pag=pags-1;
+  const pg=l.slice(F.pag*POR,F.pag*POR+POR);
+  const forms=[...new Set(todas.filter(t=>!F.pop||t.pop_cod===F.pop).map(t=>t.formulario_cod))].sort();
+  const regDe=t=>t.registro_id&&_regs.find(r=>r.id===t.registro_id);
+  box.innerHTML=`<div class="sec-card"><h3 style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
+      <span>Tarefas abertas <span class="grp-n">${todas.length}</span></span>
+      <span style="display:flex;gap:6px;flex-wrap:wrap;">
+        <button class="tf-ch${F.sit==='atrasada'?' on':''}" onclick="_tf.sit=_tf.sit==='atrasada'?'':'atrasada';_tf.pag=0;renderTarefasAbertas()">⏰ Atrasadas (7 dias) <b>${cont.atrasada}</b></button>
+        <button class="tf-ch${F.sit==='prazo'?' on':''}" onclick="_tf.sit=_tf.sit==='prazo'?'':'prazo';_tf.pag=0;renderTarefasAbertas()">🟢 No prazo <b>${cont.prazo}</b></button>
+        <button class="tf-ch${F.sit==='levantamento'?' on':''}" onclick="_tf.sit=_tf.sit==='levantamento'?'':'levantamento';_tf.pag=0;renderTarefasAbertas()">📚 Levantamento desde a vigência <b>${cont.levantamento}</b></button></span></h3>
+    <div class="tf-pops">${Object.keys(porPop).sort().map(p=>`<button class="tf-pop${F.pop===p?' on':''}" onclick="_tf.pop=_tf.pop==='${p}'?'':'${p}';_tf.form='';_tf.pag=0;renderTarefasAbertas()">${esc(p)} <b>${porPop[p]}</b></button>`).join('')}</div>
+    <div class="filtros" style="display:flex;gap:8px;flex-wrap:wrap;margin:10px 0;">
+      <select class="form-input" style="max-width:220px;" onchange="_tf.form=this.value;_tf.pag=0;renderTarefasAbertas()"><option value="">Todos os registros</option>${forms.map(f=>`<option ${F.form===f?'selected':''}>${esc(f)}</option>`).join('')}</select>
+      <input type="date" class="form-input" style="max-width:160px;" value="${F.ini}" title="Data do evento — de" onchange="_tf.ini=this.value;_tf.pag=0;renderTarefasAbertas()">
+      <input type="date" class="form-input" style="max-width:160px;" value="${F.fim}" title="Data do evento — até" onchange="_tf.fim=this.value;_tf.pag=0;renderTarefasAbertas()">
+      <input class="form-input" style="flex:1;min-width:180px;" placeholder="🔍 Buscar (lote, OP, placa, fornecedor…)" value="${esc(F.q)}" onchange="_tf.q=this.value;_tf.pag=0;renderTarefasAbertas()">
+      ${F.pop||F.form||F.sit||F.ini||F.fim||F.q?`<button class="btn btn-ghost btn-sm" onclick="_tf={pop:'',form:'',sit:'',ini:'',fim:'',q:'',pag:0};renderTarefasAbertas()">✕ Limpar filtros</button>`:''}
+    </div>
+    <div class="bx-mu" style="font-size:12px;margin-bottom:6px;">${l.length} tarefa(s) no filtro · página ${F.pag+1} de ${pags}</div>
+    ${pg.length?`<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Data</th><th>POP</th><th>Ficha</th><th>Origem</th><th>Quem coleta</th><th>Prazo</th></tr></thead><tbody>
+      ${pg.map(t=>{const r=regDe(t);const sit=tfSit(t);const pes=pessoasDaFuncao(t.funcao_cod,t.pop_cod);
+        return `<tr><td>${fmtD(_tfData(t))}</td><td>${esc(t.pop_cod)}</td>
+          <td>${r?`<a href="#" onclick="abrirReg('${r.id}');return false;" class="num">${esc(r.numero)}</a><div style="font-size:11px;color:#64748b;">${esc((ETAPAS_REG.find(e=>e.k===etapaReg(r))||{}).t||'')}</div>`:`<span class="num">${esc(t.formulario_cod)}</span>`}</td>
+          <td style="font-size:12.5px;">${esc(t.origem_det||t.origem_ref)}</td>
+          <td style="font-size:12px;">${esc(nomeFuncao(t.funcao_cod))}<div style="color:#64748b;">${pes.length?esc(pes.slice(0,2).join(', '))+(pes.length>2?' +'+(pes.length-2):''):'<span class="badge badge-danger">sem designação</span>'}</div></td>
+          <td style="white-space:nowrap;${sit==='atrasada'?'color:var(--danger);font-weight:700;':sit==='levantamento'?'color:#64748b;':''}">${t.prazo?new Date(t.prazo).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}):'—'}</td></tr>`;}).join('')}
+      </tbody></table></div>
+      <div style="display:flex;gap:6px;justify-content:center;margin-top:10px;">
+        <button class="btn btn-secondary btn-sm" ${F.pag<=0?'disabled':''} onclick="_tf.pag--;renderTarefasAbertas()">‹ Anterior</button>
+        <button class="btn btn-secondary btn-sm" ${F.pag>=pags-1?'disabled':''} onclick="_tf.pag++;renderTarefasAbertas()">Próxima ›</button></div>`
+      :'<div class="empty"><div class="ic">📭</div><h3>Nenhuma tarefa com esse filtro</h3></div>'}</div>`;
 }
 // Edita a lista de itens sem deploy — é a razão de bpf_gatilhos existir.
 async function editarItens(cod){
