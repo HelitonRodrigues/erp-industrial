@@ -1100,23 +1100,71 @@ function renderNav(){
 let _sitPop={};
 // ── Fornecedores BPF: a lista vem do cadastro de fornecedores do COMPRAS (marcados como BPF);
 // a homologação é o REG-POP01-02 mais recente de cada um (POP-01). Uma só fonte, sem repetição.
+let _fornBpf=[];
+const CAT_BPF={embalagem:'Embalagem',materia_prima:'Matéria-prima',aditivo:'Aditivo',servico:'Serviço',insumo:'Insumo'};
+function homologFornecedor(f){
+  const regs=_regs.filter(r=>r.formulario_cod==='REG-POP01-02'&&!r.cancelado_em);
+  const cn=String(f.cnpj||'').replace(/\D/g,'');
+  const r=regs.filter(r=>_normP((r.campos||{}).nome)===_normP(f.nome_fantasia||f.razao_social)||(cn&&String((r.campos||{}).cnpj||'').replace(/\D/g,'')===cn))
+    .sort((a,b)=>String(b.data).localeCompare(String(a.data)))[0];
+  const c=(r&&r.campos)||{};const conc=r&&etapaReg(r)==='concluido';const d=c.reavaliacao?diasAte(c.reavaliacao):null;
+  const ok=conc&&/homolog/i.test(String(c.status||''))&&!(d!==null&&d<0);
+  return {r,c,conc,ok,d};
+}
 async function verFornecedoresBpf(){
   _sec='forn';marcarNav('ent:forn_bpf');lembrarTela({sec:'forn'});
-  cab('POP-01 · Cadastros','Fornecedores BPF',`<button class="btn btn-secondary btn-sm" onclick="window.open('compras.html','_blank')">Abrir o Compras ↗</button>`);
+  cab('POP-01 · Cadastros','Fornecedores BPF',`<button class="btn btn-secondary btn-sm" onclick="imprimirFornBpf()">🖨️ Imprimir lista</button>
+    <button class="btn btn-secondary btn-sm" onclick="baixarFornBpf()">⬇️ Baixar lista</button>
+    <button class="btn btn-secondary btn-sm" onclick="window.open('compras.html','_blank')">Abrir o Compras ↗</button>`);
   document.getElementById('conteudo').innerHTML='<div style="padding:20px;"><span class="spin"></span> Carregando…</div>';
-  let fs=[];try{fs=await lst(_supabase.from('almoxarifado_fornecedores').select('*').not('bpf_categoria','is',null).order('nome_fantasia'));}catch(e){}
-  const regs=_regs.filter(r=>r.formulario_cod==='REG-POP01-02'&&!r.cancelado_em);
-  const ult=f=>regs.filter(r=>_normP((r.campos||{}).nome)===_normP(f.nome_fantasia||f.razao_social)||((r.campos||{}).cnpj&&String((r.campos||{}).cnpj).replace(/\D/g,'')===String(f.cnpj||'').replace(/\D/g,''))).sort((a,b)=>String(b.data).localeCompare(String(a.data)))[0];
-  const CAT={embalagem:'Embalagem',materia_prima:'Matéria-prima',aditivo:'Aditivo',servico:'Serviço',insumo:'Insumo'};
-  document.getElementById('conteudo').innerHTML=`<div class="alerta al-info">A lista é a do <b>Compras</b>: fornecedor marcado como BPF (embalagem, matéria-prima…). A homologação é o <b>REG-POP01-02</b> de cada um — homologado só quando o registro está concluído e com a reavaliação em dia.</div>
-    ${fs.length?`<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Fornecedor</th><th>CNPJ</th><th>Categoria BPF</th><th>Homologação (REG-POP01-02)</th><th>Reavaliação</th></tr></thead><tbody>
-    ${fs.map(f=>{const r=ult(f);const c=(r&&r.campos)||{};const ok=r&&etapaReg(r)==='concluido'&&/homolog/i.test(String(c.status||''));const d=c.reavaliacao?diasAte(c.reavaliacao):null;
-      return `<tr><td><b>${esc(f.nome_fantasia||f.razao_social||'—')}</b>${f.razao_social&&f.nome_fantasia?`<div style="font-size:11.5px;color:#64748b;">${esc(f.razao_social)}</div>`:''}</td>
-        <td>${esc(f.cnpj||'—')}</td><td>${esc(CAT[f.bpf_categoria]||f.bpf_categoria)}</td>
-        <td>${r?`<a href="#" onclick="abrirReg('${r.id}');return false;">${esc(r.numero)}</a> · ${ok?'<span class="badge badge-success">homologado</span>':`<span class="badge badge-warning">${esc(ETAPAS_REG.find(e=>e.k===etapaReg(r))?.t||'em andamento')}</span>`}`:'<span class="badge badge-danger">sem registro</span>'}</td>
-        <td>${c.reavaliacao?`${fmtD(c.reavaliacao)}${d!==null&&d<0?' <span class="badge badge-danger">vencida</span>':''}`:'—'}</td></tr>`;}).join('')}</tbody></table></div>`
+  try{_fornBpf=await lst(_supabase.from('almoxarifado_fornecedores').select('*').not('bpf_categoria','is',null).order('nome_fantasia'));}catch(e){_fornBpf=[];}
+  document.getElementById('conteudo').innerHTML=`<div class="alerta al-info">A lista é a do <b>Compras</b> (fornecedor marcado como BPF). A homologação é feita <b>aqui mesmo</b>: <b>✅ Homologar</b> abre o <b>REG-POP01-02</b> já com os dados do fornecedor — preencha, assine e ele fica homologado até a reavaliação.</div>
+    ${_fornBpf.length?`<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Fornecedor</th><th>CNPJ</th><th>Categoria BPF</th><th>Homologação (REG-POP01-02)</th><th>Reavaliação</th><th></th></tr></thead><tbody>
+    ${_fornBpf.map(f=>{const h=homologFornecedor(f);
+      const st=!h.r?'<span class="badge badge-danger">sem homologação</span>':h.ok?'<span class="badge badge-success">homologado</span>'
+        :h.conc&&h.d!==null&&h.d<0?'<span class="badge badge-danger">reavaliação vencida</span>':`<span class="badge badge-warning">${esc(ETAPAS_REG.find(e=>e.k===etapaReg(h.r))?.t||'em andamento')}</span>`;
+      const precisa=!h.r||(h.conc&&!h.ok);
+      return `<tr><td><b>${esc(f.nome_fantasia||f.razao_social||'—')}</b>${f.razao_social&&f.nome_fantasia&&f.razao_social!==f.nome_fantasia?`<div style="font-size:11.5px;color:#64748b;">${esc(f.razao_social)}</div>`:''}</td>
+        <td>${esc(f.cnpj||'—')}</td><td>${esc(CAT_BPF[f.bpf_categoria]||f.bpf_categoria)}</td>
+        <td>${st}${h.r?` <a href="#" onclick="abrirReg('${h.r.id}');return false;" style="font-size:12px;">${esc(h.r.numero)}</a>`:''}</td>
+        <td>${h.c.reavaliacao?fmtD(h.c.reavaliacao):'—'}</td>
+        <td style="white-space:nowrap;">${precisa?`<button class="btn btn-primary btn-sm" onclick="homologarFornecedor('${f.id}')">✅ ${h.r?'Reavaliar':'Homologar'}</button>`
+            :h.r&&!h.conc?`<button class="btn btn-secondary btn-sm" onclick="abrirReg('${h.r.id}')">Continuar</button>`:''}
+          <button class="bx-ib" title="Visualizar" onclick="verFornBpf('${f.id}')">👁️</button><button class="bx-ib" title="Baixar PDF" onclick="baixarFornBpf('${f.id}')">⬇️</button><button class="bx-ib" title="Imprimir" onclick="imprimirFornBpf('${f.id}')">🖨️</button></td></tr>`;}).join('')}</tbody></table></div>`
       :'<div class="empty"><div class="ic">🏭</div><h3>Nenhum fornecedor marcado como BPF</h3><p>Marque no Compras ou em ⚙️ Configurar do POP-01.</p></div>'}`;
 }
+function homologarFornecedor(id){
+  const f=_fornBpf.find(x=>x.id===id);if(!f)return;
+  const fm=_forms.find(x=>x.codigo==='REG-POP01-02');
+  const opc=c=>((fm&&fm.campos||[]).find(x=>x.id===c)||{}).opcoes||[];
+  const alvo=(c,t)=>opc(c).find(o=>_normP(o).includes(_normP(t)))||'';
+  novaFichaManual('REG-POP01-02',{nome:f.nome_fantasia||f.razao_social||'',cnpj:f.cnpj||'',
+    tipo_forn:alvo('tipo_forn',CAT_BPF[f.bpf_categoria]||f.bpf_categoria||''),categoria:f.bpf_categoria==='materia_prima'||f.bpf_categoria==='embalagem'?alvo('categoria','A'):''});
+}
+function htmlFornBpf(f,emp){
+  const h=homologFornecedor(f);const end=[f.endereco].filter(Boolean).join(' ');
+  const linhas=[['Razão social',f.razao_social],['Nome fantasia',f.nome_fantasia],['CNPJ',f.cnpj],['IE',f.ie],['Contato',[f.contato,f.fone,f.email].filter(Boolean).join(' · ')],['Endereço',end],
+    ['Categoria BPF',CAT_BPF[f.bpf_categoria]||f.bpf_categoria],['Homologação',h.r?`${h.r.numero} — ${h.ok?'homologado':(ETAPAS_REG.find(e=>e.k===etapaReg(h.r))?.t||'em andamento')}`:'sem homologação'],
+    ['Status no registro',h.c.status],['Reavaliação',h.c.reavaliacao?fmtD(h.c.reavaliacao):''],['Observação',f.obs]];
+  return `<div style="font-family:'Plus Jakarta Sans',sans-serif;color:#111;page-break-after:always;">${cabEmpresa(emp,'Fornecedor BPF','POP-01 · Qualificação de fornecedores')}
+    <div style="font-size:16px;font-weight:800;color:#042D4D;margin-bottom:8px;">🏭 ${esc(f.nome_fantasia||f.razao_social||'')}</div>
+    <table style="width:100%;border-collapse:collapse;font-size:11px;">${linhas.map(([a,b])=>`<tr><td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;width:34%;color:#475569;">${esc(a)}</td><td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;font-weight:600;">${esc(b||'—')}</td></tr>`).join('')}</table>${_rodapeDoc}</div>`;
+}
+function htmlFornBpfLista(emp){
+  return `<div style="font-family:'Plus Jakarta Sans',sans-serif;color:#111;">${cabEmpresa(emp,'Fornecedores BPF — lista',`POP-01 · ${_fornBpf.length} fornecedor(es)`)}
+    <table style="width:100%;border-collapse:collapse;font-size:10px;"><tr>${['Fornecedor','CNPJ','Categoria','Homologação','Reavaliação'].map(t=>`<th style="background:#042D4D;color:#fff;padding:5px 6px;text-align:left;">${t}</th>`).join('')}</tr>
+    ${_fornBpf.map(f=>{const h=homologFornecedor(f);return `<tr><td style="padding:5px 6px;border-bottom:1px solid #e5e7eb;">${esc(f.nome_fantasia||f.razao_social||'')}</td><td style="padding:5px 6px;border-bottom:1px solid #e5e7eb;">${esc(f.cnpj||'—')}</td>
+      <td style="padding:5px 6px;border-bottom:1px solid #e5e7eb;">${esc(CAT_BPF[f.bpf_categoria]||'')}</td><td style="padding:5px 6px;border-bottom:1px solid #e5e7eb;">${h.r?esc(h.r.numero)+' — '+(h.ok?'homologado':'em andamento'):'sem homologação'}</td>
+      <td style="padding:5px 6px;border-bottom:1px solid #e5e7eb;">${h.c.reavaliacao?fmtD(h.c.reavaliacao):'—'}</td></tr>`;}).join('')}</table>${_rodapeDoc}</div>`;
+}
+async function verFornBpf(id){const emp=await dadosEmpresa();const f=_fornBpf.find(x=>x.id===id);if(!f)return;
+  _dlg(`<div class="dlg" style="max-width:900px;width:96vw;"><div class="dlg-hd"><span class="dlg-ic">🏭</span><div class="dlg-tt">Fornecedor BPF</div></div>
+    <div class="dlg-bd" style="max-height:70vh;overflow:auto;background:#e2e8f0;padding:14px;"><div style="background:#fff;max-width:794px;margin:0 auto;padding:24px 28px;">${htmlFornBpf(f,emp)}</div></div>
+    <div class="dlg-ft"><button class="btn btn-secondary" onclick="baixarFornBpf('${id}')">⬇️ Baixar PDF</button><button class="btn btn-primary" onclick="imprimirFornBpf('${id}')">🖨️ Imprimir</button><button class="btn btn-secondary" onclick="_fecharDlg()">Fechar</button></div></div>`);}
+async function imprimirFornBpf(id){const emp=await dadosEmpresa();const f=id&&_fornBpf.find(x=>x.id===id);
+  document.getElementById('print-area').innerHTML=f?htmlFornBpf(f,emp):htmlFornBpfLista(emp);window.print();}
+async function baixarFornBpf(id){const emp=await dadosEmpresa();const f=id&&_fornBpf.find(x=>x.id===id);
+  await baixarPdfHtml(f?htmlFornBpf(f,emp):htmlFornBpfLista(emp),f?`Fornecedor BPF - ${String(f.nome_fantasia||f.razao_social).replace(/[\\/:*?"<>|]/g,'')}.pdf`:'Fornecedores BPF - lista.pdf');}
 function filtrarNav(t){
   const q=(t||'').toLowerCase().trim();
   document.querySelectorAll('.nav-it').forEach(el=>{el.style.display=!q||el.dataset.busca.includes(q)?'':'none';});
@@ -1649,12 +1697,12 @@ async function gerarRegistro(formCod,{pre,tarefa,origemMod,origemId,abrir=true}=
 }
 // ＋ Gerar ficha (manual): abre em branco SEM gravar. Só vira registro (com nº)
 // quando a pessoa salva (rascunho/digitação) ou imprime. Fechou sem salvar → descarta.
-function novaFichaManual(formCod){
+function novaFichaManual(formCod,pre){
   if(!guardAction('bpf','edit'))return;
   const f=_forms.find(x=>x.codigo===formCod);if(!f){toast('Formulário não encontrado','danger');return;}
   const u=getUser();
   const r={id:'novo-'+Date.now(),_novo:true,numero:'nova ficha (o nº sai ao salvar)',formulario_cod:f.codigo,pop_cod:f.pop_cod,
-    data:hoje(),hora:new Date().toTimeString().slice(0,5),campos:{},status:'a_preencher',conforme:true,anexos:[],assinaturas:[],
+    data:hoje(),hora:new Date().toTimeString().slice(0,5),campos:Object.assign({},pre||{}),status:'a_preencher',conforme:true,anexos:[],assinaturas:[],
     assinaturas_papel:{},origem_modulo:null,origem_id:null,tarefa_id:null,criado_por:u?.nome||u?.email||'—'};
   _regs.unshift(r);
   abrirRegistroFluxo(r.id);
@@ -2403,6 +2451,80 @@ function tabelaRegs(l){
 // ═══════════════════════════════════════════════════════════════════════════
 // MOTOR DE CADASTROS
 // ═══════════════════════════════════════════════════════════════════════════
+// ═══ CADASTROS: visualizar · imprimir · baixar (PDF) com o cabeçalho da empresa ═══
+// Dados da empresa (logo, razão social, CNPJ, endereço, RT) vêm de Configurações (empresa_config).
+let _empresa=null;
+async function dadosEmpresa(){
+  if(_empresa)return _empresa;
+  try{ const {data}=await _supabase.from('empresa_config').select('razao_social,nome_fantasia,cnpj,ie,rua,numero,bairro,cidade,uf,estado,cep,telefone,email,logo,rt_nome,rt_registro').limit(1).maybeSingle(); _empresa=data||{}; }
+  catch(e){ _empresa={}; }
+  if(_empresa.logo&&!/^data:|^https?:/.test(_empresa.logo))_empresa.logo='data:image/png;base64,'+_empresa.logo;
+  return _empresa;
+}
+function cabEmpresa(emp,titulo,sub){
+  const end=[emp.rua&&(emp.rua+(emp.numero?', '+emp.numero:'')),emp.bairro,emp.cidade&&(emp.cidade+'/'+(emp.uf||emp.estado||'')),emp.cep&&('CEP '+emp.cep)].filter(Boolean).join(' · ');
+  return `<table style="width:100%;border-collapse:collapse;border:1.5px solid #042D4D;margin-bottom:12px;font-family:'Plus Jakarta Sans',sans-serif;"><tr>
+    <td style="padding:8px 10px;width:62%;"><img src="${emp.logo||LOGO_SILICATE}" style="max-height:34px;max-width:200px;display:block;margin-bottom:4px;">
+      <div style="font-size:11px;font-weight:800;color:#042D4D;">${esc(emp.razao_social||'SILICATE INDÚSTRIA E COMÉRCIO LTDA')}</div>
+      <div style="font-size:8.5px;color:#555;">CNPJ ${esc(emp.cnpj||'—')}${emp.ie?' · IE '+esc(emp.ie):''}${end?' · '+esc(end):''}</div></td>
+    <td style="padding:8px 10px;border-left:1px solid #042D4D;font-size:9.5px;line-height:1.55;vertical-align:top;">
+      <b style="font-size:11.5px;color:#042D4D;">${esc(titulo)}</b><br>${sub||''}<br>Emitido em ${new Date().toLocaleDateString('pt-BR')} · ${esc((getUser()||{}).nome||'')}
+      ${emp.rt_nome?`<br>RT: ${esc(emp.rt_nome)}${emp.rt_registro?' · '+esc(emp.rt_registro):''}`:''}</td></tr></table>`;
+}
+const _rodapeDoc=`<div style="margin-top:14px;border-top:1px solid #c8d5e2;padding-top:5px;font-size:8.5px;color:#666;font-family:'Plus Jakarta Sans',sans-serif;">Sistema de Gestão da Qualidade · Boas Práticas de Fabricação · documento gerado pelo ERP</div>`;
+function valorCampoEnt(k,row,c){
+  let v=row[c.id];
+  if(c.tipo==='ref'){const ref=(_ent[c.ref]||[]).find(x=>x.id===v);return ref?(ref[c.refLabel]||ref.nome||ref.tag||'—'):'—';}
+  if(v===true)return 'Sim'; if(v===false)return 'Não';
+  if(v===null||v===undefined||v==='')return '—';
+  if(c.tipo==='data'||/^\d{4}-\d{2}-\d{2}/.test(String(v)))return fmtD(v);
+  if(Array.isArray(v))return v.join(', ');
+  if(typeof v==='object')return JSON.stringify(v);
+  return String(v);
+}
+function htmlCadastroItem(k,row,emp){
+  const e=ENTIDADES[k];const rot=(e.colunas[0].id[0]!=='_'&&row[e.colunas[0].id])||row.nome||row.tag||row.numero||'';
+  const campos=(e.campos||[]).filter(c=>c.tipo!=='secao'&&c.id!=='anexos');
+  const anexos=(row.anexos||[]);
+  return `<div style="font-family:'Plus Jakarta Sans',sans-serif;color:#111;page-break-after:always;">${cabEmpresa(emp,e.titulo,`${esc(e.pop)} · ${esc(e.sys||'')}`)}
+    <div style="font-size:16px;font-weight:800;color:#042D4D;margin-bottom:8px;">${e.icone} ${esc(rot)}</div>
+    <table style="width:100%;border-collapse:collapse;font-size:11px;">${campos.map(c=>`<tr><td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;width:38%;color:#475569;">${esc(c.label||c.l||c.id)}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid #e5e7eb;font-weight:600;">${esc(valorCampoEnt(k,row,c))}</td></tr>`).join('')}</table>
+    ${anexos.length?`<div style="margin-top:10px;font-size:10.5px;"><b>Anexos:</b> ${anexos.map(a=>esc(a.nome||a.name||'arquivo')).join(' · ')}</div>`:''}
+    ${_rodapeDoc}</div>`;
+}
+function htmlCadastroLista(k,emp){
+  const e=ENTIDADES[k];const l=_ent[k]||[];
+  return `<div style="font-family:'Plus Jakarta Sans',sans-serif;color:#111;">${cabEmpresa(emp,e.titulo+' — lista',`${esc(e.pop)} · ${l.length} cadastro(s)`)}
+    <table style="width:100%;border-collapse:collapse;font-size:10px;"><tr>${e.colunas.map(c=>`<th style="background:#042D4D;color:#fff;padding:5px 6px;text-align:left;">${esc(c.l)}</th>`).join('')}</tr>
+    ${l.map(row=>`<tr>${e.colunas.map(c=>`<td style="padding:5px 6px;border-bottom:1px solid #e5e7eb;">${celulaEnt(k,row,c).replace(/<[^>]+>/g,'')}</td>`).join('')}</tr>`).join('')}</table>${_rodapeDoc}</div>`;
+}
+async function verCadastro(k,id){
+  const emp=await dadosEmpresa();const row=(_ent[k]||[]).find(x=>x.id===id);if(!row)return;
+  _dlg(`<div class="dlg" style="max-width:900px;width:96vw;"><div class="dlg-hd"><span class="dlg-ic">${ENTIDADES[k].icone}</span><div class="dlg-tt">${esc(ENTIDADES[k].titulo)}</div></div>
+    <div class="dlg-bd" style="max-height:70vh;overflow:auto;background:#e2e8f0;padding:14px;"><div style="background:#fff;max-width:794px;margin:0 auto;padding:24px 28px;">${htmlCadastroItem(k,row,emp)}</div></div>
+    <div class="dlg-ft"><button class="btn btn-secondary" onclick="baixarCadastro('${k}','${id}')">⬇️ Baixar PDF</button><button class="btn btn-primary" onclick="imprimirCadastro('${k}','${id}')">🖨️ Imprimir</button>
+      <button class="btn btn-secondary" onclick="_fecharDlg()">Fechar</button></div></div>`);
+}
+async function imprimirCadastro(k,id){
+  const emp=await dadosEmpresa();
+  document.getElementById('print-area').innerHTML=id?htmlCadastroItem(k,(_ent[k]||[]).find(x=>x.id===id)||{},emp):htmlCadastroLista(k,emp);
+  window.print();
+}
+let _h2p=null;
+async function baixarPdfHtml(html,nome){
+  if(!_h2p)_h2p=new Promise((ok,er)=>{const s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js';s.onload=ok;s.onerror=er;document.head.appendChild(s);});
+  try{await _h2p;}catch(e){toast('Não foi possível carregar o gerador de PDF — use 🖨️ Imprimir e "Salvar como PDF".','warning');_h2p=null;return;}
+  // o gerador monta a própria cópia da página (fora da vista o desenho sai em branco)
+  await window.html2pdf().set({margin:[10,10,12,10],filename:nome,image:{type:'jpeg',quality:0.95},
+    html2canvas:{scale:2,useCORS:true,scrollX:0,scrollY:0},jsPDF:{unit:'mm',format:'a4',orientation:'portrait'},pagebreak:{mode:['css','legacy']}})
+    .from(`<div style="width:690px;background:#fff;">${html}</div>`,'string').save();
+}
+async function baixarCadastro(k,id){
+  const emp=await dadosEmpresa();const e=ENTIDADES[k];
+  if(id){const row=(_ent[k]||[]).find(x=>x.id===id)||{};await baixarPdfHtml(htmlCadastroItem(k,row,emp),`${e.titulo} - ${String((e.colunas[0].id[0]!=='_'&&row[e.colunas[0].id])||row.nome||row.tag||row.numero||id).replace(/[\\/:*?"<>|]/g,'')}.pdf`);}
+  else await baixarPdfHtml(htmlCadastroLista(k,emp),`${e.titulo} - lista.pdf`);
+}
 function abrirEnt(k){
   lembrarTela({ent:k});
   if(ENTIDADES[k]&&!entNoEscopo(ENTIDADES[k])){
@@ -2414,6 +2536,8 @@ function abrirEnt(k){
   cab(e.pop+' · '+e.sys,e.icone+' '+e.titulo,
     `${k==='manifestacoes'?`<button class="btn btn-secondary btn-sm" onclick="renderCanal('colaborador')">💬 Canal público</button> `:''}
      ${k==='reclamacoes'?`<button class="btn btn-secondary btn-sm" onclick="renderCanal('cliente')">📣 Canal do cliente</button> `:''}
+     <button class="btn btn-secondary btn-sm" onclick="imprimirCadastro('${k}')">🖨️ Imprimir lista</button>
+     <button class="btn btn-secondary btn-sm" onclick="baixarCadastro('${k}')">⬇️ Baixar lista</button>
      <button class="btn btn-primary btn-sm" onclick="novaEnt('${k}')">+ Novo</button>`);
   const l=_ent[k]||[];
   let h=`<div class="alerta al-info">${esc(e.desc)}</div>`;
@@ -2424,7 +2548,8 @@ function abrirEnt(k){
       ${e.colunas.map(c=>`<th>${esc(c.l)}</th>`).join('')}${e.anexo?'<th>Anexos</th>':''}<th></th></tr></thead><tbody>
       ${l.map(row=>`<tr>${e.colunas.map(c=>`<td>${celulaEnt(k,row,c)}</td>`).join('')}
         ${e.anexo?`<td>${(row.anexos||[]).length?`<span class="badge badge-gray">📎 ${(row.anexos||[]).length}</span>`:'—'}</td>`:''}
-        <td style="white-space:nowrap;"><button class="btn btn-ghost btn-sm" onclick="editarEnt('${k}','${row.id}')">✏️ editar</button>
+        <td style="white-space:nowrap;"><button class="bx-ib" title="Visualizar" onclick="verCadastro('${k}','${row.id}')">👁️</button><button class="bx-ib" title="Baixar PDF" onclick="baixarCadastro('${k}','${row.id}')">⬇️</button><button class="bx-ib" title="Imprimir" onclick="imprimirCadastro('${k}','${row.id}')">🖨️</button>
+        <button class="btn btn-ghost btn-sm" onclick="editarEnt('${k}','${row.id}')">✏️ editar</button>
         <button class="btn btn-ghost btn-sm" style="color:var(--danger);" onclick="excluirEnt('${k}','${row.id}')">🗑️</button></td></tr>`).join('')}
     </tbody></table></div>`;
   document.getElementById('conteudo').innerHTML=h;
