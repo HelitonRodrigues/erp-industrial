@@ -1,0 +1,6 @@
+-- 088 — BPF: registros completos desde a vigência (aplicado direto no banco em 28/10/2026)
+-- • Tarefas canceladas na limpeza da implantação, mas com evento DEPOIS da vigência do POP, voltaram a valer.
+-- • Tarefas abertas sem registro ganharam o registro (A preencher) com os dados automáticos.
+-- • REG-POP01-01: entradas de estoque sem solicitação/compra confirmada não geram registro (8 removidos).
+-- • Numeração por data refeita nos registros afetados (bpf_renumerar).
+-- • bpf.html passa a carregar TODOS os registros e tarefas (antes: 500/1000 — cortava o levantamento).
