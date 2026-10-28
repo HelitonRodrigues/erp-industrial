@@ -49,6 +49,14 @@
 .row-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;}
 @media(max-width:760px){.row-2,.row-3{grid-template-columns:1fr;}}
 .solitem{display:grid;grid-template-columns:2.4fr 1fr auto;gap:8px;align-items:start;background:#f8fafc;border:1.5px solid #e2e8f0;border-radius:10px;padding:10px;margin-bottom:8px;}
+.ff-bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px;}
+.ff-vis{display:flex;border:1.5px solid #e2e8f0;border-radius:10px;overflow:hidden;}
+.ff-vis button{border:0;background:#fff;min-width:40px;min-height:38px;font-size:16px;cursor:pointer;color:#64748b;}
+.ff-vis button.on{background:var(--primary);color:var(--accent);}
+.ff-letras{display:flex;gap:3px;flex-wrap:wrap;margin-bottom:4px;}
+.ff-letras button{min-width:30px;height:30px;border:1px solid #e2e8f0;background:#fff;border-radius:8px;font-family:inherit;font-weight:700;font-size:12px;color:var(--primary);cursor:pointer;}
+.ff-letras button.on{background:var(--primary);color:var(--accent);border-color:var(--primary);}
+.ff-letras button:disabled{opacity:.3;cursor:default;}
 </style>
 </head>
 <body>
@@ -186,7 +194,19 @@
 
     <!-- FORNECEDORES -->
     <div id="tab-fornecedores" style="display:none;">
-      <div style="display:flex;justify-content:flex-end;margin-bottom:10px;"><button class="btn btn-primary btn-sm" data-perm="compras.fornecedores:create" onclick="abrirFornecedor()">+ Fornecedor</button></div>
+      <div class="ff-bar">
+        <input id="ff-q" class="form-input" style="flex:2;min-width:220px;" placeholder="🔍 Nome, razão social, CNPJ, contato, e-mail, cidade…" oninput="_ff.q=this.value;renderFornecedores()">
+        <select id="ff-cat" class="form-input" style="max-width:190px;" onchange="_ff.cat=this.value;renderFornecedores()"></select>
+        <select id="ff-st" class="form-input" style="max-width:190px;" onchange="_ff.st=this.value;renderFornecedores()"><option value="">Todas as situações</option></select>
+        <select id="ff-bpf" class="form-input" style="max-width:170px;" onchange="_ff.bpf=this.value;renderFornecedores()">
+          <option value="">BPF: todos</option><option value="sim">Só fornecedor BPF</option><option value="nao">Sem BPF</option></select>
+        <select id="ff-ord" class="form-input" style="max-width:190px;" onchange="_ff.ord=this.value;renderFornecedores()">
+          <option value="nome">Ordem: nome (A–Z)</option><option value="pedidos">Mais pedidos</option><option value="valor">Maior valor comprado</option><option value="atraso">Mais atraso</option><option value="recente">Último pedido</option></select>
+        <div class="ff-vis"><button id="ff-v-card" class="on" onclick="_ff.vis='card';renderFornecedores()" title="Cartões">▦</button><button id="ff-v-lista" onclick="_ff.vis='lista';renderFornecedores()" title="Lista">☰</button></div>
+        <button class="btn btn-primary btn-sm" data-perm="compras.fornecedores:create" onclick="abrirFornecedor()">+ Fornecedor</button>
+      </div>
+      <div class="ff-letras" id="ff-letras"></div>
+      <div id="ff-info" class="mini" style="margin:4px 0 8px;"></div>
       <div id="lista-forn" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px;"></div>
     </div>
 
@@ -1745,19 +1765,65 @@ function renderRecebimentos(){
 }
 
 /* ─────────── FORNECEDORES ─────────── */
+// ── Fornecedores: busca, filtros, ordem, letra inicial e visão em cartões ou lista ──
+let _ff={q:'',cat:'',st:'',bpf:'',ord:'nome',vis:'card',letra:''};
+const escF=v=>String(v==null?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const _ffN=x=>String(x||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+const CAT_BPF_C={embalagem:'Embalagem',materia_prima:'Matéria-prima',aditivo:'Aditivo',servico:'Serviço',insumo:'Insumo'};
 function renderFornecedores(){
   const el=document.getElementById('lista-forn');
+  // opções dos filtros (categoria e situação) a partir do que existe no cadastro
+  const selCat=document.getElementById('ff-cat');
+  if(selCat){const cats=[...new Set(_forn.map(f=>(f.categoria||'').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+    selCat.innerHTML='<option value="">Todas as categorias</option>'+cats.map(c=>`<option ${_ff.cat===c?'selected':''}>${escF(c)}</option>`).join('')+`<option value="__sem" ${_ff.cat==='__sem'?'selected':''}>Sem categoria</option>`;}
+  const selSt=document.getElementById('ff-st');
+  if(selSt&&selSt.options.length<2)selSt.innerHTML='<option value="">Todas as situações</option>'+Object.entries(HOMOL_INFO).map(([k,v])=>`<option value="${k}">${v.ic} ${v.l}</option>`).join('');
+  if(selSt)selSt.value=_ff.st;
+  document.getElementById('ff-v-card')?.classList.toggle('on',_ff.vis==='card');document.getElementById('ff-v-lista')?.classList.toggle('on',_ff.vis==='lista');
+  const q=_ffN(_ff.q);
+  let l=_forn.filter(f=>{
+    if(q&&!_ffN([f.nome_fantasia,f.razao_social,f.cnpj,String(f.cnpj||'').replace(/\D/g,''),f.contato,f.email,f.fone,f.categoria,f.endereco,f.obs].join(' ')).includes(q))return false;
+    if(_ff.cat==='__sem'?!!(f.categoria||'').trim():(_ff.cat&&(f.categoria||'').trim()!==_ff.cat))return false;
+    if(_ff.st&&(f.status_homologacao||'em_analise')!==_ff.st)return false;
+    if(_ff.bpf==='sim'&&!f.bpf_categoria)return false; if(_ff.bpf==='nao'&&f.bpf_categoria)return false;
+    if(_ff.letra){const ini=_ffN(f.nome_fantasia||f.razao_social).charAt(0);if(_ff.letra==='#'?/[a-z]/.test(ini):ini!==_ff.letra)return false;}
+    return true;});
+  const M={};l.forEach(f=>{M[f.id]=fornMetricas(f.id);});
+  const ultPed=fid=>_peds.filter(p=>p.fornecedor_id===fid).map(p=>String(p.created_at||p.data||'')).sort().pop()||'';
+  const nm=f=>(f.nome_fantasia||f.razao_social||'');
+  l.sort(_ff.ord==='pedidos'?(a,b)=>M[b.id].pedidos-M[a.id].pedidos||nm(a).localeCompare(nm(b))
+        :_ff.ord==='valor'?(a,b)=>M[b.id].valor-M[a.id].valor
+        :_ff.ord==='atraso'?(a,b)=>M[b.id].idxAtraso-M[a.id].idxAtraso||M[b.id].pedidos-M[a.id].pedidos
+        :_ff.ord==='recente'?(a,b)=>ultPed(b.id).localeCompare(ultPed(a.id))
+        :(a,b)=>nm(a).localeCompare(nm(b)));
+  // barra de letras (A–Z) com as que existem
+  const temLetra=new Set(_forn.map(f=>{const c=_ffN(nm(f)).charAt(0);return /[a-z]/.test(c)?c:'#';}));
+  document.getElementById('ff-letras').innerHTML=`<button class="${!_ff.letra?'on':''}" onclick="_ff.letra='';renderFornecedores()">Todas</button>`+
+    'abcdefghijklmnopqrstuvwxyz#'.split('').map(c=>`<button class="${_ff.letra===c?'on':''}" ${temLetra.has(c)?'':'disabled'} onclick="_ff.letra='${c}';renderFornecedores()">${c.toUpperCase()}</button>`).join('');
+  const filtrando=_ff.q||_ff.cat||_ff.st||_ff.bpf||_ff.letra;
+  document.getElementById('ff-info').innerHTML=`<b>${l.length}</b> de ${_forn.length} fornecedor(es)${filtrando?` · <a href="#" onclick="_ff={q:'',cat:'',st:'',bpf:'',ord:_ff.ord,vis:_ff.vis,letra:''};document.getElementById('ff-q').value='';document.getElementById('ff-bpf').value='';renderFornecedores();return false;">✕ limpar filtros</a>`:''}`;
+  el.style.display=_ff.vis==='lista'?'block':'grid';
   if(!_forn.length){el.innerHTML='<div class="card" style="grid-column:1/-1;color:#94a3b8;text-align:center;">Nenhum fornecedor cadastrado.</div>';return;}
-  el.innerHTML=_forn.map(f=>{
-    const m=fornMetricas(f.id);const h=homolInfo(f);
+  if(!l.length){el.innerHTML='<div class="card" style="grid-column:1/-1;color:#94a3b8;text-align:center;">Nenhum fornecedor com esse filtro.</div>';return;}
+  const acoes=f=>`${podeCriar()?`<button class="btn btn-ghost btn-sm" data-perm="compras.fornecedores:edit" onclick="abrirFornecedor('${f.id}')">✏️</button>`:''}${podeExcluir()?`<button class="btn btn-ghost btn-sm" data-perm="compras.fornecedores:delete" onclick="confirmarExclusao('forn','${f.id}')">🗑️</button>`:''}`;
+  const bpfTag=f=>f.bpf_categoria?`<span class="sb" style="background:#ecfdf5;color:#166534;">🏭 BPF · ${escF(CAT_BPF_C[f.bpf_categoria]||f.bpf_categoria)}</span>`:'';
+  if(_ff.vis==='lista'){
+    el.innerHTML=`<div class="table-wrap"><table><thead><tr><th>Fornecedor</th><th>CNPJ</th><th>Categoria</th><th>Situação</th><th>Contato</th><th class="num">Pedidos</th><th class="num">Valor</th><th class="num">Atraso</th><th></th></tr></thead><tbody>
+      ${l.map(f=>{const m=M[f.id],h=homolInfo(f);return `<tr${f.status_homologacao==='bloqueado'?' style="background:#fff7f7;"':''}><td><b>${escF(nm(f))}</b>${f.razao_social&&f.razao_social!==f.nome_fantasia?`<div class="mini">${escF(f.razao_social)}</div>`:''}</td>
+        <td class="mini">${escF(f.cnpj||'—')}</td><td>${escF(f.categoria||'—')} ${bpfTag(f)}</td><td><span class="sb ${h.cls}">${h.ic} ${h.l}</span></td>
+        <td class="mini">${escF([f.contato,f.fone].filter(Boolean).join(' · ')||'—')}</td><td class="num">${m.pedidos}</td><td class="num">${brl(m.valor)}</td>
+        <td class="num" style="${m.idxAtraso>20?'color:var(--danger);font-weight:700;':''}">${m.idxAtraso}%</td><td style="white-space:nowrap;">${acoes(f)}</td></tr>`;}).join('')}</tbody></table></div>`;
+  }else el.innerHTML=l.map(f=>{
+    const m=M[f.id];const h=homolInfo(f);
     return `<div class="card" style="${f.status_homologacao==='bloqueado'?'border-color:#fca5a5;background:#fff7f7;':''}"><div style="display:flex;justify-content:space-between;align-items:flex-start;">
-      <div><div style="font-weight:800;color:var(--primary);">${f.nome_fantasia||f.razao_social}</div><div class="mini">${f.categoria||'—'}${f.cnpj?' · '+f.cnpj:''}</div></div>
-      <div style="display:flex;gap:4px;">${podeCriar()?`<button class="btn btn-ghost btn-sm" data-perm="compras.fornecedores:edit" onclick="abrirFornecedor('${f.id}')">✏️</button>`:''}${podeExcluir()?`<button class="btn btn-ghost btn-sm" title="Excluir" data-perm="compras.fornecedores:delete" onclick="confirmarExclusao('forn','${f.id}')">🗑️</button>`:''}</div></div>
-      <div style="margin-top:6px;"><span class="sb ${h.cls}">${h.ic} ${h.l}</span></div>
-      <div class="mini" style="margin-top:8px;line-height:1.7;">${f.contato?'👤 '+f.contato+'<br>':''}${f.fone?'📞 '+f.fone+'<br>':''}${f.prazo_entrega?'⏱️ Prazo médio: '+f.prazo_entrega+' dias<br>':''}${f.prazo_pagamento||f.condicao_pagamento?'💳 '+(f.prazo_pagamento||f.condicao_pagamento)+'<br>':''}${f.certificacoes?'📜 '+f.certificacoes+'<br>':''}</div>
-      <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;"><span class="sb st-em_pedido">${m.pedidos} pedidos</span><span class="sb st-aprovada">${brl(m.valor)}</span><span class="sb ${m.idxAtraso>20?'st-reprovada':'st-recebido_total'}">${m.idxAtraso}% atraso</span>${m.ncs?`<span class="sb st-reprovada">${m.ncs} NC</span>`:''}<span class="sb ${scoreFornecedor(f.id)>=70?'st-aprovada':scoreFornecedor(f.id)>=40?'st-pendente':'st-reprovada'}">⭐ Score ${scoreFornecedor(f.id)}</span></div>
+      <div><div style="font-weight:800;color:var(--primary);">${escF(nm(f))}</div><div class="mini">${escF(f.categoria||'—')}${f.cnpj?' · '+escF(f.cnpj):''}</div></div>
+      <div style="display:flex;gap:4px;">${acoes(f)}</div></div>
+      <div style="margin-top:6px;display:flex;gap:4px;flex-wrap:wrap;"><span class="sb ${h.cls}">${h.ic} ${h.l}</span>${bpfTag(f)}</div>
+      <div class="mini" style="margin-top:8px;line-height:1.7;">${f.contato?'👤 '+escF(f.contato)+'<br>':''}${f.fone?'📞 '+escF(f.fone)+'<br>':''}${f.email?'✉️ '+escF(f.email)+'<br>':''}${f.prazo_entrega?'⏱️ Prazo médio: '+escF(f.prazo_entrega)+' dias<br>':''}</div>
+      <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;"><span class="sb st-em_pedido">${m.pedidos} pedidos</span><span class="sb st-aprovada">${brl(m.valor)}</span><span class="sb ${m.idxAtraso>20?'st-reprovada':'st-recebido_total'}">${m.idxAtraso}% atraso</span></div>
     </div>`;
   }).join('');
+  if(typeof applyActionGuards==='function')applyActionGuards();
 }
 function abrirFornecedor(id){
   if(!podeCriar())return toast('Sem permissão.','warning');
