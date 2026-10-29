@@ -1,0 +1,10 @@
+-- 094 — Portaria: tempos da operação com hora do servidor, NF lida do DANFE/XML e planilha de faturamento
+-- (aplicado direto no banco em 29/10/2026)
+-- • portaria: bruto_em/bruto_por (fim do carregamento = pesagem de saída) e nf_* (número, série, chave, emissão SEFAZ,
+--   cliente, valor, pesos, produto, lote, pedido, placa, transportadora, frete, arquivo, quem/quando registrou).
+-- • Gatilho portaria_tempos_servidor: chegada, início (tara), fim (bruto), registro da NF e saída SEMPRE pela hora do
+--   servidor; depois de gravados não mudam (só "voltar etapa" limpa). Correção só por portaria_corrigir_horario().
+-- • portaria_corrigir_horario(id, campo, valor, motivo, usuario): só SGR/SADM/ADM, justificativa obrigatória,
+--   histórico em portaria_correcoes (antes, depois, motivo, quem, perfil, quando).
+-- • View portaria_faturamento: 1 linha por caminhão/ordem com os 5 eventos, os usuários e os 4 tempos (minutos).
+-- (SQL completo aplicado via Supabase — ver histórico de migrations "portaria_tempos_nf")
