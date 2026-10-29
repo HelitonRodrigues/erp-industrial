@@ -4,3 +4,7 @@
 -- gatilho dsm_tempos_servidor (horários sempre pelo servidor; gravado, só muda por correção),
 -- dsm_corrigir_horario() (só SGR/SADM/ADM, justificativa obrigatória) e a view dsm_faturamento (4 tempos em minutos).
 -- (SQL completo nas migrations "portaria_desfaz_tempos" e "dsm_modulo" do Supabase)
+-- 29/10/2026 (migrations "dsm_ticket_pesagem" e "dsm_cancelamento"):
+-- • início/fim do carregamento = data/hora lidas do TICKET de pesagem (imutáveis depois; só correção do supervisor);
+--   tickets anexados (ticket_entrada/ticket_saida); inicio/fim_registrado_em = quando o porteiro anexou.
+-- • cancelamento com motivo (cancelado_em/por/motivo); view dsm_faturamento com min_total (recepção → saída).
