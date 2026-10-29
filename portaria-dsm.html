@@ -17,7 +17,7 @@
      Tabelas próprias (dsm_*) — não mexe na Portaria nem no Carregamento.
      ═══════════════════════════════════════════════════════════════════ -->
 <style>
-.d{--ln:#e2e8f0;--mu:#64748b}
+:root{--ln:#e2e8f0;--mu:#64748b}
 .d-hd{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:14px}
 .d-hd h1{font-size:24px;font-weight:800;color:var(--primary);display:flex;align-items:center;gap:10px}
 .d-hd p{color:var(--mu);font-size:13px;margin-top:2px}
@@ -62,6 +62,19 @@
 .dsm-g2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 @media(max-width:1100px){.d-kpis{grid-template-columns:repeat(3,1fr)}.d-board{grid-template-columns:1fr}.d-mk{grid-template-columns:repeat(2,1fr)}.d-g2{grid-template-columns:1fr}}
 @media(max-width:600px){.d-kpis{grid-template-columns:repeat(2,1fr)}.dsm-g2{grid-template-columns:1fr}}
+.dsm-mod.dt{max-width:1000px}
+.dt-top{display:flex;justify-content:space-between;gap:10px;margin-bottom:10px}.dt-pl{font-size:24px;font-weight:800;color:var(--primary);display:flex;gap:10px;align-items:center;flex-wrap:wrap}.dt-pl small{font-size:14px;color:var(--mu)}
+.dt-x{border:0;background:#f1f5f9;border-radius:10px;width:38px;height:38px;cursor:pointer;font-size:16px;flex-shrink:0}
+.dt-kp{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:12px}
+.dt-g{display:grid;grid-template-columns:1.1fr 1fr;gap:12px}
+.dt-box{border:1px solid var(--ln);border-radius:12px;padding:12px 14px;margin-bottom:12px;background:#fff}.dt-box table td{padding:5px 4px;border-bottom:1px solid #f1f5f9;font-size:12.5px}
+.dt-bt{font-weight:800;color:var(--primary);font-size:13.5px;margin-bottom:8px;display:flex;gap:6px;align-items:center}
+.dt-ev{display:flex;gap:10px;align-items:center;padding:8px 10px;border:1px solid var(--ln);border-radius:10px;background:#f8fafc}.dt-ev.ok{background:#f0fdf4;border-color:#bbf7d0}
+.dt-ic{width:32px;height:32px;border-radius:50%;background:#e2e8f0;display:flex;align-items:center;justify-content:center;font-weight:800;color:#64748b;flex-shrink:0}.dt-ev.ok .dt-ic{background:#dcfce7}
+.dt-t{font-weight:700;font-size:13px;color:var(--primary)}.dt-h{font-weight:800;font-size:13px;color:var(--primary)}.dt-o{font-size:11.5px;color:var(--mu)}
+.dt-int{font-size:11.5px;color:#b45309;font-weight:700;padding:3px 0 3px 44px;border-left:2px dashed #cbd5e1;margin-left:16px}
+.dt-corr{font-size:10.5px;background:#fef3c7;color:#92400e;border-radius:99px;padding:1px 7px}
+@media(max-width:800px){.dt-kp{grid-template-columns:repeat(2,1fr)}.dt-g{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -257,26 +270,72 @@ async function cancelar(id){
   if(error){toast(error.message,'danger');return;}toast('Registro cancelado.','success');carregarPatio();
 }
 
-/* ═══ DETALHE DO CAMINHÃO (linha do tempo, tickets, NF, correções) ═══ */
+/* ═══ DETALHE DO CAMINHÃO — ficha completa (linha do tempo, tempos com alerta, pesos, NF, anexos, correções) ═══ */
 async function detalhe(id){
   let c=_cam.find(x=>x.id===id)||_hist.find(x=>x.id===id)||_fat.find(x=>x.id===id);
-  if(!c){const {data}=await _supabase.from('dsm_faturamento').select('*').eq('id',id).single();c=data;}if(!c)return;
+  {const {data}=await _supabase.from('dsm_faturamento').select('*').eq('id',id).single();if(data)c=data;}if(!c)return;
   const {data:co}=await _supabase.from('dsm_correcoes').select('*').eq('caminhao_id',id).order('em');
   const link=async p=>{if(!p)return '';const {data}=await _supabase.storage.from('documentos').createSignedUrl(p,600);return data?.signedUrl||'';};
   const [lte,lts,lnf]=await Promise.all([link(c.ticket_entrada),link(c.ticket_saida),link(c.nf_arquivo)]);
-  const ev=[['1. Recepção',c.recepcao_em,c.recepcao_por],['2. Início do carregamento (ticket)',c.inicio_em,c.inicio_por],['3. Fim do carregamento (ticket)',c.fim_em,c.fim_por],['4. Emissão da NF (SEFAZ)',c.nf_emissao,c.nf_registrado_por],['5. Saída',c.saida_em,c.saida_por]];
-  const t=[['Tempo de Permanência',minEntre(c.recepcao_em,c.nf_emissao)],['Tempo de Espera',minEntre(c.recepcao_em,c.inicio_em)],['Tempo de Carregamento',minEntre(c.inicio_em,c.fim_em)],['Tempo de Liberação Final',minEntre(c.fim_em,c.nf_emissao)],['Tempo total no pátio',minEntre(c.recepcao_em,c.saida_em)]];
+  const s=SIT[c.status]||[c.status,'badge-gray'];
+  const corrigido=k=>(co||[]).some(x=>x.campo===k);
+  const ev=[['recepcao_em','Recepção do motorista','🚛',c.recepcao_em,c.recepcao_por,'Registrar chegada (relógio do servidor)'],
+    ['inicio_em','Início do carregamento','⚖️',c.inicio_em,c.inicio_por,'Ticket de pesagem de entrada'+(c.peso_entrada?` · tara ${nf(c.peso_entrada)} kg`:'')],
+    ['fim_em','Fim do carregamento','⚖️',c.fim_em,c.fim_por,'Ticket de pesagem de saída'+(c.peso_saida?` · bruto ${nf(c.peso_saida)} kg`:'')],
+    ['nf_emissao','Emissão da NF','🧾',c.nf_emissao,c.nf_registrado_por,c.nf_numero?`NF ${c.nf_numero} · protocolo de autorização da SEFAZ`:'aguardando a NF'],
+    ['saida_em','Saída do caminhão','🚪',c.saida_em,c.saida_por,'Liberado com a NF']];
+  // linha do tempo vertical, com o intervalo entre as etapas
+  const tl=ev.map(([k,t,ic,h,q,obs],i)=>{const prox=i>0?minEntre(ev[i-1][3],h):null;
+    return `${i>0?`<div class="dt-int">${prox!=null?'⏱ '+hmin(prox):''}</div>`:''}
+      <div class="dt-ev ${h?'ok':''}"><div class="dt-ic">${h?ic:i+1}</div>
+        <div style="flex:1;"><div class="dt-t">${i+1}. ${t}${corrigido(k)?' <span class="dt-corr">🕘 corrigido</span>':''}</div><div class="dt-o">${esc(obs)}</div></div>
+        <div style="text-align:right;"><div class="dt-h">${h?new Date(h).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'}):'pendente'}</div><div class="dt-o">${esc(q||'')}</div></div></div>`;}).join('');
+  // 5 tempos com cor por faixa
+  const faixa=(m,a,cr)=>m==null?'':m>=cr?'vm':m>=a?'am':'vd';
+  const T=[['Espera','recepção → início',minEntre(c.recepcao_em,c.inicio_em),SLA.espera_alerta,SLA.espera_critico],
+    ['Carregamento','início → fim',minEntre(c.inicio_em,c.fim_em),150,210],['Liberação final','fim → NF',minEntre(c.fim_em,c.nf_emissao),30,60],
+    ['Permanência','recepção → NF',minEntre(c.recepcao_em,c.nf_emissao),SLA.perm_alerta,SLA.perm_critico],['Total no pátio','recepção → saída',minEntre(c.recepcao_em,c.saida_em),SLA.perm_alerta,SLA.perm_critico]];
+  const liq=c.peso_saida&&c.peso_entrada?c.peso_saida-c.peso_entrada:null;const nfKg=c.nf_peso_liquido!=null?(c.nf_peso_liquido>200?c.nf_peso_liquido:c.nf_peso_liquido*1000):null;
+  const dif=liq!=null&&nfKg!=null?liq-nfKg:null;
   const C={recepcao_em:'Recepção',inicio_em:'Início',fim_em:'Fim',nf_emissao:'Emissão NF',saida_em:'Saída'};
   const ov=document.createElement('div');ov.className='dsm-ov';ov.onclick=e=>{if(e.target===ov)ov.remove();};
-  ov.innerHTML=`<div class="dsm-mod"><h3>🚛 ${esc(c.placa)} · ${esc(c.motorista)}</h3>
-    <div class="mini">${esc(c.modelo||'')} ${c.celular?'· '+esc(c.celular):''} ${c.ordem?'· ordem '+esc(c.ordem):''} ${c.observacao?'· '+esc(c.observacao):''}${c.cancelado_em?`<br><b style="color:#dc2626;">Cancelado por ${esc(c.cancelado_por)} — ${esc(c.cancelado_motivo)}</b>`:''}</div>
-    <table style="width:100%;border-collapse:collapse;margin-top:10px;">${ev.map(([a,h,q])=>`<tr><td style="color:#64748b;">${a}</td><td><b>${h?new Date(h).toLocaleString('pt-BR'):'—'}</b></td><td class="mini">${esc(q||'')}</td></tr>`).join('')}</table>
-    <table style="width:100%;border-collapse:collapse;margin-top:10px;">${t.map(([a,m])=>`<tr><td style="color:#64748b;">${a}</td><td><b>${hmin(m)}</b></td></tr>`).join('')}</table>
-    ${c.nf_numero?`<div style="margin-top:10px;font-size:13px;"><b>NF ${esc(c.nf_numero)}</b> · ${esc(c.nf_cliente||'')} · ${esc(c.nf_produto||'')} · ${nf(c.nf_quantidade,3)} ${esc(c.nf_unidade||'')} · R$ ${nf(c.nf_valor,2)}</div>`:''}
-    <div class="d-ac">${lte?`<a class="btn btn-secondary btn-sm" target="_blank" href="${lte}">⚖️ Ticket de entrada</a>`:''}${lts?`<a class="btn btn-secondary btn-sm" target="_blank" href="${lts}">⚖️ Ticket de saída</a>`:''}${lnf?`<a class="btn btn-secondary btn-sm" target="_blank" href="${lnf}">🧾 NF</a>`:''}</div>
-    ${(co||[]).length?`<div style="margin-top:12px;font-weight:800;color:#b45309;">🕘 Correções de horário</div>${co.map(x=>`<div class="mini" style="margin-top:3px;">${new Date(x.em).toLocaleString('pt-BR')} · <b>${esc(x.usuario)}</b> · ${C[x.campo]||x.campo}: ${x.valor_anterior?new Date(x.valor_anterior).toLocaleString('pt-BR'):'—'} → <b>${new Date(x.valor_novo).toLocaleString('pt-BR')}</b> · ${esc(x.motivo)}</div>`).join('')}`:''}
-    <div class="dsm-ft"><button class="btn btn-secondary" onclick="this.closest('.dsm-ov').remove()">Fechar</button></div></div>`;
+  ov.innerHTML=`<div class="dsm-mod dt">
+    <div class="dt-top"><div><div class="dt-pl">${esc(c.placa)}${c.placa2?` <small>+ ${esc(c.placa2)}</small>`:''} <span class="badge ${s[1]}">${s[0]}</span></div>
+        <div class="dt-o" style="font-size:13px;">👤 <b>${esc(c.motorista)}</b>${c.celular?` · <a href="tel:${esc(String(c.celular).replace(/\D/g,''))}">${esc(c.celular)}</a>`:''} · 🚚 ${esc(c.modelo||'—')}${c.ordem?' · 📄 ordem <b>'+esc(c.ordem)+'</b>':''}</div>
+        ${c.observacao?`<div class="dt-o">📝 ${esc(c.observacao)}</div>`:''}</div>
+      <button class="dt-x" onclick="this.closest('.dsm-ov').remove()">✕</button></div>
+    ${c.cancelado_em?`<div class="alert alert-danger">Cancelado por <b>${esc(c.cancelado_por)}</b> em ${dh(c.cancelado_em)} — ${esc(c.cancelado_motivo)}</div>`:''}
+    <div class="dt-kp">${T.map(([t,s2,m,a,cr])=>`<div class="d-k ${faixa(m,a,cr)||'cz'}"><div class="v" style="font-size:20px;">${hmin(m)}</div><div class="l">${t}</div><div class="s">${s2}</div></div>`).join('')}</div>
+    <div class="dt-g">
+      <div class="dt-box"><div class="dt-bt">🕒 Linha do tempo</div>${tl}</div>
+      <div>
+        <div class="dt-box"><div class="dt-bt">⚖️ Pesagem</div>
+          <table style="width:100%;"><tr><td>Tara (entrada)</td><td class="num"><b>${c.peso_entrada!=null?nf(c.peso_entrada)+' kg':'—'}</b></td></tr>
+            <tr><td>Bruto (saída)</td><td class="num"><b>${c.peso_saida!=null?nf(c.peso_saida)+' kg':'—'}</b></td></tr>
+            <tr><td>Líquido (balança)</td><td class="num"><b>${liq!=null?nf(liq)+' kg':'—'}</b></td></tr>
+            <tr><td>Líquido na NF</td><td class="num"><b>${nfKg!=null?nf(nfKg)+' kg':'—'}</b></td></tr>
+            ${dif!=null?`<tr><td>Diferença</td><td class="num" style="color:${Math.abs(dif)>Math.max(50,nfKg*0.02)?'#dc2626':'#166534'};"><b>${dif>0?'+':''}${nf(dif)} kg</b></td></tr>`:''}</table></div>
+        <div class="dt-box"><div class="dt-bt">🧾 Nota fiscal</div>${c.nf_numero?`<table style="width:100%;">
+            <tr><td>NF / série</td><td><b>${esc(c.nf_numero)} / ${esc(c.nf_serie||'')}</b></td></tr><tr><td>Cliente</td><td><b>${esc(c.nf_cliente||'')}</b><div class="dt-o">${esc(c.nf_cliente_cnpj||'')}</div></td></tr>
+            <tr><td>Produto</td><td>${esc(c.nf_produto||'')} · <b>${nf(c.nf_quantidade,3)} ${esc(c.nf_unidade||'')}</b></td></tr><tr><td>Valor</td><td><b>R$ ${nf(c.nf_valor,2)}</b></td></tr>
+            <tr><td>Lote / pedido</td><td>${esc(c.nf_lote||'—')} / ${esc(c.nf_pedido||'—')}</td></tr><tr><td>Transportadora</td><td>${esc(c.nf_transportadora||'—')}</td></tr>
+            <tr><td>Frete</td><td>${esc(c.nf_frete||'—')}${c.retira?` · <b>retira: ${c.retira}</b>`:''}</td></tr>
+            ${c.nf_chave&&!/^EX/.test(c.nf_chave)?`<tr><td>Chave</td><td style="font-size:11px;word-break:break-all;">${esc(c.nf_chave)}</td></tr>`:''}</table>`:'<div class="dt-o">Ainda sem NF.</div>'}</div>
+        <div class="dt-box"><div class="dt-bt">📎 Anexos</div><div class="d-ac" style="margin-top:0;">
+          ${lte?`<a class="btn btn-secondary btn-sm" target="_blank" href="${lte}">⚖️ Ticket de entrada</a>`:''}${lts?`<a class="btn btn-secondary btn-sm" target="_blank" href="${lts}">⚖️ Ticket de saída</a>`:''}${lnf?`<a class="btn btn-secondary btn-sm" target="_blank" href="${lnf}">🧾 NF</a>`:''}
+          ${!lte&&!lts&&!lnf?'<span class="dt-o">Nenhum arquivo anexado.</span>':''}</div></div>
+      </div></div>
+    <div class="dt-box"><div class="dt-bt">🕘 Correções de horário ${(co||[]).length?`<span class="badge badge-warning">${co.length}</span>`:''}</div>
+      ${(co||[]).length?`<table style="width:100%;">${co.map(x=>`<tr><td class="dt-o">${new Date(x.em).toLocaleString('pt-BR')}</td><td><b>${C[x.campo]||x.campo}</b></td><td>${x.valor_anterior?new Date(x.valor_anterior).toLocaleString('pt-BR'):'—'} → <b>${new Date(x.valor_novo).toLocaleString('pt-BR')}</b></td><td>${esc(x.usuario)}</td><td class="dt-o">${esc(x.motivo)}</td></tr>`).join('')}</table>`
+        :'<div class="dt-o">Nenhuma correção — todos os horários são os originais.</div>'}</div>
+    <div class="dsm-ft">${ehSup()&&!c.cancelado_em?`<button class="btn btn-secondary" onclick="this.closest('.dsm-ov').remove();corrigir('${c.id}')">🕘 Corrigir horário</button>`:''}
+      <button class="btn btn-secondary" onclick="imprimirDetalhe(this)">🖨️ Imprimir</button><button class="btn btn-primary" onclick="this.closest('.dsm-ov').remove()">Fechar</button></div></div>`;
   document.body.appendChild(ov);
+}
+function imprimirDetalhe(btn){
+  const html=btn.closest('.dsm-mod').outerHTML;const w=window.open('','_blank');
+  w.document.write(`<html><head><title>DSM</title><link rel="stylesheet" href="css/style.css"><style>${document.querySelector('style').textContent} .dsm-ft,.dt-x{display:none!important} .dsm-mod{max-height:none;box-shadow:none;max-width:none;}</style></head><body style="padding:16px;">${html}</body></html>`);
+  w.document.close();setTimeout(()=>w.print(),600);
 }
 
 /* ═══ TICKET DE PESAGEM ═══ */
