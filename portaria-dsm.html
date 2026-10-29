@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DSM — Portaria · ERP Industrial</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/supabase.js"></script>
+<script src="js/utils.js"></script>
+<!-- ═══════════════════════════════════════════════════════════════════
+     MÓDULO DSM (dentro da Portaria) — 10/2026
+     Controle dos caminhões da DSM com TEMPOS CONFIÁVEIS: 5 eventos pela hora do
+     servidor (recepção, início e fim do carregamento, emissão da NF, saída), usuário
+     de cada etapa, NF lida do DANFE (PDF) ou XML, 4 indicadores e a planilha de
+     faturamento. Tabelas próprias (dsm_*) — não mexe na Portaria/Carregamento.
+     Abre dentro da aba "DSM" da Portaria (portaria-dsm.html?embed=1) ou sozinho.
+     ═══════════════════════════════════════════════════════════════════ -->
+<style>
+body.embed .sidebar,body.embed #sidebar-container,body.embed .topbar{display:none!important}
+body.embed .main-content{margin-left:0!important;padding:0!important;}
+.dsm{--ln:#e2e8f0;--mu:#64748b}
+.dsm-nav{display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap}
+.dsm-nav button{min-height:46px;border:1.5px solid var(--ln);background:#fff;border-radius:12px;padding:0 18px;font-family:inherit;font-weight:700;font-size:14.5px;color:var(--primary);cursor:pointer}
+.dsm-nav button.on{background:var(--primary);color:var(--accent);border-color:var(--primary)}
+.dsm-form{background:#fff;border:1px solid var(--ln);border-radius:16px;padding:16px 18px;margin-bottom:14px;max-width:760px}
+.dsm-form h3{font-size:15px;color:var(--primary);margin:0 0 10px}
+.dsm-g2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.dsm-lbl{font-size:12.5px;font-weight:700;color:#475569;margin-bottom:4px;display:block}
+.dsm-car{background:#fff;border:1px solid var(--ln);border-left:5px solid #f59e0b;border-radius:14px;padding:12px 14px;margin-bottom:10px;display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+.dsm-car.carregando{border-left-color:#22c55e}.dsm-car.aguardando_nf{border-left-color:#7c3aed}
+.dsm-car .pl{font-size:18px;font-weight:800;color:var(--primary)}.dsm-car .mu{font-size:12.5px;color:var(--mu)}
+.dsm-tm{text-align:center;min-width:86px}.dsm-tm b{display:block;font-size:20px;color:var(--primary)}.dsm-tm small{font-size:11px;color:var(--mu)}
+.lt{display:flex;align-items:center;gap:2px;flex-wrap:wrap;margin-top:6px}
+.lt-p{display:inline-flex;align-items:center;gap:4px;font-size:11px;color:#94a3b8;background:#f8fafc;border:1px solid var(--ln);border-radius:99px;padding:2px 8px}
+.lt-p i{font-style:normal;font-weight:800;font-size:10px}.lt-p small{color:#64748b}
+.lt-p.ok{color:#166534;background:#ecfdf5;border-color:#86efac}.lt-s{width:8px;height:2px;background:#cbd5e1}
+.dsm-k{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+.dsm-k div{background:#fff;border:1px solid var(--ln);border-left:4px solid var(--primary);border-radius:12px;padding:10px 16px;min-width:150px}
+.dsm-k b{display:block;font-size:22px;color:var(--primary)}.dsm-k span{font-size:12px;color:var(--mu);font-weight:600}
+.mini{font-size:11.5px;color:var(--mu)}
+.dsm-ov{position:fixed;inset:0;background:rgba(2,20,40,.5);z-index:20000;display:flex;align-items:center;justify-content:center;padding:12px}
+.dsm-mod{background:#fff;border-radius:16px;max-width:720px;width:100%;max-height:92vh;overflow:auto;padding:16px 18px;box-shadow:0 20px 60px rgba(0,0,0,.3)}
+.dsm-mod h3{margin:0 0 10px;color:var(--primary);font-size:16px}
+.dsm-mod table td{padding:5px 8px;border-bottom:1px solid #f1f5f9;font-size:13px}
+.dsm-ft{display:flex;gap:8px;justify-content:flex-end;margin-top:12px}
+@media(max-width:700px){.dsm-g2{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div id="sidebar-container"></div>
+<header class="topbar" id="topbar"><button class="topbar-open-sidebar" onclick="toggleSidebar()">☰</button><div class="topbar-title">DSM — PORTARIA</div></header>
+<main class="main-content" id="main-content"><div class="dsm">
+  <div class="dsm-nav"><button class="on" data-t="patio" onclick="aba('patio')">🚛 Pátio</button><button data-t="fat" onclick="aba('fat')">🧾 Faturamento</button></div>
+
+  <!-- PÁTIO: registrar chegada + caminhões no pátio -->
+  <div id="t-patio">
+    <div class="dsm-form"><h3>Registro de chegada — caminhão</h3>
+      <div class="mini" style="margin-bottom:10px;">🕒 Data e hora gravadas pelo <b>relógio do servidor</b> no clique em Registrar chegada.</div>
+      <div class="dsm-g2">
+        <div><label class="dsm-lbl">1. Placa *</label><input id="f-placa" class="form-input" style="text-transform:uppercase" maxlength="8" oninput="porPlaca()"></div>
+        <div><label class="dsm-lbl">Placa da carreta</label><input id="f-placa2" class="form-input" style="text-transform:uppercase" maxlength="8"></div></div>
+      <div id="f-ult" class="mini" style="margin:4px 0 8px;"></div>
+      <div class="dsm-g2">
+        <div><label class="dsm-lbl">2. Motorista *</label><input id="f-mot" class="form-input"></div>
+        <div><label class="dsm-lbl">Celular</label><input id="f-cel" class="form-input" inputmode="tel"></div></div>
+      <div class="dsm-g2" style="margin-top:8px;">
+        <div><label class="dsm-lbl">3. Modelo</label><input id="f-mod" class="form-input" list="dl-mod" placeholder="Carreta, Bitrem, Truck…"><datalist id="dl-mod"><option>Carreta</option><option>Bitrem</option><option>Rodotrem</option><option>Truck</option><option>Toco</option><option>Graneleiro</option><option>Basculante</option></datalist></div>
+        <div><label class="dsm-lbl">4. Ordem (se tiver)</label><input id="f-ord" class="form-input"></div></div>
+      <div style="margin-top:8px;"><label class="dsm-lbl">5. Observações da carga</label><input id="f-obs" class="form-input"></div>
+      <div id="f-erro" class="alert alert-danger" style="display:none;margin-top:10px;"></div>
+      <button class="btn btn-primary" id="f-btn" style="margin-top:12px;min-height:50px;font-size:15px;" onclick="registrarChegada()">6. 🚛 Registrar chegada</button>
+    </div>
+    <h3 style="color:var(--primary);font-size:15px;margin:4px 0 10px;">Caminhões no pátio <span id="n-patio" class="mini"></span></h3>
+    <div id="patio"></div>
+  </div>
+
+  <!-- FATURAMENTO: uma linha por caminhão/ordem + resumo do mês -->
+  <div id="t-fat" style="display:none;">
+    <div class="dsm-form" style="max-width:none;">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;"><b style="color:var(--primary);">📊 Resumo do mês</b>
+        <input type="month" class="form-input" id="r-mes" style="max-width:170px;" onchange="resumoMes()">
+        <select class="form-input" id="r-base" style="max-width:200px;" onchange="resumoMes()"><option value="seg_sex">Dias úteis: seg. a sex.</option><option value="seg_sab">Dias úteis: seg. a sáb.</option></select>
+        <input class="form-input" id="r-fer" style="max-width:200px;" placeholder="Feriados (dias): 12, 28" onchange="resumoMes()">
+        <button class="btn btn-primary btn-sm" onclick="resumoWhats()">📲 Enviar no grupo</button><button class="btn btn-secondary btn-sm" onclick="resumoExcel()">⬇️ Excel</button></div>
+      <div id="r-out" style="margin-top:10px;"></div></div>
+    <div class="dsm-k" id="fat-k"></div>
+    <div class="card"><div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+      <input type="date" class="form-input" id="fat-ini" style="max-width:160px;" onchange="carregarFat()"><input type="date" class="form-input" id="fat-fim" style="max-width:160px;" onchange="carregarFat()">
+      <input class="form-input" id="fat-q" style="flex:1;min-width:200px;" placeholder="🔍 NF, cliente, placa, motorista, ordem" oninput="renderFat()">
+      <button class="btn btn-primary btn-sm" onclick="fatExcel()">⬇️ Exportar Excel</button></div>
+      <div class="table-wrap"><table><thead><tr><th>NF</th><th>Cliente</th><th>Caminhão</th><th>1. Recepção</th><th>2. Início carreg.</th><th>3. Fim carreg.</th><th>4. Emissão NF</th><th>5. Saída</th>
+        <th class="num">Permanência</th><th class="num">Espera</th><th class="num">Carregamento</th><th class="num">Liberação</th><th></th></tr></thead><tbody id="fat-b"></tbody></table></div></div>
+  </div>
+</div></main>
+<script>
+const EMBED=new URLSearchParams(location.search).get('embed')==='1';
+if(EMBED)document.body.classList.add('embed');
+const PDFJS='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js',PDFJS_WORKER='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const nf=(v,d=0)=>v==null||isNaN(v)?'—':Number(v).toLocaleString('pt-BR',{minimumFractionDigits:d,maximumFractionDigits:d});
+const hm=d=>d?new Date(d).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}):'—';
+const dh=d=>d?new Date(d).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'—';
+const hojeISO=()=>new Date().toLocaleDateString('sv-SE',{timeZone:'America/Sao_Paulo'});
+const quem=()=>{const u=getUser();return u?(u.nome||u.email):'—';};
+const normPlaca=s=>String(s||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
+const durTxt=ms=>{const m=Math.max(0,Math.round(ms/60000));return m<60?m+' min':Math.floor(m/60)+'h'+String(m%60).padStart(2,'0');};
+const hmin=m=>m==null||isNaN(m)?'—':`${m<0?'-':''}${Math.floor(Math.abs(m)/60)}h${String(Math.abs(m)%60).padStart(2,'0')}`;
+const ehSup=()=>['SGR','SADM','ADM'].includes((getUser()||{}).perfil);
+function carregarScript(src){return new Promise((ok,er)=>{const s=document.createElement('script');s.src=src;s.onload=ok;s.onerror=er;document.head.appendChild(s);});}
+let _cam=[],_fat=[],_res=null,_aba='patio';
+function aba(t){_aba=t;document.querySelectorAll('.dsm-nav button').forEach(b=>b.classList.toggle('on',b.dataset.t===t));
+  document.getElementById('t-patio').style.display=t==='patio'?'':'none';document.getElementById('t-fat').style.display=t==='fat'?'':'none';
+  if(t==='fat'){carregarFat();resumoMes();}}
+
+/* ── PÁTIO ── */
+async function carregarPatio(){
+  const {data,error}=await _supabase.from('dsm_caminhoes').select('*').neq('status','saiu').order('recepcao_em');
+  if(error){toast(error.message,'danger');return;}
+  _cam=data||[];renderPatio();
+}
+let _plTm=null;
+function porPlaca(){clearTimeout(_plTm);_plTm=setTimeout(async()=>{
+  const pl=normPlaca(document.getElementById('f-placa').value);if(pl.length<7)return;
+  const {data}=await _supabase.from('dsm_caminhoes').select('placa2,motorista,celular,modelo,recepcao_em').eq('placa',pl).order('recepcao_em',{ascending:false}).limit(1);
+  const u=(data||[])[0];const set=(id,v)=>{const el=document.getElementById(id);if(v&&!el.value)el.value=v;};
+  if(u){set('f-mot',u.motorista);set('f-cel',u.celular);set('f-mod',u.modelo);set('f-placa2',u.placa2);
+    document.getElementById('f-ult').textContent=`↺ Dados da última visita (${new Date(u.recepcao_em).toLocaleDateString('pt-BR')}) — confira`;}
+  else document.getElementById('f-ult').textContent='';},300);}
+async function registrarChegada(){
+  if(!guardAction('portaria','create'))return;
+  const g=id=>document.getElementById(id).value.trim(),er=document.getElementById('f-erro');
+  const placa=normPlaca(g('f-placa')),mot=g('f-mot').toUpperCase();
+  const erro=t=>{er.textContent=t;er.style.display='';};
+  if(placa.length<7)return erro('Placa incompleta (ex.: ABC1D23).');
+  if(!mot)return erro('Informe o motorista.');
+  if(_cam.some(c=>c.placa===placa))return erro(`A placa ${placa} já está no pátio.`);
+  er.style.display='none';const b=document.getElementById('f-btn');b.disabled=true;
+  const {error}=await _supabase.from('dsm_caminhoes').insert({placa,placa2:normPlaca(g('f-placa2'))||null,motorista:mot,celular:g('f-cel')||null,modelo:g('f-mod')||null,
+    ordem:g('f-ord')||null,observacao:g('f-obs')||null,recepcao_por:quem(),status:'patio'});
+  b.disabled=false;
+  if(error)return erro(error.message);
+  ['f-placa','f-placa2','f-mot','f-cel','f-mod','f-ord','f-obs'].forEach(i=>document.getElementById(i).value='');document.getElementById('f-ult').textContent='';
+  toast(`Chegada registrada: ${placa}.`,'success');carregarPatio();
+}
+function linhaTempo(c){
+  const et=[['Recepção',c.recepcao_em,c.recepcao_por],['Início carreg.',c.inicio_em,c.inicio_por],['Fim carreg.',c.fim_em,c.fim_por],['Emissão NF',c.nf_emissao,c.nf_registrado_por],['Saída',c.saida_em,c.saida_por]];
+  return `<div class="lt">${et.map(([t,h,q],i)=>`<span class="lt-p ${h?'ok':''}" title="${esc(t)}${h?' · '+new Date(h).toLocaleString('pt-BR')+(q?' · '+q:''):' · pendente'}"><i>${i+1}</i>${esc(t)} <b>${h?hm(h):'—'}</b>${q?` <small>${esc(String(q).split(' ')[0])}</small>`:''}</span>`).join('<span class="lt-s"></span>')}</div>`;
+}
+function renderPatio(){
+  document.getElementById('n-patio').textContent=_cam.length?`(${_cam.length})`:'';
+  const acao=c=>c.status==='patio'?`<button class="btn btn-primary btn-sm" onclick="pesagem('${c.id}','entrada')">⚖️ Pesagem de entrada (início)</button>`
+    :c.status==='carregando'?`<button class="btn btn-primary btn-sm" onclick="pesagem('${c.id}','saida')">⚖️ Pesagem de saída (fim)</button>`
+    :`<button class="btn btn-primary btn-sm" onclick="registrarNF('${c.id}')">🧾 Registrar NF e liberar</button>`;
+  document.getElementById('patio').innerHTML=_cam.length?_cam.map(c=>`<div class="dsm-car ${c.status}">
+      <div style="min-width:150px;"><div class="pl">${esc(c.placa)}${c.placa2?` <small class="mini">+ ${esc(c.placa2)}</small>`:''}</div><div class="mu">${esc(c.motorista)}${c.celular?' · '+esc(c.celular):''}</div><div class="mu">${esc(c.modelo||'')}${c.ordem?' · ordem '+esc(c.ordem):''}</div></div>
+      <div style="flex:1;min-width:260px;">${c.observacao?`<div class="mu">📝 ${esc(c.observacao)}</div>`:''}${linhaTempo(c)}</div>
+      <div class="dsm-tm"><b>${durTxt(Date.now()-Date.parse(c.recepcao_em))}</b><small>desde a chegada</small></div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">${acao(c)}${ehSup()?`<button class="btn btn-ghost btn-sm" title="Corrigir horário (supervisor)" onclick="corrigir('${c.id}')">🕘</button>`:''}</div></div>`).join('')
+    :'<div class="card" style="text-align:center;color:#94a3b8;padding:24px;">Nenhum caminhão DSM no pátio.</div>';
+}
+// início / fim do carregamento = horário da PESAGEM (ticket da balança), gravado pelo servidor
+function pesagem(id,tipo){
+  const c=_cam.find(x=>x.id===id);if(!c||!guardAction('portaria','edit'))return;
+  const ov=document.createElement('div');ov.className='dsm-ov';
+  ov.innerHTML=`<div class="dsm-mod"><h3>⚖️ Pesagem de ${tipo==='entrada'?'entrada — início do carregamento':'saída — fim do carregamento'} · ${esc(c.placa)}</h3>
+    <div class="mini" style="margin-bottom:8px;">O horário é o do servidor no momento em que você confirma — o mesmo do ticket da balança.</div>
+    <label class="dsm-lbl">Peso do ticket (t) — opcional</label><input id="pz" class="form-input" inputmode="decimal" placeholder="ex.: 15,320">
+    <div class="dsm-ft"><button class="btn btn-secondary" onclick="this.closest('.dsm-ov').remove()">Cancelar</button><button class="btn btn-primary" id="pz-ok">✅ Registrar pesagem</button></div></div>`;
+  document.body.appendChild(ov);setTimeout(()=>document.getElementById('pz')?.focus(),50);
+  document.getElementById('pz-ok').onclick=async()=>{
+    const p=document.getElementById('pz').value.trim();const peso=p?Number(p.replace(/\./g,'').replace(',','.')):null;
+    const agora=new Date().toISOString();
+    const upd=tipo==='entrada'?{inicio_em:agora,inicio_por:quem(),peso_entrada:peso,status:'carregando'}:{fim_em:agora,fim_por:quem(),peso_saida:peso,status:'aguardando_nf'};
+    const {error}=await _supabase.from('dsm_caminhoes').update(upd).eq('id',id);
+    if(error){toast(error.message,'danger');return;}
+    ov.remove();toast(tipo==='entrada'?'Início do carregamento registrado.':'Fim do carregamento registrado — aguardando a NF.','success');carregarPatio();};
+}
+
+/* ── NF: lê o DANFE (PDF) ou o XML ── */
+const _numBR=x=>x==null?null:Number(String(x).replace(/\./g,'').replace(',','.'));
+async function textoDoPdf(f){
+  if(!window.pdfjsLib)await carregarScript(PDFJS);
+  pdfjsLib.GlobalWorkerOptions.workerSrc=PDFJS_WORKER;
+  const doc=await pdfjsLib.getDocument({data:new Uint8Array(await f.arrayBuffer())}).promise;
+  let t='';for(let p=1;p<=Math.min(doc.numPages,3);p++){const pg=await doc.getPage(p);const tc=await pg.getTextContent();
+    let lastY=null;tc.items.forEach(i=>{const y=Math.round(i.transform[5]);t+=(lastY!==null&&Math.abs(y-lastY)>2?'\n':(t&&!t.endsWith('\n')?' ':''))+i.str;lastY=y;});t+='\n';}
+  return t;
+}
+function lerDanfeTexto(t){
+  const T=t.replace(/\r/g,''), U=T.toUpperCase(), um=T.replace(/\s+/g,' ');
+  const m=(re,src)=>{const x=(src||T).match(re);return x?x[1].trim():null;};
+  const d={};
+  d.numero=m(/N[º°.]?\s*(\d{3,9})\s*\n?\s*S[ÉE]RIE/i,T)||m(/N\.\s*(\d{3,9})/,T);   // como está impresso (000084155)
+  d.serie=m(/S[ÉE]RIE[:\s]*(\d{1,3})/i);
+  const ch=um.match(/((?:\d{4}\s?){10}\d{4})/);d.chave=ch?ch[1].replace(/\s/g,''):null;
+  const pr=um.match(/PROTOCOLO DE AUTORIZA[ÇC][ÃA]O DE USO\s*(\d{15})\s+(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}:\d{2}(?::\d{2})?)\s*([-+]\d{2}:?\d{2})?/i)
+         ||um.match(/(\d{15})\s+(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}:\d{2}(?::\d{2})?)\s*([-+]\d{2}:?\d{2})?/);
+  if(pr){d.protocolo=pr[1];const hh=pr[5].length===5?pr[5]+':00':pr[5];const tz=pr[6]?pr[6].replace(/^([-+]\d{2})(\d{2})$/,'$1:$2'):'-03:00';d.emissao=`${pr[4]}-${pr[3]}-${pr[2]}T${hh}${tz}`;d.emissao_fonte='Protocolo de autorização (SEFAZ)';}
+  const de=um.match(/DATA DE EMISS[ÃA]O\s*(\d{2})\/(\d{2})\/(\d{4})/i);if(de)d.data_emissao=`${de[3]}-${de[2]}-${de[1]}`;
+  const hs=um.match(/HORA (?:DE |DA )?(?:ENTRADA\/)?SA[ÍI]DA\s*(\d{2}:\d{2}(?::\d{2})?)/i);if(hs)d.hora_saida_nf=hs[1];
+  if(!d.emissao&&d.data_emissao){d.emissao=`${d.data_emissao}T${(d.hora_saida_nf||'00:00:00').padEnd(8,':00')}-03:00`;d.emissao_fonte='Data de emissão + hora de saída do DANFE';}
+  const iDest=U.indexOf('DESTINAT'),iTr=U.indexOf('TRANSPORTADOR');
+  const dest=iDest>=0?T.slice(iDest,iTr>iDest?iTr:iDest+900):'';
+  d.cliente=m(/NOME\s*\/\s*RAZ[ÃA]O SOCIAL\s*\n\s*([^\n]+)/i,dest);
+  d.cliente_cnpj=m(/(\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2})/,dest);
+  const tr=iTr>=0?T.slice(iTr,iTr+900):'';
+  d.transportadora=m(/RAZ[ÃA]O SOCIAL\s*\n\s*([^\n]+)/i,tr);
+  d.frete=m(/FRETE POR CONTA\s*\n?\s*(\d\s*-\s*[A-ZÁÉÍÓÚÃÕÇ ]+)/i,tr);
+  d.peso_bruto=_numBR(m(/PESO BRUTO\s*\n?\s*([\d.,]+)/i,tr));
+  d.peso_liquido=_numBR(m(/PESO L[ÍI]QUIDO\s*\n?\s*([\d.,]+)/i,tr));
+  d.valor=_numBR(m(/VALOR TOTAL DA NOTA\s*\n?\s*([\d.]+,\d{2})/i));
+  const pr2=um.match(/\b(\d{6,8})\s+(.+?)\s+(\d{8})\s+\d{3}\s+(\d{4})\s+([A-Z]{1,4})\s+([\d.,]+)/);
+  if(pr2){d.produto=pr2[2].trim();d.unidade=pr2[5];d.quantidade=_numBR(pr2[6]);}
+  d.lote=m(/LOTE[:\s]+([A-Z0-9\-\/]+)/i,um);
+  d.placa=(m(/PLACA[:\s]+([A-Z]{3}-?\d[A-Z0-9]\d{2})/i,um)||'').replace('-','')||null;
+  d.motorista_nf=m(/PLACA[:\s]+[A-Z]{3}-?\d[A-Z0-9]\d{2}\s*-\s*([A-ZÀ-Ú ]+?)\s+PEDIDO/i,um);
+  d.pedido=m(/PEDIDO\s*N[Oº°.]*\s*([A-Z0-9\-]+)/i,um);
+  return d;
+}
+function lerNfeXml(txt){
+  const x=new DOMParser().parseFromString(txt,'text/xml');const g=(sel,el)=>{const n=(el||x).getElementsByTagName(sel)[0];return n?n.textContent.trim():null;};
+  const dest=x.getElementsByTagName('dest')[0],tr=x.getElementsByTagName('transporta')[0],vol=x.getElementsByTagName('vol')[0],pr=x.getElementsByTagName('prod')[0];
+  const inf=g('infCpl')||'';
+  const d={numero:g('nNF'),serie:g('serie'),chave:(g('chNFe')||((x.getElementsByTagName('infNFe')[0]||{}).getAttribute?.('Id')||'').replace(/^NFe/,''))||null,
+    emissao:g('dhEmi'),emissao_fonte:'XML (dhEmi)',protocolo:g('nProt'),cliente:dest?g('xNome',dest):null,cliente_cnpj:dest?(g('CNPJ',dest)||g('CPF',dest)):null,
+    transportadora:tr?g('xNome',tr):null,frete:(()=>{const v=g('modFrete');return v==null?null:({0:'0-EMITENTE',1:'1-DESTINATARIO',2:'2-TERCEIROS',9:'9-SEM FRETE'})[v]||v;})(),
+    peso_bruto:vol?Number(g('pesoB',vol)):null,peso_liquido:vol?Number(g('pesoL',vol)):null,valor:Number(g('vNF')),
+    produto:pr?g('xProd',pr):null,unidade:pr?g('uCom',pr):null,quantidade:pr?Number(g('qCom',pr)):null,
+    placa:(g('placa')||(inf.match(/PLACA[:\s]+([A-Z]{3}-?\d[A-Z0-9]\d{2})/i)||[])[1]||'').replace('-','')||null,
+    lote:(inf.match(/LOTE[:\s]+([A-Z0-9\-\/]+)/i)||[])[1]||null,pedido:(inf.match(/PEDIDO\s*N[Oº°.]*\s*([A-Z0-9\-]+)/i)||[])[1]||null};
+  return d;
+}
+
+let _nf=null;
+function registrarNF(id){
+  const c=_cam.find(x=>x.id===id);if(!c||!guardAction('portaria','edit'))return;
+  const inp=document.createElement('input');inp.type='file';inp.accept='application/pdf,.pdf,.xml,text/xml';
+  inp.onchange=async()=>{const f=inp.files[0];if(!f)return;toast('Lendo a NF…','info');
+    try{const d=/\.xml$/i.test(f.name)||f.type.includes('xml')?lerNfeXml(await f.text()):lerDanfeTexto(await textoDoPdf(f));_nf={c,f,d};conferirNF();}
+    catch(e){toast('Não consegui ler esta NF: '+(e.message||e),'danger');}};
+  inp.click();
+}
+async function conferirNF(){
+  const {c,d}=_nf;const av=[];
+  if(!d.numero)av.push('Não achei o número da NF.');
+  if(!d.emissao)av.push('Não achei a data/hora de emissão.');
+  if(d.placa&&normPlaca(d.placa)!==c.placa&&normPlaca(d.placa)!==(c.placa2||''))av.push(`A placa da NF (${d.placa}) é diferente da placa do caminhão (${c.placa}).`);
+  if(d.chave){const {data}=await _supabase.from('dsm_caminhoes').select('placa').eq('nf_chave',d.chave).neq('id',c.id).limit(1);if((data||[]).length)av.push(`Esta NF já foi registrada no caminhão ${data[0].placa}.`);}
+  const L=(t,v)=>`<tr><td style="color:#64748b;">${t}</td><td><b>${v==null||v===''?'<span style="color:#dc2626;">não encontrado</span>':esc(String(v))}</b></td></tr>`;
+  const ov=document.createElement('div');ov.className='dsm-ov';ov.id='ov-nf';
+  ov.innerHTML=`<div class="dsm-mod"><h3>🧾 NF do caminhão ${esc(c.placa)} — confira</h3>
+    ${av.length?`<div class="alert alert-danger">⚠️ ${av.map(esc).join('<br>⚠️ ')}</div>`:'<div class="alert alert-success">✅ NF lida e conferida com o caminhão.</div>'}
+    <table style="width:100%;border-collapse:collapse;">${L('NF / série',d.numero?d.numero+(d.serie?' / '+d.serie:''):null)}${L('Emissão',d.emissao?new Date(d.emissao).toLocaleString('pt-BR')+' · '+(d.emissao_fonte||''):null)}
+      ${L('Cliente',d.cliente)}${L('CNPJ',d.cliente_cnpj)}${L('Produto',d.produto?`${d.produto} · ${nf(d.quantidade,3)} ${d.unidade||''}`:null)}${L('Valor total',d.valor!=null?'R$ '+nf(d.valor,2):null)}
+      ${L('Transportadora',d.transportadora)}${L('Frete',d.frete)}${L('Placa na NF',d.placa)}${L('Lote',d.lote)}${L('Pedido',d.pedido)}${L('Chave de acesso',d.chave)}</table>
+    <div class="dsm-ft"><button class="btn btn-secondary" onclick="document.getElementById('ov-nf').remove()">Cancelar</button>
+      <button class="btn btn-primary" id="nf-ok" ${!d.numero||!d.emissao?'disabled':''} onclick="confirmarNF()">✅ Registrar NF e liberar saída</button></div></div>`;
+  document.body.appendChild(ov);
+}
+async function confirmarNF(){
+  const {c,f,d}=_nf;const b=document.getElementById('nf-ok');b.disabled=true;
+  const ext=/\.xml$/i.test(f.name)?'xml':'pdf';let path=`dsm/nf/${d.chave||('NF'+d.numero+'_'+c.id)}.${ext}`;
+  const up=await _supabase.storage.from('documentos').upload(path,f,{upsert:true,contentType:ext==='xml'?'text/xml':'application/pdf'});
+  if(up.error){toast('Arquivo não anexado: '+up.error.message,'warning');path=null;}
+  const agora=new Date().toISOString();
+  const {error}=await _supabase.from('dsm_caminhoes').update({nf_numero:d.numero,nf_serie:d.serie,nf_chave:d.chave,nf_emissao:d.emissao,nf_cliente:d.cliente,nf_cliente_cnpj:d.cliente_cnpj,
+    nf_valor:d.valor,nf_peso_liquido:d.peso_liquido,nf_quantidade:d.quantidade,nf_unidade:d.unidade,nf_produto:d.produto,nf_lote:d.lote,nf_pedido:d.pedido,nf_placa:d.placa,
+    nf_transportadora:d.transportadora,nf_frete:d.frete,nf_arquivo:path,nf_registrado_em:agora,nf_registrado_por:quem(),saida_em:agora,saida_por:quem(),status:'saiu'}).eq('id',c.id);
+  if(error){toast(error.message,'danger');b.disabled=false;return;}
+  document.getElementById('ov-nf').remove();toast(`🧾 NF ${d.numero} registrada — ${c.placa} liberado.`,'success');carregarPatio();
+}
+
+/* ── correção de horário: só supervisor, com justificativa (fica no histórico) ── */
+async function corrigir(id){
+  let c=_cam.find(x=>x.id===id)||_fat.find(x=>x.id===id);if(!c)return;
+  if(!ehSup()){toast('Só o Supervisor corrige horários.','warning');return;}
+  const C=[['recepcao_em','Recepção'],['inicio_em','Início do carregamento'],['fim_em','Fim do carregamento'],['nf_emissao','Emissão da NF'],['saida_em','Saída']];
+  const li=d=>{const x=new Date(new Date(d).getTime()-new Date(d).getTimezoneOffset()*60000);return x.toISOString().slice(0,19);};
+  const ov=document.createElement('div');ov.className='dsm-ov';
+  ov.innerHTML=`<div class="dsm-mod"><h3>🕘 Corrigir horário — ${esc(c.placa)}</h3>
+    <label class="dsm-lbl">Etapa</label><select id="co-c" class="form-input">${C.map(([k,t])=>`<option value="${k}">${t}${c[k]?' — '+new Date(c[k]).toLocaleString('pt-BR'):''}</option>`).join('')}</select>
+    <label class="dsm-lbl" style="margin-top:8px;">Data e hora corretas</label><input id="co-v" type="datetime-local" step="1" class="form-input" value="${li(c.recepcao_em||Date.now())}">
+    <label class="dsm-lbl" style="margin-top:8px;">Justificativa *</label><input id="co-m" class="form-input" placeholder="Ex.: sistema fora do ar, registrado depois">
+    <div class="dsm-ft"><button class="btn btn-secondary" onclick="this.closest('.dsm-ov').remove()">Cancelar</button><button class="btn btn-primary" id="co-ok">💾 Corrigir</button></div></div>`;
+  document.body.appendChild(ov);
+  document.getElementById('co-c').onchange=e=>{if(c[e.target.value])document.getElementById('co-v').value=li(c[e.target.value]);};
+  document.getElementById('co-ok').onclick=async()=>{
+    const v=document.getElementById('co-v').value,m=document.getElementById('co-m').value.trim();
+    if(!v||!m){toast('Informe a data/hora e a justificativa.','warning');return;}
+    const {error}=await _supabase.rpc('dsm_corrigir_horario',{p_id:id,p_campo:document.getElementById('co-c').value,p_valor:new Date(v).toISOString(),p_motivo:m,p_usuario:quem()});
+    if(error){toast(error.message,'danger');return;}
+    ov.remove();toast('Horário corrigido — registrado no histórico.','success');carregarPatio();if(_aba==='fat')carregarFat();};
+}
+
+/* ── FATURAMENTO ── */
+async function carregarFat(){
+  const ini=document.getElementById('fat-ini').value||hojeISO(),fim=document.getElementById('fat-fim').value||hojeISO();
+  const {data,error}=await _supabase.from('dsm_faturamento').select('*').gte('recepcao_em',ini+'T00:00:00-03:00').lte('recepcao_em',fim+'T23:59:59-03:00').order('recepcao_em',{ascending:false}).limit(5000);
+  if(error){toast(error.message,'danger');return;}
+  _fat=data||[];renderFat();
+}
+function renderFat(){
+  const q=String(document.getElementById('fat-q').value||'').toLowerCase();
+  const l=_fat.filter(x=>!q||[x.nf_numero,x.nf_cliente,x.placa,x.motorista,x.ordem].join(' ').toLowerCase().includes(q));
+  const med=k=>{const v=l.map(x=>x[k]).filter(x=>x!=null);return v.length?Math.round(v.reduce((a,b)=>a+Number(b),0)/v.length):null;};
+  document.getElementById('fat-k').innerHTML=[['Permanência média','min_permanencia'],['Espera média','min_espera'],['Carregamento médio','min_carregamento'],['Liberação média','min_liberacao']]
+    .map(([t,k])=>`<div><b>${hmin(med(k))}</b><span>${t}</span></div>`).join('')+`<div><b>${l.length}</b><span>caminhões</span></div>`;
+  const ev=(h,p)=>`${dh(h)}${p?`<div class="mini">${esc(p)}</div>`:''}`;
+  document.getElementById('fat-b').innerHTML=l.length?l.map(x=>`<tr><td><b>${esc(x.nf_numero||'—')}</b>${x.correcoes?`<div class="mini" style="color:#b45309;">🕘 ${x.correcoes} correção(ões)</div>`:''}</td><td>${esc(x.nf_cliente||'—')}</td>
+    <td><b>${esc(x.placa)}</b><div class="mini">${esc(x.motorista)} · ${esc(x.celular||'')}</div><div class="mini">${esc(x.modelo||'')}${x.retira?' · retira: '+x.retira:''}</div></td>
+    <td>${ev(x.recepcao_em,x.recepcao_por)}</td><td>${ev(x.inicio_em,x.inicio_por)}</td><td>${ev(x.fim_em,x.fim_por)}</td><td>${ev(x.nf_emissao,x.nf_registrado_por)}</td><td>${ev(x.saida_em,x.saida_por)}</td>
+    <td class="num"><b>${hmin(x.min_permanencia)}</b></td><td class="num">${hmin(x.min_espera)}</td><td class="num">${hmin(x.min_carregamento)}</td><td class="num">${hmin(x.min_liberacao)}</td>
+    <td>${ehSup()?`<button class="btn btn-ghost btn-sm" onclick="corrigir('${x.id}')">🕘</button>`:''}</td></tr>`).join('')
+    :'<tr><td colspan="13" style="text-align:center;color:#94a3b8;padding:18px;">Nenhum caminhão no período.</td></tr>';
+}
+async function xlsx(){if(!window.XLSX)await carregarScript('https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js');}
+async function fatExcel(){
+  await xlsx();const d=v=>v?new Date(v).toLocaleString('pt-BR'):'';
+  const ws=XLSX.utils.json_to_sheet(_fat.map(x=>({'Nº NF':x.nf_numero||'','Cliente':x.nf_cliente||'','Placa':x.placa,'Carreta':x.placa2||'','Motorista':x.motorista,'Celular':x.celular||'','Modelo':x.modelo||'',
+    'Retira':x.retira||'','Ordem':x.ordem||'','Observações':x.observacao||'','Produto':x.nf_produto||'','Quantidade':x.nf_quantidade,'Unidade':x.nf_unidade||'','Valor NF':x.nf_valor,
+    'Recepção':d(x.recepcao_em),'Recepção — usuário':x.recepcao_por||'','Início carregamento':d(x.inicio_em),'Início — usuário':x.inicio_por||'','Fim carregamento':d(x.fim_em),'Fim — usuário':x.fim_por||'',
+    'Emissão NF':d(x.nf_emissao),'NF — usuário':x.nf_registrado_por||'','Saída':d(x.saida_em),'Saída — usuário':x.saida_por||'',
+    'Tempo de Permanência':hmin(x.min_permanencia),'Tempo de Espera':hmin(x.min_espera),'Tempo de Carregamento':hmin(x.min_carregamento),'Tempo de Liberação Final':hmin(x.min_liberacao),'Correções de horário':x.correcoes||0})));
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Faturamento DSM');XLSX.writeFile(wb,`Faturamento DSM ${document.getElementById('fat-ini').value} a ${document.getElementById('fat-fim').value}.xlsx`);
+}
+/* resumo do mês (o que hoje é filtrado na semana e mandado no grupo) */
+const DSEM=['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
+const tonNF=x=>{const u=String(x.nf_unidade||'').toUpperCase();if(x.nf_quantidade!=null&&/^(T|TL|TON)/.test(u))return Number(x.nf_quantidade);
+  if(x.nf_peso_liquido!=null)return Number(x.nf_peso_liquido)>200?Number(x.nf_peso_liquido)/1000:Number(x.nf_peso_liquido);return 0;};
+async function resumoMes(){
+  const mes=document.getElementById('r-mes').value||hojeISO().slice(0,7);const [y,m]=mes.split('-').map(Number);const ult=new Date(y,m,0).getDate();
+  const fer=(document.getElementById('r-fer').value||'').split(/[,;\s]+/).map(x=>parseInt(x)).filter(n=>n>=1&&n<=31);const sab=document.getElementById('r-base').value==='seg_sab';
+  const util=d=>{const w=new Date(y,m-1,d).getDay();return w!==0&&(sab||w!==6)&&!fer.includes(d);};
+  const tot=[...Array(ult)].map((_,i)=>i+1).filter(util).length;
+  const {data,error}=await _supabase.from('dsm_caminhoes').select('nf_numero,nf_chave,nf_emissao,nf_quantidade,nf_unidade,nf_peso_liquido').not('nf_emissao','is',null)
+    .gte('nf_emissao',`${mes}-01T00:00:00-03:00`).lte('nf_emissao',`${mes}-${String(ult).padStart(2,'0')}T23:59:59-03:00`).limit(5000);
+  if(error){toast(error.message,'danger');return;}
+  const pd={};(data||[]).forEach(x=>{const d=Number(new Date(x.nf_emissao).toLocaleDateString('sv-SE',{timeZone:'America/Sao_Paulo'}).slice(8,10));const o=pd[d]||(pd[d]={n:new Set(),t:0});o.n.add(x.nf_chave||x.nf_numero);o.t+=tonNF(x);});
+  let ac=0,ut=0;const L=[];
+  for(let d=1;d<=ult;d++){if(util(d))ut++;const o=pd[d];if(!o)continue;ac+=o.t;L.push({data:`${String(d).padStart(2,'0')}/${String(m).padStart(2,'0')}/${y}`,sem:DSEM[new Date(y,m-1,d).getDay()],nfs:o.n.size,t:o.t,prev:ut?ac/ut*tot:null});}
+  _res={mes,L,total:ac,nfs:L.reduce((a,l)=>a+l.nfs,0),tot};
+  document.getElementById('r-out').innerHTML=`<div class="table-wrap"><table><thead><tr><th>Dia</th><th>Dia da semana</th><th class="num">Nº de NF (faturadas)</th><th class="num">Carregamento (t)</th><th class="num">Previsão de fechamento (t)</th></tr></thead><tbody>
+    ${L.length?L.map(l=>`<tr><td>${l.data}</td><td>${l.sem}</td><td class="num">${l.nfs}</td><td class="num">${nf(l.t)}</td><td class="num"><b>${nf(l.prev)}</b></td></tr>`).join(''):'<tr><td colspan="5" style="text-align:center;color:#94a3b8;padding:16px;">Nenhuma NF no mês.</td></tr>'}</tbody>
+    <tfoot><tr><td colspan="2"><b>Total</b></td><td class="num"><b>${_res.nfs}</b></td><td class="num"><b>${nf(ac,2)}</b></td><td class="num mini">${tot} dias úteis no mês</td></tr></tfoot></table></div>`;
+}
+async function resumoWhats(){
+  if(!_res)await resumoMes();const [y,m]=_res.mes.split('-');
+  const t=`*Carregamentos DSM ${m}/${y}*\n`+_res.L.map(l=>`${l.data.slice(0,5)} ${l.sem.slice(0,3)} · ${l.nfs} NF · ${nf(l.t)} t · prev. ${nf(l.prev)} t`).join('\n')
+    +`\n*Total: ${_res.nfs} NF · ${nf(_res.total,2)} t*`+(_res.L.length?`\n*Previsão de fechamento: ${nf(_res.L[_res.L.length-1].prev)} t*`:'');
+  if(navigator.share){try{await navigator.share({text:t});return;}catch(e){}}
+  try{await navigator.clipboard.writeText(t);toast('Resumo copiado — cole no grupo.','success');}catch(e){window.open('https://wa.me/?text='+encodeURIComponent(t),'_blank');}
+}
+async function resumoExcel(){
+  if(!_res)await resumoMes();await xlsx();
+  const ws=XLSX.utils.json_to_sheet(_res.L.map(l=>({'Dia':l.data,'Dia da semana':l.sem,'Nº de NF (faturadas)':l.nfs,'Carregamento (t)':+l.t.toFixed(2),'Previsão de fechamento (t)':l.prev==null?'':Math.round(l.prev)}))
+    .concat([{'Dia':'Total','Nº de NF (faturadas)':_res.nfs,'Carregamento (t)':+_res.total.toFixed(2)}]));
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Resumo');XLSX.writeFile(wb,`Resumo DSM ${_res.mes}.xlsx`);
+}
+/* início */
+async function iniciar(){
+  document.getElementById('fat-ini').value=hojeISO();document.getElementById('fat-fim').value=hojeISO();document.getElementById('r-mes').value=hojeISO().slice(0,7);
+  await carregarPatio();setInterval(()=>{if(_aba==='patio')carregarPatio();},30000);setInterval(()=>{if(_aba==='patio')renderPatio();},60000);
+}
+if(EMBED){ if(requireAuth('portaria'))iniciar(); }
+else{
+  fetch('partials/sidebar.html').then(r=>r.text()).then(h=>{document.getElementById('sidebar-container').innerHTML=h;document.querySelector('[href="portaria.html"]')?.classList.add('active');if(typeof openGroup==='function')openGroup('logistica');});
+  initSidebar('portaria.html').then(()=>{if(getUser())iniciar();});
+}
+</script>
+</body>
+</html>
