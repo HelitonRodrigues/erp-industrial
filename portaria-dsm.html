@@ -81,6 +81,30 @@
 .rel-it b{display:block;color:var(--primary);font-size:13.5px}.rel-it span{font-size:11.5px;color:var(--mu)}
 .rel-it.on{background:var(--primary);border-color:var(--primary)}.rel-it.on b{color:var(--accent)}.rel-it.on span{color:#cbd5e1}
 @media(max-width:900px){.rel-g{grid-template-columns:1fr}}
+.ch-mod{max-width:1040px}
+.ch-hd{display:flex;justify-content:space-between;gap:10px;margin-bottom:10px}
+.ch-g{display:grid;grid-template-columns:1.25fr 1fr;gap:18px}
+.ch-placa{font-size:24px!important;font-weight:800!important;letter-spacing:2px;text-transform:uppercase;min-height:56px;color:var(--primary)}
+.ch-sug{position:absolute;left:0;right:0;top:100%;z-index:5;background:#fff;border:1px solid var(--ln);border-radius:12px;box-shadow:0 12px 28px rgba(4,45,77,.15);overflow:hidden}
+.ch-sug:empty{display:none}
+.ch-sug-it{display:grid;grid-template-columns:100px 1fr;gap:2px 10px;padding:9px 12px;cursor:pointer;border-bottom:1px solid #f1f5f9}.ch-sug-it:hover{background:#f0f9ff}
+.ch-sug-it b{color:var(--primary);letter-spacing:1px}.ch-sug-it span{font-weight:700;font-size:13px}.ch-sug-it small{grid-column:2;font-size:11.5px;color:var(--mu)}
+.ch-sug-novo{padding:9px 12px;font-size:12.5px;color:#166534;background:#f0fdf4}
+.ch-chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+.ch-chip{border:1px solid var(--ln);background:#fff;border-radius:99px;padding:5px 12px;font-family:inherit;font-size:12.5px;font-weight:700;color:var(--primary);cursor:pointer}
+.ch-chip.on{background:var(--primary);color:var(--accent);border-color:var(--primary)}
+.ch-card{border:1px solid var(--ln);border-radius:14px;padding:14px;background:#f8fafc;min-height:170px}
+.ch-vazio{color:var(--mu);font-size:13px;text-align:center;padding:30px 10px}
+.ch-novo{background:#ecfdf5;border:1px solid #86efac;border-radius:10px;padding:12px;color:#166534}
+.ch-mot{display:flex;gap:12px;align-items:center;margin-bottom:10px}
+.ch-av{width:52px;height:52px;border-radius:50%;background:var(--primary);color:var(--accent);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:18px;flex-shrink:0}
+.ch-nm{font-weight:800;font-size:16px;color:var(--primary)}
+.ch-inf{display:grid;grid-template-columns:1fr 1fr;gap:8px}.ch-inf div{background:#fff;border:1px solid var(--ln);border-radius:10px;padding:7px 10px}
+.ch-inf span{display:block;font-size:11px;color:var(--mu);font-weight:600}.ch-inf b{font-size:13px;color:var(--primary)}
+.ch-al{background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;border-radius:10px;padding:8px 10px;font-size:13px;margin-bottom:8px}
+.ch-fila{margin-top:12px;border:1px solid var(--ln);border-radius:14px;padding:10px 12px;font-size:12.5px;display:flex;flex-direction:column;gap:3px}
+.ch-voce{margin-top:4px;background:#fef9c3;border-radius:8px;padding:4px 8px;font-weight:800;color:#854d0e}
+@media(max-width:860px){.ch-g{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -241,39 +265,99 @@ function renderBoard(){
    +col('aguardando_nf','🧾 Aguardando NF',anf,c=>`<button class="btn btn-primary btn-sm" onclick="registrarNF('${c.id}')">🧾 Registrar NF e liberar</button>`,c=>['desde o fim',Date.now()-Date.parse(c.fim_em||c.recepcao_em)]);
 }
 
-/* ═══ REGISTRAR CHEGADA (e editar os dados — nunca os horários) ═══ */
-function abrirChegada(id){
+/* ═══ REGISTRAR CHEGADA — placa ou nome com sugestões, cartão do motorista, avisos e posição na fila ═══ */
+let _hpl=[];   // passagens recentes (para sugerir placas que ainda não estão no cadastro)
+async function abrirChegada(id){
   const c=id?_cam.find(x=>x.id===id):null;
   if(!guardAction('portaria',c?'edit':'create'))return;
+  _motSel=null;
+  if(!_motCad.length)await carregarMot();
+  if(!_hpl.length){const {data}=await _supabase.from('dsm_caminhoes').select('placa,placa2,motorista,celular,modelo,ordem,recepcao_em').order('recepcao_em',{ascending:false}).limit(500);_hpl=data||[];}
+  const pos=_cam.filter(x=>x.status==='patio').length+1;
   const ov=document.createElement('div');ov.className='dsm-ov';ov.id='ov-ch';
-  ov.innerHTML=`<div class="dsm-mod"><h3>${c?'✏️ Editar — '+esc(c.placa):'🚛 Registro de chegada — caminhão DSM'}</h3>
-    ${c?'<div class="mini">Os horários não são editados aqui (só o Supervisor corrige, com justificativa).</div>':'<div class="mini">🕒 Data e hora gravadas pelo <b>relógio do servidor</b> no clique em Registrar chegada.</div>'}
-    <div class="dsm-g2"><div><label class="dsm-lbl">1. Placa *</label><input id="f-placa" class="form-input" style="text-transform:uppercase;font-size:18px;font-weight:800;" maxlength="8" value="${esc(c?.placa||'')}" oninput="porPlaca()"></div>
-      <div><label class="dsm-lbl">Placa da carreta</label><input id="f-placa2" class="form-input" style="text-transform:uppercase" maxlength="8" value="${esc(c?.placa2||'')}"></div></div>
-    <div id="f-ult" class="mini" style="margin-top:4px;"></div>
-    <div class="dsm-g2"><div><label class="dsm-lbl">2. Motorista *</label><input id="f-mot" class="form-input" list="dl-mots" value="${esc(c?.motorista||'')}" onchange="porNome()"><datalist id="dl-mots">${_motCad.filter(m=>m.ativo).map(m=>`<option value="${esc(m.nome)}">${esc(m.placa||'')}</option>`).join('')}</datalist></div>
-      <div><label class="dsm-lbl">Celular</label><input id="f-cel" class="form-input" inputmode="tel" value="${esc(c?.celular||'')}"></div></div>
-    <div class="dsm-g2"><div><label class="dsm-lbl">3. Modelo</label><input id="f-mod" class="form-input" list="dl-mod" value="${esc(c?.modelo||'')}" placeholder="Carreta, Bitrem, Graneleiro…"><datalist id="dl-mod"><option>Carreta</option><option>Bitrem</option><option>Rodotrem</option><option>Graneleiro</option><option>Basculante</option><option>Truck</option><option>Toco</option></datalist></div>
-      <div><label class="dsm-lbl">4. Ordem (se tiver)</label><input id="f-ord" class="form-input" value="${esc(c?.ordem||'')}"></div></div>
-    <label class="dsm-lbl">5. Observações da carga</label><input id="f-obs" class="form-input" value="${esc(c?.observacao||'')}">
+  const chip=(grp,v)=>`<button type="button" class="ch-chip" onclick="chChip('${grp}','${v}')">${v}</button>`;
+  ov.innerHTML=`<div class="dsm-mod ch-mod">
+    <div class="ch-hd"><div><h3 style="margin:0;">${c?'✏️ Editar chegada — '+esc(c.placa):'🚛 Registrar chegada — caminhão DSM'}</h3>
+      <div class="mini">${c?'Os horários não são editados aqui (só o Supervisor corrige, com justificativa).':`🕒 Hora gravada pelo <b>relógio do servidor</b> no clique em Registrar · entra como <b>${pos}º da fila</b>`}</div></div>
+      <button class="dt-x" onclick="document.getElementById('ov-ch').remove()">✕</button></div>
+    <div class="ch-g">
+      <div>
+        <label class="dsm-lbl">1. Placa *</label>
+        <div style="position:relative;"><input id="f-placa" class="form-input ch-placa" maxlength="8" autocomplete="off" placeholder="ABC1D23" value="${esc(c?.placa||'')}" oninput="chSugerir('placa',1)" onfocus="chSugerir('placa')">
+          <div id="ch-sug-placa" class="ch-sug"></div></div>
+        <div class="dsm-g2" style="margin-top:6px;"><div><label class="dsm-lbl">Placa da carreta</label><input id="f-placa2" class="form-input" style="text-transform:uppercase" maxlength="8" value="${esc(c?.placa2||'')}"></div>
+          <div><label class="dsm-lbl">Celular</label><input id="f-cel" class="form-input" inputmode="tel" placeholder="(11) 90000-0000" value="${esc(c?.celular||'')}"></div></div>
+        <label class="dsm-lbl">2. Motorista *</label>
+        <div style="position:relative;"><input id="f-mot" class="form-input" autocomplete="off" style="text-transform:uppercase" placeholder="Nome do motorista" value="${esc(c?.motorista||'')}" oninput="chSugerir('mot',1)" onfocus="chSugerir('mot')">
+          <div id="ch-sug-mot" class="ch-sug"></div></div>
+        <label class="dsm-lbl">3. Modelo</label>
+        <input id="f-mod" class="form-input" value="${esc(c?.modelo||'')}" placeholder="Escolha ou digite" oninput="chChips()">
+        <div class="ch-chips" id="ch-mods">${['Graneleiro','Carreta','Bitrem','Rodotrem','Basculante','Truck'].map(v=>chip('f-mod',v)).join('')}</div>
+        <label class="dsm-lbl">4. Ordem (se tiver)</label><input id="f-ord" class="form-input" list="dl-ord" value="${esc(c?.ordem||'')}" style="max-width:260px;"><datalist id="dl-ord">${[...new Set(_hpl.map(x=>x.ordem).filter(Boolean))].slice(0,30).map(o=>`<option value="${esc(o)}">`).join('')}</datalist>
+        <label class="dsm-lbl">5. Observações da carga</label>
+        <input id="f-obs" class="form-input" value="${esc(c?.observacao||'')}" placeholder="Ex.: caulim granel cinza, lonado">
+        <div class="ch-chips">${['Granel','Ensacado','Big Bag','Lonado','Aguardando ordem','Retira no local'].map(v=>chip('f-obs',v)).join('')}</div>
+      </div>
+      <div><div id="ch-card" class="ch-card"><div class="ch-vazio">🔎 Digite a <b>placa</b> ou o <b>nome</b> — o sistema traz o motorista do cadastro e a última visita.</div></div>
+        ${c?'':`<div class="ch-fila"><b>Fila agora</b>${_cam.filter(x=>x.status==='patio').map((x,i)=>`<div>${i+1}º <b>${esc(x.placa)}</b> · ${esc(String(x.motorista).split(' ')[0])} · ${durTxt(Date.now()-Date.parse(x.recepcao_em))}</div>`).join('')||'<div class="mini">ninguém na fila</div>'}
+          <div class="ch-voce">${pos}º → este caminhão</div></div>`}</div>
+    </div>
+    <div id="f-ult" class="mini"></div>
     <div id="f-erro" class="alert alert-danger" style="display:none;margin-top:10px;"></div>
     <div class="dsm-ft"><button class="btn btn-secondary" onclick="document.getElementById('ov-ch').remove()">Cancelar</button>
-      <button class="btn btn-primary" id="f-btn" style="min-height:48px;" onclick="salvarChegada('${c?c.id:''}')">${c?'💾 Salvar':'6. 🚛 Registrar chegada'}</button></div></div>`;
-  document.body.appendChild(ov);setTimeout(()=>document.getElementById(c?'f-mot':'f-placa')?.focus(),60);
+      <button class="btn btn-primary" id="f-btn" style="min-height:52px;font-size:16px;padding:0 26px;" onclick="salvarChegada('${c?c.id:''}')">${c?'💾 Salvar':'6. 🚛 Registrar chegada'}</button></div></div>`;
+  document.body.appendChild(ov);chChips();if(c)chCartao();
+  ov.addEventListener('click',e=>{if(!e.target.closest('.ch-sug')&&!['f-placa','f-mot'].includes(e.target.id))ov.querySelectorAll('.ch-sug').forEach(x=>x.innerHTML='');});
+  setTimeout(()=>document.getElementById(c?'f-mot':'f-placa')?.focus(),60);
 }
-function porNome(){const n=String(document.getElementById('f-mot').value||'').toUpperCase();const m=_motCad.find(x=>x.nome===n);if(!m)return;_motSel=m;
-  const set=(id,v)=>{const el=document.getElementById(id);if(el&&v&&!el.value)el.value=v;};set('f-cel',m.celular);set('f-mod',m.modelo);set('f-placa2',m.placa2);set('f-placa',m.placa);
-  document.getElementById('f-ult').innerHTML=m.bloqueado?`<b style="color:#dc2626;">⛔ Motorista bloqueado: ${esc(m.bloqueio_motivo||'')}</b>`:`↺ Dados do cadastro — confira${_cnhSit(m)?' · '+_cnhSit(m):''}`;}
-let _plTm=null;
-function porPlaca(){clearTimeout(_plTm);_plTm=setTimeout(async()=>{
-  const pl=normPlaca(document.getElementById('f-placa')?.value);if(pl.length<7)return;
-  const [{data},{data:cad}]=await Promise.all([_supabase.from('dsm_caminhoes').select('placa2,motorista,celular,modelo,recepcao_em').eq('placa',pl).order('recepcao_em',{ascending:false}).limit(1),
-    _supabase.from('dsm_motoristas').select('*').or(`placa.eq.${pl},placa2.eq.${pl}`).eq('ativo',true).limit(1)]);
-  let u=(data||[])[0];const mc=(cad||[])[0];
-  if(mc){u={motorista:mc.nome,celular:mc.celular,modelo:mc.modelo,placa2:mc.placa2,recepcao_em:u?.recepcao_em||mc.created_at};_motSel=mc;}const set=(id,v)=>{const el=document.getElementById(id);if(el&&v&&!el.value)el.value=v;};
-  const box=document.getElementById('f-ult');if(!box)return;
-  if(u){set('f-mot',u.motorista);set('f-cel',u.celular);set('f-mod',u.modelo);set('f-placa2',u.placa2);box.textContent=`↺ Dados da última visita (${new Date(u.recepcao_em).toLocaleDateString('pt-BR')}) — confira`;}
-  else box.textContent='Primeira visita desta placa.';},300);}
+function chChip(id,v){const el=document.getElementById(id);el.value=id==='f-obs'&&el.value?el.value+' · '+v:v;chChips();}
+function chChips(){const v=String(document.getElementById('f-mod')?.value||'').toLowerCase();document.querySelectorAll('#ch-mods .ch-chip').forEach(b=>b.classList.toggle('on',b.textContent.toLowerCase()===v));}
+// sugestões: cadastro + últimas passagens (placa ou nome)
+function chSugerir(tipo,digitando){
+  const inp=document.getElementById(tipo==='placa'?'f-placa':'f-mot');if(tipo==='placa')inp.value=inp.value.toUpperCase();
+  const q=tipo==='placa'?normPlaca(inp.value):String(inp.value||'').toUpperCase().trim();
+  const box=document.getElementById('ch-sug-'+tipo);
+  if(q.length<2){box.innerHTML='';chCartao();return;}
+  const vis={};const lista=[];
+  _motCad.forEach(m=>{const ok=tipo==='placa'?[m.placa,m.placa2].some(p=>normPlaca(p).includes(q)):m.nome.includes(q);if(ok&&!vis[m.nome]){vis[m.nome]=1;lista.push({m,placa:m.placa,nome:m.nome,modelo:m.modelo});}});
+  _hpl.forEach(h=>{const ok=tipo==='placa'?normPlaca(h.placa).includes(q):String(h.motorista).includes(q);if(ok&&!vis[h.motorista]){vis[h.motorista]=1;lista.push({h,placa:h.placa,nome:h.motorista,modelo:h.modelo});}});
+  box._lista=lista.slice(0,7);
+  box.innerHTML=box._lista.map((x,i)=>`<div class="ch-sug-it" onclick="chEscolher(${i},'${tipo}')"><b>${esc(x.placa||'—')}</b><span>${esc(x.nome)}</span><small>${esc(x.modelo||'')}${x.m&&x.m.bloqueado?' · ⛔ bloqueado':''}</small></div>`).join('')
+    ||(tipo==='placa'&&q.length>=7?'<div class="ch-sug-novo">Placa nova — preencha o motorista abaixo</div>':'');
+  // placa completa digitada e conhecida: preenche sozinho (só ao digitar, não ao clicar no campo)
+  if(digitando&&tipo==='placa'&&q.length>=7){const ex=box._lista.find(x=>normPlaca(x.placa)===q);if(ex){box.innerHTML='';chAplicar(ex,true);return;}}
+  chCartao();
+}
+function chEscolher(i,tipo){const box=document.getElementById('ch-sug-'+tipo);const x=box._lista[i];box.innerHTML='';chAplicar(x);}
+function chAplicar(x,ficar){
+  const set=(id,v)=>{const el=document.getElementById(id);if(el&&v)el.value=v;};
+  if(x.m){_motSel=x.m;set('f-placa',x.m.placa);set('f-mot',x.m.nome);set('f-cel',x.m.celular);set('f-mod',x.m.modelo);set('f-placa2',x.m.placa2);}
+  else{_motSel=_motCad.find(m=>m.nome===x.nome)||null;const h=x.h;set('f-placa',h.placa);set('f-mot',h.motorista);set('f-cel',h.celular);set('f-mod',h.modelo);set('f-placa2',h.placa2);}
+  chChips();chCartao();if(!ficar)document.getElementById('f-ord')?.focus();
+}
+// cartão do motorista: dados, CNH, visitas e alertas (bloqueio, já no pátio, CNH)
+function chCartao(){
+  const el=document.getElementById('ch-card');if(!el)return;
+  const pl=normPlaca(document.getElementById('f-placa').value),nome=String(document.getElementById('f-mot').value||'').toUpperCase().trim();
+  const m=(_motSel&&(!nome||_motSel.nome===nome)?_motSel:null)||_motCad.find(x=>x.nome===nome)||(pl.length>=7?_motCad.find(x=>normPlaca(x.placa)===pl):null);
+  const vis=_hpl.filter(h=>(m&&h.motorista===m.nome)||(pl.length>=7&&normPlaca(h.placa)===pl));
+  const st=m?(_motStats[m.id]||_motStats['n:'+m.nome]):null;
+  const edit=document.getElementById('f-btn')?.textContent.includes('Salvar');
+  const noPatio=!edit&&pl.length>=7?_cam.find(x=>x.placa===pl):null;
+  const al=[];if(m&&m.bloqueado)al.push(`⛔ <b>Motorista bloqueado</b>: ${esc(m.bloqueio_motivo||'')}`);
+  if(noPatio)al.push(`🚫 A placa ${esc(pl)} já está no pátio (${(SIT[noPatio.status]||[''])[0]}).`);
+  if(m&&m.cnh_validade&&Date.parse(m.cnh_validade+'T23:59:59')<Date.now())al.push('⚠️ CNH vencida no cadastro.');
+  const btn=document.getElementById('f-btn');if(btn&&!edit)btn.disabled=!!(m&&m.bloqueado)||!!noPatio;
+  if(!m&&!vis.length){el.innerHTML=(pl.length>=7||nome)?`<div class="ch-novo">🆕 <b>Primeira visita</b>${pl.length>=7?' da placa '+esc(pl):''}.<div class="mini">O motorista entra no cadastro automaticamente ao registrar.</div></div>${al.map(a=>`<div class="ch-al" style="margin-top:8px;">${a}</div>`).join('')}`
+    :'<div class="ch-vazio">🔎 Digite a <b>placa</b> ou o <b>nome</b> — o sistema traz o motorista do cadastro e a última visita.</div>';return;}
+  const n=m?m.nome:vis[0].motorista;const ini=n.split(' ').filter(Boolean).slice(0,2).map(x=>x[0]).join('');const ult=vis[0];
+  el.innerHTML=`<div class="ch-mot"><div class="ch-av">${esc(ini)}</div><div><div class="ch-nm">${esc(n)}</div><div class="mini">${m?.cpf?'CPF '+esc(m.cpf):''}${m?.transportadora?' · '+esc(m.transportadora):''}${m?'':' · ainda fora do cadastro'}</div></div></div>
+    ${al.map(a=>`<div class="ch-al">${a}</div>`).join('')}
+    <div class="ch-inf"><div><span>Celular</span><b>${esc(m?.celular||ult?.celular||'—')}</b></div><div><span>Veículo</span><b>${esc(m?.placa||ult?.placa||'—')}${(m?.placa2||ult?.placa2)?' + '+esc(m?.placa2||ult?.placa2):''}</b></div>
+      <div><span>Modelo</span><b>${esc(m?.modelo||ult?.modelo||'—')}</b></div><div><span>CNH</span><b>${m?.cnh?esc(m.cnh)+(m.cnh_categoria?' · '+esc(m.cnh_categoria):''):'—'}</b> ${m?_cnhSit(m):''}</div>
+      <div><span>Visitas</span><b>${st?st.n:vis.length}</b></div><div><span>Permanência média</span><b>${st&&st.perm.length?hmin(st.perm.reduce((a,b)=>a+b,0)/st.perm.length):'—'}</b></div>
+      <div style="grid-column:1/-1;"><span>Última visita</span><b>${ult?dh(ult.recepcao_em)+(ult.ordem?' · ordem '+esc(ult.ordem):''):'—'}</b></div></div>`;
+}
 let _motSel=null;
 async function salvarChegada(id){
   const g=x=>document.getElementById(x).value.trim(),er=document.getElementById('f-erro');
