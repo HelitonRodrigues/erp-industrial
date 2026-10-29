@@ -75,6 +75,12 @@
 .dt-int{font-size:11.5px;color:#b45309;font-weight:700;padding:3px 0 3px 44px;border-left:2px dashed #cbd5e1;margin-left:16px}
 .dt-corr{font-size:10.5px;background:#fef3c7;color:#92400e;border-radius:99px;padding:1px 7px}
 @media(max-width:800px){.dt-kp{grid-template-columns:repeat(2,1fr)}.dt-g{grid-template-columns:1fr}}
+.rel-g{display:grid;grid-template-columns:280px 1fr;gap:14px;align-items:start}
+.rel-lista{display:flex;flex-direction:column;gap:6px}
+.rel-it{text-align:left;border:1px solid var(--ln);background:#fff;border-radius:12px;padding:10px 12px;cursor:pointer;font-family:inherit}
+.rel-it b{display:block;color:var(--primary);font-size:13.5px}.rel-it span{font-size:11.5px;color:var(--mu)}
+.rel-it.on{background:var(--primary);border-color:var(--primary)}.rel-it.on b{color:var(--accent)}.rel-it.on span{color:#cbd5e1}
+@media(max-width:900px){.rel-g{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -103,6 +109,7 @@
     <button data-t="ind" onclick="aba('ind')">📊 Indicadores</button>
     <button data-t="fat" onclick="aba('fat')">🧾 Faturamento</button>
     <button data-t="res" onclick="aba('res')">📅 Resumo do mês</button>
+    <button data-t="rel" onclick="aba('rel')">📑 Relatórios</button>
     <button data-t="hist" onclick="aba('hist')">📚 Histórico</button>
     <button data-t="mot" onclick="aba('mot')">👤 Motoristas</button>
   </div>
@@ -137,6 +144,12 @@
       <input class="form-input" id="r-fer" style="max-width:200px;" placeholder="Feriados (dias): 12, 28" onchange="resumoMes()">
       <button class="btn btn-primary btn-sm" onclick="resumoWhats()">📲 Enviar no grupo</button><button class="btn btn-secondary btn-sm" onclick="imprimirResumo()">🖨️ Imprimir</button><button class="btn btn-secondary btn-sm" onclick="resumoExcel()">⬇️ Excel</button></div>
     <div id="r-out"></div></div></div>
+
+  <div id="t-rel" style="display:none;">
+    <div class="d-filt"><input type="date" class="form-input" id="rel-ini" style="max-width:160px;" onchange="gerarRel()"><input type="date" class="form-input" id="rel-fim" style="max-width:160px;" onchange="gerarRel()">
+      <button class="btn btn-secondary btn-sm" onclick="perRel(7)">7 dias</button><button class="btn btn-secondary btn-sm" onclick="perRel(30)">30 dias</button><button class="btn btn-secondary btn-sm" onclick="perRel('mes')">Este mês</button></div>
+    <div class="rel-g"><div id="rel-lista" class="rel-lista"></div><div id="rel-out"></div></div>
+  </div>
 
   <div id="t-hist" style="display:none;">
     <div class="d-filt"><input type="date" class="form-input" id="h-ini" style="max-width:160px;" onchange="carregarHist()"><input type="date" class="form-input" id="h-fim" style="max-width:160px;" onchange="carregarHist()">
@@ -182,8 +195,8 @@ async function carregarPatio(){
   renderKpis();if(_aba==='fila')renderBoard();
 }
 function aba(t){_aba=t;document.querySelectorAll('#tabs button').forEach(b=>b.classList.toggle('on',b.dataset.t===t));
-  ['fila','ind','fat','res','hist','mot'].forEach(x=>document.getElementById('t-'+x).style.display=x===t?'':'none');
-  if(t==='fila')renderBoard();if(t==='ind')carregarInd();if(t==='fat')carregarFat();if(t==='res')resumoMes();if(t==='hist')carregarHist();if(t==='mot')carregarMot();}
+  ['fila','ind','fat','res','rel','hist','mot'].forEach(x=>document.getElementById('t-'+x).style.display=x===t?'':'none');
+  if(t==='fila')renderBoard();if(t==='ind')carregarInd();if(t==='fat')carregarFat();if(t==='res')resumoMes();if(t==='rel'){renderRelLista();gerarRel();}if(t==='hist')carregarHist();if(t==='mot')carregarMot();}
 function periodo(p,n){const ini=n==='mes'?hojeISO().slice(0,8)+'01':diasAtras(n-1);document.getElementById(p+'-ini').value=ini;document.getElementById(p+'-fim').value=hojeISO();carregarInd();}
 
 /* ═══ INDICADORES DO TOPO ═══ */
@@ -679,6 +692,79 @@ async function carregarInd(){
   l.forEach(x=>{add(x.recepcao_por,'rec');add(x.inicio_por,'tk');add(x.fim_por,'tk');add(x.nf_registrado_por,'nf');});
   document.getElementById('i-users').innerHTML=Object.keys(us).length?`<table style="width:100%;font-size:12.5px;"><tr class="mini"><td>Usuário</td><td style="text-align:right;">Chegadas</td><td style="text-align:right;">Tickets</td><td style="text-align:right;">NFs</td></tr>${Object.entries(us).sort((a,b)=>b[1].rec-a[1].rec).map(([n,v])=>`<tr><td><b>${esc(n)}</b></td><td style="text-align:right;">${v.rec}</td><td style="text-align:right;">${v.tk}</td><td style="text-align:right;">${v.nf}</td></tr>`).join('')}</table>`:'<div class="d-vazio">Sem dados no período.</div>';
 }
+/* ═══ RELATÓRIOS — cada um com período, tela, 🖨️ imprimir, ⬇️ PDF e ⬇️ Excel (todos com o cabeçalho da empresa) ═══ */
+const REL=[
+ {k:'tempos',t:'Tempos da operação por caminhão',d:'Os 5 eventos, quem registrou e os tempos de cada caminhão'},
+ {k:'diario',t:'Resumo diário',d:'Por dia: caminhões, NFs, toneladas e tempos médios'},
+ {k:'motorista',t:'Por motorista',d:'Visitas, toneladas e tempos médios de cada motorista'},
+ {k:'veiculo',t:'Por veículo (placa)',d:'Visitas, modelo, toneladas e tempos por placa'},
+ {k:'hora',t:'Por hora de chegada',d:'Quantos chegam em cada hora e quanto esperam'},
+ {k:'fora',t:'Fora do padrão',d:`Espera acima de ${SLA.espera_critico/60}h ou permanência acima de ${SLA.perm_critico/60}h`},
+ {k:'pesagem',t:'Pesagem × NF',d:'Peso líquido da balança comparado com o da NF'},
+ {k:'usuarios',t:'Por usuário (portaria)',d:'Chegadas, tickets, NFs e saídas registradas por cada usuário'},
+ {k:'correcoes',t:'Correções de horário (auditoria)',d:'Toda alteração de horário: antes, depois, quem e por quê'},
+ {k:'cancelados',t:'Cancelamentos',d:'Registros cancelados, por quem e o motivo'}];
+let _relSel='tempos',_relOut=null;
+function renderRelLista(){
+  document.getElementById('rel-lista').innerHTML=REL.map(r=>`<button class="rel-it${_relSel===r.k?' on':''}" onclick="_relSel='${r.k}';renderRelLista();gerarRel()"><b>${r.t}</b><span>${r.d}</span></button>`).join('');
+}
+const _media=(l,k)=>{const v=l.map(x=>x[k]).filter(x=>x!=null);return v.length?v.reduce((a,b)=>a+Number(b),0)/v.length:null;};
+const _agrupa=(l,f)=>{const g={};l.forEach(x=>{const k=f(x);(g[k]=g[k]||[]).push(x);});return g;};
+const _linhaMed=l=>[hmin(_media(l,'min_espera')),hmin(_media(l,'min_carregamento')),hmin(_media(l,'min_liberacao')),hmin(_media(l,'min_permanencia'))];
+async function gerarRel(){
+  const ini=document.getElementById('rel-ini').value,fim=document.getElementById('rel-fim').value;
+  const r=REL.find(x=>x.k===_relSel);const out=document.getElementById('rel-out');out.innerHTML='<div class="d-vazio">Gerando…</div>';
+  const {data,error}=await _supabase.from('dsm_faturamento').select('*').gte('recepcao_em',ini+'T00:00:00-03:00').lte('recepcao_em',fim+'T23:59:59-03:00').order('recepcao_em').limit(20000);
+  if(error){out.innerHTML=`<div class="alert alert-danger">${esc(error.message)}</div>`;return;}
+  const todos=data||[],l=todos.filter(x=>!x.cancelado_em),sai=l.filter(x=>x.status==='saiu');
+  let cols=[],rows=[],tot=null;
+  const MED4=['Espera média','Carregamento médio','Liberação média','Permanência média'];
+  if(r.k==='tempos'){cols=['Placa','Motorista','NF','Recepção','Início','Fim','Emissão NF','Saída','Espera','Carreg.','Liberação','Perm.','Total','Usuários'];
+    rows=l.map(x=>[x.placa,x.motorista,x.nf_numero||'—',dh(x.recepcao_em),dh(x.inicio_em),dh(x.fim_em),dh(x.nf_emissao),dh(x.saida_em),hmin(x.min_espera),hmin(x.min_carregamento),hmin(x.min_liberacao),hmin(x.min_permanencia),hmin(x.min_total),[...new Set([x.recepcao_por,x.inicio_por,x.fim_por,x.nf_registrado_por].filter(Boolean))].join(', ')]);
+    tot=['Média','','','','','','','',..._linhaMed(l),hmin(_media(l,'min_total')),''];}
+  if(r.k==='diario'){cols=['Dia','Dia da semana','Caminhões','NFs','Toneladas',...MED4];
+    const g=_agrupa(l,x=>new Date(x.recepcao_em).toLocaleDateString('sv-SE',{timeZone:'America/Sao_Paulo'}));
+    rows=Object.keys(g).sort().map(d=>{const v=g[d];return [fmtBr(d),DSEM[new Date(d+'T12:00:00').getDay()],v.length,v.filter(x=>x.nf_numero).length,nf(v.reduce((a,x)=>a+tonNF(x),0),1),..._linhaMed(v)];});
+    tot=['Total','',l.length,l.filter(x=>x.nf_numero).length,nf(l.reduce((a,x)=>a+tonNF(x),0),1),..._linhaMed(l)];}
+  if(r.k==='motorista'||r.k==='veiculo'){const porM=r.k==='motorista';cols=porM?['Motorista','Placas','Visitas','Toneladas',...MED4,'Última visita']:['Placa','Modelo','Motoristas','Visitas','Toneladas',...MED4];
+    const g=_agrupa(l,x=>porM?x.motorista:x.placa);
+    rows=Object.entries(g).sort((a,b)=>b[1].length-a[1].length).map(([k,v])=>porM?[k,[...new Set(v.map(x=>x.placa))].join(', '),v.length,nf(v.reduce((a,x)=>a+tonNF(x),0),1),..._linhaMed(v),dh(v[v.length-1].recepcao_em)]
+      :[k,v[0].modelo||'—',[...new Set(v.map(x=>x.motorista))].join(', '),v.length,nf(v.reduce((a,x)=>a+tonNF(x),0),1),..._linhaMed(v)]);}
+  if(r.k==='hora'){cols=['Hora de chegada','Caminhões','% do total','Espera média','Permanência média'];
+    const g=_agrupa(l,x=>Number(new Date(x.recepcao_em).toLocaleTimeString('pt-BR',{hour:'2-digit',hour12:false,timeZone:'America/Sao_Paulo'}).slice(0,2)));
+    rows=Object.keys(g).map(Number).sort((a,b)=>a-b).map(h=>[`${String(h).padStart(2,'0')}h às ${String(h).padStart(2,'0')}h59`,g[h].length,nf(g[h].length/l.length*100,1)+'%',hmin(_media(g[h],'min_espera')),hmin(_media(g[h],'min_permanencia'))]);}
+  if(r.k==='fora'){cols=['Placa','Motorista','Recepção','Espera','Carreg.','Liberação','Permanência','Motivo'];
+    rows=l.filter(x=>(x.min_espera||0)>=SLA.espera_critico||(x.min_permanencia||0)>=SLA.perm_critico).sort((a,b)=>(b.min_permanencia||0)-(a.min_permanencia||0))
+      .map(x=>[x.placa,x.motorista,dh(x.recepcao_em),hmin(x.min_espera),hmin(x.min_carregamento),hmin(x.min_liberacao),hmin(x.min_permanencia),[(x.min_espera||0)>=SLA.espera_critico?'espera alta':'',(x.min_permanencia||0)>=SLA.perm_critico?'permanência alta':''].filter(Boolean).join(' + ')]);}
+  if(r.k==='pesagem'){cols=['Placa','NF','Tara (kg)','Bruto (kg)','Líquido balança (kg)','Líquido NF (kg)','Diferença (kg)','Diferença %'];
+    rows=sai.filter(x=>x.peso_entrada&&x.peso_saida).map(x=>{const liq=x.peso_saida-x.peso_entrada,nfk=x.nf_peso_liquido!=null?(x.nf_peso_liquido>200?x.nf_peso_liquido:x.nf_peso_liquido*1000):null;
+      return [x.placa,x.nf_numero||'—',nf(x.peso_entrada),nf(x.peso_saida),nf(liq),nfk!=null?nf(nfk):'—',nfk!=null?nf(liq-nfk):'—',nfk?nf((liq-nfk)/nfk*100,2)+'%':'—'];});}
+  if(r.k==='usuarios'){cols=['Usuário','Chegadas','Tickets de entrada','Tickets de saída','NFs registradas','Saídas'];
+    const u={};const add=(n,i)=>{if(!n)return;(u[n]=u[n]||[0,0,0,0,0])[i]++;};
+    todos.forEach(x=>{add(x.recepcao_por,0);add(x.inicio_por,1);add(x.fim_por,2);add(x.nf_registrado_por,3);add(x.saida_por,4);});
+    rows=Object.entries(u).sort((a,b)=>b[1][0]-a[1][0]).map(([n,v])=>[n,...v]);}
+  if(r.k==='correcoes'){cols=['Quando','Placa','Etapa','Antes','Depois','Quem','Perfil','Justificativa'];
+    const ids=todos.map(x=>x.id);const C={recepcao_em:'Recepção',inicio_em:'Início',fim_em:'Fim',nf_emissao:'Emissão NF',saida_em:'Saída'};
+    const {data:co}=ids.length?await _supabase.from('dsm_correcoes').select('*').in('caminhao_id',ids.slice(0,1000)).order('em'):{data:[]};
+    rows=(co||[]).map(x=>{const c=todos.find(y=>y.id===x.caminhao_id)||{};return [dh(x.em),c.placa||'',C[x.campo]||x.campo,_dt(x.valor_anterior),_dt(x.valor_novo),x.usuario,x.perfil||'',x.motivo];});}
+  if(r.k==='cancelados'){cols=['Recepção','Placa','Motorista','Cancelado em','Por','Motivo'];
+    rows=todos.filter(x=>x.cancelado_em).map(x=>[dh(x.recepcao_em),x.placa,x.motorista,dh(x.cancelado_em),x.cancelado_por||'',x.cancelado_motivo||'']);}
+  _relOut={titulo:r.t,sub:`${fmtBr(ini)} a ${fmtBr(fim)} · ${rows.length} linha(s)`,cols,rows,tot};
+  out.innerHTML=`<div class="d-filt" style="justify-content:space-between;"><div><b style="color:var(--primary);font-size:15px;">${esc(r.t)}</b> <span class="mini">${esc(_relOut.sub)}</span></div>
+      <div class="d-bt"><button class="btn btn-secondary btn-sm" onclick="relImprimir()">🖨️ Imprimir</button><button class="btn btn-secondary btn-sm" onclick="relPdf()">⬇️ PDF</button><button class="btn btn-primary btn-sm" onclick="relExcel()">⬇️ Excel</button></div></div>
+    <div class="card" style="padding:0;"><div class="table-wrap"><table><thead><tr>${cols.map(c=>`<th>${esc(c)}</th>`).join('')}</tr></thead><tbody>
+      ${rows.length?rows.map(rw=>`<tr>${rw.map(v=>`<td>${esc(v)}</td>`).join('')}</tr>`).join(''):`<tr><td colspan="${cols.length}" style="text-align:center;color:#94a3b8;padding:18px;">Nada no período.</td></tr>`}
+      ${tot&&rows.length?`<tr style="background:#f1f5f9;font-weight:800;">${tot.map(v=>`<td>${esc(v)}</td>`).join('')}</tr>`:''}</tbody></table></div></div>`;
+}
+function _relHtml(emp){const o=_relOut;const th=t=>`<th style="background:#042D4D;color:#fff;padding:4px 5px;text-align:left;font-size:8.5px;">${esc(t)}</th>`,td=t=>`<td style="padding:4px 5px;border-bottom:1px solid #e5e7eb;font-size:8.5px;">${esc(t)}</td>`;
+  return _doc(emp,'RELATÓRIO — '+o.titulo.toUpperCase(),'DSM · '+o.sub,`<table style="width:100%;border-collapse:collapse;"><tr>${o.cols.map(th).join('')}</tr>${o.rows.map(r=>`<tr>${r.map(td).join('')}</tr>`).join('')}${o.tot?`<tr style="font-weight:800;background:#f1f5f9;">${o.tot.map(td).join('')}</tr>`:''}</table>`);}
+async function relImprimir(){if(!_relOut)return;imprimirHtml(_relHtml(await dadosEmpresa()));}
+async function relPdf(){if(!_relOut)return;await baixarPdfHtml(_relHtml(await dadosEmpresa()),`DSM - ${_relOut.titulo} - ${_relOut.sub.split(' · ')[0].replace(/\//g,'-')}.pdf`);}
+async function relExcel(){if(!_relOut)return;await xlsx();const o=_relOut;
+  const ws=XLSX.utils.aoa_to_sheet([...(await cabXlsx('Relatório DSM — '+o.titulo+' — '+o.sub)),o.cols,...o.rows,...(o.tot?[o.tot]:[])]);
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,o.titulo.slice(0,30));XLSX.writeFile(wb,`DSM - ${o.titulo}.xlsx`);}
+function perRel(n){const h=hojeISO();document.getElementById('rel-ini').value=n==='mes'?h.slice(0,8)+'01':diasAtras(n-1);document.getElementById('rel-fim').value=h;gerarRel();}
+
 /* ═══ HISTÓRICO ═══ */
 async function carregarHist(){
   const ini=document.getElementById('h-ini').value,fim=document.getElementById('h-fim').value;
@@ -750,6 +836,7 @@ async function iniciar(){
   const h=hojeISO();
   // Faturamento e Histórico abrem com o MÊS inteiro (antes era só o dia de hoje e parecia vazio)
   ['fat','h'].forEach(p=>{document.getElementById(p+'-ini').value=h.slice(0,8)+'01';document.getElementById(p+'-fim').value=h;});
+  document.getElementById('rel-ini').value=h.slice(0,8)+'01';document.getElementById('rel-fim').value=h;
   document.getElementById('i-ini').value=diasAtras(29);document.getElementById('i-fim').value=h;document.getElementById('r-mes').value=h.slice(0,7);
   relogio();setInterval(relogio,15000);
   await carregarPatio();setInterval(()=>carregarPatio(),30000);setInterval(()=>{if(_aba==='fila')renderBoard();},60000);
