@@ -150,8 +150,8 @@ function linhaTempo(c){
 }
 function renderPatio(){
   document.getElementById('n-patio').textContent=_cam.length?`(${_cam.length})`:'';
-  const acao=c=>c.status==='patio'?`<button class="btn btn-primary btn-sm" onclick="pesagem('${c.id}','entrada')">⚖️ Pesagem de entrada (início)</button>`
-    :c.status==='carregando'?`<button class="btn btn-primary btn-sm" onclick="pesagem('${c.id}','saida')">⚖️ Pesagem de saída (fim)</button>`
+  const acao=c=>c.status==='patio'?`<button class="btn btn-primary btn-sm" onclick="lerTicket('${c.id}','entrada')">⚖️ Ticket de entrada (início)</button>`
+    :c.status==='carregando'?`<button class="btn btn-primary btn-sm" onclick="lerTicket('${c.id}','saida')">⚖️ Ticket de saída (fim)</button>`
     :`<button class="btn btn-primary btn-sm" onclick="registrarNF('${c.id}')">🧾 Registrar NF e liberar</button>`;
   document.getElementById('patio').innerHTML=_cam.length?_cam.map(c=>`<div class="dsm-car ${c.status}">
       <div style="min-width:150px;"><div class="pl">${esc(c.placa)}${c.placa2?` <small class="mini">+ ${esc(c.placa2)}</small>`:''}</div><div class="mu">${esc(c.motorista)}${c.celular?' · '+esc(c.celular):''}</div><div class="mu">${esc(c.modelo||'')}${c.ordem?' · ordem '+esc(c.ordem):''}</div></div>
@@ -160,22 +160,57 @@ function renderPatio(){
       <div style="display:flex;gap:6px;flex-wrap:wrap;">${acao(c)}${ehSup()?`<button class="btn btn-ghost btn-sm" title="Corrigir horário (supervisor)" onclick="corrigir('${c.id}')">🕘</button>`:''}</div></div>`).join('')
     :'<div class="card" style="text-align:center;color:#94a3b8;padding:24px;">Nenhum caminhão DSM no pátio.</div>';
 }
-// início / fim do carregamento = horário da PESAGEM (ticket da balança), gravado pelo servidor
-function pesagem(id,tipo){
+// ── início / fim do carregamento = data e hora DO TICKET DE PESAGEM (iguais às dele, sem digitação) ──
+// O porteiro anexa o ticket (PDF ou foto). O sistema lê as datas/horas e os pesos impressos:
+// ticket de entrada → 1ª pesagem (início); ticket de saída → última pesagem (fim). Se não ler, só o Supervisor corrige.
+const OCRJS='https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
+async function textoDoArquivo(f){
+  if(/pdf/i.test(f.type)||/\.pdf$/i.test(f.name)){const t=await textoDoPdf(f);if(t.replace(/\s/g,'').length>30)return t;}
+  if(!window.Tesseract)await carregarScript(OCRJS);
+  let img=f;
+  if(/pdf/i.test(f.type)||/\.pdf$/i.test(f.name)){ // PDF escaneado: desenha a 1ª página
+    const doc=await pdfjsLib.getDocument({data:new Uint8Array(await f.arrayBuffer())}).promise;const pg=await doc.getPage(1),vp=pg.getViewport({scale:3});
+    const cv=document.createElement('canvas');cv.width=vp.width;cv.height=vp.height;await pg.render({canvasContext:cv.getContext('2d'),viewport:vp}).promise;img=cv;}
+  const r=await Tesseract.recognize(img,'por');return r.data.text||'';
+}
+function lerTicketTexto(t){
+  const T=t.replace(/\r/g,'');const out=[];
+  const re=/(\d{2})[\/.-](\d{2})[\/.-](\d{2,4})[^\d\n]{0,12}?(\d{2}):(\d{2})(?::(\d{2}))?/g;let m;
+  while((m=re.exec(T))){const y=m[3].length===2?'20'+m[3]:m[3];out.push({iso:`${y}-${m[2]}-${m[1]}T${m[4]}:${m[5]}:${m[6]||'00'}-03:00`,i:m.index});}
+  const ord=out.map(x=>x.iso).sort();
+  const pesos=[...T.matchAll(/(\d{1,3}(?:\.\d{3})+|\d{4,6})(?:,\d+)?\s*(?:kg|KG|Kg)/g)].map(x=>Number(x[1].replace(/\./g,'')));
+  const ticket=(T.match(/(?:TICKET|TIQUETE|N[º°o.]?\s*PESAGEM|PESAGEM\s*N[º°o.]?)\s*[:#]?\s*(\d{2,10})/i)||[])[1]||null;
+  const placa=(T.toUpperCase().replace(/\s+/g,' ').match(/\b([A-Z]{3}-?\d[A-Z0-9]\d{2})\b/)||[])[1]||null;
+  return {datas:ord,primeira:ord[0]||null,ultima:ord[ord.length-1]||null,pesos,ticket,placa:placa?placa.replace('-',''):null};
+}
+function lerTicket(id,tipo){
   const c=_cam.find(x=>x.id===id);if(!c||!guardAction('portaria','edit'))return;
-  const ov=document.createElement('div');ov.className='dsm-ov';
-  ov.innerHTML=`<div class="dsm-mod"><h3>⚖️ Pesagem de ${tipo==='entrada'?'entrada — início do carregamento':'saída — fim do carregamento'} · ${esc(c.placa)}</h3>
-    <div class="mini" style="margin-bottom:8px;">O horário é o do servidor no momento em que você confirma — o mesmo do ticket da balança.</div>
-    <label class="dsm-lbl">Peso do ticket (t) — opcional</label><input id="pz" class="form-input" inputmode="decimal" placeholder="ex.: 15,320">
-    <div class="dsm-ft"><button class="btn btn-secondary" onclick="this.closest('.dsm-ov').remove()">Cancelar</button><button class="btn btn-primary" id="pz-ok">✅ Registrar pesagem</button></div></div>`;
-  document.body.appendChild(ov);setTimeout(()=>document.getElementById('pz')?.focus(),50);
-  document.getElementById('pz-ok').onclick=async()=>{
-    const p=document.getElementById('pz').value.trim();const peso=p?Number(p.replace(/\./g,'').replace(',','.')):null;
-    const agora=new Date().toISOString();
-    const upd=tipo==='entrada'?{inicio_em:agora,inicio_por:quem(),peso_entrada:peso,status:'carregando'}:{fim_em:agora,fim_por:quem(),peso_saida:peso,status:'aguardando_nf'};
-    const {error}=await _supabase.from('dsm_caminhoes').update(upd).eq('id',id);
-    if(error){toast(error.message,'danger');return;}
-    ov.remove();toast(tipo==='entrada'?'Início do carregamento registrado.':'Fim do carregamento registrado — aguardando a NF.','success');carregarPatio();};
+  const inp=document.createElement('input');inp.type='file';inp.accept='application/pdf,.pdf,image/*';inp.setAttribute('capture','environment');
+  inp.onchange=async()=>{const f=inp.files[0];if(!f)return;toast('Lendo o ticket…','info');
+    let d;try{d=lerTicketTexto(await textoDoArquivo(f));}catch(e){toast('Não consegui ler o ticket: '+(e.message||e),'danger');return;}
+    const quando=tipo==='entrada'?d.primeira:d.ultima;
+    const peso=tipo==='entrada'?(d.pesos[0]??null):(d.pesos.length?Math.max(...d.pesos):null);   // saída = peso bruto (o maior do ticket)
+    const av=[];if(!quando)av.push('Não achei data e hora no ticket. Tire outra foto, mais nítida, ou peça ao Supervisor.');
+    if(d.placa&&d.placa!==c.placa&&d.placa!==(c.placa2||''))av.push(`A placa do ticket (${d.placa}) é diferente da do caminhão (${c.placa}).`);
+    if(tipo==='saida'&&quando&&c.inicio_em&&Date.parse(quando)<Date.parse(c.inicio_em))av.push('A hora de saída do ticket é anterior ao início do carregamento.');
+    const ov=document.createElement('div');ov.className='dsm-ov';
+    ov.innerHTML=`<div class="dsm-mod"><h3>⚖️ Ticket de ${tipo==='entrada'?'entrada — início':'saída — fim'} do carregamento · ${esc(c.placa)}</h3>
+      ${av.length?`<div class="alert alert-danger">⚠️ ${av.map(esc).join('<br>⚠️ ')}</div>`:'<div class="alert alert-success">✅ Ticket lido.</div>'}
+      <table style="width:100%;border-collapse:collapse;"><tr><td style="color:#64748b;">Data e hora (do ticket)</td><td><b style="font-size:16px;">${quando?new Date(quando).toLocaleString('pt-BR'):'—'}</b></td></tr>
+        <tr><td style="color:#64748b;">Peso</td><td><b>${peso!=null?nf(peso)+' kg':'—'}</b></td></tr><tr><td style="color:#64748b;">Nº do ticket</td><td><b>${esc(d.ticket||'—')}</b></td></tr>
+        <tr><td style="color:#64748b;">Datas encontradas</td><td class="mini">${d.datas.map(x=>new Date(x).toLocaleString('pt-BR')).join(' · ')||'—'}</td></tr></table>
+      <div class="dsm-ft"><button class="btn btn-secondary" onclick="this.closest('.dsm-ov').remove()">Cancelar</button><button class="btn btn-primary" id="tk-ok" ${quando?'':'disabled'}>✅ Registrar</button></div></div>`;
+    document.body.appendChild(ov);
+    document.getElementById('tk-ok').onclick=async()=>{
+      const ext=(f.name.split('.').pop()||'jpg').toLowerCase();let path=`dsm/ticket/${c.id}_${tipo}.${ext}`;
+      const up=await _supabase.storage.from('documentos').upload(path,f,{upsert:true,contentType:f.type||undefined});if(up.error)path=null;
+      const upd=tipo==='entrada'?{inicio_em:quando,inicio_por:quem(),peso_entrada:peso,ticket_entrada:path,status:'carregando'}
+                               :{fim_em:quando,fim_por:quem(),peso_saida:peso,ticket_saida:path,status:'aguardando_nf'};
+      const {error}=await _supabase.from('dsm_caminhoes').update(upd).eq('id',id);
+      if(error){toast(error.message,'danger');return;}
+      ov.remove();toast(tipo==='entrada'?'Início do carregamento registrado (hora do ticket).':'Fim do carregamento registrado (hora do ticket) — aguardando a NF.','success');carregarPatio();};
+  };
+  inp.click();
 }
 
 /* ── NF: lê o DANFE (PDF) ou o XML ── */
