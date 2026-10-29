@@ -1,0 +1,6 @@
+-- 094 — Módulo DSM (dentro da Portaria, arquivo próprio portaria-dsm.html) — aplicado direto no banco em 29/10/2026
+-- Desfeito: tudo o que tinha sido colocado na tabela portaria (colunas nf_*/bruto_*, gatilho de horários, correções, view).
+-- Novo, separado: dsm_caminhoes (5 eventos + usuário de cada um + dados da NF), dsm_correcoes (histórico de correções),
+-- gatilho dsm_tempos_servidor (horários sempre pelo servidor; gravado, só muda por correção),
+-- dsm_corrigir_horario() (só SGR/SADM/ADM, justificativa obrigatória) e a view dsm_faturamento (4 tempos em minutos).
+-- (SQL completo nas migrations "portaria_desfaz_tempos" e "dsm_modulo" do Supabase)
