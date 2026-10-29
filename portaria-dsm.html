@@ -168,15 +168,17 @@ const minEntre=(a,b)=>a&&b?Math.round((Date.parse(b)-Date.parse(a))/60000):null;
 function carregarScript(src){return new Promise((ok,er)=>{const s=document.createElement('script');s.src=src;s.onload=ok;s.onerror=er;document.head.appendChild(s);});}
 // limites de alerta da fila (minutos): espera e permanência
 const SLA={espera_alerta:60,espera_critico:120,perm_alerta:180,perm_critico:300};
-let _cam=[],_hoje=[],_fat=[],_hist=[],_res=null,_aba='fila',_graf={};
+let _sete=[],_cam=[],_hoje=[],_fat=[],_hist=[],_res=null,_aba='fila',_graf={};
 
 /* ═══ CARGA E ABAS ═══ */
 async function carregarPatio(){
-  const [a,h]=await Promise.all([
+  const [a,h,s7]=await Promise.all([
     _supabase.from('dsm_caminhoes').select('*').in('status',['patio','carregando','aguardando_nf']).is('cancelado_em',null).order('recepcao_em'),
-    _supabase.from('dsm_faturamento').select('*').gte('recepcao_em',hojeISO()+'T00:00:00-03:00').limit(1000)]);
+    _supabase.from('dsm_faturamento').select('*').gte('recepcao_em',hojeISO()+'T00:00:00-03:00').limit(1000),
+    // médias dos últimos 7 dias (com o dia de hoje): sem saída hoje, o indicador não fica vazio
+    _supabase.from('dsm_faturamento').select('min_permanencia,min_espera,status,cancelado_em').eq('status','saiu').gte('recepcao_em',diasAtras(6)+'T00:00:00-03:00').limit(5000)]);
   if(a.error){toast(a.error.message,'danger');return;}
-  _cam=(a.data||[]).filter(c=>!c.cancelado_em);_hoje=(h.data||[]).filter(c=>!c.cancelado_em);
+  _cam=(a.data||[]).filter(c=>!c.cancelado_em);_hoje=(h.data||[]).filter(c=>!c.cancelado_em);_sete=(s7.data||[]).filter(c=>!c.cancelado_em);
   renderKpis();if(_aba==='fila')renderBoard();
 }
 function aba(t){_aba=t;document.querySelectorAll('#tabs button').forEach(b=>b.classList.toggle('on',b.dataset.t===t));
@@ -188,11 +190,11 @@ function periodo(p,n){const ini=n==='mes'?hojeISO().slice(0,8)+'01':diasAtras(n-
 function renderKpis(){
   const fila=_cam.filter(c=>c.status==='patio'),car=_cam.filter(c=>c.status==='carregando'),anf=_cam.filter(c=>c.status==='aguardando_nf');
   const sai=_hoje.filter(c=>c.status==='saiu');
-  const med=k=>{const v=sai.map(x=>x[k]).filter(x=>x!=null);return v.length?v.reduce((a,b)=>a+Number(b),0)/v.length:null;};
+  const med=k=>{const v=_sete.map(x=>x[k]).filter(x=>x!=null);return v.length?v.reduce((a,b)=>a+Number(b),0)/v.length:null;};
   const espMax=fila.length?Math.max(...fila.map(c=>Date.now()-Date.parse(c.recepcao_em))):0;
   const k=[['am','Na fila',fila.length,fila.length?'maior espera '+durTxt(espMax):'ninguém esperando'],['vd','Carregando',car.length,'em carregamento'],
     ['rx','Aguardando NF',anf.length,'carregados, sem NF'],['cz','Saíram hoje',sai.length,nf(sai.reduce((a,c)=>a+tonNF(c),0),1)+' t faturadas'],
-    ['az','Permanência média hoje',hmin(med('min_permanencia')),'recepção → NF'],['vm','Espera média hoje',hmin(med('min_espera')),'recepção → início']];
+    ['az','Permanência média',hmin(med('min_permanencia')),`últimos 7 dias · ${_sete.length} caminhões`],['vm','Espera média',hmin(med('min_espera')),'últimos 7 dias · recepção → início']];
   document.getElementById('kpis').innerHTML=k.map(([c,l,v,s])=>`<div class="d-k ${c}"><div class="v">${v}</div><div class="l">${l}</div><div class="s">${s}</div></div>`).join('');
 }
 
