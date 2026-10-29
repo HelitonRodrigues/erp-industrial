@@ -159,8 +159,11 @@
   </div>
 
   <div id="t-mot" style="display:none;">
-    <div class="d-filt"><input class="form-input" id="m-q" style="flex:1;min-width:200px;" placeholder="🔍 Placa, motorista, celular" oninput="renderMot()"></div>
-    <div class="card" style="padding:0;"><div class="table-wrap"><table><thead><tr><th>Motorista</th><th>Placa(s)</th><th>Celular</th><th>Modelo</th><th class="num">Visitas</th><th class="num">Permanência média</th><th>Última visita</th></tr></thead><tbody id="m-b"></tbody></table></div></div>
+    <div class="d-filt"><input class="form-input" id="m-q" style="flex:1;min-width:220px;" placeholder="🔍 Nome, CPF, celular, placa, transportadora" oninput="renderMot()">
+      <select class="form-input" id="m-st" style="max-width:170px;" onchange="renderMot()"><option value="">Todos</option><option value="ativo">Ativos</option><option value="bloqueado">Bloqueados</option><option value="inativo">Inativos</option></select>
+      <span class="mini" id="m-info"></span>
+      <button class="btn btn-secondary btn-sm" onclick="motExcel()">⬇️ Excel</button><button class="btn btn-primary btn-sm" data-perm="portaria:create" onclick="editarMotorista()">＋ Novo motorista</button></div>
+    <div class="card" style="padding:0;"><div class="table-wrap"><table><thead><tr><th>Motorista</th><th>Celular</th><th>Veículo</th><th>Transportadora</th><th>CNH</th><th class="num">Visitas</th><th class="num">Toneladas</th><th class="num">Permanência média</th><th>Última visita</th><th></th></tr></thead><tbody id="m-b"></tbody></table></div></div>
   </div>
 </div></main>
 <script>
@@ -248,7 +251,7 @@ function abrirChegada(id){
     <div class="dsm-g2"><div><label class="dsm-lbl">1. Placa *</label><input id="f-placa" class="form-input" style="text-transform:uppercase;font-size:18px;font-weight:800;" maxlength="8" value="${esc(c?.placa||'')}" oninput="porPlaca()"></div>
       <div><label class="dsm-lbl">Placa da carreta</label><input id="f-placa2" class="form-input" style="text-transform:uppercase" maxlength="8" value="${esc(c?.placa2||'')}"></div></div>
     <div id="f-ult" class="mini" style="margin-top:4px;"></div>
-    <div class="dsm-g2"><div><label class="dsm-lbl">2. Motorista *</label><input id="f-mot" class="form-input" value="${esc(c?.motorista||'')}"></div>
+    <div class="dsm-g2"><div><label class="dsm-lbl">2. Motorista *</label><input id="f-mot" class="form-input" list="dl-mots" value="${esc(c?.motorista||'')}" onchange="porNome()"><datalist id="dl-mots">${_motCad.filter(m=>m.ativo).map(m=>`<option value="${esc(m.nome)}">${esc(m.placa||'')}</option>`).join('')}</datalist></div>
       <div><label class="dsm-lbl">Celular</label><input id="f-cel" class="form-input" inputmode="tel" value="${esc(c?.celular||'')}"></div></div>
     <div class="dsm-g2"><div><label class="dsm-lbl">3. Modelo</label><input id="f-mod" class="form-input" list="dl-mod" value="${esc(c?.modelo||'')}" placeholder="Carreta, Bitrem, Graneleiro…"><datalist id="dl-mod"><option>Carreta</option><option>Bitrem</option><option>Rodotrem</option><option>Graneleiro</option><option>Basculante</option><option>Truck</option><option>Toco</option></datalist></div>
       <div><label class="dsm-lbl">4. Ordem (se tiver)</label><input id="f-ord" class="form-input" value="${esc(c?.ordem||'')}"></div></div>
@@ -258,14 +261,20 @@ function abrirChegada(id){
       <button class="btn btn-primary" id="f-btn" style="min-height:48px;" onclick="salvarChegada('${c?c.id:''}')">${c?'💾 Salvar':'6. 🚛 Registrar chegada'}</button></div></div>`;
   document.body.appendChild(ov);setTimeout(()=>document.getElementById(c?'f-mot':'f-placa')?.focus(),60);
 }
+function porNome(){const n=String(document.getElementById('f-mot').value||'').toUpperCase();const m=_motCad.find(x=>x.nome===n);if(!m)return;_motSel=m;
+  const set=(id,v)=>{const el=document.getElementById(id);if(el&&v&&!el.value)el.value=v;};set('f-cel',m.celular);set('f-mod',m.modelo);set('f-placa2',m.placa2);set('f-placa',m.placa);
+  document.getElementById('f-ult').innerHTML=m.bloqueado?`<b style="color:#dc2626;">⛔ Motorista bloqueado: ${esc(m.bloqueio_motivo||'')}</b>`:`↺ Dados do cadastro — confira${_cnhSit(m)?' · '+_cnhSit(m):''}`;}
 let _plTm=null;
 function porPlaca(){clearTimeout(_plTm);_plTm=setTimeout(async()=>{
   const pl=normPlaca(document.getElementById('f-placa')?.value);if(pl.length<7)return;
-  const {data}=await _supabase.from('dsm_caminhoes').select('placa2,motorista,celular,modelo,recepcao_em').eq('placa',pl).order('recepcao_em',{ascending:false}).limit(1);
-  const u=(data||[])[0];const set=(id,v)=>{const el=document.getElementById(id);if(el&&v&&!el.value)el.value=v;};
+  const [{data},{data:cad}]=await Promise.all([_supabase.from('dsm_caminhoes').select('placa2,motorista,celular,modelo,recepcao_em').eq('placa',pl).order('recepcao_em',{ascending:false}).limit(1),
+    _supabase.from('dsm_motoristas').select('*').or(`placa.eq.${pl},placa2.eq.${pl}`).eq('ativo',true).limit(1)]);
+  let u=(data||[])[0];const mc=(cad||[])[0];
+  if(mc){u={motorista:mc.nome,celular:mc.celular,modelo:mc.modelo,placa2:mc.placa2,recepcao_em:u?.recepcao_em||mc.created_at};_motSel=mc;}const set=(id,v)=>{const el=document.getElementById(id);if(el&&v&&!el.value)el.value=v;};
   const box=document.getElementById('f-ult');if(!box)return;
   if(u){set('f-mot',u.motorista);set('f-cel',u.celular);set('f-mod',u.modelo);set('f-placa2',u.placa2);box.textContent=`↺ Dados da última visita (${new Date(u.recepcao_em).toLocaleDateString('pt-BR')}) — confira`;}
   else box.textContent='Primeira visita desta placa.';},300);}
+let _motSel=null;
 async function salvarChegada(id){
   const g=x=>document.getElementById(x).value.trim(),er=document.getElementById('f-erro');
   const placa=normPlaca(g('f-placa')),mot=g('f-mot').toUpperCase();const erro=t=>{er.textContent=t;er.style.display='';};
@@ -273,7 +282,13 @@ async function salvarChegada(id){
   if(!mot)return erro('Informe o motorista.');
   if(_cam.some(c=>c.placa===placa&&c.id!==id))return erro(`A placa ${placa} já está no pátio.`);
   const b=document.getElementById('f-btn');b.disabled=true;
-  const dados={placa,placa2:normPlaca(g('f-placa2'))||null,motorista:mot,celular:g('f-cel')||null,modelo:g('f-mod')||null,ordem:g('f-ord')||null,observacao:g('f-obs')||null};
+  // liga ao cadastro do motorista (pelo nome); motorista bloqueado não entra
+  let mc=_motSel&&_motSel.nome===mot?_motSel:null;
+  if(!mc){const {data}=await _supabase.from('dsm_motoristas').select('*').eq('nome',mot).limit(1);mc=(data||[])[0]||null;}
+  if(mc&&mc.bloqueado){b.disabled=false;return erro(`⛔ Motorista BLOQUEADO no cadastro: ${mc.bloqueio_motivo||'sem motivo informado'}.`);}
+  if(!mc&&!id){const {data:nv}=await _supabase.from('dsm_motoristas').insert({nome:mot,celular:g('f-cel')||null,placa,placa2:normPlaca(g('f-placa2'))||null,modelo:g('f-mod')||null,criado_por:quem()}).select().single();mc=nv||null;}
+  else if(mc&&!id){await _supabase.from('dsm_motoristas').update({celular:g('f-cel')||mc.celular,placa,placa2:normPlaca(g('f-placa2'))||mc.placa2,modelo:g('f-mod')||mc.modelo,atualizado_em:new Date().toISOString()}).eq('id',mc.id);}
+  const dados={placa,placa2:normPlaca(g('f-placa2'))||null,motorista:mot,motorista_id:mc?mc.id:null,celular:g('f-cel')||null,modelo:g('f-mod')||null,ordem:g('f-ord')||null,observacao:g('f-obs')||null};
   const r=id?await _supabase.from('dsm_caminhoes').update(dados).eq('id',id):await _supabase.from('dsm_caminhoes').insert({...dados,recepcao_por:quem(),status:'patio'});
   b.disabled=false;if(r.error)return erro(r.error.message);
   document.getElementById('ov-ch').remove();toast(id?'Dados atualizados.':`Chegada registrada: ${placa} — ${_cam.filter(c=>c.status==='patio').length+1}º da fila.`,'success');carregarPatio();
@@ -780,20 +795,84 @@ function renderHist(){
     <td class="num">${hmin(x.min_total)}</td><td class="mini">${esc(x.recepcao_por||'')}</td><td><button class="btn btn-ghost btn-sm" onclick="detalhe('${x.id}')">👁️</button></td></tr>`;}).join('')
     :'<tr><td colspan="8" style="text-align:center;color:#94a3b8;padding:18px;">Nada no período.</td></tr>';
 }
-/* ═══ MOTORISTAS (das visitas DSM) ═══ */
-let _mot=[];
+/* ═══ MOTORISTAS — cadastro (dados, CNH, veículo, bloqueio) + histórico de visitas ═══ */
+let _mot=[],_motStats={},_motCad=[];
 async function carregarMot(){
-  const {data}=await _supabase.from('dsm_faturamento').select('placa,motorista,celular,modelo,recepcao_em,min_permanencia').is('cancelado_em',null).order('recepcao_em',{ascending:false}).limit(10000);
-  const g={};(data||[]).forEach(x=>{const k=x.motorista;const o=g[k]||(g[k]={motorista:k,placas:new Set(),celular:x.celular,modelo:x.modelo,ult:x.recepcao_em,n:0,perm:[]});o.n++;o.placas.add(x.placa);if(x.min_permanencia!=null)o.perm.push(x.min_permanencia);});
-  _mot=Object.values(g);renderMot();
+  const [m,f]=await Promise.all([_supabase.from('dsm_motoristas').select('*').order('nome'),
+    _supabase.from('dsm_faturamento').select('motorista_id,motorista,placa,recepcao_em,min_permanencia,nf_quantidade,nf_unidade,nf_peso_liquido').is('cancelado_em',null).limit(20000)]);
+  _motCad=m.data||[];_motStats={};
+  (f.data||[]).forEach(x=>{const k=x.motorista_id||('n:'+x.motorista);const o=_motStats[k]||(_motStats[k]={n:0,perm:[],t:0,ult:null});o.n++;if(x.min_permanencia!=null)o.perm.push(x.min_permanencia);o.t+=tonNF(x);if(!o.ult||x.recepcao_em>o.ult)o.ult=x.recepcao_em;});
+  renderMot();
 }
+const _cnhSit=m=>{if(!m.cnh_validade)return '';const d=Math.floor((Date.parse(m.cnh_validade+'T23:59:59')-Date.now())/864e5);
+  return d<0?'<span class="badge badge-danger">CNH vencida</span>':d<=30?`<span class="badge badge-warning">CNH vence em ${d}d</span>`:'';};
 function renderMot(){
-  const q=String(document.getElementById('m-q').value||'').toLowerCase();
-  const l=_mot.filter(m=>!q||[m.motorista,[...m.placas].join(' '),m.celular].join(' ').toLowerCase().includes(q)).sort((a,b)=>b.n-a.n);
-  document.getElementById('m-b').innerHTML=l.length?l.map(m=>`<tr><td><b>${esc(m.motorista)}</b></td><td>${esc([...m.placas].join(', '))}</td><td>${esc(m.celular||'—')}</td><td>${esc(m.modelo||'—')}</td>
-    <td class="num">${m.n}</td><td class="num">${m.perm.length?hmin(m.perm.reduce((a,b)=>a+b,0)/m.perm.length):'—'}</td><td>${dh(m.ult)}</td></tr>`).join('')
-    :'<tr><td colspan="7" style="text-align:center;color:#94a3b8;padding:18px;">Nenhum motorista ainda.</td></tr>';
+  const q=String(document.getElementById('m-q').value||'').toLowerCase(),st=document.getElementById('m-st').value;
+  const l=_motCad.filter(m=>(!q||[m.nome,m.cpf,m.celular,m.placa,m.placa2,m.transportadora].join(' ').toLowerCase().includes(q))
+    &&(!st||(st==='ativo'?m.ativo&&!m.bloqueado:st==='bloqueado'?m.bloqueado:!m.ativo)));
+  document.getElementById('m-info').textContent=`${l.length} de ${_motCad.length} motorista(s)`;
+  document.getElementById('m-b').innerHTML=l.length?l.map(m=>{const s=_motStats[m.id]||_motStats['n:'+m.nome]||{n:0,perm:[],t:0};
+    return `<tr${m.bloqueado?' style="background:#fef2f2;"':!m.ativo?' style="opacity:.55;"':''}>
+      <td><b>${esc(m.nome)}</b>${m.bloqueado?' <span class="badge badge-danger">⛔ bloqueado</span>':!m.ativo?' <span class="badge badge-gray">inativo</span>':''}<div class="mini">${esc(m.cpf||'')}</div></td>
+      <td>${m.celular?`<a href="tel:${esc(String(m.celular).replace(/\D/g,''))}">${esc(m.celular)}</a>`:'—'}</td>
+      <td><b>${esc(m.placa||'—')}</b>${m.placa2?' + '+esc(m.placa2):''}<div class="mini">${esc(m.modelo||'')}</div></td>
+      <td>${esc(m.transportadora||'—')}</td>
+      <td>${esc(m.cnh||'—')}${m.cnh_categoria?' · '+esc(m.cnh_categoria):''}<div class="mini">${m.cnh_validade?'val. '+fmtBr(m.cnh_validade):''}</div>${_cnhSit(m)}</td>
+      <td class="num">${s.n}</td><td class="num">${nf(s.t,1)}</td><td class="num">${s.perm.length?hmin(s.perm.reduce((a,b)=>a+b,0)/s.perm.length):'—'}</td><td>${s.ult?dh(s.ult):'—'}</td>
+      <td style="white-space:nowrap;"><button class="btn btn-ghost btn-sm" title="Ficha" onclick="fichaMotorista('${m.id}')">👁️</button><button class="btn btn-ghost btn-sm" title="Editar" data-perm="portaria:edit" onclick="editarMotorista('${m.id}')">✏️</button></td></tr>`;}).join('')
+    :'<tr><td colspan="10" style="text-align:center;color:#94a3b8;padding:18px;">Nenhum motorista.</td></tr>';
 }
+function editarMotorista(id){
+  const m=id?_motCad.find(x=>x.id===id):{};if(!guardAction('portaria',id?'edit':'create'))return;
+  const v=k=>esc(m[k]??'');
+  const ov=document.createElement('div');ov.className='dsm-ov';ov.id='ov-mot';
+  ov.innerHTML=`<div class="dsm-mod"><h3>${id?'✏️ Editar motorista':'👤 Novo motorista'}</h3>
+    <div class="dsm-g2"><div><label class="dsm-lbl">Nome completo *</label><input id="mo-nome" class="form-input" value="${v('nome')}"></div><div><label class="dsm-lbl">CPF</label><input id="mo-cpf" class="form-input" value="${v('cpf')}" placeholder="000.000.000-00"></div></div>
+    <div class="dsm-g2"><div><label class="dsm-lbl">Celular</label><input id="mo-cel" class="form-input" inputmode="tel" value="${v('celular')}"></div><div><label class="dsm-lbl">Transportadora</label><input id="mo-tr" class="form-input" value="${v('transportadora')}"></div></div>
+    <div class="dsm-g2"><div><label class="dsm-lbl">CNH nº</label><input id="mo-cnh" class="form-input" value="${v('cnh')}"></div>
+      <div class="dsm-g2"><div><label class="dsm-lbl">Categoria</label><input id="mo-cat" class="form-input" maxlength="3" value="${v('cnh_categoria')}" placeholder="E"></div><div><label class="dsm-lbl">Validade</label><input id="mo-val" type="date" class="form-input" value="${v('cnh_validade')}"></div></div></div>
+    <div class="dsm-g2"><div><label class="dsm-lbl">Placa (cavalo)</label><input id="mo-pl" class="form-input" style="text-transform:uppercase" maxlength="8" value="${v('placa')}"></div><div><label class="dsm-lbl">Placa da carreta</label><input id="mo-pl2" class="form-input" style="text-transform:uppercase" maxlength="8" value="${v('placa2')}"></div></div>
+    <div class="dsm-g2"><div><label class="dsm-lbl">Modelo do veículo</label><input id="mo-mod" class="form-input" list="dl-mod2" value="${v('modelo')}"><datalist id="dl-mod2"><option>Carreta</option><option>Bitrem</option><option>Rodotrem</option><option>Graneleiro</option><option>Basculante</option><option>Truck</option></datalist></div>
+      <div><label class="dsm-lbl">Observação</label><input id="mo-obs" class="form-input" value="${v('observacao')}"></div></div>
+    <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:10px;font-size:13px;font-weight:700;">
+      <label><input type="checkbox" id="mo-ativo" ${m.ativo!==false?'checked':''}> Ativo</label>
+      <label style="color:#b91c1c;"><input type="checkbox" id="mo-blq" ${m.bloqueado?'checked':''} onchange="document.getElementById('mo-blqm').style.display=this.checked?'':'none'"> ⛔ Bloqueado (não pode registrar chegada)</label></div>
+    <input id="mo-blqm" class="form-input" style="margin-top:6px;${m.bloqueado?'':'display:none;'}" placeholder="Motivo do bloqueio *" value="${v('bloqueio_motivo')}">
+    <div id="mo-erro" class="alert alert-danger" style="display:none;margin-top:8px;"></div>
+    <div class="dsm-ft"><button class="btn btn-secondary" onclick="document.getElementById('ov-mot').remove()">Cancelar</button><button class="btn btn-primary" onclick="salvarMotorista('${id||''}')">💾 Salvar</button></div></div>`;
+  document.body.appendChild(ov);setTimeout(()=>document.getElementById('mo-nome').focus(),60);
+}
+async function salvarMotorista(id){
+  const g=x=>document.getElementById(x).value.trim(),er=t=>{const e=document.getElementById('mo-erro');e.textContent=t;e.style.display='';};
+  const d={nome:g('mo-nome').toUpperCase(),cpf:g('mo-cpf')||null,celular:g('mo-cel')||null,transportadora:g('mo-tr')||null,cnh:g('mo-cnh')||null,cnh_categoria:g('mo-cat').toUpperCase()||null,
+    cnh_validade:g('mo-val')||null,placa:normPlaca(g('mo-pl'))||null,placa2:normPlaca(g('mo-pl2'))||null,modelo:g('mo-mod')||null,observacao:g('mo-obs')||null,
+    ativo:document.getElementById('mo-ativo').checked,bloqueado:document.getElementById('mo-blq').checked,bloqueio_motivo:g('mo-blqm')||null,atualizado_em:new Date().toISOString()};
+  if(!d.nome)return er('Informe o nome.');
+  if(d.bloqueado&&!d.bloqueio_motivo)return er('Informe o motivo do bloqueio.');
+  const r=id?await _supabase.from('dsm_motoristas').update(d).eq('id',id):await _supabase.from('dsm_motoristas').insert({...d,criado_por:quem()});
+  if(r.error)return er(/duplicate|unique/i.test(r.error.message)?'Já existe um motorista com este CPF.':r.error.message);
+  document.getElementById('ov-mot').remove();toast('Motorista salvo.','success');carregarMot();
+}
+async function fichaMotorista(id){
+  const m=_motCad.find(x=>x.id===id);if(!m)return;const emp=await dadosEmpresa();
+  const {data}=await _supabase.from('dsm_faturamento').select('*').or(`motorista_id.eq.${id},motorista.eq.${m.nome}`).is('cancelado_em',null).order('recepcao_em',{ascending:false}).limit(200);
+  const v=data||[];
+  const th=t=>`<th style="background:#042D4D;color:#fff;padding:4px 5px;text-align:left;font-size:9px;">${t}</th>`,td=t=>`<td style="padding:4px 5px;border-bottom:1px solid #e5e7eb;font-size:9.5px;">${t}</td>`;
+  const html=_doc(emp,'FICHA DO MOTORISTA — DSM',esc(m.nome),
+    _sec('Dados')+_tb([['Nome',esc(m.nome)],['CPF',esc(m.cpf||'')],['Celular',esc(m.celular||'')],['Transportadora',esc(m.transportadora||'')],['CNH',`${esc(m.cnh||'—')} ${m.cnh_categoria?'· cat. '+esc(m.cnh_categoria):''} ${m.cnh_validade?'· validade '+fmtBr(m.cnh_validade):''}`],
+      ['Veículo',`${esc(m.placa||'—')}${m.placa2?' + '+esc(m.placa2):''} · ${esc(m.modelo||'')}`],['Situação',m.bloqueado?'⛔ BLOQUEADO — '+esc(m.bloqueio_motivo||''):m.ativo?'Ativo':'Inativo'],['Observação',esc(m.observacao||'')]])
+   +_sec(`Visitas (${v.length}) · ${nf(v.reduce((a,x)=>a+tonNF(x),0),1)} t · permanência média ${hmin(_media(v,'min_permanencia'))}`)
+   +`<table style="width:100%;border-collapse:collapse;"><tr>${['Chegada','Placa','NF','Toneladas','Espera','Carreg.','Permanência'].map(th).join('')}</tr>${v.map(x=>`<tr>${[dh(x.recepcao_em),esc(x.placa),esc(x.nf_numero||'—'),nf(tonNF(x),1),hmin(x.min_espera),hmin(x.min_carregamento),hmin(x.min_permanencia)].map(td).join('')}</tr>`).join('')}</table>`);
+  _docAtual={html,nome:`Motorista - ${m.nome}.pdf`};
+  const ov=document.createElement('div');ov.className='dsm-ov';ov.onclick=e=>{if(e.target===ov)ov.remove();};
+  ov.innerHTML=`<div class="dsm-mod" style="max-width:900px;"><div style="background:#e2e8f0;padding:14px;border-radius:12px;max-height:70vh;overflow:auto;"><div style="background:#fff;max-width:794px;margin:0 auto;padding:26px 30px;">${html}</div></div>
+    <div class="dsm-ft"><button class="btn btn-secondary" onclick="this.closest('.dsm-ov').remove();editarMotorista('${id}')">✏️ Editar</button><button class="btn btn-secondary" onclick="baixarPdfHtml(_docAtual.html,_docAtual.nome)">⬇️ Baixar PDF</button><button class="btn btn-primary" onclick="imprimirHtml(_docAtual.html)">🖨️ Imprimir</button><button class="btn btn-secondary" onclick="this.closest('.dsm-ov').remove()">Fechar</button></div></div>`;
+  document.body.appendChild(ov);
+}
+async function motExcel(){await xlsx();const ws=XLSX.utils.aoa_to_sheet([...(await cabXlsx('Cadastro de motoristas DSM')),['Nome','CPF','Celular','Transportadora','CNH','Categoria','Validade CNH','Placa','Carreta','Modelo','Situação','Visitas'],
+  ..._motCad.map(m=>{const s=_motStats[m.id]||_motStats['n:'+m.nome]||{n:0};return [m.nome,m.cpf||'',m.celular||'',m.transportadora||'',m.cnh||'',m.cnh_categoria||'',m.cnh_validade?fmtBr(m.cnh_validade):'',m.placa||'',m.placa2||'',m.modelo||'',m.bloqueado?'Bloqueado':m.ativo?'Ativo':'Inativo',s.n];})]);
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Motoristas');XLSX.writeFile(wb,'Motoristas DSM.xlsx');}
+
 /* ═══ RESUMO DO MÊS ═══ */
 /* resumo do mês (o que hoje é filtrado na semana e mandado no grupo) */
 const DSEM=['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
@@ -839,7 +918,7 @@ async function iniciar(){
   document.getElementById('rel-ini').value=h.slice(0,8)+'01';document.getElementById('rel-fim').value=h;
   document.getElementById('i-ini').value=diasAtras(29);document.getElementById('i-fim').value=h;document.getElementById('r-mes').value=h.slice(0,7);
   relogio();setInterval(relogio,15000);
-  await carregarPatio();setInterval(()=>carregarPatio(),30000);setInterval(()=>{if(_aba==='fila')renderBoard();},60000);
+  await carregarPatio();carregarMot();setInterval(()=>carregarPatio(),30000);setInterval(()=>{if(_aba==='fila')renderBoard();},60000);
   if(typeof applyActionGuards==='function')applyActionGuards();
 }
 fetch('partials/sidebar.html').then(r=>r.text()).then(h=>{document.getElementById('sidebar-container').innerHTML=h;document.querySelector('[href="portaria.html"]')?.classList.add('active');if(typeof openGroup==='function')openGroup('logistica');});
