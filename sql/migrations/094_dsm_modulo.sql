@@ -8,3 +8,5 @@
 -- • início/fim do carregamento = data/hora lidas do TICKET de pesagem (imutáveis depois; só correção do supervisor);
 --   tickets anexados (ticket_entrada/ticket_saida); inicio/fim_registrado_em = quando o porteiro anexou.
 -- • cancelamento com motivo (cancelado_em/por/motivo); view dsm_faturamento com min_total (recepção → saída).
+-- 29/10/2026 (migration "dsm_motoristas"): cadastro dsm_motoristas (nome, CPF único, celular, CNH/categoria/validade,
+-- placa/carreta/modelo, transportadora, ativo, bloqueado + motivo); dsm_caminhoes.motorista_id; motoristas que já passaram viraram cadastro.
