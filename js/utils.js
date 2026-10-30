@@ -1103,6 +1103,24 @@ function definirVolume(v){ try{ const p=JSON.parse(localStorage.getItem('erp_not
 function definirSom(ligado){
   try{ localStorage.setItem('erp_alerta_som',ligado?'on':'off');
        const p=JSON.parse(localStorage.getItem('erp_notif_prefs')||'{}'); p.som=!!ligado; localStorage.setItem('erp_notif_prefs',JSON.stringify(p)); }catch(e){}
+  window.dispatchEvent(new Event('erp-som'));
+}
+// Controle de som pronto para qualquer tela: [🔔/🔕] [🔈━━━🔊] 80%  — liga/desliga e volume de TODOS os avisos
+function montarControleSom(el){
+  if(!el)return;
+  const pintar=()=>{const off=somDesligado(),v=volumeSom();
+    el.innerHTML=`<span class="cs-box${off?' off':''}" title="Som dos avisos do sistema (vale para todas as telas deste aparelho)">
+      <button type="button" class="cs-bt">${off?'🔕 Som desligado':'🔔 Som ligado'}</button>
+      <input type="range" class="cs-vol" min="0.1" max="1" step="0.1" value="${v}" ${off?'disabled':''} aria-label="Volume dos avisos">
+      <b class="cs-pc">${off?'—':Math.round(v*100)+'%'}</b></span>`;
+    el.querySelector('.cs-bt').onclick=()=>{definirSom(somDesligado());if(!somDesligado()&&window.AvisosQualidade)AvisosQualidade.bip(false,true);};
+    const r=el.querySelector('.cs-vol');r.oninput=()=>{definirVolume(r.value);el.querySelector('.cs-pc').textContent=Math.round(r.value*100)+'%';};
+    r.onchange=()=>{if(window.AvisosQualidade)AvisosQualidade.bip(false,true);};};
+  if(!document.getElementById('cs-css')){const st=document.createElement('style');st.id='cs-css';st.textContent=`.cs-box{display:inline-flex;align-items:center;gap:8px;border:1.5px solid #e2e8f0;border-radius:12px;padding:4px 10px 4px 4px;background:#fff}
+.cs-box.off{background:#fef2f2;border-color:#fecaca}.cs-bt{border:0;background:#ecfdf5;color:#166534;border-radius:9px;padding:7px 10px;font-family:inherit;font-weight:700;font-size:12.5px;cursor:pointer;white-space:nowrap}
+.cs-box.off .cs-bt{background:#fee2e2;color:#b91c1c}.cs-vol{width:96px;accent-color:#042D4D}.cs-pc{font-size:12px;color:#042D4D;min-width:34px}`;document.head.appendChild(st);}
+  pintar();window.addEventListener('erp-som',pintar);
+  window.addEventListener('erp-volume',()=>{const r=el.querySelector('.cs-vol');if(r&&document.activeElement!==r){r.value=volumeSom();el.querySelector('.cs-pc').textContent=somDesligado()?'—':Math.round(volumeSom()*100)+'%';}});window.addEventListener('storage',e=>{if(/erp_alerta_som|erp_notif_prefs/.test(e.key||''))pintar();});
 }
 const AvisosQualidade=(()=>{
   let timer=null,ctx=null;

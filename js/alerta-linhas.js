@@ -164,6 +164,7 @@
     else if (!audioLiberado()) { bt.classList.add('trava'); bt.innerHTML = '🔇 Toque aqui para ligar o som dos avisos'; bt.title = ''; }
     else { bt.innerHTML = '🔔'; bt.title = 'Avisos do Status das Linhas'; }
   }
+  window.addEventListener('erp-som', () => { try { desenharBotao(); if (!somLigado()) pararRepeticao(); } catch (e) {} });
   async function alternarMenu() {
     const m = document.getElementById('al-menu');
     if (m.classList.contains('aberto')) { m.classList.remove('aberto'); return; }
