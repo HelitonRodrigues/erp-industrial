@@ -667,7 +667,7 @@ async function initSidebar(paginaAtiva) {
   // um nome plausível que não é o de quem está logado.
   const initials = (user.nome || '?').split(' ').map(x => x[0]).join('').substring(0, 2).toUpperCase();
   const setEl = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
-  setEl('sb-avatar',      initials);
+  { const av = document.getElementById('sb-avatar'); if (av) av.innerHTML = initials + '<span class="sb-online" title="Online"></span>'; }
   setEl('top-avatar',     initials);
   setEl('sb-user-name',   (user.nome || '—').split(' ')[0]);
   setEl('top-user-name',  user.nome || '—');
@@ -680,7 +680,7 @@ async function initSidebar(paginaAtiva) {
       .select('*').limit(1).maybeSingle();
     if (data) {
       window._ERP_EMPRESA = data;   // usado no cabeçalho dos PDFs (exportarPDF)
-      setEl('sb-company-name', data.nome_fantasia || data.razao_social || 'ERP Industrial');
+      setEl('sb-company-name', data.nome_fantasia || data.razao_social || 'Silicate Indústria');
       if (data.logo) {
         const logoEl = document.getElementById('sb-logo');
         if (logoEl) logoEl.innerHTML = `<img src="${data.logo}" style="width:100%;height:100%;object-fit:cover;">`;
@@ -789,12 +789,68 @@ function _buildSidebar(user, paginaAtiva) {
       a.className = 'nav-item' + (isActive ? ' active' : '');
       a.href = m.page;
       a.setAttribute('onclick', 'setActiveItem(this)');
-      a.innerHTML = `<span class="nav-icon">${m.icon}</span><span class="nav-label">${m.label}</span>`;
+      a.innerHTML = `<span class="nav-icon">${m.icon}</span><span class="nav-label">${m.label}</span><button type="button" class="nav-star${_sbFavs().includes(m.page)?' on':''}" title="Fixar nos favoritos" aria-label="Favorito" onclick="event.preventDefault();event.stopPropagation();sbFav('${m.page}')">${_sbFavs().includes(m.page)?'★':'☆'}</button>`;
+      a.dataset.busca = (m.label + ' ' + (GROUP_LABELS[groupId] || '')).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
       groupEl.appendChild(a);
     });
     nav.appendChild(groupEl);
   });
+  _sbMods = modulos; _sbPagina = paginaAtualNorm;
+  _sbRenderFavs(); _sbPrepararBusca();
+  try { const b = document.getElementById('sb-som'); if (b) b.classList.toggle('mudo', typeof somDesligado === 'function' && somDesligado()); } catch (e) {}
 }
+/* ── menu: favoritos, busca (Ctrl K) e som ── */
+let _sbMods = [], _sbPagina = '';
+function _sbFavs() { try { return JSON.parse(localStorage.getItem('sb_favs') || '[]'); } catch (e) { return []; } }
+function sbFav(page) {
+  let f = _sbFavs(); f = f.includes(page) ? f.filter(x => x !== page) : f.concat(page).slice(-5);
+  try { localStorage.setItem('sb_favs', JSON.stringify(f)); } catch (e) {}
+  document.querySelectorAll('.nav-item').forEach(a => { const st = a.querySelector('.nav-star'); if (!st) return; const on = f.includes(a.getAttribute('href')); st.classList.toggle('on', on); st.textContent = on ? '★' : '☆'; });
+  _sbRenderFavs();
+}
+function _sbRenderFavs() {
+  const box = document.getElementById('sb-favs-box'), el = document.getElementById('sb-favs'); if (!box || !el) return;
+  const favs = _sbFavs().map(p => _sbMods.find(m => m.page === p)).filter(Boolean);
+  box.style.display = favs.length ? '' : 'none';
+  el.innerHTML = favs.map(m => `<a class="sb-fav${m.page === _sbPagina ? ' on' : ''}" href="${m.page}">${m.label}</a>`).join('');
+}
+function _sbPrepararBusca() {
+  const inp = document.getElementById('sb-busca'); if (!inp || inp._ok) return; inp._ok = true;
+  const norm = t => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+  inp.addEventListener('input', () => {
+    const q = norm(inp.value);
+    document.querySelectorAll('#sidebar-nav .nav-group-items').forEach(g => {
+      let algum = false;
+      g.querySelectorAll('.nav-item').forEach(a => { const ok = !q || (a.dataset.busca || '').includes(q); a.classList.toggle('sb-oculto', !ok); if (ok) algum = true; });
+      const lab = document.querySelector(`.nav-group-label[data-group="${g.id.replace('group-', '')}"]`);
+      if (q) { g.classList.add('open'); if (lab) lab.classList.toggle('sb-oculto', !algum); }
+      else { if (lab) lab.classList.remove('sb-oculto'); g.classList.toggle('open', !!g.querySelector('.nav-item.active') || (lab && lab.classList.contains('open'))); }
+    });
+  });
+  inp.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { const a = document.querySelector('#sidebar-nav .nav-item:not(.sb-oculto)'); if (a) location.href = a.getAttribute('href'); }
+    if (e.key === 'Escape') { inp.value = ''; inp.dispatchEvent(new Event('input')); inp.blur(); }
+  });
+}
+document.addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) {
+    const inp = document.getElementById('sb-busca'); if (!inp) return; e.preventDefault();
+    const sb = document.getElementById('sidebar'); if (sb && sb.classList.contains('collapsed') && typeof toggleSidebar === 'function') toggleSidebar();
+    setTimeout(() => inp.focus(), 60);
+  }
+});
+// botão de som do rodapé: abre o controle (ligar/desligar + volume)
+function sbSom(ev) {
+  const old = document.getElementById('sb-som-pop'); if (old) { old.remove(); return; }
+  const r = ev.currentTarget.getBoundingClientRect();
+  const pop = document.createElement('div'); pop.id = 'sb-som-pop'; pop.className = 'sb-som-pop';
+  pop.style.left = Math.max(8, r.left - 120) + 'px'; pop.style.bottom = (window.innerHeight - r.top + 8) + 'px';
+  document.body.appendChild(pop);
+  try { montarControleSom(pop); } catch (e) {}
+  const fechar = e2 => { if (!pop.contains(e2.target) && e2.target !== ev.currentTarget) { pop.remove(); document.removeEventListener('mousedown', fechar); } };
+  setTimeout(() => document.addEventListener('mousedown', fechar), 0);
+}
+window.addEventListener('erp-som', () => { const b = document.getElementById('sb-som'); if (b) b.classList.toggle('mudo', somDesligado()); });
 
 // ── SIDEBAR helpers ───────────────────────────────────────
 let _sidebarCollapsed = false;
