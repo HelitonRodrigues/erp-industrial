@@ -680,7 +680,11 @@ async function initSidebar(paginaAtiva) {
       .select('*').limit(1).maybeSingle();
     if (data) {
       window._ERP_EMPRESA = data;   // usado no cabeçalho dos PDFs (exportarPDF)
-      setEl('sb-company-name', data.nome_fantasia || data.razao_social || 'Silicate Indústria');
+      // título = nome fantasia (ex.: FÁBRICA); embaixo, a empresa (ex.: Silicate Indústria, da razão social)
+      setEl('sb-company-name', data.nome_fantasia || 'Silicate Indústria');
+      { const curto = String(data.razao_social || '').split(/\s+/).slice(0, 2).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ')
+          .replace(/\bIndustria\b/, 'Indústria').replace(/\bComercio\b/, 'Comércio');
+        const sub = document.getElementById('sb-company-sub'); if (sub) { sub.textContent = curto || 'Silicate Indústria'; sub.style.display = ''; } }
       if (data.logo) {
         const logoEl = document.getElementById('sb-logo');
         if (logoEl) logoEl.innerHTML = `<img src="${data.logo}" style="width:100%;height:100%;object-fit:cover;">`;
@@ -688,6 +692,7 @@ async function initSidebar(paginaAtiva) {
     }
   } catch (e) {}
 
+  _sbGarantirEstrutura();
   // Construir sidebar filtrada por permissões
   _buildSidebar(user, paginaAtiva);
 
@@ -800,6 +805,19 @@ function _buildSidebar(user, paginaAtiva) {
   try { const b = document.getElementById('sb-som'); if (b) b.classList.toggle('mudo', typeof somDesligado === 'function' && somDesligado()); } catch (e) {}
 }
 /* ── menu: favoritos, busca (Ctrl K) e som ── */
+// se a página ainda recebeu o partial antigo (cache), completa o que falta: subtítulo, busca, favoritos, som e sair
+function _sbGarantirEstrutura() {
+  const sb = document.getElementById('sidebar'); if (!sb) return;
+  const comp = sb.querySelector('.sidebar-company');
+  if (comp && !document.getElementById('sb-company-sub')) { const old = comp.querySelector('.sidebar-company-sub'); if (old) old.remove();
+    comp.insertAdjacentHTML('beforeend', '<div class="sidebar-company-sub" id="sb-company-sub">Silicate Indústria</div>'); }
+  const nav = document.getElementById('sidebar-nav') || sb.querySelector('.sidebar-nav');
+  if (nav && !document.getElementById('sb-busca')) nav.insertAdjacentHTML('beforebegin', `<div class="sb-busca-box"><label class="sb-busca"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg><input type="text" id="sb-busca" placeholder="Buscar módulo…" aria-label="Buscar módulo" autocomplete="off"><span class="sb-kbd">Ctrl K</span></label></div>
+    <div class="sb-favs-box" id="sb-favs-box" style="display:none;"><div class="sb-tit">FAVORITOS</div><div class="sb-favs" id="sb-favs"></div></div>`);
+  const um = sb.querySelector('.user-mini');
+  if (um && !document.getElementById('sb-som')) um.insertAdjacentHTML('beforeend', `<button class="sb-fbt" id="sb-som" type="button" title="Som dos avisos" aria-label="Som dos avisos" onclick="sbSom(event)"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5L6 9H3v6h3l5 4z"></path><path d="M15.5 8.5a5 5 0 0 1 0 7"></path></svg></button>
+    <button class="sb-fbt sb-sair" type="button" title="Sair" aria-label="Sair" onclick="doLogout()"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 4h4a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-4"></path><path d="M10 17l5-5-5-5"></path><path d="M15 12H3"></path></svg></button>`);
+}
 let _sbMods = [], _sbPagina = '';
 function _sbFavs() { try { return JSON.parse(localStorage.getItem('sb_favs') || '[]'); } catch (e) { return []; } }
 function sbFav(page) {
