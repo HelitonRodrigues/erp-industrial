@@ -1212,7 +1212,7 @@ async function bpfAplicarTrava(res,contexto){
     return true;
   }
   if(res.podeLiberar){
-    const motivo=prompt(res.msg+'\n\nVocê pode liberar esta exceção. Informe o motivo (fica registrado):');
+    const motivo=await erpPrompt(res.msg+'\n\nVocê pode liberar esta exceção. Informe o motivo (fica registrado):',{titulo:'Fornecedor não homologado',icone:'🚫',ok:'Liberar exceção'});
     if(motivo&&motivo.trim()){
       await bpfAvisar('BPF: exceção liberada (fornecedor)',res.msg+' · '+contexto+' · liberado por '+((getUser()||{}).nome||'—')+': '+motivo.trim(),'forn_lib_'+Date.now());
       return true;
@@ -1244,7 +1244,7 @@ async function bpfTravaGenerica(codigo,{onde,violou,msg,contexto}){
     return true;
   }
   if(libs.some(n=>_bpfNorm(n)===_bpfNorm(u.nome))){
-    const motivo=prompt('🚫 '+tv.nome+'\n\n'+msg+'\n\nVocê pode liberar esta exceção. Informe o motivo (fica registrado):');
+    const motivo=await erpPrompt(msg+'\n\nVocê pode liberar esta exceção. Informe o motivo (fica registrado):',{titulo:tv.nome,icone:'🚫',ok:'Liberar exceção'});
     if(motivo&&motivo.trim()){
       await bpfAvisar(titulo+' — exceção liberada',msg+' · '+contexto+' · liberado por '+(u.nome||'—')+': '+motivo.trim(),codigo+'_lib_'+Date.now(),tv.pop_cod);
       return true;
@@ -1520,6 +1520,22 @@ async function fotoParaDataUrl(src) {
     });
   };
   window.erpAlert = function (msg, o) { return window.erpConfirm(msg, Object.assign({ soOk: true }, o || {})); };
+  // pergunta com resposta escrita (devolve o texto, ou null se cancelar)
+  window.erpPrompt = function (msg, o) {
+    o = o || {}; css();
+    return new Promise(res => {
+      const ov = document.createElement('div'); ov.className = 'erp-dlg-ov';
+      ov.innerHTML = `<div class="erp-dlg ${o.tipo || 'aviso'}" role="dialog" aria-modal="true">
+        <div class="erp-dlg-h"><div class="erp-dlg-ic">${o.icone || '✍️'}</div><div class="erp-dlg-t">${esc(o.titulo || 'Informe')}</div></div>
+        <div class="erp-dlg-m">${esc(msg)}<textarea class="erp-dlg-in" rows="2" style="display:block;width:100%;margin-top:10px;border:1.5px solid #d6e2ec;border-radius:10px;padding:9px 11px;font:inherit;font-size:14px;" placeholder="${esc(o.placeholder || '')}"></textarea></div>
+        <div class="erp-dlg-f"><button type="button" class="erp-dlg-no">${esc(o.cancelar || 'Cancelar')}</button><button type="button" class="erp-dlg-sim">${esc(o.ok || 'Confirmar')}</button></div></div>`;
+      const inp = ov.querySelector('.erp-dlg-in');
+      const fim = v => { ov.remove(); res(v); };
+      ov.querySelector('.erp-dlg-sim').onclick = () => { const v = inp.value.trim(); if (o.obrigatorio !== false && !v) { inp.style.borderColor = '#dc2626'; inp.focus(); return; } fim(v); };
+      ov.querySelector('.erp-dlg-no').onclick = () => fim(null);
+      document.body.appendChild(ov); setTimeout(() => inp.focus(), 30);
+    });
+  };
   // alert() de qualquer tela vira modal do sistema (não trava a página, só informa)
   window.alert = function (m) { window.erpAlert(String(m == null ? '' : m)); };
 })();
