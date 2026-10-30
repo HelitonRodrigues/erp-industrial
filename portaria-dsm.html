@@ -146,7 +146,8 @@
 
   <div id="t-ind" style="display:none;">
     <div class="d-filt"><input type="date" class="form-input" id="i-ini" style="max-width:160px;" onchange="carregarInd()"><input type="date" class="form-input" id="i-fim" style="max-width:160px;" onchange="carregarInd()">
-      <button class="btn btn-secondary btn-sm" onclick="periodo('i',7)">7 dias</button><button class="btn btn-secondary btn-sm" onclick="periodo('i',30)">30 dias</button><button class="btn btn-secondary btn-sm" onclick="periodo('i','mes')">Este mês</button></div>
+      <button class="btn btn-secondary btn-sm" onclick="periodo('i',7)">7 dias</button><button class="btn btn-secondary btn-sm" onclick="periodo('i',30)">30 dias</button><button class="btn btn-secondary btn-sm" onclick="periodo('i','mes')">Este mês</button>
+      <span style="flex:1;"></span><button class="btn btn-secondary btn-sm" onclick="indPdf()">⬇️ PDF</button><button class="btn btn-primary btn-sm" onclick="indImprimir()">🖨️ Imprimir relatório</button></div>
     <div class="d-mk" id="i-k"></div>
     <div class="d-g2"><div class="d-sec"><h3>Tempos médios por dia (h)</h3><div style="height:250px;position:relative;"><canvas id="g1"></canvas></div></div>
       <div class="d-sec"><h3>Caminhões e toneladas por dia</h3><div style="height:250px;position:relative;"><canvas id="g2"></canvas></div></div></div>
@@ -473,13 +474,8 @@ async function detalhe(id){
         :'<div class="dt-o">Nenhuma correção — todos os horários são os originais.</div>'}</div>
     <div class="dsm-ft">${ehSup()&&!c.cancelado_em?`<button class="btn btn-secondary" onclick="this.closest('.dsm-ov').remove();corrigir('${c.id}')">🕘 Corrigir horário</button>`:''}
       ${c.fim_em?`<button class="btn btn-secondary" onclick="verDoc('ordem','${c.id}')">📄 Ordem de carregamento</button>`:''}${c.nf_numero?`<button class="btn btn-secondary" onclick="verDoc('romaneio','${c.id}')">📋 Romaneio</button>`:''}
-      <button class="btn btn-secondary" onclick="imprimirDetalhe(this)">🖨️ Imprimir</button><button class="btn btn-primary" onclick="this.closest('.dsm-ov').remove()">Fechar</button></div></div>`;
+      <button class="btn btn-secondary" onclick="pdfFicha('${c.id}')">⬇️ PDF</button><button class="btn btn-secondary" onclick="imprimirFicha('${c.id}')">🖨️ Imprimir</button><button class="btn btn-primary" onclick="this.closest('.dsm-ov').remove()">Fechar</button></div></div>`;
   document.body.appendChild(ov);
-}
-async function imprimirDetalhe(btn){
-  const emp=await dadosEmpresa();const clone=btn.closest('.dsm-mod').cloneNode(true);clone.querySelectorAll('.dsm-ft,.dt-x').forEach(x=>x.remove());
-  imprimirHtml(`<style>${document.querySelector('style').textContent} .dsm-mod{max-height:none!important;box-shadow:none!important;max-width:none!important;padding:0!important}</style>`
-    +_doc(emp,'FICHA DO CAMINHÃO — DSM','Portaria · tempos da operação',clone.outerHTML));
 }
 
 /* ═══ DOCUMENTOS DO MÓDULO DSM — todos com o cabeçalho da empresa (Configurações: logo, razão social, CNPJ, endereço) ═══ */
@@ -503,14 +499,6 @@ function cabEmpresa(emp,titulo,sub){
       ${emp.rt_nome?`<br>RT: ${esc(emp.rt_nome)}${emp.rt_registro?' · '+esc(emp.rt_registro):''}`:''}</td></tr></table>`;
 }
 let _h2p=null;
-async function baixarPdfHtml(html,nome){
-  if(!_h2p)_h2p=new Promise((ok,er)=>{const s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js';s.onload=ok;s.onerror=er;document.head.appendChild(s);});
-  try{await _h2p;}catch(e){toast('Não foi possível carregar o gerador de PDF — use 🖨️ Imprimir e "Salvar como PDF".','warning');_h2p=null;return;}
-  // o gerador monta a própria cópia da página (fora da vista o desenho sai em branco)
-  await window.html2pdf().set({margin:[10,10,12,10],filename:nome,image:{type:'jpeg',quality:0.95},
-    html2canvas:{scale:2,useCORS:true,scrollX:0,scrollY:0},jsPDF:{unit:'mm',format:'a4',orientation:'portrait'},pagebreak:{mode:['css','legacy']}})
-    .from(`<div style="width:690px;background:#fff;">${html}</div>`,'string').save();
-}
 
 const _rod=()=>`<div style="margin-top:14px;border-top:1px solid #c8d5e2;padding-top:5px;font-size:8.5px;color:#666;display:flex;justify-content:space-between;"><span>Portaria · DSM · documento gerado pelo ERP</span><span>${new Date().toLocaleString('pt-BR')}</span></div>`;
 const _doc=(emp,titulo,sub,corpo)=>`<div style="font-family:'Plus Jakarta Sans',Arial,sans-serif;color:#111;font-size:11px;">${cabEmpresa(emp,titulo,sub)}${corpo}${_rod()}</div>`;
@@ -521,67 +509,165 @@ const _kg=v=>v==null?'—':nf(v)+' kg';
 const _dt=v=>v?new Date(v).toLocaleString('pt-BR'):'—';
 async function _abrirDoc(c){ if(c)return c; return null; }
 async function _reg(id){const {data}=await _supabase.from('dsm_faturamento').select('*').eq('id',id).single();return data;}
+/* ═══ KIT DE RELATÓRIO — layout de documento (não é print da tela) ═══
+   Cabeçalho com logo e dados da empresa (Configurações), título, período e emissão; quadros-resumo;
+   tabelas formatadas (números à direita, zebra, total); assinaturas; rodapé com "página X de Y".
+   Retrato para fichas e documentos; paisagem para tabelas largas. */
+const RCSS=`<style>
+.rp{font-family:'Plus Jakarta Sans',Arial,sans-serif;color:#1e293b;font-size:10.5px;line-height:1.4}
+.rp-hd{display:flex;align-items:stretch;border:1.5px solid #042D4D;border-radius:6px;overflow:hidden;margin-bottom:12px}
+.rp-hd .e{flex:1.4;padding:10px 12px;display:flex;gap:12px;align-items:center}
+.rp-hd .e img{max-height:38px;max-width:150px}
+.rp-hd .e .rz{font-weight:800;font-size:11.5px;color:#042D4D}.rp-hd .e .dd{font-size:8.5px;color:#475569;margin-top:2px}
+.rp-hd .t{flex:1;background:#042D4D;color:#fff;padding:10px 14px;display:flex;flex-direction:column;justify-content:center}
+.rp-hd .t b{font-size:13px;letter-spacing:.3px;color:#C9FF64}.rp-hd .t span{font-size:9px;opacity:.9;margin-top:2px}
+.rp-k{display:flex;gap:8px;margin:0 0 12px}
+.rp-k div{flex:1;border:1px solid #cbd5e1;border-top:3px solid #042D4D;border-radius:5px;padding:7px 9px}
+.rp-k b{display:block;font-size:15px;color:#042D4D}.rp-k span{font-size:8.5px;color:#64748b;text-transform:uppercase;letter-spacing:.3px}
+.rp-s{font-size:11px;font-weight:800;color:#042D4D;margin:12px 0 6px;padding-bottom:3px;border-bottom:2px solid #042D4D;text-transform:uppercase;letter-spacing:.4px}
+.rp table{width:100%;border-collapse:collapse;font-size:9px}
+.rp th{background:#042D4D;color:#fff;padding:5px 6px;text-align:left;font-weight:700;font-size:8.5px}
+.rp td{padding:4.5px 6px;border-bottom:1px solid #e2e8f0;vertical-align:top}
+.rp tr:nth-child(even) td{background:#f8fafc}
+.rp .n{text-align:right;white-space:nowrap}.rp tr.tt td{background:#e2e8f0!important;font-weight:800;border-top:1.5px solid #042D4D}
+.rp .kv td:first-child{width:34%;color:#475569;background:#f8fafc}.rp .kv td:last-child{font-weight:700}
+.rp .g2{display:flex;gap:12px}.rp .g2>div{flex:1}
+.rp .as{display:flex;gap:26px;margin-top:38px}.rp .as div{flex:1;border-top:1px solid #334155;padding-top:4px;text-align:center;font-size:9px;color:#334155}
+.rp .ft{margin-top:14px;border-top:1px solid #cbd5e1;padding-top:5px;font-size:8px;color:#64748b;display:flex;justify-content:space-between}
+.rp .ok{color:#166534;font-weight:700}.rp .al{color:#b45309;font-weight:700}.rp .cr{color:#b91c1c;font-weight:700}
+.rp .ch img{width:100%;height:205px;object-fit:contain;display:block;border:1px solid #e2e8f0;border-radius:4px}
+.rp .pb-print{page-break-before:always;break-before:page;height:0}
+.rp .nb{page-break-inside:avoid}
+</style>`;
+function relDoc(emp,{titulo,sub,kpis,corpo}){
+  const end=[emp.rua&&(emp.rua+(emp.numero?', '+emp.numero:'')),emp.bairro,emp.cidade&&(emp.cidade+'/'+(emp.uf||emp.estado||'')),emp.cep&&('CEP '+emp.cep)].filter(Boolean).join(' · ');
+  const u=(getUser()||{}).nome||'';
+  return `${RCSS}<div class="rp"><div class="rp-hd"><div class="e"><img src="${emp.logo||LOGO_SILICATE}"><div><div class="rz">${esc(emp.razao_social||'SILICATE INDÚSTRIA E COMÉRCIO LTDA')}</div>
+      <div class="dd">CNPJ ${esc(emp.cnpj||'—')}${emp.ie?' · IE '+esc(emp.ie):''}</div><div class="dd">${esc(end)}</div>${emp.telefone||emp.email?`<div class="dd">${esc([emp.telefone,emp.email].filter(Boolean).join(' · '))}</div>`:''}</div></div>
+    <div class="t"><b>${esc(titulo)}</b><span>${sub||''}</span><span>Emitido em ${new Date().toLocaleString('pt-BR')}${u?' · '+esc(u):''}</span></div></div>
+    ${kpis&&kpis.length?`<div class="rp-k">${kpis.map(([l,v])=>`<div><b>${v}</b><span>${esc(l)}</span></div>`).join('')}</div>`:''}
+    ${corpo}
+    <div class="ft"><span>Portaria · DSM — ${esc(emp.razao_social||'Silicate')}</span><span>Documento gerado pelo ERP</span></div></div>`;
+}
+// tabela: cols=[{t:'Título',n:true}] ou strings; num=índices numéricos
+function relTab(cols,rows,tot){
+  const C=cols.map(c=>typeof c==='string'?{t:c}:c);
+  return `<table><thead><tr>${C.map(c=>`<th${c.n?' class="n"':''}>${esc(c.t)}</th>`).join('')}</tr></thead><tbody>
+    ${rows.map(r=>`<tr>${r.map((v,i)=>`<td${C[i]&&C[i].n?' class="n"':''}>${v==null?'—':v}</td>`).join('')}</tr>`).join('')}
+    ${tot?`<tr class="tt">${tot.map((v,i)=>`<td${C[i]&&C[i].n?' class="n"':''}>${v==null?'':v}</td>`).join('')}</tr>`:''}</tbody></table>`;
+}
+const relKV=l=>`<table class="kv">${l.map(([a,b])=>`<tr><td>${esc(a)}</td><td>${b==null||b===''?'—':b}</td></tr>`).join('')}</table>`;
+// imprimir: abre a folha com @page (retrato/paisagem) e espera as imagens
+function imprimirHtml(html,paisagem){
+  const w=window.open('','_blank');
+  w.document.write(`<html><head><title>Relatório</title><link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;700;800&display=swap" rel="stylesheet"><style>@page{size:A4 ${paisagem?'landscape':'portrait'};margin:10mm}body{margin:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}</style></head><body>${html}</body></html>`);
+  w.document.close();
+  const ok=()=>Promise.all([...w.document.images].map(i=>i.complete?1:new Promise(r=>{i.onload=i.onerror=r;}))).then(()=>setTimeout(()=>w.print(),350));
+  if(w.document.readyState==='complete')ok();else w.onload=ok;
+}
+// PDF: A4 (retrato/paisagem) com "Página X de Y" no rodapé de cada página
+async function baixarPdfHtml(html,nome,paisagem){
+  if(!_h2p)_h2p=new Promise((ok,er)=>{const s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js';s.onload=ok;s.onerror=er;document.head.appendChild(s);});
+  try{await _h2p;}catch(e){toast('Não foi possível carregar o gerador de PDF — use 🖨️ Imprimir e "Salvar como PDF".','warning');_h2p=null;return;}
+  const largura=paisagem?1040:720;
+  const partes=html.split('<!--PAGINA-->');
+  if(partes.length>1){
+    const opt={margin:[9,9,13,9],filename:nome,image:{type:'jpeg',quality:0.96},html2canvas:{scale:2,useCORS:true,scrollX:0,scrollY:0},jsPDF:{unit:'mm',format:'a4',orientation:paisagem?'landscape':'portrait'}};
+    const wrap=h=>`<div style="width:${largura}px;background:#fff;">${h}</div>`;
+    let w=window.html2pdf().set(opt).from(wrap(partes[0]),'string').toPdf();
+    for(const pt of partes.slice(1))w=w.get('pdf').then(pdf=>{pdf.addPage();}).from(wrap(pt),'string').toContainer().toCanvas().toPdf();
+    await w.get('pdf').then(pdf=>{const n=pdf.internal.getNumberOfPages(),W=pdf.internal.pageSize.getWidth(),H=pdf.internal.pageSize.getHeight();
+      for(let i=1;i<=n;i++){pdf.setPage(i);pdf.setFontSize(7.5);pdf.setTextColor(100);pdf.text(`Página ${i} de ${n}`,W-9,H-5,{align:'right'});pdf.text(nome.replace(/\.pdf$/,''),9,H-5);}}).save();
+    return;
+  }
+  await window.html2pdf().set({margin:[9,9,13,9],filename:nome,image:{type:'jpeg',quality:0.96},html2canvas:{scale:2,useCORS:true,scrollX:0,scrollY:0},
+      jsPDF:{unit:'mm',format:'a4',orientation:paisagem?'landscape':'portrait'},pagebreak:{mode:['css','legacy'],avoid:['tr','.nb']}})
+    .from(`<div style="width:${largura}px;background:#fff;">${html}</div>`,'string').toPdf().get('pdf').then(pdf=>{
+      const n=pdf.internal.getNumberOfPages(),W=pdf.internal.pageSize.getWidth(),H=pdf.internal.pageSize.getHeight();
+      for(let i=1;i<=n;i++){pdf.setPage(i);pdf.setFontSize(7.5);pdf.setTextColor(100);pdf.text(`Página ${i} de ${n}`,W-9,H-5,{align:'right'});pdf.text(nome.replace(/\.pdf$/,''),9,H-5);}
+    }).save();
+}
+
 // ── ORDEM DE CARREGAMENTO ──
 function htmlOrdem(c,emp){
   const liq=c.peso_saida&&c.peso_entrada?c.peso_saida-c.peso_entrada:null;
-  return _doc(emp,'ORDEM DE CARREGAMENTO',`Nº ${esc(c.ordem||c.nf_pedido||'—')} · DSM`,
-    _sec('Cliente e produto')+_tb([['Cliente',esc(c.nf_cliente||'DSM PROD NUTRICIONAIS BRASIL S/A')],['CNPJ',esc(c.nf_cliente_cnpj||'')],['Produto',esc(c.nf_produto||'Caulim')],
-      ['Quantidade',c.nf_quantidade!=null?nf(c.nf_quantidade,3)+' '+esc(c.nf_unidade||'t'):'—'],['Lote',esc(c.nf_lote||'')],['Pedido',esc(c.nf_pedido||c.ordem||'')],['Observações da carga',esc(c.observacao||'')]])
-   +_sec('Veículo e motorista')+_tb([['Placa / carreta',esc(c.placa)+(c.placa2?' / '+esc(c.placa2):'')],['Modelo',esc(c.modelo||'')],['Motorista',esc(c.motorista)],['Celular',esc(c.celular||'')],['Transportadora',esc(c.nf_transportadora||c.transportadora||'')],['Frete',esc(c.nf_frete||'')+(c.retira?' · retira: '+c.retira:'')]])
-   +_sec('Carregamento')+_tb([['Chegada (recepção)',_dt(c.recepcao_em)+' · '+esc(c.recepcao_por||'')],['Início do carregamento (ticket)',_dt(c.inicio_em)+' · tara '+_kg(c.peso_entrada)],
-      ['Fim do carregamento (ticket)',_dt(c.fim_em)+' · bruto '+_kg(c.peso_saida)],['Peso líquido (balança)',_kg(liq)]])
-   +_ass(['Portaria','Responsável pelo carregamento','Motorista']));
+  return relDoc(emp,{titulo:'ORDEM DE CARREGAMENTO',sub:`Nº ${esc(c.ordem||c.nf_pedido||'—')} · Cliente DSM`,
+    kpis:[['Placa',esc(c.placa)],['Produto',esc(c.nf_produto||'Caulim')],['Quantidade',c.nf_quantidade!=null?nf(c.nf_quantidade,3)+' '+esc(c.nf_unidade||'t'):'—'],['Lote',esc(c.nf_lote||'—')]],
+    corpo:`<div class="g2"><div><div class="rp-s">Cliente e produto</div>${relKV([['Cliente',esc(c.nf_cliente||'DSM PROD NUTRICIONAIS BRASIL S/A')],['CNPJ',esc(c.nf_cliente_cnpj||'')],['Produto',esc(c.nf_produto||'Caulim')],['Pedido',esc(c.nf_pedido||c.ordem||'')],['Observações',esc(c.observacao||'')]])}</div>
+      <div><div class="rp-s">Veículo e motorista</div>${relKV([['Placa / carreta',esc(c.placa)+(c.placa2?' / '+esc(c.placa2):'')],['Modelo',esc(c.modelo||'')],['Motorista',esc(c.motorista)],['Celular',esc(c.celular||'')],['Transportadora',esc(c.nf_transportadora||c.transportadora||'')],['Frete',esc(c.nf_frete||'')+(c.retira?' · retira: '+c.retira:'')]])}</div></div>
+      <div class="rp-s">Carregamento</div>${relTab(['Etapa','Data e hora','Registrado por',{t:'Peso (kg)',n:true}],[
+        ['Chegada (recepção)',_dt(c.recepcao_em),esc(c.recepcao_por||''),''],['Início do carregamento — ticket de entrada',_dt(c.inicio_em),esc(c.inicio_por||''),c.peso_entrada!=null?nf(c.peso_entrada):'—'],
+        ['Fim do carregamento — ticket de saída',_dt(c.fim_em),esc(c.fim_por||''),c.peso_saida!=null?nf(c.peso_saida):'—']],['<b>Peso líquido (balança)</b>','','',liq!=null?'<b>'+nf(liq)+'</b>':'—'])}
+      <div class="as"><div>Portaria</div><div>Responsável pelo carregamento</div><div>Motorista</div></div>`});
 }
 // ── ROMANEIO ──
 function htmlRomaneio(c,emp){
   const liq=c.peso_saida&&c.peso_entrada?c.peso_saida-c.peso_entrada:null;
-  const nfKg=c.nf_peso_liquido!=null?(c.nf_peso_liquido>200?c.nf_peso_liquido:c.nf_peso_liquido*1000):null;
-  const th=t=>`<th style="background:#042D4D;color:#fff;padding:5px 6px;text-align:left;font-size:10px;">${t}</th>`,td=t=>`<td style="padding:6px;border:1px solid #d8e0ea;">${t}</td>`;
-  return _doc(emp,'ROMANEIO DE CARGA',`NF ${esc(c.nf_numero||'—')} · ${dh(c.saida_em||c.fim_em)}`,
-    _sec('Destinatário e transporte')+_tb([['Cliente',esc(c.nf_cliente||'')+' · '+esc(c.nf_cliente_cnpj||'')],['Transportadora',esc(c.nf_transportadora||'')],['Placa / carreta',esc(c.placa)+(c.placa2?' / '+esc(c.placa2):'')],['Motorista',esc(c.motorista)+(c.celular?' · '+esc(c.celular):'')],['Ordem / pedido',esc(c.ordem||'')+' / '+esc(c.nf_pedido||'')]])
-   +_sec('Itens')+`<table style="width:100%;border-collapse:collapse;font-size:10.5px;"><tr>${['NF','Produto','Lote','Quantidade','Peso líquido NF','Valor (R$)'].map(th).join('')}</tr>
-      <tr>${td('<b>'+esc(c.nf_numero||'')+'</b>/'+esc(c.nf_serie||''))}${td(esc(c.nf_produto||''))}${td(esc(c.nf_lote||''))}${td(nf(c.nf_quantidade,3)+' '+esc(c.nf_unidade||''))}${td(_kg(nfKg))}${td(nf(c.nf_valor,2))}</tr></table>`
-   +_sec('Pesagem')+_tb([['Tara (entrada)',_kg(c.peso_entrada)],['Bruto (saída)',_kg(c.peso_saida)],['Líquido (balança)',_kg(liq)],['Diferença balança × NF',liq!=null&&nfKg!=null?_kg(liq-nfKg):'—']])
-   +_sec('Tempos da operação')+_tb([['1. Recepção',_dt(c.recepcao_em)+' · '+esc(c.recepcao_por||'')],['2. Início do carregamento',_dt(c.inicio_em)+' · '+esc(c.inicio_por||'')],['3. Fim do carregamento',_dt(c.fim_em)+' · '+esc(c.fim_por||'')],
-      ['4. Emissão da NF',_dt(c.nf_emissao)+' · '+esc(c.nf_registrado_por||'')],['5. Saída',_dt(c.saida_em)+' · '+esc(c.saida_por||'')],
-      ['Tempos (perm. · espera · carreg. · lib.)',`${hmin(minEntre(c.recepcao_em,c.nf_emissao))} / ${hmin(minEntre(c.recepcao_em,c.inicio_em))} / ${hmin(minEntre(c.inicio_em,c.fim_em))} / ${hmin(minEntre(c.fim_em,c.nf_emissao))}`]])
-   +(c.nf_chave&&!/^EX/.test(c.nf_chave)?`<div style="margin-top:6px;font-size:9.5px;">Chave de acesso: ${esc(c.nf_chave)}</div>`:'')
-   +_ass(['Expedição / Portaria','Motorista','Conferente']));
+  const nfKg=c.nf_peso_liquido!=null?(c.nf_peso_liquido>200?c.nf_peso_liquido:c.nf_peso_liquido*1000):null;const dif=liq!=null&&nfKg!=null?liq-nfKg:null;
+  return relDoc(emp,{titulo:'ROMANEIO DE CARGA',sub:`NF ${esc(c.nf_numero||'—')} / série ${esc(c.nf_serie||'')} · ${_dt(c.saida_em||c.fim_em)}`,
+    kpis:[['Nota fiscal',esc(c.nf_numero||'—')],['Quantidade',nf(c.nf_quantidade,3)+' '+esc(c.nf_unidade||'')],['Peso líquido',nfKg!=null?nf(nfKg)+' kg':'—'],['Valor','R$ '+nf(c.nf_valor,2)]],
+    corpo:`<div class="g2"><div><div class="rp-s">Destinatário</div>${relKV([['Cliente',esc(c.nf_cliente||'')],['CNPJ',esc(c.nf_cliente_cnpj||'')],['Ordem / pedido',esc(c.ordem||'')+' / '+esc(c.nf_pedido||'')]])}</div>
+      <div><div class="rp-s">Transporte</div>${relKV([['Transportadora',esc(c.nf_transportadora||'')],['Placa / carreta',esc(c.placa)+(c.placa2?' / '+esc(c.placa2):'')],['Motorista',esc(c.motorista)+(c.celular?' · '+esc(c.celular):'')],['Frete',esc(c.nf_frete||'')+(c.retira?' · retira: '+c.retira:'')]])}</div></div>
+      <div class="rp-s">Itens</div>${relTab(['NF / série','Produto','Lote',{t:'Quantidade',n:true},{t:'Peso líquido (kg)',n:true},{t:'Valor (R$)',n:true}],[[`<b>${esc(c.nf_numero||'')}</b> / ${esc(c.nf_serie||'')}`,esc(c.nf_produto||''),esc(c.nf_lote||''),nf(c.nf_quantidade,3)+' '+esc(c.nf_unidade||''),nfKg!=null?nf(nfKg):'—',nf(c.nf_valor,2)]])}
+      <div class="g2"><div><div class="rp-s">Pesagem</div>${relTab(['',{t:'kg',n:true}],[['Tara (entrada)',c.peso_entrada!=null?nf(c.peso_entrada):'—'],['Bruto (saída)',c.peso_saida!=null?nf(c.peso_saida):'—'],['Líquido (balança)',liq!=null?nf(liq):'—'],['Líquido (NF)',nfKg!=null?nf(nfKg):'—']],
+          ['Diferença balança × NF',dif!=null?`<span class="${Math.abs(dif)>Math.max(50,(nfKg||0)*0.02)?'cr':'ok'}">${dif>0?'+':''}${nf(dif)}</span>`:'—'])}</div>
+        <div><div class="rp-s">Tempos da operação</div>${relTab(['Etapa','Data e hora','Por'],[['1. Recepção',_dt(c.recepcao_em),esc(c.recepcao_por||'')],['2. Início',_dt(c.inicio_em),esc(c.inicio_por||'')],['3. Fim',_dt(c.fim_em),esc(c.fim_por||'')],['4. Emissão NF',_dt(c.nf_emissao),esc(c.nf_registrado_por||'')],['5. Saída',_dt(c.saida_em),esc(c.saida_por||'')]])}</div></div>
+      ${c.nf_chave&&!/^EX/.test(c.nf_chave)?`<div style="margin-top:6px;font-size:8.5px;color:#475569;">Chave de acesso: ${esc(c.nf_chave)}</div>`:''}
+      <div class="as"><div>Expedição / Portaria</div><div>Motorista</div><div>Conferente</div></div>`});
 }
-// ── abrir, imprimir e baixar (PDF) ──
+// ── FICHA DO CAMINHÃO (dados, não a tela) ──
+async function htmlFicha(id,emp){
+  const c=await _reg(id);if(!c)return '';
+  const {data:co}=await _supabase.from('dsm_correcoes').select('*').eq('caminhao_id',id).order('em');
+  const C={recepcao_em:'Recepção',inicio_em:'Início',fim_em:'Fim',nf_emissao:'Emissão NF',saida_em:'Saída'};
+  const liq=c.peso_saida&&c.peso_entrada?c.peso_saida-c.peso_entrada:null;
+  const T=[['Espera',minEntre(c.recepcao_em,c.inicio_em)],['Carregamento',minEntre(c.inicio_em,c.fim_em)],['Liberação final',minEntre(c.fim_em,c.nf_emissao)],['Permanência',minEntre(c.recepcao_em,c.nf_emissao)],['Total no pátio',minEntre(c.recepcao_em,c.saida_em)]];
+  return relDoc(emp,{titulo:'FICHA DO CAMINHÃO — DSM',sub:`${esc(c.placa)} · ${esc(c.motorista)} · ${(SIT[c.status]||[c.status])[0]}`,kpis:T.map(([l,m])=>[l,hmin(m)]),
+    corpo:`<div class="g2"><div><div class="rp-s">Caminhão e motorista</div>${relKV([['Placa / carreta',esc(c.placa)+(c.placa2?' / '+esc(c.placa2):'')],['Modelo',esc(c.modelo||'')],['Motorista',esc(c.motorista)],['Celular',esc(c.celular||'')],['Ordem',esc(c.ordem||'')],['Observações',esc(c.observacao||'')]])}</div>
+      <div><div class="rp-s">Nota fiscal</div>${c.nf_numero?relKV([['NF / série',esc(c.nf_numero)+' / '+esc(c.nf_serie||'')],['Cliente',esc(c.nf_cliente||'')],['Produto',esc(c.nf_produto||'')+' · '+nf(c.nf_quantidade,3)+' '+esc(c.nf_unidade||'')],['Valor','R$ '+nf(c.nf_valor,2)],['Lote / pedido',esc(c.nf_lote||'')+' / '+esc(c.nf_pedido||'')],['Frete',esc(c.nf_frete||'')+(c.retira?' · retira: '+c.retira:'')]]):'<div style="color:#64748b;">Ainda sem NF.</div>'}</div></div>
+      <div class="rp-s">Linha do tempo</div>${relTab(['Etapa','Data e hora','Registrado por','Origem da hora',{t:'Intervalo',n:true}],[
+        ['1. Recepção do motorista',_dt(c.recepcao_em),esc(c.recepcao_por||''),'Relógio do servidor',''],['2. Início do carregamento',_dt(c.inicio_em),esc(c.inicio_por||''),'Ticket de pesagem (entrada)',hmin(minEntre(c.recepcao_em,c.inicio_em))],
+        ['3. Fim do carregamento',_dt(c.fim_em),esc(c.fim_por||''),'Ticket de pesagem (saída)',hmin(minEntre(c.inicio_em,c.fim_em))],['4. Emissão da NF',_dt(c.nf_emissao),esc(c.nf_registrado_por||''),'Protocolo SEFAZ',hmin(minEntre(c.fim_em,c.nf_emissao))],
+        ['5. Saída',_dt(c.saida_em),esc(c.saida_por||''),'Relógio do servidor',hmin(minEntre(c.nf_emissao,c.saida_em))]])}
+      <div class="g2"><div><div class="rp-s">Pesagem</div>${relTab(['',{t:'kg',n:true}],[['Tara (entrada)',c.peso_entrada!=null?nf(c.peso_entrada):'—'],['Bruto (saída)',c.peso_saida!=null?nf(c.peso_saida):'—']],['Líquido (balança)',liq!=null?nf(liq):'—'])}</div>
+        <div><div class="rp-s">Correções de horário</div>${(co||[]).length?relTab(['Quando','Etapa','De → para','Quem / motivo'],co.map(x=>[dh(x.em),C[x.campo]||x.campo,`${dh(x.valor_anterior)} → <b>${dh(x.valor_novo)}</b>`,esc(x.usuario)+' — '+esc(x.motivo)])):'<div style="color:#64748b;">Nenhuma — todos os horários são os originais.</div>'}</div></div>`});
+}
+async function imprimirFicha(id){const emp=await dadosEmpresa();imprimirHtml(await htmlFicha(id,emp));}
+async function pdfFicha(id){const emp=await dadosEmpresa();const c=await _reg(id);await baixarPdfHtml(await htmlFicha(id,emp),`Ficha DSM - ${c?.placa||''}.pdf`);}
+// ── abrir, imprimir e baixar ──
 async function verDoc(tipo,id){
   const c=await _reg(id);if(!c)return;const emp=await dadosEmpresa();
   const html=tipo==='ordem'?htmlOrdem(c,emp):htmlRomaneio(c,emp);
   const nome=(tipo==='ordem'?'Ordem de carregamento':'Romaneio')+` - ${c.placa} - ${c.nf_numero||c.ordem||''}.pdf`;
-  _docAtual={html,nome};
-  const ov=document.createElement('div');ov.className='dsm-ov';ov.onclick=e=>{if(e.target===ov)ov.remove();};
-  ov.innerHTML=`<div class="dsm-mod" style="max-width:900px;"><div style="background:#e2e8f0;padding:14px;border-radius:12px;max-height:70vh;overflow:auto;"><div style="background:#fff;max-width:794px;margin:0 auto;padding:26px 30px;">${html}</div></div>
-    <div class="dsm-ft"><button class="btn btn-secondary" onclick="baixarPdfHtml(_docAtual.html,_docAtual.nome)">⬇️ Baixar PDF</button><button class="btn btn-primary" onclick="imprimirHtml(_docAtual.html)">🖨️ Imprimir</button><button class="btn btn-secondary" onclick="this.closest('.dsm-ov').remove()">Fechar</button></div></div>`;
-  document.body.appendChild(ov);
+  abrirPrevia(html,nome,false);
 }
 let _docAtual=null;
-function imprimirHtml(html){
-  const w=window.open('','_blank');
-  w.document.write(`<html><head><title>Documento</title><link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;700;800&display=swap" rel="stylesheet"><style>@page{size:A4;margin:12mm}body{margin:0}</style></head><body>${html}</body></html>`);
-  w.document.close();
-  const ok=()=>Promise.all([...w.document.images].map(i=>i.complete?1:new Promise(r=>{i.onload=i.onerror=r;}))).then(()=>setTimeout(()=>w.print(),300));
-  if(w.document.readyState==='complete')ok();else w.onload=ok;
+function abrirPrevia(html,nome,paisagem){
+  _docAtual={html,nome,paisagem};
+  const ov=document.createElement('div');ov.className='dsm-ov';ov.onclick=e=>{if(e.target===ov)ov.remove();};
+  ov.innerHTML=`<div class="dsm-mod" style="max-width:${paisagem?1180:900}px;"><div style="background:#e2e8f0;padding:14px;border-radius:12px;max-height:72vh;overflow:auto;"><div style="background:#fff;max-width:${paisagem?1100:794}px;margin:0 auto;padding:24px 28px;box-shadow:0 2px 10px rgba(0,0,0,.08);">${html}</div></div>
+    <div class="dsm-ft"><button class="btn btn-secondary" onclick="baixarPdfHtml(_docAtual.html,_docAtual.nome,_docAtual.paisagem)">⬇️ Baixar PDF</button><button class="btn btn-primary" onclick="imprimirHtml(_docAtual.html,_docAtual.paisagem)">🖨️ Imprimir</button><button class="btn btn-secondary" onclick="this.closest('.dsm-ov').remove()">Fechar</button></div></div>`;
+  document.body.appendChild(ov);
 }
-// documentos de lista (faturamento e resumo) com o mesmo cabeçalho
+const _medias=l=>[['Espera média',hmin(_media(l,'min_espera'))],['Carregamento médio',hmin(_media(l,'min_carregamento'))],['Liberação média',hmin(_media(l,'min_liberacao'))],['Permanência média',hmin(_media(l,'min_permanencia'))],['Caminhões',l.length]];
 async function imprimirFat(){
-  const emp=await dadosEmpresa();const th=t=>`<th style="background:#042D4D;color:#fff;padding:4px 5px;text-align:left;font-size:8.5px;">${t}</th>`,td=t=>`<td style="padding:4px 5px;border-bottom:1px solid #e5e7eb;font-size:8.5px;">${t}</td>`;
-  imprimirHtml(_doc(emp,'FATURAMENTO DSM — TEMPOS DA OPERAÇÃO',`${fmtBr(document.getElementById('fat-ini').value)} a ${fmtBr(document.getElementById('fat-fim').value)} · ${_fat.length} caminhão(ões)`,
-    `<table style="width:100%;border-collapse:collapse;"><tr>${['NF','Cliente','Placa','Motorista','Recepção','Início','Fim','Emissão NF','Saída','Perm.','Espera','Carreg.','Liber.'].map(th).join('')}</tr>
-    ${_fat.map(x=>`<tr>${[esc(x.nf_numero||''),esc(x.nf_cliente||''),esc(x.placa),esc(x.motorista),dh(x.recepcao_em),dh(x.inicio_em),dh(x.fim_em),dh(x.nf_emissao),dh(x.saida_em),hmin(x.min_permanencia),hmin(x.min_espera),hmin(x.min_carregamento),hmin(x.min_liberacao)].map(td).join('')}</tr>`).join('')}</table>`));
+  const emp=await dadosEmpresa();
+  const html=relDoc(emp,{titulo:'FATURAMENTO DSM — TEMPOS DA OPERAÇÃO',sub:`Período ${fmtBr(document.getElementById('fat-ini').value)} a ${fmtBr(document.getElementById('fat-fim').value)}`,kpis:_medias(_fat),
+    corpo:relTab(['NF','Cliente','Placa','Motorista','Recepção','Início','Fim','Emissão NF','Saída',{t:'Espera',n:true},{t:'Carreg.',n:true},{t:'Liber.',n:true},{t:'Perm.',n:true},{t:'Total',n:true}],
+      _fat.map(x=>[esc(x.nf_numero||'—'),esc(x.nf_cliente||''),'<b>'+esc(x.placa)+'</b>',esc(x.motorista),dh(x.recepcao_em),dh(x.inicio_em),dh(x.fim_em),dh(x.nf_emissao),dh(x.saida_em),hmin(x.min_espera),hmin(x.min_carregamento),hmin(x.min_liberacao),'<b>'+hmin(x.min_permanencia)+'</b>',hmin(x.min_total)]),
+      ['<b>Média</b>','','','','','','','','',hmin(_media(_fat,'min_espera')),hmin(_media(_fat,'min_carregamento')),hmin(_media(_fat,'min_liberacao')),hmin(_media(_fat,'min_permanencia')),hmin(_media(_fat,'min_total'))])});
+  abrirPrevia(html,`Faturamento DSM ${document.getElementById('fat-ini').value} a ${document.getElementById('fat-fim').value}.pdf`,true);
 }
 async function imprimirResumo(){
   if(!_res)await resumoMes();const emp=await dadosEmpresa();const [y,m]=_res.mes.split('-');
-  const th=t=>`<th style="background:#042D4D;color:#fff;padding:5px 6px;text-align:left;">${t}</th>`,td=t=>`<td style="padding:5px 6px;border-bottom:1px solid #e5e7eb;">${t}</td>`;
-  imprimirHtml(_doc(emp,'RESUMO DE CARREGAMENTOS — DSM',`${m}/${y} · ${_res.tot} dias úteis`,
-    `<table style="width:100%;border-collapse:collapse;font-size:11px;"><tr>${['Dia','Dia da semana','Nº de NF','Carregamento (t)','Previsão de fechamento (t)'].map(th).join('')}</tr>
-    ${_res.L.map(l=>`<tr>${[l.data,l.sem,l.nfs,nf(l.t),'<b>'+nf(l.prev)+'</b>'].map(td).join('')}</tr>`).join('')}
-    <tr>${['<b>Total</b>','',`<b>${_res.nfs}</b>`,`<b>${nf(_res.total,2)}</b>`,''].map(td).join('')}</tr></table>`));
+  const ult=_res.L.length?_res.L[_res.L.length-1].prev:null;
+  const html=relDoc(emp,{titulo:'RESUMO DE CARREGAMENTOS — DSM',sub:`Mês ${m}/${y} · ${_res.tot} dias úteis`,
+    kpis:[['NFs faturadas',_res.nfs],['Toneladas carregadas',nf(_res.total,2)],['Previsão de fechamento',ult!=null?nf(ult)+' t':'—'],['Dias com carregamento',_res.L.length]],
+    corpo:relTab(['Dia','Dia da semana',{t:'Nº de NF',n:true},{t:'Carregamento (t)',n:true},{t:'Acumulado (t)',n:true},{t:'Previsão de fechamento (t)',n:true}],
+      (()=>{let ac=0;return _res.L.map(l=>{ac+=l.t;return [l.data,l.sem,l.nfs,nf(l.t,1),nf(ac,1),'<b>'+nf(l.prev)+'</b>'];});})(),['<b>Total</b>','',`<b>${_res.nfs}</b>`,`<b>${nf(_res.total,2)}</b>`,'',''])});
+  abrirPrevia(html,`Resumo DSM ${_res.mes}.pdf`,false);
 }
+
 const fmtBr=d=>d?d.split('-').reverse().join('/'):'';
 // planilhas: as primeiras linhas trazem a empresa
 async function cabXlsx(titulo){const e=await dadosEmpresa();return [[e.razao_social||'SILICATE'],['CNPJ '+(e.cnpj||'')+(e.cidade?' · '+e.cidade+'/'+(e.uf||e.estado||''):'')],[titulo],[]];}
@@ -798,16 +884,36 @@ async function fatExcel(){
   const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Faturamento DSM');XLSX.writeFile(wb,`Faturamento DSM ${document.getElementById('fat-ini').value} a ${document.getElementById('fat-fim').value}.xlsx`);
 }
 /* ═══ INDICADORES (gráficos) ═══ */
+let _ind=[];
+// relatório dos indicadores: quadros-resumo + os 4 gráficos (como imagem) + tabelas
+async function htmlIndicadores(){
+  const emp=await dadosEmpresa();const l=_ind;const ini=document.getElementById('i-ini').value,fim=document.getElementById('i-fim').value;
+  const img=id=>{const c=document.getElementById(id);try{return c?`<div class="ch"><img src="${c.toDataURL('image/png')}"></div>`:'';}catch(e){return '';}};
+  const g=(t,id)=>`<div><div class="rp-s">${t}</div>${img(id)}</div>`;
+  const pi=l.filter(x=>x.min_permanencia!=null).sort((a,b)=>b.min_permanencia-a.min_permanencia).slice(0,10);
+  const us={};const add=(n,k)=>{if(!n)return;(us[n]=us[n]||{rec:0,tk:0,nf:0})[k]++;};l.forEach(x=>{add(x.recepcao_por,'rec');add(x.inicio_por,'tk');add(x.fim_por,'tk');add(x.nf_registrado_por,'nf');});
+  const dias=new Set(l.map(x=>String(x.recepcao_em).slice(0,10))).size;
+  const sub=`Período ${fmtBr(ini)} a ${fmtBr(fim)} · ${l.length} caminhões · ${dias} dia(s)`;
+  return relDoc(emp,{titulo:'INDICADORES DA OPERAÇÃO — DSM',sub,
+    kpis:[['Espera média',hmin(_media(l,'min_espera'))],['Carregamento médio',hmin(_media(l,'min_carregamento'))],['Liberação média',hmin(_media(l,'min_liberacao'))],['Permanência média',hmin(_media(l,'min_permanencia'))],['Toneladas',nf(l.reduce((a,x)=>a+tonNF(x),0),1)]],
+    corpo:`<div class="g2">${g('Tempos médios por dia (h)','g1')}${g('Caminhões e toneladas por dia','g2')}</div>
+      <div class="g2">${g('Onde o caminhão perde tempo (média)','g3')}${g('Chegadas por hora do dia','g4')}</div>`})
+    +'<!--PAGINA--><div class="pb-print"></div>'+relDoc(emp,{titulo:'INDICADORES DA OPERAÇÃO — DSM',sub:sub+' · detalhes',
+    corpo:`<div class="g2"><div><div class="rp-s">10 maiores permanências</div>${relTab(['Placa','Motorista','Chegada',{t:'Permanência',n:true}],pi.map(x=>['<b>'+esc(x.placa)+'</b>',esc(x.motorista),dh(x.recepcao_em),'<b>'+hmin(x.min_permanencia)+'</b>']))}</div>
+        <div><div class="rp-s">Registros por usuário</div>${relTab(['Usuário',{t:'Chegadas',n:true},{t:'Tickets',n:true},{t:'NFs',n:true}],Object.entries(us).sort((a,b)=>b[1].rec-a[1].rec).map(([n,v])=>[esc(n),v.rec,v.tk,v.nf]))}</div></div>`});
+}
+async function indImprimir(){if(!_ind.length){toast('Sem dados no período.','warning');return;}abrirPrevia(await htmlIndicadores(),`Indicadores DSM ${document.getElementById('i-ini').value} a ${document.getElementById('i-fim').value}.pdf`,true);}
+async function indPdf(){if(!_ind.length){toast('Sem dados no período.','warning');return;}await baixarPdfHtml(await htmlIndicadores(),`Indicadores DSM ${document.getElementById('i-ini').value} a ${document.getElementById('i-fim').value}.pdf`,true);}
 async function carregarInd(){
   const ini=document.getElementById('i-ini').value,fim=document.getElementById('i-fim').value;
   const {data,error}=await _supabase.from('dsm_faturamento').select('*').is('cancelado_em',null).gte('recepcao_em',ini+'T00:00:00-03:00').lte('recepcao_em',fim+'T23:59:59-03:00').limit(10000);
   if(error){toast(error.message,'danger');return;}
-  const l=data||[];kpis5(l,'i-k');
+  const l=data||[];_ind=l;kpis5(l,'i-k');
   if(!window.Chart)try{await carregarScript(CHARTJS);}catch(e){toast('Não carregou os gráficos.','warning');}
   const dias={};l.forEach(x=>{const d=new Date(x.recepcao_em).toLocaleDateString('sv-SE',{timeZone:'America/Sao_Paulo'});(dias[d]=dias[d]||[]).push(x);});
   const ks=Object.keys(dias).sort(),lb=ks.map(d=>d.slice(8,10)+'/'+d.slice(5,7));
   const md=(arr,k)=>{const v=arr.map(x=>x[k]).filter(x=>x!=null);return v.length?+(v.reduce((a,b)=>a+Number(b),0)/v.length/60).toFixed(2):null;};
-  const G=(id,cfg)=>{if(!window.Chart)return;if(_graf[id])_graf[id].destroy();cfg.options=Object.assign({responsive:true,maintainAspectRatio:false},cfg.options||{});_graf[id]=new Chart(document.getElementById(id),cfg);};
+  const G=(id,cfg)=>{if(!window.Chart)return;if(_graf[id])_graf[id].destroy();cfg.options=Object.assign({responsive:true,maintainAspectRatio:false,animation:false},cfg.options||{});_graf[id]=new Chart(document.getElementById(id),cfg);};
   const cores={esp:'#f59e0b',car:'#22c55e',lib:'#7c3aed',azul:'#2563eb'};
   G('g1',{type:'bar',data:{labels:lb,datasets:[{label:'Espera',data:ks.map(d=>md(dias[d],'min_espera')),backgroundColor:cores.esp},{label:'Carregamento',data:ks.map(d=>md(dias[d],'min_carregamento')),backgroundColor:cores.car},{label:'Liberação',data:ks.map(d=>md(dias[d],'min_liberacao')),backgroundColor:cores.lib}]},options:{plugins:{legend:{position:'bottom'}},scales:{x:{stacked:true},y:{stacked:true,title:{display:true,text:'horas'}}}}});
   G('g2',{type:'bar',data:{labels:lb,datasets:[{label:'Caminhões',data:ks.map(d=>dias[d].length),backgroundColor:cores.azul,yAxisID:'y'},{label:'Toneladas',type:'line',data:ks.map(d=>+dias[d].reduce((a,x)=>a+tonNF(x),0).toFixed(1)),borderColor:'#042D4D',yAxisID:'y1'}]},options:{plugins:{legend:{position:'bottom'}},scales:{y:{beginAtZero:true},y1:{position:'right',beginAtZero:true,grid:{drawOnChartArea:false}}}}});
@@ -877,17 +983,19 @@ async function gerarRel(){
     rows=(co||[]).map(x=>{const c=todos.find(y=>y.id===x.caminhao_id)||{};return [dh(x.em),c.placa||'',C[x.campo]||x.campo,_dt(x.valor_anterior),_dt(x.valor_novo),x.usuario,x.perfil||'',x.motivo];});}
   if(r.k==='cancelados'){cols=['Recepção','Placa','Motorista','Cancelado em','Por','Motivo'];
     rows=todos.filter(x=>x.cancelado_em).map(x=>[dh(x.recepcao_em),x.placa,x.motorista,dh(x.cancelado_em),x.cancelado_por||'',x.cancelado_motivo||'']);}
-  _relOut={titulo:r.t,sub:`${fmtBr(ini)} a ${fmtBr(fim)} · ${rows.length} linha(s)`,cols,rows,tot};
+  _relOut={titulo:r.t,sub:`${fmtBr(ini)} a ${fmtBr(fim)} · ${rows.length} linha(s)`,cols,rows,tot,kpis:[['Caminhões no período',l.length],['Toneladas',nf(l.reduce((a,x)=>a+tonNF(x),0),1)],['Espera média',hmin(_media(l,'min_espera'))],['Permanência média',hmin(_media(l,'min_permanencia'))]]};
   out.innerHTML=`<div class="d-filt" style="justify-content:space-between;"><div><b style="color:var(--primary);font-size:15px;">${esc(r.t)}</b> <span class="mini">${esc(_relOut.sub)}</span></div>
       <div class="d-bt"><button class="btn btn-secondary btn-sm" onclick="relImprimir()">🖨️ Imprimir</button><button class="btn btn-secondary btn-sm" onclick="relPdf()">⬇️ PDF</button><button class="btn btn-primary btn-sm" onclick="relExcel()">⬇️ Excel</button></div></div>
     <div class="card" style="padding:0;"><div class="table-wrap"><table><thead><tr>${cols.map(c=>`<th>${esc(c)}</th>`).join('')}</tr></thead><tbody>
       ${rows.length?rows.map(rw=>`<tr>${rw.map(v=>`<td>${esc(v)}</td>`).join('')}</tr>`).join(''):`<tr><td colspan="${cols.length}" style="text-align:center;color:#94a3b8;padding:18px;">Nada no período.</td></tr>`}
       ${tot&&rows.length?`<tr style="background:#f1f5f9;font-weight:800;">${tot.map(v=>`<td>${esc(v)}</td>`).join('')}</tr>`:''}</tbody></table></div></div>`;
 }
-function _relHtml(emp){const o=_relOut;const th=t=>`<th style="background:#042D4D;color:#fff;padding:4px 5px;text-align:left;font-size:8.5px;">${esc(t)}</th>`,td=t=>`<td style="padding:4px 5px;border-bottom:1px solid #e5e7eb;font-size:8.5px;">${esc(t)}</td>`;
-  return _doc(emp,'RELATÓRIO — '+o.titulo.toUpperCase(),'DSM · '+o.sub,`<table style="width:100%;border-collapse:collapse;"><tr>${o.cols.map(th).join('')}</tr>${o.rows.map(r=>`<tr>${r.map(td).join('')}</tr>`).join('')}${o.tot?`<tr style="font-weight:800;background:#f1f5f9;">${o.tot.map(td).join('')}</tr>`:''}</table>`);}
-async function relImprimir(){if(!_relOut)return;imprimirHtml(_relHtml(await dadosEmpresa()));}
-async function relPdf(){if(!_relOut)return;await baixarPdfHtml(_relHtml(await dadosEmpresa()),`DSM - ${_relOut.titulo} - ${_relOut.sub.split(' · ')[0].replace(/\//g,'-')}.pdf`);}
+const REL_PAIS={tempos:1,diario:1,motorista:1,veiculo:1,fora:1,pesagem:1,correcoes:1};
+function _relHtml(emp){const o=_relOut;
+  const num=o.cols.map((c,i)=>o.rows.length&&o.rows.every(r=>r[i]==null||/^[-+]?[\d.,]+%?$|^\d+h\d{2}$|^—$/.test(String(r[i]))));
+  return relDoc(emp,{titulo:'RELATÓRIO — '+o.titulo.toUpperCase(),sub:'DSM · '+o.sub,kpis:o.kpis,corpo:relTab(o.cols.map((c,i)=>({t:c,n:num[i]})),o.rows.map(r=>r.map(v=>esc(v))),o.tot?o.tot.map(v=>'<b>'+esc(v)+'</b>'):null)});}
+async function relImprimir(){if(!_relOut)return;abrirPrevia(_relHtml(await dadosEmpresa()),`DSM - ${_relOut.titulo}.pdf`,!!REL_PAIS[_relSel]);}
+async function relPdf(){if(!_relOut)return;await baixarPdfHtml(_relHtml(await dadosEmpresa()),`DSM - ${_relOut.titulo} - ${_relOut.sub.split(' · ')[0].replace(/\//g,'-')}.pdf`,!!REL_PAIS[_relSel]);}
 async function relExcel(){if(!_relOut)return;await xlsx();const o=_relOut;
   const ws=XLSX.utils.aoa_to_sheet([...(await cabXlsx('Relatório DSM — '+o.titulo+' — '+o.sub)),o.cols,...o.rows,...(o.tot?[o.tot]:[])]);
   const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,o.titulo.slice(0,30));XLSX.writeFile(wb,`DSM - ${o.titulo}.xlsx`);}
@@ -970,12 +1078,13 @@ async function fichaMotorista(id){
   const m=_motCad.find(x=>x.id===id);if(!m)return;const emp=await dadosEmpresa();
   const {data}=await _supabase.from('dsm_faturamento').select('*').or(`motorista_id.eq.${id},motorista.eq.${m.nome}`).is('cancelado_em',null).order('recepcao_em',{ascending:false}).limit(200);
   const v=data||[];
-  const th=t=>`<th style="background:#042D4D;color:#fff;padding:4px 5px;text-align:left;font-size:9px;">${t}</th>`,td=t=>`<td style="padding:4px 5px;border-bottom:1px solid #e5e7eb;font-size:9.5px;">${t}</td>`;
-  const html=_doc(emp,'FICHA DO MOTORISTA — DSM',esc(m.nome),
-    _sec('Dados')+_tb([['Nome',esc(m.nome)],['CPF',esc(m.cpf||'')],['Celular',esc(m.celular||'')],['Transportadora',esc(m.transportadora||'')],['CNH',`${esc(m.cnh||'—')} ${m.cnh_categoria?'· cat. '+esc(m.cnh_categoria):''} ${m.cnh_validade?'· validade '+fmtBr(m.cnh_validade):''}`],
-      ['Veículo',`${esc(m.placa||'—')}${m.placa2?' + '+esc(m.placa2):''} · ${esc(m.modelo||'')}`],['Situação',m.bloqueado?'⛔ BLOQUEADO — '+esc(m.bloqueio_motivo||''):m.ativo?'Ativo':'Inativo'],['Observação',esc(m.observacao||'')]])
-   +_sec(`Visitas (${v.length}) · ${nf(v.reduce((a,x)=>a+tonNF(x),0),1)} t · permanência média ${hmin(_media(v,'min_permanencia'))}`)
-   +`<table style="width:100%;border-collapse:collapse;"><tr>${['Chegada','Placa','NF','Toneladas','Espera','Carreg.','Permanência'].map(th).join('')}</tr>${v.map(x=>`<tr>${[dh(x.recepcao_em),esc(x.placa),esc(x.nf_numero||'—'),nf(tonNF(x),1),hmin(x.min_espera),hmin(x.min_carregamento),hmin(x.min_permanencia)].map(td).join('')}</tr>`).join('')}</table>`);
+  const html=relDoc(emp,{titulo:'FICHA DO MOTORISTA — DSM',sub:esc(m.nome),
+    kpis:[['Visitas',v.length],['Toneladas',nf(v.reduce((a,x)=>a+tonNF(x),0),1)],['Permanência média',hmin(_media(v,'min_permanencia'))],['Espera média',hmin(_media(v,'min_espera'))]],
+    corpo:`<div class="rp-s">Dados do motorista</div>${relKV([['Nome',esc(m.nome)],['CPF',esc(m.cpf||'')],['Celular',esc(m.celular||'')],['Transportadora',esc(m.transportadora||'')],
+      ['CNH',`${esc(m.cnh||'—')}${m.cnh_categoria?' · categoria '+esc(m.cnh_categoria):''}${m.cnh_validade?' · validade '+fmtBr(m.cnh_validade):''}`],['Veículo',`${esc(m.placa||'—')}${m.placa2?' + '+esc(m.placa2):''} · ${esc(m.modelo||'')}`],
+      ['Situação',m.bloqueado?'<span class="cr">⛔ BLOQUEADO — '+esc(m.bloqueio_motivo||'')+'</span>':m.ativo?'<span class="ok">Ativo</span>':'Inativo'],['Observação',esc(m.observacao||'')]])}
+      <div class="rp-s">Histórico de visitas</div>${relTab(['Chegada','Placa','NF',{t:'Toneladas',n:true},{t:'Espera',n:true},{t:'Carregamento',n:true},{t:'Permanência',n:true}],
+        v.map(x=>[dh(x.recepcao_em),esc(x.placa),esc(x.nf_numero||'—'),nf(tonNF(x),1),hmin(x.min_espera),hmin(x.min_carregamento),hmin(x.min_permanencia)]))}`});
   _docAtual={html,nome:`Motorista - ${m.nome}.pdf`};
   const ov=document.createElement('div');ov.className='dsm-ov';ov.onclick=e=>{if(e.target===ov)ov.remove();};
   ov.innerHTML=`<div class="dsm-mod" style="max-width:900px;"><div style="background:#e2e8f0;padding:14px;border-radius:12px;max-height:70vh;overflow:auto;"><div style="background:#fff;max-width:794px;margin:0 auto;padding:26px 30px;">${html}</div></div>
