@@ -30,7 +30,7 @@
     get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
     set(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* sem armazenamento: vale só nesta visita */ } },
   };
-  const somLigado = () => ls.get(LS_SOM) !== 'off';
+  const somLigado = () => ls.get(LS_SOM) !== 'off' && !(typeof somDesligado === 'function' && somDesligado());
   const escH = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const aviso = (m, t) => (typeof toast === 'function' ? toast(m, t) : alert(m));
 
@@ -42,7 +42,9 @@
       ctx = new AC();
       const comp = ctx.createDynamicsCompressor();
       comp.threshold.value = -20; comp.knee.value = 6; comp.ratio.value = 8; comp.attack.value = 0.002; comp.release.value = 0.15;
-      master = ctx.createGain(); master.gain.value = 1.6;
+      const vol = () => 1.6 * (typeof volumeSom === 'function' ? volumeSom() : 1);
+      master = ctx.createGain(); master.gain.value = vol();
+      window.addEventListener('erp-volume', () => { if (master) master.gain.value = vol(); });
       master.connect(comp); comp.connect(ctx.destination);
     }
     if (ctx.state === 'suspended') ctx.resume().then(desenharBotao, () => {});
@@ -170,23 +172,28 @@
       <h4>🔔 Avisos do Status das Linhas</h4>
       <p>Quando o laboratório muda o status de uma linha, esta tela toca um som e mostra o aviso.</p>
       <button class="pri" data-a="testar">🔊 Testar o som</button>
-      <button data-a="som">${somLigado() ? '🔕 Desligar o som nesta tela' : '🔔 Ligar o som nesta tela'}</button>
+      <button data-a="som">${somLigado() ? '🔕 Desligar o som' : '🔔 Ligar o som'}</button>
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;">🔈<input type="range" id="al-vol" min="0.1" max="1" step="0.1" value="${typeof volumeSom==='function'?volumeSom():0.8}" style="flex:1;">🔊</label>
+      <p id="al-vol-t" style="margin:-4px 0 0;">Volume: ${Math.round((typeof volumeSom==='function'?volumeSom():0.8)*100)}% — vale para todos os avisos</p>
       ${sub ? `<p>📱 Este aparelho <b>recebe</b> as notificações.</p>
                <button data-a="celular">⚙️ Escolher quais avisos recebo</button>
                <button data-a="parar">✖ Parar notificações neste aparelho</button>`
             : `<button data-a="celular">📱 Receber avisos neste aparelho (mesmo com o ERP fechado)</button>`}`;
     m.querySelectorAll('button').forEach(b => b.onclick = () => acaoMenu(b.dataset.a));
+    const vr = m.querySelector('#al-vol');
+    if (vr) { vr.oninput = () => { if (typeof definirVolume === 'function') definirVolume(vr.value); m.querySelector('#al-vol-t').textContent = `Volume: ${Math.round(vr.value * 100)}% — vale para todos os avisos`; };
+      vr.onchange = () => { prepara(); tocar('OK', true); }; }
     m.classList.add('aberto');
   }
   function acaoMenu(a) {
     const m = document.getElementById('al-menu'); m.classList.remove('aberto');
     if (a === 'testar') testarSom();
-    else if (a === 'som') { ls.set(LS_SOM, somLigado() ? 'off' : 'on'); if (!somLigado()) pararRepeticao(); desenharBotao(); aviso(somLigado() ? 'Som ligado nesta tela.' : 'Som desligado nesta tela.', 'info'); }
+    else if (a === 'som') { const ligar = !somLigado(); if (typeof definirSom === 'function') definirSom(ligar); else ls.set(LS_SOM, ligar ? 'on' : 'off'); if (!somLigado()) pararRepeticao(); desenharBotao(); aviso(somLigado() ? 'Som ligado nesta tela.' : 'Som desligado nesta tela.', 'info'); }
     else if (a === 'celular') escolherAvisosCelular();
     else if (a === 'parar') pararCelular();
   }
   function testarSom() {
-    if (!somLigado()) ls.set(LS_SOM, 'on');
+    if (!somLigado()) { if (typeof definirSom === 'function') definirSom(true); else ls.set(LS_SOM, 'on'); }
     prepara();
     const seq = ['OK', 'Ajuste', 'Manutenção', 'Parada'];
     let i = 0;

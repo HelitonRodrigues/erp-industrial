@@ -23,7 +23,8 @@
     let p = {}; try { p = JSON.parse(ls.get(LS) || '{}') || {}; } catch (e) { p = {}; }
     return Object.assign({}, PADRAO, p);
   }
-  function salvarPrefs(p) { ls.set(LS, JSON.stringify(Object.assign(prefs(), p))); if (master) master.gain.value = 1.6 * prefs().volume; }
+  function salvarPrefs(p) { if (p && 'som' in p) { ls.set('erp_alerta_som', p.som ? 'on' : 'off'); if (!p.som) parar(); }
+    ls.set(LS, JSON.stringify(Object.assign(prefs(), p))); if (master) master.gain.value = 1.6 * prefs().volume; }
 
   /* ── SOM (gerado no navegador, sem arquivo) ─────────────────────────── */
   let ctx = null, master = null, ativos = [];
@@ -35,6 +36,7 @@
       const comp = ctx.createDynamicsCompressor();
       comp.threshold.value = -20; comp.ratio.value = 8; comp.attack.value = 0.002; comp.release.value = 0.15;
       master = ctx.createGain(); master.gain.value = 1.6 * prefs().volume;
+      window.addEventListener('erp-volume', () => { if (master) master.gain.value = 1.6 * prefs().volume; });
       master.connect(comp); comp.connect(ctx.destination);
     }
     if (ctx.state === 'suspended') ctx.resume().then(avisarMudanca, () => {});
@@ -62,7 +64,7 @@
   function tocar(tipo, forcar) {
     const p = prefs();
     tipo = SONS[tipo] ? tipo : 'info';
-    if (!forcar && (!p.som || !p[tipo])) return false;
+    if (!forcar && (!p.som || !p[tipo] || (typeof somDesligado === 'function' && somDesligado()))) return false;
     if (!prepara() || !liberado()) { avisarMudanca(); return false; }
     parar(); SONS[tipo](ctx.currentTime + 0.05); return true;
   }

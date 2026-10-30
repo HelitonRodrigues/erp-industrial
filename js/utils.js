@@ -1090,17 +1090,33 @@ async function bpfAvisar(titulo,descricao,chave,pop){
 // usuário (notificacoes.destinatarios). Chegou → som + aviso na tela + aviso do
 // sistema (quando a aba está em segundo plano). Urgente toca 3 vezes.
 // Também dispara a checagem de fichas atrasadas (bpf_notificar_atrasos).
+// ── SOM DO SISTEMA: um único "mudo" para todos os avisos sonoros ──
+// Desligado pelo sino das Linhas (erp_alerta_som='off') ou em Notificações → Som e avisos (som:false)
+// → nenhum aviso toca, em nenhuma tela. Ligar em um lugar liga nos dois.
+function somDesligado(){
+  try{ if(localStorage.getItem('erp_alerta_som')==='off')return true;
+       const p=JSON.parse(localStorage.getItem('erp_notif_prefs')||'{}'); return p.som===false; }catch(e){ return false; }
+}
+function volumeSom(){ try{ const v=Number(JSON.parse(localStorage.getItem('erp_notif_prefs')||'{}').volume); return v>0&&v<=1?v:0.8; }catch(e){ return 0.8; } }
+function definirVolume(v){ try{ const p=JSON.parse(localStorage.getItem('erp_notif_prefs')||'{}'); p.volume=Math.max(0.1,Math.min(1,Number(v)||0.8)); localStorage.setItem('erp_notif_prefs',JSON.stringify(p));
+  window.dispatchEvent(new Event('erp-volume')); }catch(e){} }
+function definirSom(ligado){
+  try{ localStorage.setItem('erp_alerta_som',ligado?'on':'off');
+       const p=JSON.parse(localStorage.getItem('erp_notif_prefs')||'{}'); p.som=!!ligado; localStorage.setItem('erp_notif_prefs',JSON.stringify(p)); }catch(e){}
+}
 const AvisosQualidade=(()=>{
   let timer=null,ctx=null;
   const chaveVistos=()=>'erp_avisos_vistos_'+((getUser()||{}).nome||'');
   const vistos=()=>{try{return new Set(JSON.parse(localStorage.getItem(chaveVistos())||'[]'));}catch(e){return new Set();}};
   const salvarVistos=s=>{try{localStorage.setItem(chaveVistos(),JSON.stringify([...s].slice(-400)));}catch(e){}};
-  function bip(urgente){
+  function bip(urgente,forcar){
+    // respeita o mudo do sistema; e onde o aviso de notificações já toca (Início), não toca de novo
+    if(!forcar&&(somDesligado()||window.AvisoNotif))return;
     try{
       const AC=window.AudioContext||window.webkitAudioContext;if(!AC)return;
       ctx=ctx||new AC(); if(ctx.state==='suspended')ctx.resume();
       const toca=(t0,f)=>{const o=ctx.createOscillator(),g=ctx.createGain();o.type='square';o.frequency.value=f;
-        g.gain.setValueAtTime(0.0001,ctx.currentTime+t0);g.gain.exponentialRampToValueAtTime(1.0,ctx.currentTime+t0+0.02);
+        g.gain.setValueAtTime(0.0001,ctx.currentTime+t0);g.gain.exponentialRampToValueAtTime(Math.max(0.02,volumeSom()),ctx.currentTime+t0+0.02);
         g.gain.exponentialRampToValueAtTime(0.0001,ctx.currentTime+t0+0.35);o.connect(g);g.connect(ctx.destination);o.start(ctx.currentTime+t0);o.stop(ctx.currentTime+t0+0.4);};
       const n=urgente?4:2; for(let i=0;i<n;i++){toca(i*0.8,880);toca(i*0.8+0.18,1320);toca(i*0.8+0.36,1760);}
     }catch(e){}
