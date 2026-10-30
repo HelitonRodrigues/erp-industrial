@@ -2236,7 +2236,7 @@ async function vigiarOrdensPortaria(forcar){
 if(!_ordVigia)_ordVigia=setInterval(async()=>{await vigiarOrdensPortaria();if(!document.hidden)await atualizarPortaria();},20000);
 function itensRomaneio(numero){return _romItens.filter(x=>String(x.numero)===String(numero));}
 /* produto do ERP quando a Portaria ligou o item da ordem ao cadastro (migração 054) — senão o texto da ordem */
-function linhasRomaneio(r){return itensRomaneio(r.numero).map(it=>({pedido:it.pedido||'',cidade:it.cidade||'',cliente:it.cliente||'',produto:it.produto_erp||it.produto||'',produto_ordem:it.produto||'',qtd:parseFloat(it.quantidade)||0,lote:it.lote||''}));}
+function linhasRomaneio(r){return itensRomaneio(r.numero).map(it=>({felis:!!it.felis_item_id||/\(Felisbina\)\s*$/i.test(it.produto_erp||''),pedido:it.pedido||'',cidade:it.cidade||'',cliente:it.cliente||'',produto:it.produto_erp||it.produto||'',produto_ordem:it.produto||'',qtd:parseFloat(it.quantidade)||0,lote:it.lote||''}));}
 function cargasDaOrdem(numero){return _carregamentos.filter(c=>String(c.ordem_numero)===String(numero));}
 
 function renderOrdens(){
@@ -2724,6 +2724,7 @@ function iniciarCarregamento(opt){
         return;
       }
       const l=acharOuCriarLinhaPara(it);
+      if(it.avulso&&l.felis)return;   // Felisbina: a linha já recriou o item sozinha
       /* item sem pallet (modo quantidade): volta como avulso editável */
       if(it.avulso){
         const emTon=it.unidade==='t'||Number(it.ton)>0;
@@ -2776,6 +2777,9 @@ function addLinha(l){
     qtd:l.qtd||0,lote:l.lote||'',manual:!!l.manual,granel:granel,
     sacksNeed:granel?0:(l.sacksNeed||0), tonNeed:granel?(Number(l.sacksNeed||l.qtd)||0):0, key:novaKey()};
   _linhasCarr.push(nova);_alloc[nova.key]=[];
+  /* produto da Felisbina (revenda/acabado) não tem QR: entra direto como item sem pallet, com a quantidade da ordem */
+  if(l.felis){nova.felis=true;nova.granel=false;nova.tonNeed=0;
+    _avulsos[nova.key]=[{id:'av'+(++_keySeq),sacos:Number(l.qtd)||nova.sacksNeed||0,ton:0,unidade:'sc',motivo:'felisbina',obs:'Produto da Felisbina — sem QR'}];}
   return nova;
 }
 function acharOuCriarLinhaPara(it){
@@ -2947,7 +2951,7 @@ function renderCarrAtiva(){
     <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap;">
       <div style="min-width:0;">
         <div class="ihm-cli">${esc(l.cliente||'(sem cliente)')}</div>
-        <div class="ihm-prod">${esc(l.produto||'(produto não definido)')}</div>
+        <div class="ihm-prod">${esc(l.produto||'(produto não definido)')}${l.felis?' <span style="font-size:11px;font-weight:800;background:#ede9fe;color:#6d28d9;border-radius:99px;padding:2px 8px;">🏪 Felisbina · sem QR</span>':''}</div>
         <div class="ihm-sub">Pedido ${esc(l.pedido||'—')} · ${esc(l.cidade||'—')} · Lote ${esc(l.lote||'—')}</div>
       </div>
       <div style="display:flex;gap:5px;flex-wrap:wrap;">

@@ -615,6 +615,7 @@ const PDFJS_WORKER='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.w
 const TESSERACT='https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';
 
 let _veic=[], _ordens=[], _itens=[], _mot=[], _cargas=[], _hist=[], _aba='fila', _carregando=false;
+let _prodFel=[];   // produtos da Felisbina — não têm QR (o Carregamento não pede bipagem)
 let _imp=null, _impArq=null, _impUrl=null, _unidades=[], _pesoPallet=28, _cfgLida=false, _prodErp=[], _aliases=[];
 let _ch={id:null,tem:true,ordemId:null,motId:null}, _vi={portId:null,ordemId:null}, _in={portId:null,fura:null}, _sa={portId:null}, _mt={id:null};
 
@@ -656,7 +657,9 @@ async function carregarTudo(avisar){
     ]);
     if(!_unidades.length){const {data:ub}=await _supabase.from('barracoes').select('nome,ordem').order('ordem'); _unidades=(ub||[]).map(b=>b.nome).filter(Boolean);}
     if(!_prodErp.length){const [pp,aa]=await Promise.all([_supabase.from('produtos').select('id,nome,unidade,peso_unidade_kg,linhas,status').order('nome'),_supabase.from('produto_aliases').select('alias_norm,produto_id,produto_nome')]);
-      _prodErp=(pp.data||[]).filter(p=>p.status!=='inativo'); _aliases=aa.data||[];}
+      _prodErp=(pp.data||[]).filter(p=>p.status!=='inativo'); _aliases=aa.data||[];
+      try{const {data:fi}=await _supabase.from('felis_itens').select('id,nome,unidade,categoria,grupo,status').in('categoria',['produto','revenda']).neq('status','inativo').order('nome');
+        _prodFel=(fi||[]).map(f=>({id:'F:'+f.id,felis_id:f.id,nome:f.nome,grupo:f.grupo,felis:true}));}catch(e){_prodFel=[];}}
     if(!_cfgLida){_cfgLida=true;const {data:ec}=await _supabase.from('empresa_config').select('peso_pallet_kg').limit(1); if(ec&&ec[0]&&Number(ec[0].peso_pallet_kg)>0)_pesoPallet=Number(ec[0].peso_pallet_kg);}
     if(pv.error||po.error)return;
     _veic=pv.data||[]; _ordens=po.data||[]; _mot=pm.data||[];
@@ -850,8 +853,13 @@ function casarProduto(texto,produtos,aliases){
   return {produto:b.produto,score:b.score,seguro:b.score>=0.5&&b.score-s2>=0.1,via:'parecido',segundo:notas[1]&&notas[1].score>0.3?notas[1].produto:null};
 }
 // produto do ERP de um item de ordem: o gravado na ordem, senão o apelido/nome igual (sem chute)
+const felCompacto=t=>String(t||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().replace(/\bL[IÍ]QUIDO\b|\bLIQ\.?\b/g,'').replace(/[^A-Z0-9,]/g,'').replace(/,/g,'.');
+function casarFelis(texto){const c=felCompacto(texto);if(!c)return null;const f=_prodFel.find(x=>felCompacto(x.nome)===c);return f?{produto:f,seguro:true,via:'felisbina'}:null;}
+function casarTudo(texto){const m=casarProduto(texto,_prodErp,_aliases);if(m&&m.seguro)return m;return casarFelis(texto)||m;}
 function produtoErpDoItem(i){
+  if(i.felis_item_id){const f=_prodFel.find(x=>x.felis_id===i.felis_item_id); if(f)return f;}
   if(i.produto_id){const p=_prodErp.find(x=>x.id===i.produto_id); if(p)return p;}
+  {const f=casarFelis(i.produto); if(f)return f.produto;}
   const m=casarProduto(i.produto,_prodErp,_aliases); return m&&m.seguro?m.produto:null;
 }
 /* ── ABA ORDENS ─────────────────────────────────────────────────────────── */
@@ -1077,10 +1085,12 @@ function addItemImp(){
 }
 /* select "Produto no ERP": já vem escolhido quando o nome bate (ou já foi conferido antes) */
 function selProdutoErp(texto,escolhido){
-  const m=escolhido!==undefined?null:casarProduto(texto,_prodErp,_aliases), sel=escolhido!==undefined?escolhido:(m?m.produto.id:'');
+  const m=escolhido!==undefined?null:casarTudo(texto), sel=escolhido!==undefined?escolhido:(m?m.produto.id:'');
   const cls=!sel?'conf':m&&!m.seguro?'conf':'ok';
   return `<select class="prod-sel ${cls}" data-k="produto_id" title="${m&&!m.seguro?'Confira: nome parecido'+(m.segundo?' (também parece '+esc(m.segundo.nome)+')':''):m?'Ligado automaticamente':''}" onchange="this.className='prod-sel '+(this.value?'ok':'conf')">
-    <option value="">— sem cadastro no ERP —</option>${_prodErp.map(p=>`<option value="${p.id}" ${p.id===sel?'selected':''}>${esc(p.nome)}</option>`).join('')}</select>
+    <option value="">— sem cadastro no ERP —</option><optgroup label="Produtos da fábrica (QR no carregamento)">${_prodErp.map(p=>`<option value="${p.id}" ${p.id===sel?'selected':''}>${esc(p.nome)}</option>`).join('')}</optgroup>
+    ${_prodFel.length?`<optgroup label="🏪 Felisbina (sem QR no carregamento)">${_prodFel.map(p=>`<option value="${p.id}" ${p.id===sel?'selected':''}>🏪 ${esc(p.nome)}</option>`).join('')}</optgroup>`:''}</select>
+    ${String(sel).startsWith('F:')?'<div style="font-size:10.5px;color:#7c3aed;font-weight:700;">🏪 Felisbina · sem QR</div>':''}
     ${m&&!m.seguro?'<div style="font-size:10.5px;color:#b45309;font-weight:700;">⚠ confira</div>':''}`;
 }
 function recasarLinha(inp){const td=inp.closest('tr').querySelector('select[data-k="produto_id"]'); if(td)td.parentElement.innerHTML=selProdutoErp(inp.value);}
@@ -1123,10 +1133,11 @@ async function salvarOrdem(registrar){
     const rd=await db(_supabase.from('romaneio_itens').delete().eq('numero',numero),'trocar itens'); if(rd.error)return;
     const ri=await db(_supabase.from('romaneio_itens').insert(itens.map(i=>({romaneio_id:rom.id,numero,pedido:i.pedido||null,cidade:i.cidade||null,cliente:i.cliente||null,
       produto:i.produto,quantidade:i.quantidade,frete:i.frete||null,unidades:i.unidades||null,ordem_entrega:i.ordem_entrega,caixa:null,lote:null,
-      produto_id:i.produto_id||null,produto_erp:(_prodErp.find(p=>p.id===i.produto_id)||{}).nome||null}))),'salvar itens');
+      produto_id:String(i.produto_id||'').startsWith('F:')?null:(i.produto_id||null),felis_item_id:String(i.produto_id||'').startsWith('F:')?i.produto_id.slice(2):null,
+      produto_erp:String(i.produto_id||'').startsWith('F:')?((_prodFel.find(p=>p.id===i.produto_id)||{}).nome||null)+' (Felisbina)':((_prodErp.find(p=>p.id===i.produto_id)||{}).nome||null)}))),'salvar itens');
     if(ri.error){toast('Cabeçalho salvo, mas os itens falharam — tente salvar de novo.','danger');return;}
     // o que foi conferido vira apelido do produto: da próxima vez liga sozinho
-    const novos=[...new Map(itens.filter(i=>i.produto_id).map(i=>[prodNorm(i.produto),i])).values()]
+    const novos=[...new Map(itens.filter(i=>i.produto_id&&!String(i.produto_id).startsWith('F:')).map(i=>[prodNorm(i.produto),i])).values()]
       .filter(i=>{const a=_aliases.find(x=>x.alias_norm===prodNorm(i.produto));return !a||a.produto_id!==i.produto_id;})
       .map(i=>({alias_norm:prodNorm(i.produto),alias_texto:i.produto,produto_id:i.produto_id,produto_nome:(_prodErp.find(p=>p.id===i.produto_id)||{}).nome||null,criado_por:quemSou()}));
     if(novos.length){const ra=await _supabase.from('produto_aliases').upsert(novos,{onConflict:'alias_norm'}); if(!ra.error)novos.forEach(n=>{_aliases=_aliases.filter(x=>x.alias_norm!==n.alias_norm);_aliases.push(n);});}
