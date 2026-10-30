@@ -174,6 +174,7 @@ body.sem-excluir [onclick*="excluir"],body.sem-excluir #mt-del,body.sem-excluir 
 .ob-hd{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;padding:9px 12px;background:#f1f5f9}.ob-hd b{color:var(--primary);font-size:15px}.ob-hd span{font-size:12.5px;color:#475569}
 .ob-tb{width:100%;border-collapse:collapse;font-size:13px}.ob-tb th{background:#042D4D;color:#fff;text-align:left;padding:6px 10px;font-size:11.5px}.ob-tb td{padding:7px 10px;border-bottom:1px solid #f1f5f9}
 .ob-tb .n{text-align:right;white-space:nowrap}.ob-tt td{background:#f8fafc;font-weight:800}.ob-pe{padding:8px 12px;font-size:13px;background:#ecfdf5;color:#166534}.ob-vazio{margin-top:10px;padding:10px;border:1px dashed #cbd5e1;border-radius:12px;color:#94a3b8;text-align:center}
+.unid-chip.dsm{background:#f5f3ff;border-color:#c4b5fd}.dsm-tag{font-size:10px;background:#7c3aed;color:#fff;border-radius:6px;padding:1px 6px;margin-left:4px}
 </style>
 </head>
 <body>
@@ -768,14 +769,22 @@ function renderKpis(){
     k(esp.length,'Ordens sem caminhão',nf(esp.reduce((a,o)=>a+resumoOrdem(o).sacos,0))+' unidades',"#1F6FD1","document.getElementById('filtro-ord').value='esperando';showTab('ordens')");
 }
 /* quadro das unidades de carregamento: quem está carregando em cada uma e há quanto tempo */
+// caminhões DSM carregando (módulo DSM): aparecem na unidade escolhida lá; o clique abre a saída no módulo DSM
+let _dsmCar=[];
+async function carregarDsmUnidades(){
+  try{const {data}=await _supabase.from('dsm_caminhoes').select('id,placa,motorista,unidade,inicio_em,status').eq('status','carregando').is('cancelado_em',null);_dsmCar=data||[];}catch(e){_dsmCar=[];}
+  renderUnidades();
+}
 function renderUnidades(){
   const car=_veic.filter(v=>v.status==='carregando');
   const uns=unidadesCarregamento(), semU=car.filter(v=>!v.unidade_carregamento||!uns.some(u=>String(v.unidade_carregamento).includes(u)));
   const chip=v=>{const o=ordemDe(v), pronto=o&&o.status==='carregado';
     return `<div class="unid-chip ${pronto?'pronto':''}" onclick="abrirSaida('${v.id}')" title="${pronto?'Carregado — pesar saída':'Carregando'}">
       <span>${esc(v.placa)}${pronto?' ✅':''}</span><em>${esc(doisNomes(v.nome_motorista))}</em><small>⏱ ${durTxt(Date.now()-Date.parse(v.inicio_carregamento||v.hora_chegada))}${o?' · '+esc(o.numero):''}</small></div>`;};
-  const col=(nome,lista)=>`<div class="unid-col"><h4>🏭 ${esc(nome)}<span>${lista.length||''}</span></h4>${lista.map(chip).join('')||'<div class="unid-vazia">livre</div>'}</div>`;
-  document.getElementById('unid-board').innerHTML=uns.map(u=>col(u,car.filter(v=>String(v.unidade_carregamento||'').includes(u)))).join('')+(semU.length?col('Sem unidade',semU):'');
+  const chipDsm=d=>`<div class="unid-chip dsm" onclick="location.href='portaria-dsm.html#saida=${d.id}&de=portaria'" title="Caminhão DSM — abrir para dar a saída">
+      <span>${esc(d.placa)} <b class="dsm-tag">DSM</b></span><em>${esc(doisNomes(d.motorista))}</em><small>⏱ ${durTxt(Date.now()-Date.parse(d.inicio_em||Date.now()))}</small></div>`;
+  const col=(nome,lista,dsm)=>`<div class="unid-col"><h4>🏭 ${esc(nome)}<span>${(lista.length+(dsm||[]).length)||''}</span></h4>${lista.map(chip).join('')+(dsm||[]).map(chipDsm).join('')||'<div class="unid-vazia">livre</div>'}</div>`;
+  document.getElementById('unid-board').innerHTML=uns.map(u=>col(u,car.filter(v=>String(v.unidade_carregamento||'').includes(u)),_dsmCar.filter(d=>String(d.unidade||'')===u||String(d.unidade||'').includes(u)))).join('')+(semU.length?col('Sem unidade',semU):'');
 }
 function esperaChip(ms){const m=ms/60000;return `<span class="espera ${m>=120?'muito':m>=60?'alta':''}" title="Tempo desde a chegada">⏱ ${durTxt(ms)}</span>`;}
 function chipOrdem(o,v){
@@ -2328,7 +2337,9 @@ function showTab(t){
   document.querySelector('.page-header-left p').textContent=t==='visitantes'?'Controle de acesso de visitantes, prestadores, fornecedores e auditores (POP-04)':'Chegada dos caminhões, fila por ordem de chegada, ordem de carregamento e pesagem';
 }
 function relogio(){document.getElementById('relogio').textContent=new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});}
+setInterval(()=>{try{carregarDsmUnidades();}catch(e){}},30000);
 async function init(){
+  setTimeout(()=>{try{carregarDsmUnidades();}catch(e){}},1500);
   dadosEmpresa().catch(()=>{});
   if(!checkPerm(MOD,'delete'))document.body.classList.add('sem-excluir');
   if(typeof canTab==='function'&&!canTab(MOD,'historico')){const b=document.getElementById('tbtn-historico');if(b)b.style.display='none';}
