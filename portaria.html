@@ -417,7 +417,7 @@ body.sem-excluir [onclick*="excluir"],body.sem-excluir #mt-del,body.sem-excluir 
         <div class="form-group"><label class="form-label">Transportadora</label><input id="ch-transp" class="form-input" list="dl-transp"></div>
         <div class="form-grid-2">
           <div class="form-group"><label class="form-label">Veículo</label><select id="ch-veiculo" class="form-input"></select></div>
-          <div class="form-group"><label class="form-label">Carga</label><select id="ch-carga" class="form-input"><option value="com_stretch">Com stretch</option><option value="sem_stretch">Sem stretch</option></select></div>
+          <div class="form-group" style="display:none;"><label class="form-label">Carga</label><select id="ch-carga" class="form-input"><option value="com_stretch">Com stretch</option><option value="sem_stretch">Sem stretch</option></select></div>
         </div>
         <div class="form-grid-2">
           <div class="form-group"><label class="form-label">Tara (vazio) <span style="font-weight:500;color:#94a3b8;">— ou na hora de iniciar</span></label><div style="display:flex;gap:8px;align-items:center;"><input id="ch-tara" type="number" step="0.01" min="0" class="form-input" placeholder="toneladas"><span style="color:#64748b;font-size:13px;">t</span></div></div>
@@ -1559,7 +1559,7 @@ async function salvarChegada(){
     }
     const hora=g('ch-hora')&&g('ch-hora')!==_ch.horaIni?new Date(g('ch-hora')).toISOString():(v?v.hora_chegada:new Date().toISOString());
     const dados={placa,placa2:normPlaca(g('ch-placa2'))||null,nome_motorista:nome,celular:g('ch-celular')||null,cpf,transportadora:g('ch-transp')||null,
-      modelo_veiculo:g('ch-veiculo')||null,tipo_carga:g('ch-carga'),peso_tara:g('ch-tara')===''?null:Number(g('ch-tara').replace(',','.')),
+      modelo_veiculo:g('ch-veiculo')||null,tipo_carga:v?.tipo_carga||null,peso_tara:g('ch-tara')===''?null:Number(g('ch-tara').replace(',','.')),
       observacao:g('ch-obs')||null,hora_chegada:hora,motorista_id:motId,romaneio_id:o?o.id:null,numero_ordem:o?o.numero:null};
     if(!v||['sem_ordem','aguardando'].includes(v.status))dados.status=o?'aguardando':'sem_ordem';
     if(v&&v.status==='carregando'&&!o){toast('Caminhão carregando não pode ficar sem ordem.','warning');return;}
@@ -1657,7 +1657,7 @@ async function confirmarInicio(){
   let motivo=null;
   if(_in.fura){const s=document.getElementById('in-motivo').value; motivo=s==='outro'?document.getElementById('in-motivo-txt').value.trim():s;}
   const tara=parseFloat(String(document.getElementById('in-tara').value).replace(',','.'));
-  if(tara>80&&!confirm(`Tara de ${nf(tara,2)} t? Confira se não digitou em kg.`))return;
+  if(tara>80&&!(await erpConfirm(`A tara digitada é ${nf(tara,2)} toneladas.\nParece que foi digitada em kg (ex.: 12500 em vez de 12,5).`,{titulo:'Confira a tara',tipo:'aviso',icone:'⚖️',ok:'Está certo, seguir',cancelar:'Corrigir'})))return;
   const unidade=[..._in.unidades].join(', ');
   const btn=document.getElementById('in-btn'); btn.disabled=true;
   try{
@@ -2292,7 +2292,7 @@ async function salvarVisitante(){
   // POP-04 6.f: produção/estocagem/laboratório só com integração; trava do BPF decide se barra
   if(PRODUCAO_RE.test(d.areas)&&!d.integrado){
     if(_bpfTrava){toast('Integração BPF obrigatória para entrar em produção, estocagem ou laboratório — passe o vídeo.','danger');return;}
-    if(!confirm('Sem integração BPF para área de produção/estocagem/laboratório. Registrar mesmo assim?'))return;
+    if(!(await erpConfirm('Este visitante vai para produção, estocagem ou laboratório e ainda não fez a integração de BPF (vídeo).',{titulo:'Sem integração BPF',tipo:'aviso',icone:'🎬',ok:'Registrar mesmo assim',cancelar:'Voltar'})))return;
   }
   const b=document.getElementById('vi-ok');b.disabled=true;
   try{
@@ -2305,7 +2305,7 @@ async function salvarVisitante(){
 }
 async function saidaVisitante(id){
   const v=[..._vis,..._visHist].find(x=>x.id===id);if(!v)return;
-  if(!confirm(`Registrar a saída de ${v.nome} agora?`))return;
+  if(!(await erpConfirm(`Registrar a saída de ${v.nome} agora?`,{titulo:'Saída do visitante',icone:'🚪',ok:'Registrar saída'})))return;
   const {error}=await _supabase.from('portaria_visitantes').update({saida:new Date().toISOString(),saida_por:quemSou()}).eq('id',id);
   if(error){toast('Erro: '+error.message,'danger');return;}
   await addLog('UPDATE','PORTARIA_VISITANTE',v.nome,'Saída de visitante');
