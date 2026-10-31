@@ -1119,11 +1119,15 @@ async function carregarOpsDash(forcar){          // nome mantido: é o 🔄 do q
   renderDashLinhas(); if(forcar){ renderAnalises(); toast('Status das linhas atualizado.','success'); }
 }
 function _tsAnalise(a){ return String(a.data||'')+' '+String(a.hora||'00:00').slice(0,8); }
+function _agoraTs(minAFrente){ const d=new Date(Date.now()+(minAFrente||0)*6e4), p=n=>String(n).padStart(2,'0');
+  return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+' '+p(d.getHours())+':'+p(d.getMinutes())+':00'; }
 function _idadeLab(a){
   if(!a||!a.data) return '';
   const dt=new Date(a.data+'T'+String(a.hora||'00:00').slice(0,5)+':00');
   if(isNaN(dt)) return '';
-  const h=Math.max(0,(Date.now()-dt.getTime())/36e5);
+  const h0=(Date.now()-dt.getTime())/36e5;
+  if(h0<-0.17) return '<span style="background:#fee2e2;color:#991b1b;border-radius:6px;padding:1px 6px;" title="A data/hora gravada é posterior a agora — confira e corrija a análise">⚠️ data/hora no futuro</span>';
+  const h=Math.max(0,h0);
   if(h<1)  return '<span style="background:#dcfce7;color:#15803d;border-radius:6px;padding:1px 6px;">há menos de 1 h</span>';
   if(h<8)  return `<span style="background:#dcfce7;color:#15803d;border-radius:6px;padding:1px 6px;">há ${Math.round(h)} h</span>`;
   if(h<24) return `<span style="background:#fef3c7;color:#92400e;border-radius:6px;padding:1px 6px;">há ${Math.round(h)} h</span>`;
@@ -1154,7 +1158,10 @@ function renderDashLinhas(){
     // (a de ontem continua na lista "📋 todas", mas não diz como a linha está agora).
     const hj=hoje();
     const doLinha=(_analises||[]).filter(a=>a.linha===linha.nome&&String(a.data||'')===hj).sort((x,y)=>_tsAnalise(y).localeCompare(_tsAnalise(x)));
-    const ult=doLinha[0];
+    // Uma análise gravada com hora no futuro ficava sempre em 1º e escondia os
+    // testes novos do dia. Só entra se não houver nenhuma válida.
+    const lim=_agoraTs(10);
+    const ult=doLinha.find(a=>_tsAnalise(a)<=lim)||doLinha[0];
     const st=(ult&&ult.status)||'Aguardando análise';
     const stCls={OK:'ok',Ajuste:'ajuste','Manutenção':'manutencao','Parada':'parada','Aguardando análise':''}[st]||'';
     const stIcon={'OK':'✅','Ajuste':'⚠️','Manutenção':'🔧','Parada':'🛑','Aguardando análise':'⏳'}[st]||'⏳';
@@ -1699,7 +1706,7 @@ function periodoManual(){ const m=document.getElementById('f-lab-mes'); if(m) m.
 // MODAL ANÁLISE
 function openModalAnalise(){
   _eAnaliseId=null; document.getElementById('analise-title').textContent='Nova Análise de Linha';
-  document.getElementById('an-data').value=new Date().toISOString().split('T')[0];
+  document.getElementById('an-data').value=hoje();   // local — toISOString() jogava para o dia seguinte depois das 21h
   document.getElementById('an-hora').value=new Date().toTimeString().slice(0,5);
   document.getElementById('an-status').value='OK'; document.getElementById('an-massa').value='';
   ['an-p20','an-p50','an-p100','an-p200','an-sep','an-umidade','an-obs','an-encarregado'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
@@ -1800,6 +1807,7 @@ async function salvarAnalise(){
   const erro=m=>{errEl.textContent=m; errEl.classList.remove('hidden'); errEl.scrollIntoView({block:'center',behavior:'smooth'});};
   if(!linha||!data){erro('Linha e Data são obrigatórios.'); return;}
   if(!status){erro('Informe o status da linha.'); return;}
+  if(data+' '+String(gv('an-hora')||'00:00').slice(0,5)+':00'>_agoraTs(10)){erro('A data/hora da análise está no futuro ('+fmtD(data)+' '+(gv('an-hora')||'')+'). Confira a data.'); return;}
   const soma=['an-p20','an-p50','an-p100','an-p200'].reduce((t,k)=>t+(numOrNull(gv(k))||0),0);
   if(soma>100.5){erro('A soma do peneiramento passou de 100% ('+soma.toFixed(1)+'%). Confira os valores.'); return;}
   // numOrNull no lugar de parseFloat()||null: umidade 0,0% e densidade 0 não
@@ -4223,8 +4231,8 @@ function _lauDataBR(d){ return d? new Date(d+'T12:00:00').toLocaleDateString('pt
 async function carregarLaudos(){
   _falhasCarga=(_falhasCarga||[]).filter(f=>!/laudo/i.test(f.tabela));
   const mesEl=document.getElementById('lau-mes');
-  if(mesEl && !mesEl.value) mesEl.value=new Date().toISOString().slice(0,7);
-  const mes=(mesEl&&mesEl.value)||new Date().toISOString().slice(0,7);
+  if(mesEl && !mesEl.value) mesEl.value=hoje().slice(0,7);
+  const mes=(mesEl&&mesEl.value)||hoje().slice(0,7);
   const ini=mes+'-01';
   const fim=new Date(Number(mes.slice(0,4)), Number(mes.slice(5,7)), 0).toISOString().slice(0,10);
   // Antes esta função engolia o erro em silêncio: se lab_laudos não carregasse,
@@ -5294,7 +5302,7 @@ async function salvarLaudo(finalizar){
   };
   if(finalizar){
     // BPF · POP-15/16/17: laudo só com análise externa vigente e lote liberado
-    const hj=new Date().toISOString().slice(0,10);
+    const hj=hoje();
     const ext=asArray(c.externas);
     const venc=ext.filter(x=>x&&x.validade&&String(x.validade).slice(0,10)<hj);
     if((!ext.length||venc.length)&&!(await bpfTravaGenerica('laudo_externo_vencido',{onde:'laboratorio',violou:true,
