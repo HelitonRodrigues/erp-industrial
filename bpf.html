@@ -447,22 +447,21 @@ body.bpf-op [onclick*="togGatilho"],body.bpf-op [onclick*="alternarTrava"]{displ
 
   <!-- Navegação por áreas: a área do item aberto fica marcada (marcarArea) -->
   <nav class="bx-nav" id="bx-nav">
-    <button class="bx-area" data-area="inicio" id="btn-fila" onclick="ir(_temFila?'fila':'painel')">🏠 Início <span class="bx-bd" id="bx-bd-inicio"></span></button>
+    <button class="bx-area" data-area="inicio" id="btn-fila" onclick="ir(secaoInicio())">🏠 Início <span class="bx-bd" id="bx-bd-inicio"></span></button>
     <button class="bx-area" data-area="docs" id="tab-documentos" onclick="ir('documentos')">📁 POPs &amp; Documentos</button>
     <button class="bx-area" data-area="regs" onclick="ir('registros')">📝 Registros</button>
     <button class="bx-area" data-area="assin" id="btn-assin" onclick="ir('assinaturas')">✍️ Assinaturas <span class="bx-bd" id="bx-bd-assin"></span></button>
-    <button class="bx-area" data-area="oco" onclick="ir('ncs')">⚠️ NCs</button>
+    <button class="bx-area" data-area="oco" id="tab-ncs" onclick="ir('ncs')">⚠️ NCs</button>
     <button class="bx-area" data-area="pes" id="tab-treinamentos" onclick="ir('treinamentos')">🎓 Treinamentos</button>
     <div class="bx-mais-wrap">
       <button class="bx-area" data-area="mais" id="bx-btn-mais" onclick="event.stopPropagation();this.parentElement.classList.toggle('on')">⋯ Mais</button>
       <div class="bx-mais-lista" onclick="this.parentElement.classList.remove('on')">
-        <button onclick="ir('painel')">📊 Painel</button>
+        <button id="tab-painel" onclick="ir('painel')">📊 Painel</button>
         <button onclick="ir('fila')">📥 Minha fila</button>
         <button id="tab-auditorias" onclick="ir('auditorias')">🔍 Auditorias</button>
-        <button onclick="ir('fichas')">🖨️ Fichas em branco</button>
         <button id="tab-dossie" onclick="ir('dossie')">🗂️ Dossiê</button>
         <button id="tab-canal" onclick="ir('canal')">📣 Canal</button>
-        <button onclick="escolherConfigPop()">🛠️ Configuração dos POPs</button>
+        <button id="tab-config" onclick="escolherConfigPop()">🛠️ Configuração dos POPs</button>
         <button id="tab-gatilhos" onclick="ir('gatilhos')">⚙️ Gatilhos</button>
         <button id="tab-travas" onclick="ir('travas')">🔒 Travas</button>
       </div>
@@ -956,7 +955,7 @@ async function init(){
   }
   // F5: volta para a mesma tela (POP, aba, documento, registro…); sem nada guardado, abre o Início
   limparArquivosOrfaos();
-  if(!restaurarTela()) ir(_temFila && (minhasTarefas().length||pendenciasAssinatura().filter(podeAssinar).length) ? 'fila' : 'painel');
+  if(!restaurarTela()) ir(meusPops()?(_temFila?'fila':'registros'):(_temFila && (minhasTarefas().length||pendenciasAssinatura().filter(podeAssinar).length) ? 'fila' : 'painel'));
   // vindo da tela da OP (producao.html): imprime as fichas daquela OP
   try{
     const regId=new URLSearchParams(location.search).get('reg');
@@ -1423,7 +1422,7 @@ function abrirPop(cod,aba){
         ${pend(f)?`<span class="pp-pend">${pend(f)} pendente(s)</span>`:''}
         <div class="bx-sub">${esc(cap(f.periodicidade||'—'))}${f.exige_anexo?' · anexo obrigatório':''} · ${regs.filter(r=>!r.cancelado_em).length} registro(s)</div></div>
       <div class="pp-reg-a">
-        <button class="bx-btn bx-btn-acc" onclick="novaFichaManual('${esc(f.codigo)}')" title="Abre uma ficha nova; o número só é criado quando você salvar">＋ Gerar ficha</button>
+        <button class="bx-btn bx-btn-acc" data-perm="bpf:edit" onclick="novaFichaManual('${esc(f.codigo)}')" title="Abre uma ficha nova; o número só é criado quando você salvar">＋ Gerar nova ficha</button>
         <button class="bx-btn" onclick="imprimirFicha('${esc(f.codigo)}')" title="Imprime a ficha em branco">🖨️ Ficha em branco</button>
 
         ${d?`<button class="bx-btn" onclick="verDadosDoc('${d.id}')" title="Cadastro, arquivo e histórico do documento">📄 Documento ${esc(f.codigo)}</button>`:''}
@@ -1634,12 +1633,13 @@ function faltamAssin(r){
   const f=_forms.find(x=>x.codigo===r.formulario_cod);
   return (f?.assinaturas||[]).filter(a=>!(r.assinaturas||[]).some(x=>x.id===a.id));
 }
+function nomeUsuarioLogado(){ const u=getUser()||{}; return u.nome||u.usuario||u.email||''; }
 function regLancado(r){ return !!r.lancado_em||['aguardando_assinatura','nao_conforme','concluido'].includes(r.status); }
 function etapaReg(r){
   if(r.cancelado_em||r.status==='cancelado')return 'cancelado';
   if(r.status==='concluido')return 'concluido';
   if(!regLancado(r))return (r.ficha_impressa_em||r.status==='rascunho'||r.status==='a_digitar')?'a_digitar':'a_preencher';
-  if(!r.foto_ficha&&!formSemPapel(r.formulario_cod))return 'falta_foto';
+  if(!r.foto_ficha&&!formSemPapel(r.formulario_cod)&&concluiComAnexo(r.formulario_cod))return 'falta_foto';   // foto só é obrigatória aqui
   if(concluiComAnexo(r.formulario_cod))return 'concluido';
   return faltamAssin(r).length?'assinaturas':'concluido';
 }
@@ -1881,9 +1881,10 @@ function abrirRegistroFluxo(id){
   // trava quando um REVISOR (encarregado, qualidade…) assinou; a do executante não trava
   const primeiraAss=(f.assinaturas||[])[0]?.id;
   const travado=(r.assinaturas||[]).some(x=>x.id!==primeiraAss);
+  const exigeFoto=concluiComAnexo(f.codigo);       // só a ficha que conclui pelo anexo exige foto
   const passos=[['Gerado',true],['Ficha impressa',!!r.ficha_impressa_em||regLancado(r)],['Preenchido no papel',regLancado(r)],
-    ['Digitado no ERP',regLancado(r)],['Foto da ficha',!!r.foto_ficha],['Assinaturas',e==='concluido']];
-  const atual=e==='a_preencher'?1:e==='a_digitar'?3:e==='falta_foto'?4:5;
+    ['Digitado no ERP',regLancado(r)]].concat(exigeFoto?[['Foto da ficha',!!r.foto_ficha]]:[]).concat([['Assinaturas',e==='concluido']]);
+  const atual=e==='a_preencher'?1:e==='a_digitar'?3:e==='falta_foto'?4:passos.length-1;
   const pap=r.assinaturas_papel||{};
   const foto=r.foto_ficha;
   const semPapel=formSemPapel(f.codigo)||!!(foto&&foto.digital);   // laboratório / RT: não existe ficha em papel
@@ -1912,29 +1913,29 @@ function abrirRegistroFluxo(id){
     <div id="box-desvio" style="margin-top:6px;"></div>
     <div class="rx-2">
       <div class="rx-box"><h5>Quem fez</h5>
-        <div class="fld"><label>${semPapel?'👤 Responsável pelos dados':'✍️ Preenchido no papel por'}<span class="req">*</span></label>
-          <input class="form-input" id="rf-preench" list="lst-func" value="${esc(r.preenchido_por||'')}" placeholder="${semPapel?'Quem fez a análise / o lançamento':'Nome de quem escreveu na ficha'}" ${travado?'disabled':''}></div>
+        <div class="fld"><label>👤 Quem fez<span class="req">*</span></label>
+          <input class="form-input" id="rf-preench" value="${esc(regLancado(r)&&r.preenchido_por?r.preenchido_por:nomeUsuarioLogado())}" readonly style="background:#f1f5f9;" title="Vem do usuário logado"></div>
         <div class="rx-quem">⌨️ <b>Lançado no ERP por:</b> ${r.lancado_por?esc(r.lancado_por)+' · '+fmtDH(r.lancado_em):'<span class="bx-mu">ainda não lançado — será você</span>'}</div>
       </div>
-      ${formSemPapel(f.codigo)?`<div class="rx-box"><h5>💻 Preenchido direto no sistema</h5><div class="bx-mu" style="font-size:12px;">Este registro não tem ficha em papel — não pede foto.${f.exige_anexo?' O anexo (ex.: croqui) é obrigatório e abre aqui mesmo em 👁️.':''}</div></div>`:`<div class="rx-box"><h5>📷 Foto da ficha preenchida <span class="rx-pd">(obrigatória)</span></h5>
+      ${formSemPapel(f.codigo)?`<div class="rx-box"><h5>💻 Preenchido direto no sistema</h5><div class="bx-mu" style="font-size:12px;">Este registro não tem ficha em papel — não pede foto.${f.exige_anexo?' O anexo (ex.: croqui) é obrigatório e abre aqui mesmo em 👁️.':''}</div></div>`:`<div class="rx-box"><h5>📷 Foto da ficha preenchida <span class="rx-pd">(${exigeFoto?'obrigatória':'opcional'})</span></h5>
         ${foto&&foto.digital?`<div class="rx-foto-ok">💻 ${esc(foto.nome)}</div>`
          :foto?`<div class="rx-foto-ok">✅ ${esc(foto.nome)} <span class="bx-mu">· ${esc(foto.por||'')} ${fmtDH(foto.em)}</span>
             <div style="margin-top:6px;"><button class="bx-ib" onclick="uiVisualizar('${esc(foto.path)}','${esc(foto.nome)}')">👁️ Ver</button>
             ${travado?'':`<label class="bx-ib" style="display:inline-flex;align-items:center;cursor:pointer;">🔄 Trocar<input type="file" accept="image/*,application/pdf" capture="environment" style="display:none;" onchange="subirFotoFicha(this)"></label>`}</div></div>`
           :`<label class="rx-foto-btn ${regLancado(r)?'':'rx-off'}">📷 Tirar / anexar foto<input type="file" accept="image/*,application/pdf" capture="environment" style="display:none;" ${regLancado(r)?'':'disabled'} onchange="subirFotoFicha(this)"></label>
-            <div class="bx-mu" style="font-size:11.5px;margin-top:6px;">${regLancado(r)?'Sem a foto o registro não conclui. Ela sai no PDF.':'Libera depois de salvar a digitação.'}</div>`}
+            <div class="bx-mu" style="font-size:11.5px;margin-top:6px;">${regLancado(r)?(exigeFoto?'Sem a foto o registro não conclui. Ela sai no PDF.':'Não é obrigatória. Se anexar, sai no PDF.'):'Libera depois de salvar a digitação.'}</div>`}
       </div>`}
     </div>
     <div class="rx-box"><h5>✍️ Assinaturas</h5>
-      <table class="rx-as"><tr><th>Função</th>${semPapel?'':'<th>Assinou no papel</th>'}<th>Assinatura no sistema</th></tr>
-      ${(f.assinaturas||[]).map(a=>{const fe=(r.assinaturas||[]).find(x=>x.id===a.id);
-        const pode=regLancado(r)&&(!!foto||formSemPapel(f.codigo));
+      <table class="rx-as"><tr><th>Função</th>${semPapel?'':'<th>Assinou no papel</th>'}<th>Assinatura</th></tr>
+      ${(f.assinaturas||[]).filter(a=>!meusPops()||assinaFuncao(r,a)||(r.assinaturas||[]).some(x=>x.id===a.id)).map(a=>{const fe=(r.assinaturas||[]).find(x=>x.id===a.id);
+        const pode=regLancado(r)&&(!exigeFoto||!!foto);
         return `<tr><td><b>${esc(a.label)}</b><div class="bx-mu" style="font-size:10.5px;">${esc(nomeFuncao(a.funcao))}</div></td>
           ${semPapel?'':`<td><input class="form-input rx-pap" id="rf-pap-${esc(a.id)}" list="lst-func" value="${esc(pap[a.id]||'')}" placeholder="nome na ficha" ${travado?'disabled':''}></td>`}
-          <td>${fe?`${fe.img?`<img src="${fe.img}" alt="assinatura" style="height:46px;display:block;">`:''}<span class="rx-ok">✓ ${esc(fe.nome)} · ${fmtDH(fe.em)}</span>`
+          <td>${fe?`${fe.img?`<img src="${fe.img}" alt="assinatura" style="height:46px;display:block;">`:''}<span class="rx-ok">${fe.tipo==='papel'?'📄 no papel':'✓ sistema'} · ${esc(fe.nome)} · ${fmtDH(fe.em)}</span>`
             :!assinaFuncao(r,a)?`<span class="bx-mu" style="font-size:11.5px;">aguardando ${esc(a.label)}</span>`
-            :pode?`<button class="btn btn-secondary btn-sm" onclick="assinar('${r.id}','${a.id}')">✍️ Assinar</button>`
-            :'<span class="bx-mu" style="font-size:11.5px;">após digitação e foto</span>'}</td></tr>`;}).join('')
+            :pode?`<div style="display:flex;gap:6px;flex-wrap:wrap;"><button class="btn btn-secondary btn-sm" onclick="assinar('${r.id}','${a.id}')" title="Assina na tela">✍️ Sistema</button>${semPapel?'':`<button class="btn btn-secondary btn-sm" onclick="assinar('${r.id}','${a.id}','papel')" title="A pessoa já assinou na ficha de papel">📄 No papel</button>`}</div>`
+            :`<span class="bx-mu" style="font-size:11.5px;">${exigeFoto?'após digitação e foto':'após a digitação'}</span>`}</td></tr>`;}).join('')
         ||'<tr><td colspan="3" class="bx-mu">Sem assinatura exigida.</td></tr>'}
       </table></div>
     <details class="rx-anx"><summary>📎 Outros anexos (${_anexosTmp.length})${f.exige_anexo?' — obrigatório':''}</summary>
@@ -1945,7 +1946,7 @@ function abrirRegistroFluxo(id){
     ${podeExcluir?`<button class="btn btn-ghost" style="color:var(--danger);margin-right:auto;" onclick="excluirRascunho('${r.id}')">🗑️ Excluir ficha</button>`:''}
     <button class="btn btn-secondary" onclick="closeModal('m-reg')">Fechar</button>
     ${e!=='a_preencher'?`<button class="btn btn-secondary" title="Errou algo? Volta o registro para uma etapa anterior" onclick="voltarEtapaReg('${r.id}')">↩️ Voltar etapa</button>`:''}
-    ${semPapel?'':`<button class="btn btn-secondary" onclick="imprimirFichaReg('${r.id}')">🖨️ ${r.ficha_impressa_em?'Reimprimir ficha':'Imprimir ficha'}</button>`}
+    ${semPapel?'':`<button class="btn btn-secondary" data-perm="bpf:edit" onclick="imprimirFichaReg('${r.id}')">🖨️ ${r.ficha_impressa_em?'Reimprimir ficha':'Imprimir ficha'}</button>`}
     ${travado?'':`<button class="btn btn-secondary" onclick="salvarDigitacao(true)">Salvar rascunho</button>
     <button class="btn btn-primary" onclick="salvarDigitacao(false)">💾 ${regLancado(r)?'Salvar alterações':'Salvar digitação'}</button>`}`;
   document.getElementById('m-reg').classList.remove('hidden');
@@ -2091,7 +2092,7 @@ async function salvarDigitacao(rascunho){
   const desvios=avaliar(campos,vals),conforme=desvios.length===0;
   if(!rascunho){
     const falt=faltando(campos,vals);
-    if(!preench)falt.unshift('Preenchido no papel por');
+    if(!preench)falt.unshift('Quem fez');
     if(falt.length){await uiAlerta(`Faltam:<ul style="margin:7px 0 0 16px;">${falt.map(x=>`<li>${esc(x)}</li>`).join('')}</ul>`,{titulo:'Digitação incompleta',tipo:'warn'});return;}
     if(!conforme){
       const ok=await uiConfirma(`<strong>${desvios.length} desvio(s)</strong>:<ul style="margin:7px 0 0 16px;">${desvios.map(d=>`<li>${esc(d.campo)} — esperado <strong>${esc(d.esperado)}</strong>, obtido <strong>${esc(d.obtido)}</strong></li>`).join('')}</ul>
@@ -2105,7 +2106,8 @@ async function salvarDigitacao(rascunho){
     const tv=travasDoRegistro({...r,preenchido_por:preench,anexos:_anexosTmp},vals,f,false);
     if(tv.length){await avisarTravas(tv);return;}
   }
-  const pap={};(f.assinaturas||[]).forEach(a=>{const v=document.getElementById('rf-pap-'+a.id)?.value.trim();if(v)pap[a.id]=v;});
+  const pap={...(r.assinaturas_papel||{})};
+  (f.assinaturas||[]).forEach(a=>{const el=document.getElementById('rf-pap-'+a.id);if(!el)return;const v=el.value.trim();if(v)pap[a.id]=v;else delete pap[a.id];});
   const u=getUser(),agora=new Date().toISOString(),vEl=document.getElementById('f__validade'),oEl=document.getElementById('f__origem');
   const jaLancado=regLancado(r);
   const patch={data,hora:(document.getElementById('f__hora')?.value)||vals.hora||null,campos:vals,conforme,anexos:_anexosTmp,
@@ -2128,7 +2130,7 @@ async function salvarDigitacao(rascunho){
     if(r.tarefa_id){await db(_supabase.from('bpf_tarefas').update({status:'concluida',registro_id:r.id,concluida_em:agora}).eq('id',r.tarefa_id),'concluir tarefa');}
   }
   Object.assign(r,patch);
-  toast(rascunho?'Rascunho salvo.':(jaLancado?'Alterações salvas.':(conforme?`${r.numero} lançado. Agora a foto da ficha.`:`${r.numero} lançado como NÃO CONFORME.`)),conforme||rascunho?'success':'warning');
+  toast(rascunho?'Rascunho salvo.':(jaLancado?'Alterações salvas.':(conforme?`${r.numero} lançado. Agora as assinaturas.`:`${r.numero} lançado como NÃO CONFORME.`)),conforme||rascunho?'success':'warning');
   await carregar();renderNav();
   const atual=_regs.find(x=>x.id===r.id);
   if(atual&&!rascunho)abrirRegistroFluxo(r.id);else{closeModal('m-reg');voltar();}
@@ -2207,10 +2209,10 @@ async function verRegistro(id){
           <span><strong>${esc(a.label)}</strong>${a.obrigatoria?' <span class="req">*</span>':''}
             <div style="color:#94a3b8;font-size:10.5px;">${esc(nomeFuncao(a.funcao))}${(r.assinaturas_papel||{})[a.id]?' · no papel: '+esc(r.assinaturas_papel[a.id]):''}</div></span>
           ${fe?`<span style="text-align:right;"><span class="badge badge-success">assinado</span>
-            ${fe.img?`<img src="${fe.img}" alt="assinatura" style="height:40px;display:block;margin-top:3px;">`:''}<div style="font-size:10.5px;color:#64748b;margin-top:2px;">${esc(fe.nome)} · ${fmtDH(fe.em)}</div></span>`
+            ${fe.img?`<img src="${fe.img}" alt="assinatura" style="height:40px;display:block;margin-top:3px;">`:''}<div style="font-size:10.5px;color:#64748b;margin-top:2px;">${fe.tipo==='papel'?'📄 no papel · ':''}${esc(fe.nome)} · ${fmtDH(fe.em)}</div></span>`
            :(r.cancelado_em?'<span class="badge badge-gray">—</span>'
              :!assinaFuncao(r,a)?`<span class="badge badge-gray">aguardando ${esc(a.label)}</span>`
-             :`<button class="btn btn-secondary btn-sm" onclick="assinar('${r.id}','${a.id}')">✍️ Assinar</button>`)}
+             :`<button class="btn btn-secondary btn-sm" onclick="assinar('${r.id}','${a.id}')">✍️ Sistema</button> <button class="btn btn-secondary btn-sm" onclick="assinar('${r.id}','${a.id}','papel')">📄 No papel</button>`)}
         </div>`;}).join('')||'<div style="color:#94a3b8;font-size:12px;">Sem assinatura exigida.</div>'}</div>
     <div class="sec-card" style="margin-top:13px;"><h3>Trilha de auditoria</h3>
       <div class="sub" style="margin-bottom:5px;">Imutável — o banco recusa alteração e exclusão (SYS-002 / SYS-043).</div>
@@ -2222,7 +2224,7 @@ async function verRegistro(id){
   document.getElementById('m-ver').classList.remove('hidden');
 }
 
-async function assinar(regId,assId){
+async function assinar(regId,assId,tipo){
   if(!guardAction('bpf','edit'))return;
   const r=_regs.find(x=>x.id===regId);if(!r)return;
   const f=_forms.find(x=>x.codigo===r.formulario_cod);
@@ -2231,8 +2233,9 @@ async function assinar(regId,assId){
   if(!u){await uiAlerta('Sessão não identificada. Faça login novamente.',{titulo:'Sem usuário',tipo:'dang'});return;}
   if(!assinaFuncao(r,a)){await uiAlerta(`Esta assinatura é de <strong>${esc(a.label)}</strong> (${esc(nomeFuncao(a.funcao))}). Você não está designado para ela no ${esc(r.pop_cod)}.`,{titulo:'Assinatura de outra função',tipo:'warn'});return;}
   { const tv=travasDoRegistro(r,r.campos||{},f,true); if(tv.length){await avisarTravas(tv);return;} }
-  if(!regLancado(r)||(!r.foto_ficha&&!formSemPapel(r.formulario_cod))){
-    await uiAlerta('A assinatura no sistema libera depois que a ficha foi <strong>digitada</strong> e a <strong>foto da ficha</strong> anexada.',{titulo:'Ainda não',tipo:'warn'});return;}
+  const exigeFoto=concluiComAnexo(r.formulario_cod)&&!formSemPapel(r.formulario_cod);
+  if(!regLancado(r)||(exigeFoto&&!r.foto_ficha)){
+    await uiAlerta(`A assinatura libera depois que a ficha foi <strong>digitada</strong>${exigeFoto?' e a <strong>foto da ficha</strong> anexada':''}.`,{titulo:'Ainda não',tipo:'warn'});return;}
   const tv=_travas.find(t=>t.codigo==='sem_designacao');
   if(tv?.ativa&&a.funcao){
     const ok=_desig.some(d=>d.ativo&&d.funcao_cod===a.funcao&&(!d.pop_cod||d.pop_cod===r.pop_cod)&&
@@ -2242,19 +2245,30 @@ async function assinar(regId,assId){
         <div style="margin-top:7px;font-size:11.5px;color:#64748b;">Cadastre a designação em <strong>👤 Designações de função</strong>.</div>
         <div style="margin-top:5px;" class="sys">SYS-036</div>`,{titulo:'Sem designação',tipo:'dang'});return;}
   }
-  const img=await padAssinatura({titulo:'Assinar como '+a.label+' — '+r.numero,quem:u.nome||u.email,funcao:nomeFuncao(a.funcao)});
-  if(!img)return;
+  const papel=tipo==='papel';
+  let img=null, nomeAss=u.nome||u.email;
+  if(papel){
+    // nome de quem assinou na ficha: o digitado em "Assinou no papel" ou o próprio usuário
+    nomeAss=(document.getElementById('rf-pap-'+assId)?.value||'').trim()||(r.assinaturas_papel||{})[assId]||nomeAss;
+    const ok=await uiConfirma(`Registrar que <strong>${esc(nomeAss)}</strong> assinou <strong>no papel</strong> como ${esc(a.label)}?`,{titulo:'Assinatura no papel',ok:'Registrar'});
+    if(!ok)return;
+  }else{
+    img=await padAssinatura({titulo:'Assinar como '+a.label+' — '+r.numero,quem:u.nome||u.email,funcao:nomeFuncao(a.funcao)});
+    if(!img)return;
+  }
   const novas=[...(r.assinaturas||[]).filter(x=>x.id!==assId),
-    {id:assId,label:a.label,funcao:a.funcao,nome:u.nome||u.email,perfil:u.perfil||null,em:new Date().toISOString(),img}];
+    {id:assId,label:a.label,funcao:a.funcao,nome:nomeAss,perfil:u.perfil||null,em:new Date().toISOString(),tipo:papel?'papel':'sistema',
+     ...(papel?{registrado_por:u.nome||u.email}:{img})}];
   // conclui quando a cadeia inteira (executante → encarregado → qualidade…) assinou no sistema
   const cadeia=(f?.assinaturas||[]).map(x=>x.id);
   const todas=cadeia.every(id=>novas.some(x=>x.id===id));
   const patch={assinaturas:novas,atualizado_em:new Date().toISOString()};
-  if(todas&&(r.foto_ficha||formSemPapel(r.formulario_cod))&&regLancado(r)){patch.status='concluido';patch.concluido_em=new Date().toISOString();}
+  if(papel)patch.assinaturas_papel={...(r.assinaturas_papel||{}),[assId]:nomeAss};
+  if(todas&&(!exigeFoto||r.foto_ficha)&&regLancado(r)){patch.status='concluido';patch.concluido_em=new Date().toISOString();}
   const res=await db(_supabase.from('bpf_registros').update(patch).eq('id',regId),'assinar');
   if(res.error)return;
   Object.assign(r,patch);
-  await trilha(regId,r.numero,'assinado',a.label,null,u.nome||u.email,'Assinatura de próprio punho (tela)');
+  await trilha(regId,r.numero,'assinado',a.label,null,nomeAss,papel?'Assinatura no papel — registrada por '+(u.nome||u.email):'Assinatura de próprio punho (tela)');
   if(patch.status==='concluido')await trilha(regId,r.numero,'concluido',null,null,null,'Todas as assinaturas obrigatórias coletadas');
   toast(patch.status==='concluido'?`Assinado. ${r.numero} concluído.`:'Assinado.','success');
   const estavaNoFluxo=!document.getElementById('m-reg').classList.contains('hidden');
@@ -2334,7 +2348,7 @@ async function imprimirRegistro(id){
         ${(f?.assinaturas||[]).map(a=>{const fe=(r.assinaturas||[]).find(x=>x.id===a.id);
           return `<tr><td style="padding:5px 6px;border-bottom:1px solid #eee;"><strong>${esc(a.label)}</strong><br><span style="color:#64748b;">${esc(nomeFuncao(a.funcao))}</span></td>
             <td style="padding:5px 6px;border-bottom:1px solid #eee;">${esc((r.assinaturas_papel||{})[a.id]||'—')}</td>
-            <td style="padding:5px 6px;border-bottom:1px solid #eee;">${fe?`${fe.img?`<img src="${fe.img}" style="height:44px;display:block;">`:''}${esc(fe.nome)} em ${fmtDH(fe.em)}`:'<em style="color:#94a3b8;">pendente</em>'}</td></tr>`;}).join('')||''}
+            <td style="padding:5px 6px;border-bottom:1px solid #eee;">${fe?`${fe.img?`<img src="${fe.img}" style="height:44px;display:block;">`:''}${fe.tipo==='papel'?'Assinado no papel — ':''}${esc(fe.nome)} em ${fmtDH(fe.em)}${fe.tipo==='papel'&&fe.registrado_por?' (registrado por '+esc(fe.registrado_por)+')':''}`:'<em style="color:#94a3b8;">pendente</em>'}</td></tr>`;}).join('')||''}
         </table>
       </div>
       ${fotoHtml}
@@ -2377,7 +2391,8 @@ function podeAssinar(pend){
 }
 function renderAssinaturas(){
   cab('BPF / SGQ','Assinaturas pendentes','');
-  const todas=pendenciasAssinatura();
+  // quem não é Qualidade só vê as assinaturas da própria função
+  const todas=pendenciasAssinatura().filter(p=>!meusPops()||assinaFuncao(p.reg,p.ass));
   const minhas=todas.filter(podeAssinar);
   const outras=todas.filter(p=>!podeAssinar(p));
   const u=getUser();
@@ -3229,6 +3244,7 @@ function renderDocs(){
   const fAt=(filtros.find(f=>f[0]===_docFiltro)||filtros[1])[2];
   const base=_docs.filter(casa);
   const l=base.filter(fAt).sort((a,b)=>(ord[a.tipo]-ord[b.tipo])||a.codigo.localeCompare(b.codigo,'pt',{numeric:true}));
+  const comPer=l.some(d=>d.tipo==='reg');          // coluna só quando a lista tem registros
   const linha=d=>{
     const sit=situacaoDoc(d);const nh=revsDe(d.codigo).length;
     const sub=d.tipo==='pop'
@@ -3240,6 +3256,7 @@ function renderDocs(){
       <td class="bx-c"><b>${esc(d.revisao||'—')}</b></td>
       <td><span class="bx-tg ${sit.cls}">${sit.t}</span></td>
       <td class="bx-mu">${fmtD(dataVersao(d))}</td>
+      ${comPer?`<td class="bx-mu">${d.tipo==='reg'?esc(cap((_forms.find(f=>f.codigo===d.codigo)||{}).periodicidade||'—')):'—'}</td>`:''}
       <td class="bx-acoes">
         ${ehFicha(d)?`<button class="bx-ib" title="Ver a ficha em branco" onclick="verFichaDoc('${d.id}')">👁️</button><button class="bx-ib" title="Imprimir a ficha em branco" onclick="imprimirFicha('${esc(d.codigo)}')">🖨️</button>`
           :ehInstr(d)?`<button class="bx-ib" title="Ver a instrução" onclick="verInstrucaoDoc('${d.id}')">👁️</button><button class="bx-ib" title="Imprimir a instrução" onclick="imprimirInstrucao('${d.id}')">🖨️</button>`
@@ -3258,7 +3275,7 @@ function renderDocs(){
       <div class="bx-chips">${filtros.map(([k,t,fn])=>`<button class="bx-chip${_docFiltro===k?' on':''}" onclick="filtrarDocs('${k}')">${t}<b>${base.filter(fn).length}</b></button>`).join('')}</div>
     </div>
     <div id="doc-lista">${l.length?`<div class="tbl-wrap"><table class="tbl bx-tbl"><thead><tr>
-      <th style="width:120px;">Código</th><th>Documento</th><th style="width:60px;text-align:center;">Rev.</th><th style="width:170px;">Situação</th><th style="width:105px;">Versão de</th><th style="width:340px;text-align:right;">Ações</th>
+      <th style="width:120px;">Código</th><th>Documento</th><th style="width:60px;text-align:center;">Rev.</th><th style="width:170px;">Situação</th><th style="width:105px;">Versão de</th>${comPer?'<th style="width:120px;">Periodicidade</th>':''}<th style="width:340px;text-align:right;">Ações</th>
       </tr></thead><tbody>${l.map(linha).join('')}</tbody></table></div>`
       :'<div class="empty"><div class="ic">🔍</div><h3>Nenhum documento</h3><p>Nada com esse filtro ou busca.</p></div>'}</div>`;
 }
@@ -3714,7 +3731,7 @@ function abrirDoc(id,foco){
     const f=_forms.find(x=>x.codigo===d.codigo);
     const regs=_regs.filter(r=>r.formulario_cod===d.codigo);
     h+=`<div class="bx-card"><div class="bx-ttl">📝 Registros lançados <span class="bx-mu">${regs.length}</span>
-        ${f?`<button class="bx-btn bx-btn-pri" style="min-height:38px;" onclick="novaFichaManual('${esc(d.codigo)}')">＋ Gerar ficha</button>`:''}</div>
+        ${f?`<button class="bx-btn bx-btn-pri" data-perm="bpf:edit" style="min-height:38px;" onclick="novaFichaManual('${esc(d.codigo)}')">＋ Gerar nova ficha</button>`:''}</div>
       ${f?`<div class="bx-mu" style="font-size:12.5px;margin-bottom:8px;">${esc(cap(f.periodicidade||'—'))}${f.exige_anexo?' · anexo obrigatório':''}</div>`:''}
       ${regs.length?quadroRegsHtml(regs,''):'<div class="bx-mu" style="font-size:12.5px;">Nenhum registro ainda.</div>'}</div>`;
   }
@@ -3934,16 +3951,21 @@ function aplicarEscopo(){
 // Camada 3b: navegacao. Filtrar o dado nao basta - o botao continuava na
 // barra e abria a tela. Estas secoes cruzam dado de todos os setores (auditoria,
 // canal de denuncia anonima, configuracao) e nao sao de quem so coleta ficha.
-const SECOES_LEITURA_TOTAL=['auditorias','canal','documentos','dossie','gatilhos','travas'];
+// Quem não é Qualidade/gestão (serviços gerais, almoxarife…) só lança e assina
+// a própria ficha: NCs, treinamentos, painel e configuração também saem.
+const SECOES_LEITURA_TOTAL=['auditorias','canal','documentos','dossie','gatilhos','travas','ncs','treinamentos','painel','fichas'];
 const SECAO_NOME={auditorias:'Auditorias',canal:'Canais de manifestacao',documentos:'Documentos',
-                  dossie:'Dossie de auditoria',gatilhos:'Gatilhos',travas:'Travas'};
+                  dossie:'Dossie de auditoria',gatilhos:'Gatilhos',travas:'Travas',ncs:'NCs',
+                  treinamentos:'Treinamentos',painel:'Painel',fichas:'Fichas em branco'};
 function aplicarEscopoNav(){
   const restrito=!!meusPops();
-  SECOES_LEITURA_TOTAL.forEach(sec=>{
+  SECOES_LEITURA_TOTAL.concat(['config']).forEach(sec=>{
     const b=document.getElementById('tab-'+sec);
     if(b) b.style.display=restrito?'none':'';
   });
 }
+// tela de "Início": quem não é Qualidade não tem Painel
+function secaoInicio(){ return (_temFila||meusPops())?'fila':'painel'; }
 // Alguem chegou pela URL, por um KPI do painel ou pelo historico do navegador.
 function telaSemAcesso(sec){
   _sec='fila';
