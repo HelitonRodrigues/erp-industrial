@@ -1261,6 +1261,7 @@ function normalizarLeitura(txt){
   let t=String(txt||'').trim();
   const u=t.match(/[?&]pallet=([^&\s]+)/i);
   if(u){try{t=decodeURIComponent(u[1]);}catch(e){t=u[1];}}
+  else{ const r=t.match(/\/r\/([A-Za-z0-9-]+)/i); if(r) t=r[1]; }   /* QR da central de rótulos: HTTPS://…/R/CODIGO */
   return t.trim();
 }
 /* forma canônica para comparar: SEM traços/espaços e em MAIÚSCULAS.
@@ -1302,6 +1303,9 @@ function acharPallet(txt){
       || _pallets.find(x=>chaveCodigo(x.codigo)===k)
       || _pallets.find(x=>chaveCodigo(palCodigo(x))===k);
   if(p)return p;
+  /* rótulo da central (096): LIN-AAAAMMDD-XXX-P000 → só vale o código exato.
+     Nunca "chuta" outro pallet do mesmo dia/número (seria de outro produto). */
+  if(/^[A-Z0-9]{3}-?20\d{6}-?[0-9A-F]{3}-?P\d{3}$/i.test(bruto)){_diagLeitura={motivo:'sem_pallet'};return null;}
 
   /* 2) decompõe o rótulo e afunila */
   const d=decomporCodigo(bruto);
@@ -3333,6 +3337,26 @@ function confirmarLido(){
   const el=document.getElementById('scan-input');if(el){el.value='';el.focus();}
 }
 
+/* CENTRAL DE RÓTULOS (096): rótulo impresso ainda não é pallet. Se o código não
+   está na lista desta tela: 1) busca pallets criados nos últimos dias; 2) pede ao
+   banco para transformar o rótulo em pallet (nasce "a conferir"). Nunca trava. */
+let _buscouNovo=false;
+async function buscarPalletNovo(txt){
+  try{
+    const desde=new Date(Date.now()-3*864e5).toISOString();
+    const r=await _supabase.from('producao_pallets').select('*,producao(op_numero,encarregado,produtos_op,data)')
+      .gte('created_at',desde).order('created_at',{ascending:false}).limit(1000);
+    if(!r.error){ const ids=new Set(_pallets.map(x=>x.id));
+      (r.data||[]).forEach(p=>{ if(!ids.has(p.id)&&!ehGranel(p.produto)){ _pallets.push(p); ids.add(p.id); } }); }
+    if(acharPallet(normalizarLeitura(txt))) return;
+    const t=await _supabase.rpc('totem_pallet_por_rotulo',{p_cod:normalizarLeitura(txt)});
+    if(!t.error&&t.data&&t.data.length){ const ids=new Set(_pallets.map(x=>x.id)); t.data.forEach(p=>{ if(!ids.has(p.id)) _pallets.push(p); }); }
+  }catch(e){ console.warn('[pallet novo]',e); }
+}
+function avisoAConferir(txt){
+  const p=acharPallet(normalizarLeitura(txt));
+  if(p&&p.a_conferir) fb('⚠️ Pallet aceito, mas ainda sem OP — vai para a conferência do escritório.','warn');
+}
 /* devolve 'ok' | 'dup' | 'err' | 'block' | 'conf' (aguardando confirmação no modal) */
 function processarLeitura(txt){
   const l=linhaObj(_linhaAtiva);
@@ -3340,6 +3364,13 @@ function processarLeitura(txt){
   const bruto=codigoDigitavel(txt);
   const p=acharPallet(txt);
   if(_modoDoa)return desktopDoador(p,bruto,l);
+  if(!p&&!_buscouNovo){
+    fb('🔎 Procurando o pallet…','info');
+    buscarPalletNovo(txt).then(()=>{ _buscouNovo=true; let r; try{ r=processarLeitura(txt); }finally{ _buscouNovo=false; }
+      beep(r); if(r==='ok') avisoAConferir(txt);
+      const i=document.getElementById('scan-input'); if(i&&(r==='ok'||r==='dup')){ i.value=''; i.focus(); } });
+    return 'conf';
+  }
   if(!p){
     fb(`❌ Pallet <span class="mono">${esc(bruto)}</span> não existe no sistema.`,'err');
     mostrarBloqueioTexto('Pallet não encontrado',bruto,'Este código não corresponde a nenhum pallet cadastrado.',causasNaoEncontrado());
@@ -3827,19 +3858,38 @@ function iniciarCam(){
     camEstado('erro','Leitor de QR indisponível','A biblioteca de leitura não carregou (sem internet). Digite o código do pallet no campo acima.');
     fb('Leitor de QR indisponível. Use a digitação do código.','warn');return;
   }
-  const cfg={fps:10,qrbox:{width:230,height:230}};
-  const onOk=()=>{_camOn=true;camEstado('on');fb('Câmera ligada — encaixe o QR do pallet no quadro.','info');};
+  /* (nov/2026) Leitura pela IMAGEM INTEIRA em alta resolução, com o leitor nativo do
+     celular quando existe (BarcodeDetector — o mesmo da câmera do Android). Para quem
+     opera, a tela continua igual: o quadradinho é só desenho (camMira). Lê QR pequeno
+     e através de várias camadas de plástico. Se o aparelho não aceitar alta
+     resolução, volta para a configuração antiga automaticamente. */
+  const vc=(base)=>Object.assign({width:{ideal:1920},height:{ideal:1080},advanced:[{focusMode:'continuous'}]},base);
+  const cfgHD=(base)=>({fps:12,disableFlip:true,videoConstraints:vc(base)});
+  const cfgOld={fps:10,qrbox:{width:230,height:230}};
+  const onOk=()=>{_camOn=true;camEstado('on');camMira();fb('Câmera ligada — encaixe o QR do pallet no quadro.','info');};
   camEstado('ligando');
-  try{_scanner=new Html5Qrcode('qr-reader-cli');}catch(e){camErro(e);return;}
+  try{
+    const fmt=(typeof Html5QrcodeSupportedFormats!=='undefined')?{formatsToSupport:[Html5QrcodeSupportedFormats.QR_CODE]}:{};
+    _scanner=new Html5Qrcode('qr-reader-cli',Object.assign({verbose:false,experimentalFeatures:{useBarCodeDetectorIfSupported:true}},fmt));
+  }catch(e){camErro(e);return;}
   Html5Qrcode.getCameras().then(cams=>{
     if(cams&&cams.length){
       const back=cams.find(c=>/back|rear|traseir|environment/i.test(c.label||''))||cams[cams.length-1];
-      _scanner.start(back.id,cfg,t=>scanCam(t),()=>{}).then(onOk)
-        .catch(()=>_scanner.start({facingMode:'environment'},cfg,t=>scanCam(t),()=>{}).then(onOk).catch(camErro));
+      _scanner.start(back.id,cfgHD({deviceId:{exact:back.id}}),t=>scanCam(t),()=>{}).then(onOk)
+        .catch(()=>_scanner.start({facingMode:'environment'},cfgHD({facingMode:'environment'}),t=>scanCam(t),()=>{}).then(onOk)
+        .catch(()=>_scanner.start({facingMode:'environment'},cfgOld,t=>scanCam(t),()=>{}).then(onOk).catch(camErro)));
     }else{
       _scanner.start({facingMode:'environment'},cfg,t=>scanCam(t),()=>{}).then(onOk).catch(camErro);
     }
   }).catch(camErro);
+}
+/* quadradinho de mira (só visual — a leitura usa a imagem inteira) */
+function camMira(){
+  const box=document.getElementById('qr-reader-cli'); if(!box||box.querySelector('.cam-mira')) return;
+  if(getComputedStyle(box).position==='static') box.style.position='relative';
+  const m=document.createElement('div'); m.className='cam-mira';
+  m.style.cssText='position:absolute;left:50%;top:50%;width:min(230px,60%);aspect-ratio:1;transform:translate(-50%,-50%);border:3px solid rgba(255,255,255,.95);border-radius:14px;box-shadow:0 0 0 9999px rgba(0,0,0,.28);pointer-events:none;z-index:5;';
+  box.appendChild(m);
 }
 function camErro(e){
   const msg=''+((e&&e.message)?e.message:e);
@@ -5120,6 +5170,9 @@ function patioLeitura(txt){
   const bruto=codigoDigitavel(txt);
   const p=acharPallet(txt);
   if(_modoDoa)return patioDoador(p,bruto);
+  if(!p&&!_buscouNovo){ _patioOcupado=true;
+    buscarPalletNovo(txt).then(()=>{ _buscouNovo=true; _patioOcupado=false; let r; try{ r=patioLeitura(txt); }finally{ _buscouNovo=false; } beep(r); });
+    return 'conf'; }
   if(!p){patioFlash('err','❓','PALLET NÃO ENCONTRADO',`Código lido: <b class="mono">${esc(bruto)}</b><br>Tente de novo ou toque em DIGITAR.`,{botao:'ENTENDI'});return 'err';}
   if(_allocSet.has(p.id)){patioFlash('warn','🔁','ESTE PALLET JÁ FOI BIPADO',`${esc(codCurto(p))} já está no caminhão.`);return 'dup';}
   if(_doa[p.id]){patioFlash('warn','📦','ESTE É O PALLET ABERTO',`Você tirou sacos do ${esc(codCurto(p))}.<br>Ele não vai no caminhão.`,{botao:'ENTENDI'});return 'dup';}

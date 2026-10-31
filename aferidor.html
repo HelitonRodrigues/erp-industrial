@@ -1001,6 +1001,17 @@ function renderRotuloPrev() {
   document.getElementById('rotulo-prev').innerHTML = html;
 }
 
+// CENTRAL DE RÓTULOS (096): OP cujos pallets vieram da central já tem rótulo e
+// código próprios. Imprimir ou "registrar estoque" por aqui geraria números e
+// códigos diferentes do que está colado no pallet.
+async function _opTemRotuloCentral(op) {
+  try {
+    const { count } = await _supabase.from('producao_pallets').select('id', { count: 'exact', head: true })
+      .eq('lancamento_id', op.id).not('rotulo_id', 'is', null);
+    return (count || 0) > 0;
+  } catch (e) { return false; }
+}
+
 // Garante que cada rótulo impresso exista como pallet no estoque (com código),
 // reconciliando com os pallets já criados na produção (por lancamento_id + numero).
 async function salvarPalletsRotulo(op, qtdFallback) {
@@ -1047,6 +1058,7 @@ async function salvarPalletsRotulo(op, qtdFallback) {
 
 async function imprimirRotulo() {
   if (!_rotuloOp) return;
+  if (await _opTemRotuloCentral(_rotuloOp)) { toast('Os rótulos desta OP saíram da Central de rótulos. Para reimprimir, use a Central → Reimprimir rótulo perdido.', 'warning'); return; }
   // Apenas imprime. O estoque é controlado pela quantidade lançada na OP (Produção),
   // que reconcilia os pallets automaticamente ao salvar.
   const qtd = Math.max(1, parseInt(document.getElementById('rot-qtd').value) || 1);
@@ -1082,6 +1094,7 @@ async function imprimirRotulo() {
 
 async function registrarPalletsEstoque() {
   if (!_rotuloOp) { toast('Selecione uma OP.', 'warning'); return; }
+  if (await _opTemRotuloCentral(_rotuloOp)) { toast('Os pallets desta OP vieram da Central de rótulos e já estão no estoque — não precisa registrar aqui.', 'warning'); return; }
   const qtd = Math.max(1, parseInt(document.getElementById('rot-qtd').value) || 1);
   try {
     // 1) cria/atualiza TODOS os pallets da OP (todos os produtos), cada um com o seu produto

@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Central de rótulos</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/supabase.js"></script>
+<script src="js/qrcode.min.js"></script>
+<style>
+/* Central de rótulos — ver comentário no script */
+:root{--navy:#042D4D;--lime:#C9FF64;--ink:#032036;--bg:#EEF2F6;--surface:#fff;--line:#D5DEE7;--muted:#5B6B7C;
+  --ok:#16A34A;--ok-soft:#DCFCE7;--warn:#B45309;--warn-soft:#FEF3C7;--err:#B91C1C;--err-soft:#FEE2E2;--sel-ink:#052e16;}
+*{box-sizing:border-box;margin:0;padding:0;}
+html,body{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;overscroll-behavior:none;touch-action:manipulation;}
+body{font-family:'Plus Jakarta Sans',system-ui,sans-serif;background:var(--bg);color:var(--ink);}
+button{font:inherit;color:inherit;cursor:pointer;border:0;background:none;}
+button:focus-visible{outline:4px solid #2563EB;outline-offset:3px;}
+button:disabled{opacity:.45;cursor:default;}
+.top{position:sticky;top:0;z-index:5;background:var(--navy);color:#fff;display:flex;align-items:center;gap:16px;padding:14px 20px;}
+.brand{font-weight:800;font-size:20px;}
+.brand small{display:block;font-size:12.5px;font-weight:600;color:rgba(255,255,255,.65);}
+.est{display:flex;gap:12px;font-size:12.5px;font-weight:700;color:rgba(255,255,255,.85);}
+.est i{display:inline-block;width:10px;height:10px;border-radius:50%;background:#94a3b8;margin-right:5px;vertical-align:middle;}
+.est i.on{background:#22c55e;} .est i.off{background:#ef4444;}
+.clock{margin-left:auto;text-align:right;}
+.clock b{display:block;font-size:30px;line-height:1;color:var(--lime);font-variant-numeric:tabular-nums;}
+.clock span{font-size:12.5px;color:rgba(255,255,255,.75);}
+.wrap{max-width:1000px;margin:0 auto;padding:18px 16px 40px;}
+.trail{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px;}
+.chip{display:flex;align-items:center;gap:8px;background:var(--surface);border:2px solid var(--line);border-radius:999px;padding:8px 14px;font-weight:700;font-size:15px;max-width:100%;}
+.chip span.t{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.chip.done{border-color:var(--ok);} .chip.now{border-color:var(--navy);background:var(--navy);color:#fff;}
+.chip .n{width:24px;height:24px;flex-shrink:0;border-radius:50%;display:grid;place-items:center;font-size:13px;background:var(--line);}
+.chip.done .n{background:var(--ok);color:#fff;} .chip.now .n{background:var(--lime);color:var(--navy);}
+h1.q{font-size:clamp(26px,4.6vw,38px);font-weight:800;letter-spacing:-.02em;margin:6px 0 16px;line-height:1.1;}
+.hint{color:var(--muted);font-size:15px;margin:-8px 0 18px;}
+.grp{font-size:17px;font-weight:800;margin:22px 0 10px;display:flex;align-items:center;gap:10px;}
+.grp i{width:16px;height:16px;border-radius:4px;background:var(--c);display:inline-block;}
+.grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));}
+.big{background:var(--surface);border:3px solid var(--line);border-radius:18px;min-height:100px;padding:16px 18px;text-align:left;font-size:22px;font-weight:800;display:flex;flex-direction:column;justify-content:center;gap:4px;line-height:1.15;}
+.big:active{transform:scale(.98);}
+.big small{font-size:14px;font-weight:600;color:var(--muted);}
+.big.sel{border-color:var(--ok);background:var(--ok-soft);color:var(--sel-ink);}
+.prod{position:relative;overflow:hidden;padding-left:32px;font-size:20px;}
+.prod::before{content:"";position:absolute;left:0;top:0;bottom:0;width:16px;background:var(--c);}
+.qty{display:flex;align-items:center;justify-content:center;gap:22px;background:var(--surface);border:3px solid var(--line);border-radius:22px;padding:24px;max-width:520px;}
+.qty button{width:96px;height:96px;border-radius:22px;background:var(--navy);color:#fff;font-size:52px;font-weight:700;line-height:1;}
+.qty button:disabled{opacity:.3;}
+.qty output{min-width:120px;text-align:center;font-size:80px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1;}
+.qty-lbl{max-width:520px;text-align:center;color:var(--muted);font-weight:600;margin-top:10px;}
+.actions{display:flex;gap:12px;margin-top:24px;flex-wrap:wrap;}
+.btn{border-radius:16px;padding:20px 28px;font-size:21px;font-weight:800;min-height:72px;}
+.btn-go{background:var(--lime);color:var(--navy);flex:1;min-width:240px;box-shadow:inset 0 -4px 0 rgba(0,0,0,.15);}
+.btn-back{background:var(--surface);border:3px solid var(--line);}
+.sum{background:var(--surface);border:3px solid var(--line);border-radius:22px;overflow:hidden;}
+.sum .band{height:16px;background:var(--c);}
+.sum dl{display:grid;grid-template-columns:auto 1fr;gap:12px 22px;padding:22px;font-size:19px;}
+.sum dt{color:var(--muted);font-weight:600;} .sum dd{font-weight:800;}
+.okmsg{display:flex;align-items:center;gap:16px;border:3px solid var(--ok);background:var(--ok-soft);color:var(--sel-ink);border-radius:20px;padding:18px 20px;font-size:22px;font-weight:800;margin-bottom:12px;}
+.okmsg.warn{border-color:var(--warn);background:var(--warn-soft);color:var(--ink);}
+.okmsg.err{border-color:var(--err);background:var(--err-soft);color:var(--ink);}
+.okmsg .ic{width:52px;height:52px;flex-shrink:0;border-radius:50%;background:var(--ok);color:#fff;display:grid;place-items:center;font-size:28px;}
+.okmsg.warn .ic{background:var(--warn);} .okmsg.err .ic{background:var(--err);}
+.okmsg small{display:block;font-size:15px;font-weight:600;}
+.jobs{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;}
+.job{background:var(--surface);border:2px solid var(--line);border-radius:12px;padding:10px 14px;font-weight:700;font-size:15px;}
+.job b.impresso{color:var(--ok);} .job b.erro{color:var(--err);} .job b.pendente,.job b.imprimindo{color:var(--warn);}
+.thumbs{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;}
+.thumbs button{border:2px solid var(--line);background:var(--surface);border-radius:12px;padding:10px 14px;font-weight:800;font-size:16px;}
+.thumbs button.sel{border-color:var(--ok);background:var(--ok-soft);color:var(--sel-ink);}
+.paper{background:#cfd8e2;border-radius:14px;padding:12px;}
+.fit{position:relative;overflow:hidden;width:100%;background:#fff;box-shadow:0 2px 10px rgba(0,0,0,.18);}
+.fit > .in{position:absolute;left:0;top:0;transform-origin:top left;}
+.sec-title{font-size:22px;font-weight:800;margin:26px 0 6px;}
+.emis{background:var(--surface);border:2px solid var(--line);border-radius:16px;padding:14px 16px;margin-top:10px;border-left:12px solid var(--c);}
+.emis h3{font-size:18px;font-weight:800;} .emis p{color:var(--muted);font-size:14px;margin:2px 0 10px;}
+.pals{display:flex;flex-wrap:wrap;gap:8px;}
+.pals button{border:2px solid var(--ok);background:var(--ok-soft);color:var(--sel-ink);border-radius:10px;padding:10px 14px;font-weight:800;font-size:15px;}
+.empty{background:var(--surface);border:2px dashed var(--line);border-radius:16px;padding:22px;color:var(--muted);font-weight:600;margin-top:10px;}
+.foot{margin-top:30px;}
+.hero{width:100%;background:var(--lime);color:var(--navy);border-radius:24px;padding:34px 28px;font-size:clamp(34px,7vw,56px);font-weight:800;text-align:left;line-height:1.05;box-shadow:inset 0 -6px 0 rgba(0,0,0,.15);}
+.hero span{display:block;font-size:18px;font-weight:700;margin-bottom:8px;opacity:.8;}
+.virada{width:100%;display:block;text-align:left;background:var(--warn-soft);border:3px solid var(--warn);border-radius:20px;padding:18px 20px;margin-bottom:14px;font-size:18px;font-weight:700;line-height:1.35;}
+.virada b{display:block;font-size:26px;font-weight:800;}
+.runs{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));margin-top:8px;}
+.run{background:var(--surface);border:2px solid var(--line);border-left:12px solid var(--c,var(--line));border-radius:16px;padding:14px 16px;display:flex;flex-direction:column;gap:4px;}
+.run b{font-size:14px;color:var(--muted);} .run strong{font-size:19px;font-weight:800;line-height:1.2;} .run span{font-size:14px;color:var(--muted);font-weight:600;}
+.load{padding:60px 20px;text-align:center;color:var(--muted);font-size:18px;font-weight:700;}
+@media (max-width:560px){.big{min-height:90px;font-size:19px;}.qty button{width:78px;height:78px;font-size:44px;}.qty output{font-size:64px;min-width:90px;}.est{display:none;}}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="brand">Central de rótulos<small>Silicate</small></div>
+  <div class="est" id="est"></div>
+  <div class="clock"><b id="hora">--:--</b><span id="data">—</span></div>
+</header>
+<main class="wrap" id="app"><div class="load">Carregando…</div></main>
+
+<script>
+/* ══════════════════════════════════════════════════════════════════════════
+   CENTRAL DE RÓTULOS (nov/2026) — tablet na sala das impressoras.
+   • Imprimir: linha → produto → quantidade → confirma. A RPC totem_emitir numera
+     (por linha + produto + dia; continua quando o produto volta) e grava em
+     rotulos_impressos. RÓTULO IMPRESSO NÃO É ESTOQUE.
+   • O pallet nasce quando a OP confirma (trigger → totem_alocar, na ordem dos
+     turnos 3º→1º→2º) ou quando o carregamento lê o QR (fica "a conferir").
+   • Rótulo → fila "laser" · amostra → fila "dymo" (25 kg e Big Bag: só o nº 01).
+     Quem imprime é a estacao-impressao.html do PC (?destino=laser e a da DYMO).
+   • QR de 60 mm com link curto em MAIÚSCULAS (…/R/CODIGO): modo alfanumérico,
+     33×33 módulos — atravessa várias camadas de plástico.
+   Migration: sql/migrations/096_central_rotulos.sql
+   ══════════════════════════════════════════════════════════════════════════ */
+const pad=(n,k=2)=>String(n).padStart(k,'0');
+const fData=d=>pad(d.getDate())+'/'+pad(d.getMonth()+1)+'/'+d.getFullYear();
+const fHora=d=>pad(d.getHours())+':'+pad(d.getMinutes());
+const iso=d=>d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());
+const fD=s=>{if(!s)return '—';const[y,m,d]=String(s).slice(0,10).split('-');return d+'/'+m+'/'+y;};
+const esc_=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const norm=s=>String(s||'').toLowerCase().replace(/\s/g,'');
+const hojeIso=()=>iso(new Date()), ontemIso=()=>iso(new Date(Date.now()-864e5));
+const usuario=()=>{try{return (JSON.parse(sessionStorage.getItem('erp_user')||localStorage.getItem('erp_user')||'{}').nome)||'Central de rótulos';}catch(e){return 'Central de rótulos';}};
+const lsGet=(k,d)=>{try{const v=localStorage.getItem(k);return v==null?d:v;}catch(e){return d;}};
+const lsSet=(k,v)=>{try{localStorage.setItem(k,v);}catch(e){}};
+
+/* ═══ regras (iguais ao aferidor) ═══ */
+const isFicha=lp=>{lp=norm(lp);return lp.includes('25kg')||lp.includes('bag')||lp.includes('granel')||lp.includes('bigbag');};
+const ehBag=p=>/big\s*-?\s*bag|\bbags?\b/i.test((p.nome||'')+' '+(p.linhaProduto||''));
+const diasValidade=p=>isFicha(p.linhaProduto)?1095:365;   // 25 kg / Big Bag = 3 anos; demais = 1 ano
+function corCodigo(nome){
+  const s=String(nome||'').replace(/\bcaulim\b/gi,'').replace(/\b25\s*kg\b/gi,'').replace(/\bbig\s*bag\b/gi,'').replace(/\bbigbag\b/gi,'')
+    .replace(/\bbag\b/gi,'').replace(/\bgranel\b/gi,'').replace(/[-–—:|/,]+/g,' ').trim().replace(/\s+/g,' ');
+  const m=/^([A-Za-zÀ-ÿ]+)\s*(\d+)?$/.exec(s); if(!m) return null;
+  return m[1].charAt(0).toUpperCase()+(m[2]||'');
+}
+// código da linha no rótulo: Linha 2 → L02, Linha 3 → L03, Emitec → EMI, Longa Vida → LVD
+function codLinha(nome){
+  const fixos={'emitec':'EMI','longavida':'LVD'}; const n=norm(nome);
+  if(fixos[n]) return fixos[n];
+  const m=/linha\s*(\d+)/i.exec(nome||''); if(m) return 'L'+pad(m[1]);
+  return (String(nome||'').replace(/[^A-Za-z0-9]/g,'').substring(0,3).toUpperCase()||'LIN').padEnd(3,'X');
+}
+function lote(p,linha,dia){ const cor=corCodigo(p.nome), d=dia.replace(/-/g,''); return (isFicha(p.linhaProduto)&&cor)?d+cor:codLinha(linha)+'-'+d; }
+const prefixo=(linha,dia,p)=>`${codLinha(linha)}-${dia.replace(/-/g,'')}-${p.tag}-`;
+function turnoDe(d){const m=d.getHours()*60+d.getMinutes();return m<440?'3º - Madrugada':(m<940?'1º - Manhã':'2º - Noite');}
+const COR={'concentrado10kg':'#1D4ED8','linha20kg':'#C2410C','linha25kg':'#6D28D9','impermeabilizante':'#0E7490','bag':'#7C4A12'};
+const corDe=lp=>COR[norm(lp)]||'#475569';
+const nomeSub=lp=>({'bag':'Big Bag','linha20kg':'Linha 20 kg','linha25kg':'Linha 25 kg','concentrado10kg':'Concentrado 10 kg'}[norm(lp)]||lp);
+const un=(p,n)=>ehBag(p)?(n===1?'bag':'bags'):(n===1?'pallet':'pallets');
+
+/* ═══ cadastros ═══ */
+let EMP={}, LINHAS=[], PRODUTOS=[], _emHoje=[];
+const prodPorNome=n=>PRODUTOS.find(p=>norm(p.nome)===norm(n))||{nome:n,linhaProduto:'',tag:'XXX'};
+const prodPorId=id=>PRODUTOS.find(p=>p.id===id);
+async function carregarCadastros(){
+  const [e,l,p]=await Promise.all([
+    _supabase.from('empresa_config').select('nome_fantasia,razao_social,cnpj,cidade,uf,logo').limit(1).maybeSingle(),
+    _supabase.from('linhas_producao').select('nome,barracao,produtos,status').eq('status','ativo').order('nome'),
+    _supabase.from('produtos').select('id,nome,linhas,unidade,status').eq('status','ativo').order('nome')]);
+  if(l.error||p.error) throw (l.error||p.error);
+  EMP=e.data||{};
+  PRODUTOS=(p.data||[]).filter(x=>String(x.unidade||'').toLowerCase()!=='toneladas'&&(x.linhas||[]).length)
+    .map(x=>({id:x.id,nome:x.nome,linhaProduto:x.linhas[0],tag:String(x.id).replace(/-/g,'').slice(0,3).toUpperCase()}));
+  LINHAS=(l.data||[]).map(x=>({nome:x.nome,barracao:x.barracao||'',
+    sub:(Array.isArray(x.produtos)?x.produtos:[]).filter(s=>String(s.unidade||'').toLowerCase()!=='toneladas').map(s=>s.nome)}))
+    .filter(x=>x.sub.some(s=>PRODUTOS.some(p=>norm(p.linhaProduto)===norm(s))));
+  if(EMP.logo){ const st=document.createElement('style');
+    st.textContent=`.lg{background:url(${EMP.logo}) center/contain no-repeat;-webkit-print-color-adjust:exact;print-color-adjust:exact;}`; document.head.appendChild(st); }
+}
+async function carregarHoje(){
+  const {data,error}=await _supabase.from('rotulos_emissoes').select('id,dia,linha,produto,numero_ini,numero_fim,criado_em').eq('dia',hojeIso()).order('criado_em');
+  if(error) throw error; _emHoje=data||[];
+}
+const ultimoHoje=(linha,produto)=>_emHoje.filter(e=>e.linha===linha&&e.produto===produto).reduce((m,e)=>Math.max(m,e.numero_fim),0);
+const palDe=r=>({numero:r.numero,codigo:r.codigo,lote:r.lote,validade:r.validade,data:r.dia,linha:r.linha,produto:r.produto});
+
+/* ═══ QR em SVG (igual ao aferidor) ═══ */
+function qrSvg(texto,ladoMaxMm,dpmm){
+  if(typeof QRCode==='undefined'||!QRCode.create) return `<div style="width:${ladoMaxMm}mm;height:${ladoMaxMm}mm;border:0.5mm solid #000;display:flex;align-items:center;justify-content:center;font:700 7pt Arial;">QR NÃO GERADO</div>`;
+  const qr=QRCode.create(texto,{errorCorrectionLevel:'M'}), n=qr.modules.size, d=qr.modules.data, b=4, tot=n+b*2;
+  dpmm=dpmm||8; const dm=Math.max(3,Math.floor((ladoMaxMm*dpmm)/tot)), lado=(tot*dm)/dpmm;
+  let r=''; for(let y=0;y<n;y++){let x=0;while(x<n){if(d[y*n+x]){const x0=x;while(x<n&&d[y*n+x])x++;r+=`<rect x="${x0+b}" y="${y+b}" width="${x-x0}" height="1"/>`;}else x++;}}
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${tot} ${tot}" width="${lado}mm" height="${lado}mm" shape-rendering="crispEdges" style="display:block;"><rect width="${tot}" height="${tot}" fill="#fff"/><g fill="#000">${r}</g></svg>`;
+}
+// link curto em MAIÚSCULAS: o QR usa o modo alfanumérico (menos quadradinhos, maiores)
+const urlRastreio=c=>'HTTPS://ERP-INDUSTRIAL-THETA.VERCEL.APP/R/'+String(c).toUpperCase();
+
+/* ═══ RÓTULOS — layout do aferidor, sem turno/encarregado/equipe/OP ═══ */
+function cabecalhoEmpresa(sub){
+  const logo=EMP.logo?`<div class="lg" style="width:48px;height:48px;"></div>`
+    :`<div style="width:48px;height:48px;border:1px solid #042D4D;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:20px;">🏭</div>`;
+  return `<div style="display:flex;align-items:center;gap:12px;border-bottom:1px solid #042D4D;padding-bottom:10px;margin-bottom:12px;">${logo}
+    <div style="flex:1;"><div style="font-size:15px;font-weight:800;color:#042D4D;line-height:1.2;">${esc_(EMP.nome_fantasia||'ERP Industrial')}</div>
+    ${EMP.razao_social?`<div style="font-size:10px;color:#475569;font-weight:600;margin-top:1px;">${esc_(EMP.razao_social)}</div>`:''}
+    ${EMP.cnpj?`<div style="font-size:9px;color:#64748b;">CNPJ: ${esc_(EMP.cnpj)}</div>`:''}
+    <div style="font-size:11px;font-weight:800;color:#7c3aed;letter-spacing:.5px;margin-top:3px;text-transform:uppercase;">${esc_(sub)}</div></div></div>`;
+}
+function rotuloCompleto(pal,p){
+  const bag=ehBag(p), lp=norm(p.linhaProduto);
+  const pesoLiq=lp.includes('bag')?'1.000 kg':(lp.includes('25kg')?'25 kg/unidade':'');
+  const ficha=`<div style="margin-bottom:12px;border:1px solid #1e293b;border-radius:6px;overflow:hidden;">
+    ${[['COMPOSIÇÃO','SILICATOS DE ALUMÍNIO'],['UMIDADE','MÁXIMO 1%'],['INDICAÇÃO DE USO','CARGA MINERAL'],['MODO DE CONSERVAR','LOCAL VENTILADO E SECO, PROTEGIDO CONTRA PRAGAS URBANAS, ANIMAIS DOMÉSTICOS E CRIANÇAS.'],['CLASSIFICAÇÃO','VEÍCULO MINERAL']].map(([r,v])=>`<div style="display:grid;grid-template-columns:160px 1fr;border-bottom:1px solid #1e293b;"><div style="padding:5px 8px;border-right:1px solid #1e293b;font-size:9px;font-weight:800;color:#1e293b;">${r}</div><div style="padding:5px 8px;font-size:9px;color:#1e293b;text-align:center;">${v}</div></div>`).join('')}
+    <div style="display:grid;grid-template-columns:160px 1fr;"><div style="padding:7px 8px;border-right:1px solid #1e293b;font-size:9px;font-weight:800;color:#1e293b;">PESO LÍQUIDO (Kg)</div><div style="padding:7px 8px;font-size:10px;font-weight:700;color:#1e293b;text-align:center;">${pesoLiq}</div></div></div>`;
+  const dados=[['Linha de Produção',pal.linha],['Data de Fabricação',fD(pal.data)],['Produto',p.nome],['Lote',pal.lote],['Validade',fD(pal.validade)],[bag?'Código do Bag':'Código Pallet',pal.codigo]];
+  return `<div style="width:190mm;min-height:130mm;padding:14mm;box-sizing:border-box;font-family:Arial,sans-serif;background:#fff;color:#000;">
+    ${cabecalhoEmpresa('Controle de Qualidade')}
+    <div style="display:flex;justify-content:flex-end;margin-bottom:8px;"><div style="font-size:22px;font-weight:800;color:#042D4D;">${bag?'Bag':'Pallet'} #${pal.numero}</div></div>
+    ${ficha}
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px;">
+      ${dados.map(([l,v])=>`<div style="padding:7px 10px;border-radius:6px;border:1px solid #cbd5e1;"><div style="font-size:9px;color:#94a3b8;font-weight:700;text-transform:uppercase;letter-spacing:.5px;">${l}</div><div style="font-size:12px;font-weight:700;color:#042D4D;margin-top:2px;">${esc_(v)}</div></div>`).join('')}
+    </div>
+    <div style="border:1px solid #042D4D;border-radius:10px;padding:14px;display:flex;align-items:center;justify-content:center;gap:18px;">
+      <div style="width:60mm;">${qrSvg(urlRastreio(pal.codigo),60,23.6)}</div>
+      <div><div style="font-size:9px;color:#94a3b8;font-weight:700;text-transform:uppercase;margin-bottom:4px;">Rastreabilidade</div>
+      <div style="font-size:13px;font-weight:800;color:#042D4D;font-family:monospace;letter-spacing:1px;">${esc_(pal.codigo)}</div>
+      <div style="font-size:10px;color:#64748b;margin-top:4px;">Escaneie o QR Code para rastrear</div></div>
+    </div></div>`;
+}
+function rotuloSimples(pal,p){
+  const bag=ehBag(p), L='0.25mm solid #000', nomeEmp=String(EMP.razao_social||EMP.nome_fantasia||'ERP INDUSTRIAL').toUpperCase(), prod=p.nome.toUpperCase();
+  const prodPt=prod.length>34?17:prod.length>24?20:24;
+  const rot=t=>`<div style="font-size:6.5pt;font-weight:700;letter-spacing:.7px;color:#555;">${t}</div>`;
+  const pt=String(pal.codigo).split('-'), c1=pt.slice(0,2).join('-'), c2=pt.slice(2).join('-');
+  return `<div style="width:210mm;height:148mm;padding:9mm;box-sizing:border-box;background:#fff;color:#000;display:flex;flex-direction:column;overflow:hidden;font-family:Arial,Helvetica,sans-serif;">
+    <div style="display:flex;align-items:flex-end;gap:4mm;padding-bottom:1.5mm;border-bottom:${L};">
+      <div style="flex:1;min-width:0;"><div style="font-size:9.5pt;font-weight:700;line-height:1.1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc_(nomeEmp)}</div>
+      <div style="font-size:6.8pt;color:#555;margin-top:.4mm;">${EMP.cnpj?'CNPJ '+esc_(EMP.cnpj):''}${EMP.cidade?' · '+esc_(EMP.cidade)+(EMP.uf?'/'+esc_(EMP.uf):''):''}</div></div>
+      <div style="text-align:right;flex-shrink:0;"><div style="font-size:8.5pt;font-weight:700;letter-spacing:.6px;">SCQ · CONTROLE DE QUALIDADE</div>
+      <div style="font-size:6.8pt;color:#555;margin-top:.4mm;">Rastreabilidade de ${bag?'bag':'pallet'}</div></div>
+    </div>
+    <div style="flex:1;display:flex;gap:6mm;align-items:stretch;padding:2.5mm 0 2mm;min-height:0;">
+      <div style="flex:1;min-width:0;display:flex;flex-direction:column;">
+        ${rot('PRODUTO')}<div style="font-size:${prodPt}pt;font-weight:800;line-height:1.05;margin-top:.6mm;">${esc_(prod)}</div>
+        <div style="display:flex;gap:7mm;margin-top:3.5mm;align-items:flex-end;">
+          <div>${rot('LOTE')}<div style="font-size:15pt;font-weight:800;line-height:1.1;">${esc_(pal.lote||'—')}</div></div>
+          <div>${rot('LINHA')}<div style="font-size:15pt;font-weight:800;line-height:1.1;">${esc_(pal.linha)}</div></div>
+        </div>
+        <div style="margin-top:auto;">${rot(bag?'BAG Nº':'PALLET Nº')}
+          <div style="font-size:80pt;font-weight:900;line-height:.84;letter-spacing:-1px;color:transparent;-webkit-text-stroke:0.5mm #000;">${pad(pal.numero,3)}</div></div>
+      </div>
+      <div style="width:62mm;flex-shrink:0;display:flex;flex-direction:column;align-items:center;">
+        <div style="width:62mm;display:flex;justify-content:center;">${qrSvg(urlRastreio(pal.codigo),60,23.6)}</div>
+        <div style="font-family:'Courier New',monospace;font-size:9.5pt;font-weight:700;line-height:1.2;text-align:center;margin-top:1mm;">${esc_(c1)}<br>${esc_(c2)}</div>
+        <div style="font-size:6.5pt;color:#555;text-align:center;margin-top:.8mm;line-height:1.25;">Aponte a câmera do celular:<br>mostra lote, validade e a situação atual</div>
+      </div>
+    </div>
+    <div style="border:${L};display:grid;grid-template-columns:repeat(2,1fr);">
+      <div style="padding:1.6mm 2.5mm;border-right:${L};">${rot('FABRICAÇÃO')}<div style="font-size:17pt;font-weight:800;line-height:1.1;margin-top:.4mm;">${fD(pal.data)}</div></div>
+      <div style="padding:1.6mm 2.5mm;">${rot('VALIDADE')}<div style="font-size:17pt;font-weight:800;line-height:1.1;margin-top:.4mm;">${fD(pal.validade)}</div></div>
+    </div>
+    <div style="display:flex;align-items:center;gap:9mm;margin-top:2.5mm;font-size:13pt;font-weight:800;">
+      <span style="color:#555;font-size:7pt;letter-spacing:.7px;font-weight:700;">QUALIDADE</span>
+      <span style="display:flex;align-items:center;gap:2mm;"><span style="display:inline-flex;align-items:center;justify-content:center;width:6mm;height:6mm;border:0.35mm solid #000;font-size:13pt;line-height:1;">X</span>APROVADO</span>
+      <span style="display:flex;align-items:center;gap:2mm;"><span style="display:inline-block;width:6mm;height:6mm;border:0.35mm solid #000;"></span>REPROVADO</span>
+    </div></div>`;
+}
+const rotulo=(pal,p)=>isFicha(p.linhaProduto)?rotuloCompleto(pal,p):rotuloSimples(pal,p);
+function amostraHTML(pal,p){
+  if(isFicha(p.linhaProduto)&&pal.numero!==1) return `<div style="width:89mm;height:28mm;display:flex;align-items:center;justify-content:center;font:700 9pt Arial,sans-serif;color:#64748b;background:#f8fafc;">Sem amostra — só o nº 01 leva</div>`;
+  const linha=t=>`<div style="margin-top:1px;border-bottom:0.6pt solid #475569;min-height:9pt;"></div><div style="font-size:4.5pt;color:#94a3b8;text-transform:uppercase;letter-spacing:.3px;">${t}</div>`;
+  const campo=(l,v,q)=>`<div style="padding:0.4mm 0;min-width:0;"><div style="font-size:4.5pt;color:#94a3b8;font-weight:700;text-transform:uppercase;letter-spacing:.3px;">${l}</div><div style="font-size:${q&&String(v||'').length>24?'6.3pt':'7.5pt'};font-weight:800;color:#042D4D;line-height:1.1;${q?'max-height:14pt;overflow:hidden;':'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;'}">${esc_(v||'—')}</div></div>`;
+  return `<div style="width:89mm;height:28mm;padding:1.5mm 2.5mm;box-sizing:border-box;font-family:Arial,sans-serif;background:#fff;overflow:hidden;">
+    <div style="border-bottom:0.9pt solid #042D4D;padding-bottom:0.5mm;margin-bottom:0.6mm;font-size:6.5pt;font-weight:800;color:#042D4D;text-transform:uppercase;">🧪 Etiqueta de Amostra</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 4mm;">${campo('Data',fD(pal.data))}${campo('Nº do Pallet',String(pal.numero))}${campo('Linha',pal.linha)}${campo('Produto',p.nome,true)}</div>
+    <div style="margin-top:0.4mm;display:grid;grid-template-columns:1fr 1fr;gap:4mm;"><div>${linha('Separador')}</div><div>${linha('ADT (g/saco)')}</div></div></div>`;
+}
+
+
+
+/* ═══ fila de impressão (estacao-impressao.html?destino=laser | dymo) ═══ */
+async function enfileirar(rows,p,oque){
+  const ids=[], pals=rows.map(palDe), ficha=isFicha(p.linhaProduto);
+  const titulo=`${p.nome} · ${pals[0].linha} · nº ${pad(pals[0].numero,3)}${pals.length>1?' a '+pad(pals[pals.length-1].numero,3):''}`;
+  if(oque!=='am'){
+    const estilo=EMP.logo&&ficha?`<style>.lg{background:url(${EMP.logo}) center/contain no-repeat;-webkit-print-color-adjust:exact;print-color-adjust:exact;}</style>`:'';
+    const html=estilo+pals.map(x=>ficha
+      ?`<div style="page-break-after:always;padding-top:8mm;display:flex;justify-content:center;">${rotulo(x,p)}</div>`
+      :`<div style="page-break-after:always;width:210mm;height:296mm;display:flex;flex-direction:column;justify-content:flex-end;overflow:hidden;">${rotulo(x,p)}</div>`).join('');
+    const r=await _supabase.from('impressao_fila').insert({destino:'laser',tipo:'rotulo',titulo:'Rótulos · '+titulo,tamanho:'A4',qtd:pals.length,criado_por:usuario(),html}).select('id').single();
+    if(r.error) throw r.error; ids.push({id:r.data.id,nome:'Rótulos',dest:'laser'});
+  }
+  if(oque!=='rot'){
+    const am=ficha?pals.filter(x=>x.numero===1):pals;
+    if(am.length){
+      const html=am.map(x=>`<div style="page-break-after:always;">${amostraHTML(x,p)}</div>`).join('');
+      const r=await _supabase.from('impressao_fila').insert({destino:'dymo',tipo:'amostra',titulo:'Amostras · '+titulo,tamanho:'89mm 28mm',qtd:am.length,criado_por:usuario(),html}).select('id').single();
+      if(r.error) throw r.error; ids.push({id:r.data.id,nome:'Amostras',dest:'dymo'});
+    }
+  }
+  return ids;
+}
+let _jobs=[], _jobTimer=null, _est={};
+function acompanharJobs(ids){
+  _jobs=ids.map(j=>({...j,status:'pendente'})); clearInterval(_jobTimer); let n=0;
+  _jobTimer=setInterval(async()=>{ n++;
+    try{ const {data}=await _supabase.from('impressao_fila').select('id,status,erro').in('id',_jobs.map(j=>j.id));
+      (data||[]).forEach(d=>{const j=_jobs.find(x=>x.id===d.id); if(j){j.status=d.status;j.erro=d.erro;}}); }catch(e){}
+    const el=document.getElementById('jobs'); if(el) el.innerHTML=htmlJobs();
+    if(_jobs.every(j=>j.status==='impresso'||j.status==='erro')||n>60) clearInterval(_jobTimer);
+  },3000);
+}
+const estOn=d=>_est[d]&&(Date.now()-new Date(_est[d]).getTime()<20000);
+const ST={pendente:'na fila…',imprimindo:'imprimindo…',impresso:'impresso ✓',erro:'erro'};
+const htmlJobs=()=>_jobs.map(j=>`<div class="job">${j.nome} (${j.dest==='laser'?'LaserJet':'DYMO'}): <b class="${j.status}">${ST[j.status]||j.status}</b>${j.status==='pendente'&&!estOn(j.dest)?' — <b class="erro">a estação dessa impressora está desligada no PC</b>':''}${j.erro?' — '+esc_(j.erro):''}</div>`).join('');
+async function lerEstacoes(){
+  try{ const {data}=await _supabase.from('impressao_estacoes').select('destino,visto_em'); (data||[]).forEach(e=>_est[e.destino]=e.visto_em); }catch(e){}
+  const el=document.getElementById('est'); if(el) el.innerHTML=[['laser','LaserJet'],['dymo','DYMO']].map(([d,n])=>`<span><i class="${estOn(d)?'on':'off'}"></i>${n}</span>`).join('');
+}
+
+/* ═══ navegação ═══ */
+let tela='inicio', esc={linha:null,produto:null,qtd:1}, ultima=null, verIdx=0, ocupado=false, erroMsg='';
+let reimp={linha:null,grupos:[],row:null,oque:''};
+function ir(k){tela=k;erroMsg='';render();window.scrollTo({top:0});}
+const barraErro=()=>erroMsg?`<div class="okmsg err"><div class="ic">!</div><div>Não deu certo<small>${esc_(erroMsg)}</small></div></div>`:'';
+const PASSOS=[{k:'linha',t:'Linha',v:()=>esc.linha},{k:'produto',t:'Produto',v:()=>esc.produto&&esc.produto.nome},{k:'qtd',t:'Quantidade'},{k:'confirma',t:'Imprimir'}];
+function trilha(){ const ia=PASSOS.findIndex(p=>p.k===tela);
+  return '<nav class="trail">'+PASSOS.map((p,i)=>{const v=p.v&&p.v(), cls=i===ia?'now':(i<ia?'done':''), lbl=(i<ia&&v)?esc_(v):p.t;
+    return `<button class="chip ${cls}" ${i<ia?`onclick="ir('${p.k}')"`:'disabled'}><span class="n">${i<ia?'✓':i+1}</span><span class="t">${lbl}</span></button>`;}).join('')+'</nav>'; }
+
+/* ── início ── */
+let _temOntem=false;
+async function carregarInicio(){
+  await carregarHoje();
+  try{ const {data}=await _supabase.from('rotulos_emissoes').select('id').eq('dia',ontemIso()).limit(1); _temOntem=!!(data&&data.length); }catch(e){}
+}
+function telaInicio(){
+  const dia=hojeIso();
+  const cards=LINHAS.map(l=>{ const es=_emHoje.filter(e=>e.linha===l.nome), u=es[es.length-1];
+    if(!u) return `<div class="run"><b>${esc_(l.nome)}</b><span>Nada impresso hoje</span></div>`;
+    const p=prodPorNome(u.produto);
+    return `<div class="run" style="--c:${corDe(p.linhaProduto)}"><b>${esc_(l.nome)}</b><strong>${esc_(u.produto)}</strong><span>impresso até o nº ${pad(ultimoHoje(l.nome,u.produto),3)}</span></div>`; }).join('');
+  return `${_temOntem&&lsGet('central_aviso_ontem','')!==dia?`<div class="virada"><b>Rótulos de ontem não valem mais</b>Se sobrou algum rótulo de ontem, jogue no lixo. Os de hoje começam do 01.
+      <div style="margin-top:12px;"><button class="btn btn-go" style="min-height:56px;padding:12px 22px;font-size:18px;" onclick="lsSet('central_aviso_ontem',hojeIso());render()">Ok, joguei fora</button></div></div>`:''}
+  <button class="hero" onclick="esc={linha:null,produto:null,qtd:1};ir('linha')"><span>Produto novo ou acabaram os rótulos?</span>Imprimir rótulos</button>
+  <div class="actions" style="margin-top:12px;"><button class="btn btn-back" style="flex:1;" onclick="abrirReimp()">Reimprimir rótulo perdido</button></div>
+  <div class="sec-title">Hoje em cada linha</div><div class="runs">${cards}</div>`;
+}
+
+/* ── imprimir ── */
+function telaLinha(){
+  return trilha()+`<h1 class="q">Para qual linha?</h1><div class="grid">`+
+    LINHAS.map((l,i)=>`<button class="big ${esc.linha===l.nome?'sel':''}" onclick="esc.linha=LINHAS[${i}].nome;ir('produto')">${esc_(l.nome)}<small>${esc_(l.barracao)}</small></button>`).join('')+
+    `</div><div class="actions"><button class="btn btn-back" onclick="ir('inicio')">Voltar</button></div>`;
+}
+function telaProduto(){
+  const L=LINHAS.find(l=>l.nome===esc.linha);
+  let h=trilha()+`<h1 class="q">Qual produto?</h1><p class="hint">Só aparecem os produtos que a ${esc_(esc.linha)} faz.</p>`;
+  L.sub.forEach(s=>{const ps=PRODUTOS.filter(p=>norm(p.linhaProduto)===norm(s)); if(!ps.length) return; const c=corDe(s);
+    h+=`<div class="grp" style="--c:${c}"><i></i>${esc_(nomeSub(s))}</div><div class="grid">`+
+      ps.map(p=>{const u=ultimoHoje(esc.linha,p.nome); return `<button class="big prod ${esc.produto&&esc.produto.id===p.id?'sel':''}" style="--c:${c}" onclick="esc.produto=prodPorId('${p.id}');esc.qtd=1;ir('qtd')">${esc_(p.nome)}${u?`<small>hoje já impresso até o nº ${pad(u,3)}</small>`:''}</button>`;}).join('')+'</div>';});
+  return h+`<div class="actions"><button class="btn btn-back" onclick="ir('linha')">Voltar</button></div>`;
+}
+function telaQtd(){
+  const p=esc.produto, u1=ehBag(p)?'bag':'pallet', uN=ehBag(p)?'bags':'pallets';
+  return trilha()+`<h1 class="q">Quantos rótulos de ${u1}?</h1><p class="hint">Se sobrar, guarde. Quando este produto voltar hoje nesta linha, use a sobra antes de imprimir mais.</p>
+  <div class="qty"><button aria-label="Menos" onclick="esc.qtd=Math.max(1,esc.qtd-1);render()" ${esc.qtd<=1?'disabled':''}>−</button>
+  <output>${esc.qtd}</output><button aria-label="Mais" onclick="esc.qtd=Math.min(60,esc.qtd+1);render()" ${esc.qtd>=60?'disabled':''}>+</button></div>
+  <p class="qty-lbl">${esc.qtd} ${esc.qtd===1?u1:uN} de ${esc_(p.nome)}</p>
+  <div class="actions"><button class="btn btn-back" onclick="ir('produto')">Voltar</button><button class="btn btn-go" onclick="ir('confirma')">Continuar</button></div>`;
+}
+function telaConfirma(){
+  const p=esc.produto, d=new Date(), dia=iso(d), val=new Date(d); val.setDate(val.getDate()+diasValidade(p));
+  const n1=ultimoHoje(esc.linha,p.nome)+1, n2=n1+esc.qtd-1;
+  const amostra=isFicha(p.linhaProduto)?(n1===1?'1 etiqueta, só do nº 01':'Não sai — só o nº 01 leva amostra'):`1 etiqueta por ${ehBag(p)?'bag':'pallet'}`;
+  return trilha()+barraErro()+`<h1 class="q">Confere e imprime</h1>
+  <div class="sum" style="--c:${corDe(p.linhaProduto)}"><div class="band"></div><dl>
+    <dt>Linha</dt><dd>${esc_(esc.linha)}</dd><dt>Produto</dt><dd>${esc_(p.nome)}</dd>
+    <dt>${ehBag(p)?'Bags':'Pallets'}</dt><dd>${n1===n2?'Nº '+pad(n1,3):'Nº '+pad(n1,3)+' ao '+pad(n2,3)}<br><small style="font-weight:600;color:var(--muted);font-size:15px;">${n1===1?'Primeiro deste produto hoje nesta linha: começa do 01':'Continua a sequência deste produto hoje nesta linha. Se ainda tem sobra guardada dele, use a sobra antes.'}</small></dd>
+    <dt>Fabricação</dt><dd>${fData(d)}</dd><dt>Validade</dt><dd>${fData(val)}</dd><dt>Lote</dt><dd>${lote(p,esc.linha,dia)}</dd>
+    <dt>Amostra (DYMO)</dt><dd>${amostra}</dd></dl></div>
+  <div class="actions"><button class="btn btn-back" onclick="ir('qtd')">Voltar</button>
+  <button class="btn btn-go" ${ocupado?'disabled':''} onclick="imprimir()">${ocupado?'Imprimindo…':'Imprimir '+(esc.qtd===1?'1 rótulo':esc.qtd+' rótulos')}</button></div>`;
+}
+async function imprimir(){
+  if(ocupado) return; ocupado=true; render();
+  try{
+    const p=esc.produto, d=new Date(), dia=iso(d), val=new Date(d); val.setDate(val.getDate()+diasValidade(p));
+    const {data,error}=await _supabase.rpc('totem_emitir',{p_dia:dia,p_linha:esc.linha,p_produto:p.nome,p_qtd:esc.qtd,p_lote:lote(p,esc.linha,dia),
+      p_validade:iso(val),p_turno:turnoDe(d),p_prefixo:prefixo(esc.linha,dia,p),p_criado_por:usuario()});
+    if(error) throw error;
+    const ids=await enfileirar(data||[],p,'tudo');
+    ultima={rows:data||[],p}; verIdx=0; ocupado=false; carregarHoje().catch(()=>{}); ir('feito'); acompanharJobs(ids);
+  }catch(e){ ocupado=false; erroMsg=(e.message||String(e))+' — confira a internet e tente de novo.'; render(); }
+}
+function previas(row,p){ const pal=palDe(row);
+  return `<div class="grp">Rótulo · LaserJet</div><div class="paper"><div class="fit"><div class="in">${rotulo(pal,p)}</div></div></div>
+  <div class="grp">Etiqueta de amostra · DYMO</div><div class="paper" style="max-width:440px;"><div class="fit"><div class="in">${amostraHTML(pal,p)}</div></div></div>`; }
+function telaFeito(){
+  const {rows,p}=ultima, n=rows.length, am=isFicha(p.linhaProduto)?rows.filter(x=>x.numero===1).length:n, u=ehBag(p)?'Bag':'Pallet';
+  return `<div class="okmsg"><div class="ic">✓</div><div>${n===1?'1 rótulo':n+' rótulos'}${am?' e '+(am===1?'1 amostra':am+' amostras'):''} enviados para impressão
+    <small>${esc_(p.nome)} · ${esc_(rows[0].linha)} · nº ${pad(rows[0].numero,3)}${n>1?' ao '+pad(rows[n-1].numero,3):''}</small></div></div>
+  <div class="jobs" id="jobs">${htmlJobs()}</div>
+  <div class="thumbs">${rows.map((x,i)=>`<button class="${i===verIdx?'sel':''}" onclick="verIdx=${i};render()">${u} ${pad(x.numero,3)}</button>`).join('')}</div>
+  ${previas(rows[verIdx],p)}
+  <div class="actions"><button class="btn btn-go" onclick="voltarInicio()">Pronto</button></div>`;
+}
+async function voltarInicio(){ await carregarInicio().catch(()=>{}); ir('inicio'); }
+
+/* ── reimpressão: mesmo número, mesmo QR (só de hoje) ── */
+function abrirReimp(){ reimp={linha:null,grupos:[],row:null,oque:''}; ir('reimp'); }
+async function reimpLinha(nome){
+  reimp.linha=nome; render();
+  const {data,error}=await _supabase.from('rotulos_impressos').select('*').eq('linha',nome).eq('dia',hojeIso()).order('produto').order('numero').limit(2000);
+  if(error){erroMsg=error.message;render();return;}
+  const g={}; (data||[]).forEach(x=>{(g[x.produto]=g[x.produto]||[]).push(x);}); reimp.grupos=Object.values(g); render();
+}
+function telaReimp(){
+  let h=barraErro()+`<h1 class="q">Reimprimir rótulo perdido</h1><p class="hint">Sai igual ao original: mesmo número, mesmo QR. Só os de hoje — rótulo de ontem não vale mais.</p>`;
+  if(!reimp.linha) return h+`<div class="grid">`+LINHAS.map((l,i)=>`<button class="big" onclick="reimpLinha(LINHAS[${i}].nome)">${esc_(l.nome)}<small>${esc_(l.barracao)}</small></button>`).join('')+
+    `</div><div class="actions"><button class="btn btn-back" onclick="ir('inicio')">Voltar</button></div>`;
+  h+=`<div class="grp">${esc_(reimp.linha)} · toque no número que perdeu</div>`;
+  if(!reimp.grupos.length) h+=`<div class="empty">Nada impresso hoje na ${esc_(reimp.linha)}.</div>`;
+  reimp.grupos.forEach((ps,gi)=>{const p=prodPorNome(ps[0].produto), u=ehBag(p)?'Bag':'Pallet';
+    h+=`<div class="emis" style="--c:${corDe(p.linhaProduto)}"><h3>${esc_(ps[0].produto)}</h3>
+    <div class="pals">${ps.map((x,i)=>`<button onclick="reimp.row=reimp.grupos[${gi}][${i}];ir('reimpConf')">${u} ${pad(x.numero,3)}</button>`).join('')}</div></div>`;});
+  return h+`<div class="actions"><button class="btn btn-back" onclick="reimp.linha=null;render()">Voltar</button></div>`;
+}
+function telaReimpConf(){
+  const x=reimp.row, p=prodPorNome(x.produto), temAm=!(isFicha(p.linhaProduto)&&x.numero!==1);
+  return barraErro()+`<h1 class="q">Reimprimir ${ehBag(p)?'bag':'pallet'} ${pad(x.numero,3)}?</h1><p class="hint">${esc_(x.produto)} · ${esc_(x.linha)} · ${fD(x.dia)}</p>${previas(x,p)}
+  <div class="actions"><button class="btn btn-back" onclick="ir('reimp')">Voltar</button>
+  <button class="btn btn-go" ${ocupado?'disabled':''} onclick="reimprimir('rot')">Reimprimir rótulo</button>
+  ${temAm?`<button class="btn btn-go" ${ocupado?'disabled':''} onclick="reimprimir('am')">Reimprimir amostra</button>`:''}</div>`;
+}
+async function reimprimir(oque){
+  if(ocupado) return; ocupado=true; render();
+  try{ const x=reimp.row, p=prodPorNome(x.produto);
+    const ids=await enfileirar([x],p,oque);
+    if(oque==='rot') await _supabase.from('rotulos_impressos').update({vias:(x.vias||1)+1}).eq('id',x.id);
+    reimp.oque=oque; ocupado=false; ir('reimpOk'); acompanharJobs(ids);
+  }catch(e){ ocupado=false; erroMsg=e.message||String(e); render(); }
+}
+function telaReimpOk(){ const x=reimp.row;
+  return `<div class="okmsg"><div class="ic">✓</div><div>${reimp.oque==='am'?'Amostra':'Rótulo'} do nº ${pad(x.numero,3)} enviado para impressão<small>Mesmo número e mesmo QR do original</small></div></div>
+  <div class="jobs" id="jobs">${htmlJobs()}</div><div class="actions"><button class="btn btn-go" onclick="voltarInicio()">Pronto</button></div>`; }
+
+/* ═══ render ═══ */
+function ajustarPrevia(){ document.querySelectorAll('.fit').forEach(f=>{const i=f.querySelector('.in'); if(!i) return;
+  const s=f.clientWidth/i.offsetWidth; i.style.transform=`scale(${s})`; f.style.height=(i.offsetHeight*s)+'px';}); }
+window.addEventListener('resize',ajustarPrevia);
+function render(){
+  const map={inicio:telaInicio,linha:telaLinha,produto:telaProduto,qtd:telaQtd,confirma:telaConfirma,feito:telaFeito,
+    reimp:telaReimp,reimpConf:telaReimpConf,reimpOk:telaReimpOk};
+  document.getElementById('app').innerHTML=map[tela](); requestAnimationFrame(ajustarPrevia);
+}
+function tick(){const d=new Date(); document.getElementById('hora').textContent=fHora(d); document.getElementById('data').textContent=fData(d)+' · '+turnoDe(d);}
+
+/* ═══ modo totem: tela sempre acesa, sem menu de toque longo, volta ao início parado ═══ */
+let _wake=null;
+async function manterAcesa(){ try{ if('wakeLock' in navigator&&!_wake){ _wake=await navigator.wakeLock.request('screen'); _wake.addEventListener('release',()=>{_wake=null;}); } }catch(e){} }
+document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible') manterAcesa(); });
+document.addEventListener('contextmenu',e=>e.preventDefault());
+let _parado=null;
+['pointerdown','keydown'].forEach(ev=>document.addEventListener(ev,()=>{ manterAcesa(); clearTimeout(_parado);
+  _parado=setTimeout(()=>{ if(tela!=='inicio'&&!ocupado) voltarInicio(); },180000); }));
+// virou o dia com a tela aberta: recarrega numeração e aviso
+let _diaAberto=hojeIso();
+setInterval(()=>{ if(hojeIso()!==_diaAberto){ _diaAberto=hojeIso(); if(tela==='inicio') carregarInicio().then(render).catch(()=>{}); } },60000);
+
+(async function(){
+  if(location.protocol==='file:'||typeof _supabase==='undefined'){
+    document.getElementById('app').innerHTML=`<div class="empty">Abra pelo endereço do ERP: <b>erp-industrial-theta.vercel.app/totem.html</b></div>`; return; }
+  let sess=null; try{({data:{session:sess}}=await _supabase.auth.getSession());}catch(e){}
+  if(!sess){ document.getElementById('app').innerHTML=`<div class="empty" style="text-align:center;font-size:18px;">🔒 A central precisa de um login do ERP (uma vez).<br><br><a href="index.html?volta=totem.html" style="font-weight:800;color:#042D4D;">Fazer login</a> e depois voltar para esta página.</div>`; return; }
+  tick(); setInterval(tick,15000);
+  try{ await carregarCadastros(); await carregarInicio(); }
+  catch(e){ document.getElementById('app').innerHTML=`<div class="okmsg err"><div class="ic">!</div><div>Não carregou os cadastros<small>${esc_(e.message||e)} — confira a internet e recarregue.</small></div></div>`; return; }
+  render(); lerEstacoes(); setInterval(lerEstacoes,10000);
+  setInterval(()=>{ if(tela==='inicio') carregarInicio().then(render).catch(()=>{}); },60000);
+})();
+</script>
+</body>
+</html>

@@ -700,7 +700,24 @@ function plDiaMudou(){
   if(d&&m&&m.value!==d.slice(0,7)){m.value=d.slice(0,7);plMesMudou();return;}
   renderLinhaBlocks();
 }
-async function loadLancs(){_lancsMes={};const{data}=await db(_supabase.from('producao').select('*').order('data',{ascending:false}).order('created_at',{ascending:false}).limit(300),'carregar lançamentos');_lancs=data||[];}
+/* CENTRAL DE RÓTULOS (096): pallets lidos no carregamento que nenhuma OP cobre.
+   Somem daqui sozinhos quando a OP do dia/linha/produto cobrir o número. */
+const _acEsc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+async function carregarAConferir(){
+  try{
+    const {data}=await _supabase.from('producao_pallets').select('id,data,linha,produto,numero,codigo,estoque_status,carregado_em').eq('a_conferir',true).order('data',{ascending:false}).limit(200);
+    let box=document.getElementById('box-a-conferir');
+    if(!box){ box=document.createElement('div'); box.id='box-a-conferir';
+      const h=document.querySelector('#main-content .page-header'); if(h) h.insertAdjacentElement('afterend',box); else return; }
+    if(!data||!data.length){ box.innerHTML=''; return; }
+    box.innerHTML=`<div class="card" style="border-left:6px solid #f59e0b;margin-bottom:14px;padding:14px 16px;">
+      <div style="font-weight:800;font-size:15px;margin-bottom:6px;">⚠️ ${data.length} pallet(s) a conferir — lidos no carregamento sem OP que os cubra</div>
+      <div style="font-size:13px;color:var(--text-muted,#64748b);margin-bottom:8px;">Confira a OP do dia/linha/produto: se a quantidade estiver certa, a lista some sozinha.</div>
+      <div style="overflow-x:auto;"><table style="width:100%;font-size:13px;border-collapse:collapse;"><tr style="text-align:left;"><th>Data</th><th>Linha</th><th>Produto</th><th>Nº</th><th>Situação</th></tr>
+      ${data.map(p=>`<tr style="border-top:1px solid #e2e8f0;"><td>${String(p.data||'').split('-').reverse().join('/')}</td><td>${_acEsc(p.linha||'')}</td><td>${_acEsc(p.produto||'')}</td><td>${String(p.numero||'').padStart(3,'0')}</td><td>${p.estoque_status==='carregado'||p.estoque_status==='expedido'?'carregado':'lido no pátio'}</td></tr>`).join('')}</table></div></div>`;
+  }catch(e){ console.warn('[a conferir]',e); }
+}
+async function loadLancs(){carregarAConferir();_lancsMes={};const{data}=await db(_supabase.from('producao').select('*').order('data',{ascending:false}).order('created_at',{ascending:false}).limit(300),'carregar lançamentos');_lancs=data||[];}
 
 function swTab(id,btn){
   ['tab-linhas','tab-metas','tab-indicadores','tab-produtos'].forEach(t=>{const el=document.getElementById(t);if(el)el.style.display=t===id?'block':'none';});
@@ -2002,10 +2019,19 @@ async function reconciliarPalletsOP(lid, dados){
     }
     (p.pallets||[]).forEach(pl=>{const q=parseInt(pl.qtd)||0;for(let j=0;j<q;j++)target.push({produto:p.produto});});
   });
+  // CENTRAL DE RÓTULOS (096): produto que tem rótulo impresso pelo totem neste dia/linha
+  // NÃO ganha pallet gerado aqui — quem confirma é o banco (trigger → totem_alocar),
+  // usando os números e códigos que estão colados nos pallets.
+  try{
+    const {data:lbl}=await _supabase.from('rotulos_impressos').select('produto').eq('dia',data).eq('linha',linha).limit(5000);
+    const comRotulo=new Set((lbl||[]).map(x=>Regras.normalizarNome(x.produto)));
+    if(comRotulo.size) for(let i=target.length-1;i>=0;i--){ if(!target[i].granel&&comRotulo.has(Regras.normalizarNome(target[i].produto))) target.splice(i,1); }
+  }catch(e){ console.warn('[rótulos do totem]',e); }
   // SEGURANÇA: se a OP não informa quantidade de pallets (target 0), NÃO mexe no estoque.
   // (assim, criar/editar uma OP sem o detalhamento nunca apaga os pallets criados no aferidor)
   if(target.length===0) return;
-  const {data:rows}=await _supabase.from('producao_pallets').select('id,numero,produto,codigo,embalagem_tipo,estoque_status').eq('lancamento_id',lid);
+  let {data:rows}=await _supabase.from('producao_pallets').select('id,numero,produto,codigo,embalagem_tipo,estoque_status,rotulo_id').eq('lancamento_id',lid);
+  rows=(rows||[]).filter(r=>!r.rotulo_id);   // pallets do totem são do banco (totem_alocar) — aqui não mexe
   const inserts=[], updates=[], usados=new Set();
   let removiveis=[];
   {
