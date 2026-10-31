@@ -713,6 +713,24 @@ function calcMinutos(ini, fim) {
  * calendarioMes: { 'AAAA-MM-DD': 'trabalha'|'folga'|'feriado'|'domingo-especial' }
  * turno: { nome, refeicao_min, calendario: { 'Segunda': {inicio,fim}, ... } }
  */
+// Simulação por turno (parar o mês, % reduzido, dias/período parado, horas perdidas):
+// ajusta h.dispH no lugar e diz se há simulação ativa. Motor e relatório usam esta mesma regra.
+function aplicarSimulacaoSecao(calendarioMes, secao, h) {
+  let ativa = false;
+  if (secao.simuladoDesligado) { h.dispH = 0; return true; }
+  if (secao.simuladoReducaoPct > 0) { h.dispH = h.dispH * (1 - secao.simuladoReducaoPct / 100); ativa = true; }
+  // Parada por PERÍODO de datas: conta os dias úteis no intervalo e soma aos dias parados manuais.
+  const diasParadaPeriodo = contarDiasTrabalhoIntervalo(calendarioMes, secao.simuladoParadaInicio, secao.simuladoParadaFim);
+  const diasParadosTotal = (Number(secao.simuladoDiasParados) || 0) + diasParadaPeriodo;
+  if (diasParadosTotal > 0 && h.diasTrabalho > 0) {
+    const horasPorDia = h.horasBrutas / h.diasTrabalho;
+    h.dispH = Math.max(0, h.dispH - diasParadosTotal * horasPorDia);
+    ativa = true;
+  }
+  if (secao.simuladoHorasReduzidas > 0) { h.dispH = Math.max(0, h.dispH - secao.simuladoHorasReduzidas); ativa = true; }
+  return ativa;
+}
+
 function calcHorasSecao(calendarioMes, turno, eficienciaPct, extrasPorDia, paradasHoras, horasDomingoEspecial) {
   const refM = Number(turno && (turno.refeicao_min || turno.refeicaoMin)) || 0;
   const extrasMins = Math.round((extrasPorDia || 0) * 60);
@@ -1067,22 +1085,7 @@ function agregarProducaoPlanejada(s) {
       // Simulação rápida: testar "e se eu desligasse esse turno", "reduzisse a disponibilidade em %",
       // "ficasse X dias parado" ou "perdesse X horas" — SEM apagar a configuração real, só ajusta
       // as horas disponíveis pra esse cálculo. Os modos são cumulativos (exceto desligar, que zera tudo).
-      let temSimSecaoParada = false;
-      if (secao.simuladoDesligado) {
-        h.dispH = 0;
-        temSimSecaoParada = true;
-      } else {
-        if (secao.simuladoReducaoPct > 0) { h.dispH = h.dispH * (1 - secao.simuladoReducaoPct / 100); temSimSecaoParada = true; }
-        // Parada por PERÍODO de datas: conta os dias úteis no intervalo e soma aos dias parados manuais.
-        const diasParadaPeriodo = contarDiasTrabalhoIntervalo(s.calendario, secao.simuladoParadaInicio, secao.simuladoParadaFim);
-        const diasParadosTotal = (Number(secao.simuladoDiasParados) || 0) + diasParadaPeriodo;
-        if (diasParadosTotal > 0 && h.diasTrabalho > 0) {
-          const horasPorDia = h.horasBrutas / h.diasTrabalho;
-          h.dispH = Math.max(0, h.dispH - diasParadosTotal * horasPorDia);
-          temSimSecaoParada = true;
-        }
-        if (secao.simuladoHorasReduzidas > 0) { h.dispH = Math.max(0, h.dispH - secao.simuladoHorasReduzidas); temSimSecaoParada = true; }
-      }
+      const temSimSecaoParada = aplicarSimulacaoSecao(s.calendario, secao, h);
       const produtosAtivos = (secao.produtos || []).filter((p) => p.ativo !== false);
       const produtosCalc = produtosAtivos.map((p) => ({ id: p.id, capHora: Number(p.capHora) || 0, demanda: Number(p.demanda) || 0 }));
       const dist = distribuirHorasProdutos(produtosCalc, h.dispH);
@@ -7424,6 +7427,7 @@ async function salvarComoNovoPlanejamento(nome) {
     if (error) throw error;
     state._planejamentoAtualId = data.id;
     state._planejamentoAtualCodigo = data.codigo;
+    state._planejamentoAtualNome = data.nome || '';
     if (typeof addLog === 'function') await addLog('CREATE', 'CUSTO_PRECIFICACAO', data.id, `Novo planejamento: ${codigo}`);
     if (typeof toast === 'function') toast(`Planejamento ${codigo} salvo.`, 'success');
     await carregarListaPlanejamentos();
@@ -7478,6 +7482,7 @@ async function carregarPlanejamento(id) {
     aplicarEstadoSalvo(data.estado);
     state._planejamentoAtualId = data.id;
     state._planejamentoAtualCodigo = data.codigo;
+    state._planejamentoAtualNome = data.nome || '';
     // Guarda o total que estava gravado para comparar com o que se recalcula agora.
     state._totaisGravados = data.totais || null;
     state._gravadoEm = data.atualizado_em || data.created_at || null;
@@ -7663,6 +7668,21 @@ function _printCSS() {
     .alerta-warning{background:#fef9c3;border-left-color:#c77d22;}
     .alerta-danger{background:#ffe4e6;border-left-color:#dc2626;}
     .alerta-success{background:#dcfce7;border-left-color:#16a34a;}
+    .kpis{display:flex;flex-wrap:wrap;gap:8px;margin:6px 0 10px;}
+    .kpi{flex:1 1 120px;border:1px solid #cbd5e1;border-radius:6px;padding:7px 9px;background:#f8fafc;}
+    .kpi.escuro{background:#1e3a5f;border-color:#1e3a5f;color:#fff;}
+    .kpi .rot{font-size:8.5px;text-transform:uppercase;letter-spacing:.4px;color:#64748b;font-weight:700;}
+    .kpi.escuro .rot{color:#c7d2fe;}
+    .kpi .val{font-size:14px;font-weight:800;color:#1e3a5f;margin-top:2px;}
+    .kpi.escuro .val{color:#fff;}
+    .kpi .det{font-size:9px;color:#64748b;}
+    .kpi.escuro .det{color:#cbd5e1;}
+    .tag{display:inline-block;padding:1px 6px;border-radius:8px;font-size:9px;font-weight:700;}
+    .tag-ok{background:#dcfce7;color:#166534;} .tag-ruim{background:#ffe4e6;color:#9f1239;} .tag-at{background:#fef9c3;color:#854d0e;} .tag-neutra{background:#e2e8f0;color:#334155;}
+    .mini{font-size:9px;color:#64748b;}
+    tr.parado td{color:#94a3b8;font-style:italic;}
+    .glossario{font-size:9.5px;color:#475569;line-height:1.5;}
+    .glossario b{color:#1e3a5f;}
     .rodape{margin-top:18px;font-size:9.5px;color:#94a3b8;border-top:1px solid #e2e8f0;padding-top:8px;}
     @media print{@page{margin:1.2cm;}}`;
 }
@@ -7703,6 +7723,65 @@ function _printCabecalho() {
   </div>`;
 }
 
+// Situação de cada produto frente ao ponto de equilíbrio (quanto precisa vender pra pagar o fixo dele).
+function _situacaoPE(r, b) {
+  const q = _qtdDoBucket(r, b), pe = Number(r.pontoEquilibrio[b]);
+  if (!(r.margem[b] && r.margem[b].margemRS > 0) || !isFinite(pe)) return { cls: 'tag-ruim', txt: 'margem negativa', abaixo: true, q, pe };
+  if (q + 0.5 < pe) return { cls: 'tag-ruim', txt: `abaixo do equilíbrio (faltam ${fmtNum(pe - q, 0)})`, abaixo: true, q, pe };
+  if (q < pe * 1.15) return { cls: 'tag-at', txt: 'perto do equilíbrio', abaixo: false, q, pe };
+  return { cls: 'tag-ok', txt: 'cobre o fixo', abaixo: false, q, pe };
+}
+// Turnos parados no mês (simulação "parar totalmente" ou sem produto ativo)
+function _turnosParados() {
+  const out = [];
+  state.blocos.forEach((b) => (b.secoes || []).forEach((s) => {
+    const semProd = !(s.produtos || []).some((p) => p.ativo !== false);
+    if (s.simuladoDesligado || semProd) out.push({ linha: b.linhaNome || '—', turno: s.turnoNome || '—' });
+  }));
+  return out;
+}
+function _printDestaques(r) {
+  const t = r.plano.totais;
+  const fat = Number(r.faturamentoCalculado) || 0;
+  const resultado = fat - (Number(t.GERAL) || 0);
+  const dias = Object.values(state.calendario || {}).filter((v) => v === 'trabalha' || v === 'domingo-especial').length;
+  const pessoas = new Set(); state.blocos.forEach((b) => (b.secoes || []).forEach((s) => { if (!s.simuladoDesligado) (s.equipe || []).forEach((id) => pessoas.add(id)); }));
+  const parados = _turnosParados();
+  const porLinha = {}; parados.forEach((x) => { (porLinha[x.linha] = porLinha[x.linha] || []).push(x.turno); });
+  const linhasParadas = Object.entries(porLinha).map(([l, ts]) => {
+    const total = (state.blocos.find((b) => b.linhaNome === l) || { secoes: [] }).secoes.length;
+    return ts.length >= total ? `<strong>${esc(l)}</strong> parada o mês todo` : `<strong>${esc(l)}</strong>: ${ts.map(esc).join(', ')} parado(s)`;
+  });
+  const faltaDemanda = Object.entries(r.producao.porProduto).filter(([, a]) => a.demanda > 0 && a.qtd + 0.5 < a.demanda)
+    .map(([n, a]) => `<strong>${esc(n)}</strong>: faltam ${fmtNum(a.demanda - a.qtd, 0)} para a demanda`);
+  const abaixoPE = _bucketsProduzidos(r).map((b) => ({ b, s: _situacaoPE(r, b) })).filter((x) => x.s.abaixo)
+    .map((x) => `<strong>${DESTINOS[x.b]}</strong>: produz ${fmtNum(x.s.q, 0)} e precisa de ${isFinite(x.s.pe) ? fmtNum(x.s.pe, 0) : '—'} ${UNIDADE_LABEL[x.b]}s para pagar o próprio fixo`);
+  const kpi = (rot, val, det, escuro) => `<div class="kpi${escuro ? ' escuro' : ''}"><div class="rot">${rot}</div><div class="val">${val}</div>${det ? `<div class="det">${det}</div>` : ''}</div>`;
+  const itens = [];
+  linhasParadas.forEach((x) => itens.push(`<div class="alerta alerta-warning">🛑 ${x}.</div>`));
+  faltaDemanda.forEach((x) => itens.push(`<div class="alerta alerta-danger">📉 ${x}.</div>`));
+  abaixoPE.forEach((x) => itens.push(`<div class="alerta alerta-danger">⚖️ ${x}.</div>`));
+  return `<div class="secao"><h2>Destaques do mês</h2>
+    <div class="kpis">
+      ${kpi('Custo total', fmtBRL(t.GERAL), `${fmtBRL(r.plano.custoPorTon.GERAL)}/ton`, true)}
+      ${kpi('Produção', fmtNum(r.plano.tonelagem.tonTotal, 0) + ' t', `${dias} dias de trabalho`)}
+      ${kpi('Faturamento previsto', fmtBRL(fat), `custo = ${fmtPct(r.custoSobreFaturamento, 1)} do faturamento`)}
+      ${kpi('Resultado bruto', fmtBRL(resultado), 'faturamento − custo total')}
+      ${kpi('Pessoas nas linhas', fmtNum(pessoas.size, 0), parados.length ? `${parados.length} turno(s) parado(s)` : 'todos os turnos rodando')}
+    </div>
+    ${itens.join('') || '<div class="alerta alerta-success">✅ Todas as linhas rodando, demandas atendidas e todos os produtos cobrindo o próprio custo fixo.</div>'}
+  </div>`;
+}
+
+function _printGlossario() {
+  return `<div class="secao"><h2>Como ler este relatório</h2><div class="glossario">
+    <b>Linha física</b> é o equipamento (Linha 2, Linha 3, Emitec…). <b>Linha de custo</b> é o grupo de produto usado no custo (20 Kg, Concentrado, Caulim 25 Kg…): uma linha física pode alimentar várias linhas de custo.<br>
+    <b>Horas disponíveis</b> = horas do turno nos dias de trabalho, menos refeição, perda de eficiência e paradas. <b>Turno parado</b> não produz nem consome lenha.<br>
+    <b>Custo variável</b> acompanha a produção (embalagem, matéria-prima, aditivo…). <b>Custo fixo</b> existe mesmo sem produzir (administrativo, manutenção fixa…).<br>
+    <b>Margem</b> = preço de venda − custo variável por unidade. <b>Ponto de equilíbrio</b> = quanto o produto precisa vender no mês para a margem pagar o custo fixo dele. Abaixo disso, o produto dá prejuízo no mês.
+  </div></div>`;
+}
+
 function _printResumo(r) {
   const t = r.plano.totais;
   return `<div class="secao"><h2>Resumo do plano</h2>
@@ -7724,14 +7803,15 @@ function _printCapacidade() {
       const turno = state.turnosReais.find((t) => t.nome === secao.turnoNome);
       const paradasHoras = (secao.paradas || []).reduce((a, p) => a + (Number(p.horas) || 0), 0);
       const h = calcHorasSecao(state.calendario, turno, secao.eficiencia, secao.extras, paradasHoras, state.horasDomingoEspecial);
+      const comSim = aplicarSimulacaoSecao(state.calendario, secao, h);   // mesma regra do motor
       const ativos = (secao.produtos || []).filter((p) => p.ativo !== false);
       const produtosCalc = ativos.map((p) => ({ id: p.id, capHora: Number(p.capHora) || 0, demanda: Number(p.demanda) || 0 }));
       const dist = distribuirHorasProdutos(produtosCalc, h.dispH);
       const produtosHtml = ativos.map((p) => {
         const d = dist[p.id] || { horasDispProd: 0, qtdMax: 0 };
         const demanda = Number(p.demanda) || 0;
-        const auto = p.qtdManual === null || p.qtdManual === undefined;
-        const qtd = !auto ? Number(p.qtdManual) : (demanda > 0 ? demanda : d.qtdMax);
+        const auto = p.qtdManual === null || p.qtdManual === undefined || p.qtdManual === '';
+        const qtd = !auto ? Number(p.qtdManual) : (demanda > 0 ? (comSim ? Math.min(demanda, d.qtdMax) : demanda) : d.qtdMax);
         const excede = demanda > 0 && d.qtdMax > 0 && demanda > d.qtdMax + 1;
         return `<tr>
           <td>${esc(p.nome)}</td><td class="num">${fmtNum(p.capHora, 0)}</td><td class="num">${demanda ? fmtNum(demanda, 0) : '—'}</td>
@@ -7739,8 +7819,15 @@ function _printCapacidade() {
           <td>${excede ? '⚠️ excede capacidade' : '—'}</td>
         </tr>`;
       }).join('');
+      const nPessoas = (secao.equipe || []).length;
+      if (secao.simuladoDesligado) {
+        return `<div class="secao">
+        <h3>Turno: ${esc(secao.turnoNome || '—')} · <strong style="color:#b91c1c;">PARADO NO MÊS</strong></h3>
+        <p class="sub">Sem produção neste turno${nPessoas ? ` · ${nPessoas} pessoa(s) ainda cadastradas aqui` : ' · equipe remanejada'}.</p>
+      </div>`;
+      }
       return `<div class="secao">
-        <h3>Turno: ${esc(secao.turnoNome || '—')} · Eficiência ${secao.eficiencia}% · Extras ${secao.extras}h/dia</h3>
+        <h3>Turno: ${esc(secao.turnoNome || '—')} · ${nPessoas} pessoa(s) · Eficiência ${secao.eficiencia}% · Extras ${secao.extras}h/dia${secao.simuladoDesligado ? ' · <strong style="color:#b91c1c;">PARADO NO MÊS</strong>' : (comSim ? ' · <strong style="color:#b45309;">parada parcial</strong>' : '')}</h3>
         <p class="sub">Dias: ${h.diasTrabalho} · Brutas: ${h.horasBrutas.toFixed(1)}h · Perda efic.: ${h.perdaH.toFixed(1)}h · Paradas: ${h.paradaH.toFixed(1)}h · <strong>Disponíveis: ${h.dispH.toFixed(1)}h</strong></p>
         <table><thead><tr><th>Produto</th><th>Média/h</th><th>Demanda</th><th>Qtd planejada</th><th>Horas nec.</th><th>Status</th></tr></thead>
         <tbody>${produtosHtml || '<tr><td colspan="6">Sem produtos ativos</td></tr>'}</tbody></table>
@@ -7754,11 +7841,13 @@ function _printCapacidade() {
 function _printProducaoETonelagem(r) {
   const linhasProduto = Object.entries(r.producao.porProduto).map(([nome, agg]) => {
     const mp = garantirMapaProduto(nome);
-    return `<tr><td>${esc(nome)}</td><td class="num">${fmtNum(agg.qtd, 0)}</td><td class="num">${agg.demanda ? fmtNum(agg.demanda, 0) : '—'}</td><td>${mp.destino ? esc(DESTINOS[mp.destino]) : '— não mapeado —'}</td></tr>`;
-  }).join('') || '<tr><td colspan="4">Nenhuma produção planejada</td></tr>';
+    const at = !agg.demanda ? '<span class="tag tag-neutra">sem demanda — usa a sobra</span>'
+      : (agg.qtd + 0.5 >= agg.demanda ? '<span class="tag tag-ok">atendida</span>' : `<span class="tag tag-ruim">faltam ${fmtNum(agg.demanda - agg.qtd, 0)}</span>`);
+    return `<tr><td>${esc(nome)}</td><td class="num">${fmtNum(agg.qtd, 0)}</td><td class="num">${agg.demanda ? fmtNum(agg.demanda, 0) : '—'}</td><td>${at}</td><td>${mp.destino ? esc(DESTINOS[mp.destino]) : '— não mapeado —'}</td></tr>`;
+  }).join('') || '<tr><td colspan="5">Nenhuma produção planejada</td></tr>';
   const tonRows = BUCKETS_CUSTO.map((b) => `<tr><td>${DESTINOS[b]}</td><td class="num">${fmtNum(r.plano.tonelagem['ton' + b], 2)}</td><td class="num">${fmtPct(r.plano.tonelagem['pct' + b], 2)}</td></tr>`).join('');
   return `<div class="secao"><h2>Produção planejada por produto</h2>
-    <table><thead><tr><th>Produto</th><th>Qtd. planejada</th><th>Demanda</th><th>Linha de custo</th></tr></thead><tbody>${linhasProduto}</tbody></table></div>
+    <table><thead><tr><th>Produto</th><th>Qtd. planejada</th><th>Demanda</th><th>Situação</th><th>Linha de custo</th></tr></thead><tbody>${linhasProduto}</tbody></table></div>
     <div class="secao"><h2>Tonelagem por linha de custo</h2>
     <table><thead><tr><th>Linha</th><th>Toneladas</th><th>% da produção</th></tr></thead><tbody>
       ${tonRows}
@@ -7806,23 +7895,27 @@ function _printInsumos(r) {
   const rowCompart = (x) => {
     const base = _baseCalculoTexto(x.item);
     const qtdTot = (_quantidadeTotalCompartilhado(x.item, tonTotal) || '').replace(/<[^>]*>/g, '');
-    return `<tr><td>${esc(_nomeInsumoLimpo(x.item.insumo))}</td><td>${esc(_regraDoInsumo(x.item).txt + _escopoTextoCurto(x.item.id))}</td><td class="num">${esc(qtdTot)}</td><td style="font-size:10px;">${base ? esc(base) : '—'}</td>${bucketsProd.map((b) => `<td class="num">${fmtBRL(x.calc.linhas[b])}</td>`).join('')}<td class="num">${fmtBRL(tonTotal > 0 ? x.calc.valorTotal / tonTotal : 0)}</td><td class="num">${fmtBRL(x.calc.valorTotal)}</td></tr>`;
+    return `<tr><td><strong>${esc(_nomeInsumoLimpo(x.item.insumo))}</strong><div class="mini">${esc(_regraDoInsumo(x.item).txt + _escopoTextoCurto(x.item.id))}${base ? ' · ' + esc(base) : ''}</div></td><td class="num">${esc(qtdTot)}</td>${bucketsProd.map((b) => `<td class="num">${fmtBRL(x.calc.linhas[b])}</td>`).join('')}<td class="num">${fmtBRL(tonTotal > 0 ? x.calc.valorTotal / tonTotal : 0)}</td><td class="num">${fmtBRL(x.calc.valorTotal)}</td></tr>`;
   };
   return `<div class="secao"><h2>Insumos diretos</h2>
+    <p class="sub">Custos que pertencem a um único produto (embalagem, matéria-prima, aditivo, pallet).</p>
     <table><thead><tr><th>Insumo</th><th>Preço Unitário</th><th>Quantidade</th><th>R$/ton</th><th>Valor total</th></tr></thead>
     <tbody>${diretos.map(rowDireto).join('') || '<tr><td colspan="5">Nenhum</td></tr>'}
     <tr><td colspan="4"><strong>Total insumos diretos</strong></td><td class="num"><strong>${fmtBRL(totalDiretos)}</strong></td></tr></tbody></table></div>
     <div class="secao"><h2>Insumos compartilhados</h2>
-    <table><thead><tr><th>Insumo</th><th>Regra</th><th>Quantidade</th><th>Base de cálculo</th>${bucketsProd.map((b) => `<th>${DESTINOS[b]}</th>`).join('')}<th>R$/ton</th><th>Valor total</th></tr></thead>
-    <tbody>${compartilhados.map(rowCompart).join('') || `<tr><td colspan="${5 + bucketsProd.length}">Nenhum</td></tr>`}
-    <tr><td colspan="${4 + bucketsProd.length}"><strong>Total compartilhados</strong></td><td class="num"><strong>${fmtBRL(tonTotal > 0 ? totalCompart / tonTotal : 0)}</strong></td><td class="num"><strong>${fmtBRL(totalCompart)}</strong></td></tr></tbody></table></div>`;
+    <p class="sub">Custos divididos entre os produtos. Embaixo de cada insumo: a regra de divisão e a base de cálculo.</p>
+    <table><thead><tr><th>Insumo · regra</th><th>Quantidade</th>${bucketsProd.map((b) => `<th>${DESTINOS[b]}</th>`).join('')}<th>R$/ton</th><th>Valor total</th></tr></thead>
+    <tbody>${compartilhados.map(rowCompart).join('') || `<tr><td colspan="${4 + bucketsProd.length}">Nenhum</td></tr>`}
+    <tr><td colspan="${2 + bucketsProd.length}"><strong>Total compartilhados</strong></td><td class="num"><strong>${fmtBRL(tonTotal > 0 ? totalCompart / tonTotal : 0)}</strong></td><td class="num"><strong>${fmtBRL(totalCompart)}</strong></td></tr></tbody></table></div>`;
 }
 function _printPrecificacao(r) {
   const linha = (p) => `<tr><td>${DESTINOS[p]}</td><td class="num">${fmtBRL(r.custoVariavelPorUnidade[p])}</td><td class="num">${fmtBRL(r.precoVenda[p])}</td>
-    <td class="num">${fmtBRL(r.margem[p].margemRS)} (${fmtPct(r.margem[p].margemPct, 2)})</td><td class="num">${fmtNum(r.pontoEquilibrio[p], 0)} ${UNIDADE_LABEL[p]}s/mês</td></tr>`;
+    <td class="num">${fmtBRL(r.margem[p].margemRS)} (${fmtPct(r.margem[p].margemPct, 2)})</td><td class="num">${isFinite(r.pontoEquilibrio[p]) ? fmtNum(r.pontoEquilibrio[p], 0) : '—'} ${UNIDADE_LABEL[p]}s/mês</td>
+    <td class="num">${fmtNum(_qtdDoBucket(r, p), 0)}</td><td><span class="tag ${_situacaoPE(r, p).cls}">${_situacaoPE(r, p).txt}</span></td></tr>`;
   return `<div class="secao"><h2>Precificação e margem</h2>
-    <table><thead><tr><th>Produto</th><th>Custo variável</th><th>Preço de venda</th><th>Margem</th><th>Ponto de equilíbrio</th></tr></thead>
-    <tbody>${_bucketsProduzidos(r).map(linha).join('') || '<tr><td colspan="5">Nenhum produto com produção</td></tr>'}</tbody></table></div>`;
+    <p class="sub">Valores por unidade (saco, big bag ou tonelada). A situação compara a produção do mês com o ponto de equilíbrio.</p>
+    <table><thead><tr><th>Produto</th><th>Custo variável</th><th>Preço de venda</th><th>Margem</th><th>Ponto de equilíbrio</th><th>Produção do mês</th><th>Situação</th></tr></thead>
+    <tbody>${_bucketsProduzidos(r).map(linha).join('') || '<tr><td colspan="7">Nenhum produto com produção</td></tr>'}</tbody></table></div>`;
 }
 
 function _printPainel(r) {
@@ -7834,6 +7927,7 @@ function _printPainel(r) {
   const alertasHtml = [];
   gargalos.forEach((g) => alertasHtml.push(`<div class="alerta alerta-danger">⚠️ <strong>${esc(g.produtoNome)}</strong> (${esc(g.linhaNome)} / ${esc(g.turnoNome)}): demanda de ${fmtNum(g.demanda, 0)} excede o máximo de ${fmtNum(g.qtdMax, 0)}.</div>`));
   BUCKETS_CUSTO.forEach((p) => { if (r.margem[p].margemRS < 0) alertasHtml.push(`<div class="alerta alerta-danger">⚠️ ${NOMES_PRODUTO[p]}: margem negativa de ${fmtBRL(r.margem[p].margemRS)}.</div>`); });
+  _bucketsProduzidos(r).forEach((p) => { const st = _situacaoPE(r, p); if (st.abaixo && r.margem[p].margemRS >= 0) alertasHtml.push(`<div class="alerta alerta-danger">⚖️ ${NOMES_PRODUTO[p]}: produção de ${fmtNum(st.q, 0)} abaixo do ponto de equilíbrio (${isFinite(st.pe) ? fmtNum(st.pe, 0) : '—'} ${UNIDADE_LABEL[p]}s) — no mês, não paga o próprio custo fixo.</div>`); });
   if (r.producao.naoMapeados.length) alertasHtml.push(`<div class="alerta alerta-warning">⚠️ ${r.producao.naoMapeados.length} produto(s) sem linha de custo: ${r.producao.naoMapeados.map((x) => esc(x.nome)).join(', ')}.</div>`);
   return `<div class="secao"><h2>Painel executivo</h2>
     <p><strong>Gargalo:</strong> ${gargalos.length ? gargalos.length + ' produto(s) com demanda acima da capacidade — ver alertas abaixo.' : 'nenhum gargalo neste plano.'}</p>
@@ -7851,7 +7945,7 @@ function _abrirJanelaImpressao(titulo, corpoHtml) {
     <style>${_printCSS()}</style></head><body>
     ${_printCabecalho()}
     <h1>${titulo.toUpperCase()}</h1>
-    <p class="sub">Período: ${String(state.mes).padStart(2, '0')}/${state.ano} · Emitido em ${emitido}</p>
+    <p class="sub">${state._planejamentoAtualCodigo ? `Plano <strong>${esc(state._planejamentoAtualCodigo)}</strong>${state._planejamentoAtualNome && state._planejamentoAtualNome !== state._planejamentoAtualCodigo ? ' — ' + esc(state._planejamentoAtualNome) : ''} · ` : ''}Período: ${String(state.mes).padStart(2, '0')}/${state.ano} · Emitido em ${emitido}</p>
     ${corpoHtml}
     <div class="rodape">Relatório gerado pelo módulo Custo &amp; Precificação — ERP Industrial.</div>
     </body></html>`;
@@ -7995,16 +8089,18 @@ function imprimirRelatorioGeral() {
 }
 
 function _printGeral(r) {
-  return `${_printResumo(r)}
+  return `${_printDestaques(r)}
+    ${_printResumo(r)}
     ${_printCapacidade()}
     ${_printProducaoETonelagem(r)}
     <div class="secao"><h2>Custo por linha física</h2>
-    <table><thead><tr><th>Linha</th><th>Tonelagem</th><th>Custo total</th><th>Custo/tonelada</th></tr></thead>
-    <tbody>${r.custoPorLinhaFisica.map((lf) => `<tr><td>${esc(lf.linhaNome)}</td><td class="num">${fmtNum(lf.tonTotal, 1)}</td><td class="num">${fmtBRL(lf.custoTotal)}</td><td class="num">${fmtBRL(lf.custoPorTon)}</td></tr>`).join('') || '<tr><td colspan="4">—</td></tr>'}</tbody></table></div>
+    <table><thead><tr><th>Linha</th><th>Tonelagem</th><th>% da produção</th><th>Custo total</th><th>Custo/tonelada</th></tr></thead>
+    <tbody>${r.custoPorLinhaFisica.map((lf) => { const parada = !(lf.tonTotal > 0); return `<tr${parada ? ' class="parado"' : ''}><td>${esc(lf.linhaNome)}${parada ? ' <span class="tag tag-neutra">sem produção no mês</span>' : ''}</td><td class="num">${fmtNum(lf.tonTotal, 1)}</td><td class="num">${parada ? '—' : fmtPct(r.plano.tonelagem.tonTotal > 0 ? lf.tonTotal / r.plano.tonelagem.tonTotal : 0, 1)}</td><td class="num">${parada ? '—' : fmtBRL(lf.custoTotal)}</td><td class="num">${parada ? '—' : fmtBRL(lf.custoPorTon)}</td></tr>`; }).join('') || '<tr><td colspan="5">—</td></tr>'}</tbody></table></div>
     ${_printResultado(r)}
     ${_printInsumos(r)}
     ${_printPrecificacao(r)}
-    ${_printPainel(r)}`;
+    ${_printPainel(r)}
+    ${_printGlossario()}`;
 }
 
 function imprimirAbaAtual() {
