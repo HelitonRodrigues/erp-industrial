@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Teste do leitor de QR</title>
+<script src="https://cdn.jsdelivr.net/npm/zxing-wasm@3.1.5/dist/iife/reader/index.js"></script>
+<style>
+/* Página de TESTE do leitor de QR (nov/2026) — não mexe no carregamento.
+   Compara dois leitores na mesma imagem da câmera:
+   • Nativo  = BarcodeDetector do navegador (o mesmo motor da câmera do Android)
+   • ZXing   = zxing-cpp em WebAssembly (bem mais forte que o leitor atual do carregamento)
+   Câmera em alta resolução com foco contínuo; zoom e lanterna quando o aparelho permite. */
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:system-ui,-apple-system,'Segoe UI',sans-serif;background:#042D4D;color:#fff;min-height:100dvh;}
+.top{padding:12px 16px;font-weight:800;font-size:18px;display:flex;align-items:center;gap:10px;}
+.top small{display:block;font-size:12px;font-weight:600;opacity:.7;}
+.cam{position:relative;width:100%;aspect-ratio:3/4;max-height:62dvh;background:#000;overflow:hidden;}
+video{width:100%;height:100%;object-fit:cover;display:block;}
+.mira{position:absolute;left:50%;top:50%;width:min(230px,60%);aspect-ratio:1;transform:translate(-50%,-50%);border:3px solid rgba(255,255,255,.95);border-radius:14px;box-shadow:0 0 0 9999px rgba(0,0,0,.25);pointer-events:none;}
+.mira.ok{border-color:#22c55e;box-shadow:0 0 0 9999px rgba(22,163,74,.35);}
+.ctl{display:flex;gap:10px;padding:12px 16px;flex-wrap:wrap;align-items:center;}
+button{font:inherit;border:0;border-radius:12px;padding:12px 16px;font-weight:800;background:#C9FF64;color:#042D4D;}
+button.sec{background:rgba(255,255,255,.14);color:#fff;}
+input[type=range]{flex:1;min-width:140px;}
+.res{margin:0 16px;background:#fff;color:#042D4D;border-radius:14px;padding:14px 16px;min-height:86px;}
+.res b{display:block;font-size:20px;word-break:break-all;}
+.res small{display:block;margin-top:4px;color:#475569;font-weight:600;}
+.st{padding:10px 16px;font-size:13px;line-height:1.6;opacity:.9;}
+.st span{display:inline-block;margin-right:14px;}
+.on{color:#4ade80;font-weight:800;} .off{color:#f87171;font-weight:800;}
+.hist{padding:0 16px 30px;font-size:13px;opacity:.85;}
+</style>
+</head>
+<body>
+<div class="top">🔎<div>Teste do leitor de QR<small>Compare: aponte para o rótulo (com e sem plástico)</small></div></div>
+<div class="cam"><video id="v" playsinline muted></video><div class="mira" id="mira"></div></div>
+<div class="ctl">
+  <button id="b-ini" onclick="iniciar()">Ligar câmera</button>
+  <button class="sec" id="b-luz" onclick="lanterna()" hidden>🔦 Lanterna</button>
+  <label id="l-zoom" hidden style="display:flex;align-items:center;gap:8px;flex:1;">Zoom <input type="range" id="zoom" oninput="aplicarZoom(this.value)"></label>
+</div>
+<div class="res" id="res"><b>—</b><small>Nada lido ainda</small></div>
+<div class="st" id="st"></div>
+<div class="hist" id="hist"></div>
+<script>
+const $=id=>document.getElementById(id);
+let stream=null, track=null, luz=false, rodando=false, lidos=0, ultimo='', ultimoT=0;
+const est={nativo:{ok:false,n:0,ms:0},zxing:{ok:false,n:0,ms:0}};
+let det=null;
+async function prepararNativo(){
+  try{ if('BarcodeDetector' in window){ const f=await BarcodeDetector.getSupportedFormats(); if(f.includes('qr_code')){ det=new BarcodeDetector({formats:['qr_code']}); est.nativo.ok=true; } } }catch(e){}
+}
+function status(){
+  const r=track&&track.getSettings?track.getSettings():{};
+  $('st').innerHTML=`<span>Leitor nativo: <b class="${est.nativo.ok?'on':'off'}">${est.nativo.ok?'disponível':'indisponível'}</b> · leu ${est.nativo.n}x${est.nativo.n?' · '+Math.round(est.nativo.ms)+' ms':''}</span>
+  <span>ZXing: <b class="${est.zxing.ok?'on':'off'}">${est.zxing.ok?'disponível':'carregando…'}</b> · leu ${est.zxing.n}x${est.zxing.n?' · '+Math.round(est.zxing.ms)+' ms':''}</span>
+  <span>Câmera: ${r.width||'?'}×${r.height||'?'}${r.focusMode?' · foco '+r.focusMode:''}</span>`;
+}
+async function iniciar(){
+  if(rodando) return;
+  await prepararNativo();
+  try{
+    stream=await navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080},advanced:[{focusMode:'continuous'}]}});
+  }catch(e){ try{ stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}}); }catch(e2){ $('res').innerHTML='<b>Câmera bloqueada</b><small>'+(e2.message||e2)+'</small>'; return; } }
+  const v=$('v'); v.srcObject=stream; await v.play();
+  track=stream.getVideoTracks()[0];
+  const cap=track.getCapabilities?track.getCapabilities():{};
+  try{ if(cap.focusMode&&cap.focusMode.includes('continuous')) await track.applyConstraints({advanced:[{focusMode:'continuous'}]}); }catch(e){}
+  if(cap.torch) $('b-luz').hidden=false;
+  if(cap.zoom){ const z=$('zoom'); z.min=cap.zoom.min; z.max=Math.min(cap.zoom.max,5); z.step=cap.zoom.step||0.1; z.value=cap.zoom.min; $('l-zoom').hidden=false; }
+  $('b-ini').textContent='Câmera ligada'; rodando=true;
+  est.zxing.ok=typeof ZXingWASM!=='undefined';
+  status(); laco();
+}
+async function lanterna(){ luz=!luz; try{ await track.applyConstraints({advanced:[{torch:luz}]}); }catch(e){} }
+async function aplicarZoom(z){ try{ await track.applyConstraints({advanced:[{zoom:Number(z)}]}); }catch(e){} }
+const cv=document.createElement('canvas'), cx=cv.getContext('2d',{willReadFrequently:true});
+function achou(txt,motor,ms){
+  est[motor].n++; est[motor].ms=ms; status();
+  const agora=Date.now(); if(txt===ultimo&&agora-ultimoT<1500) return; ultimo=txt; ultimoT=agora; lidos++;
+  $('res').innerHTML=`<b>${txt.replace(/[<>&]/g,'')}</b><small>Lido pelo leitor ${motor==='nativo'?'NATIVO':'ZXing'} em ${Math.round(ms)} ms</small>`;
+  $('mira').classList.add('ok'); setTimeout(()=>$('mira').classList.remove('ok'),500);
+  try{ navigator.vibrate&&navigator.vibrate(80); }catch(e){}
+  $('hist').insertAdjacentHTML('afterbegin',`<div>${new Date().toLocaleTimeString('pt-BR')} · ${motor} · ${txt.replace(/[<>&]/g,'').slice(-28)}</div>`);
+}
+let vez=0;
+async function laco(){
+  const v=$('v');
+  if(v.readyState>=2){
+    vez++;
+    // alterna: nativo (rápido) e ZXing (mais forte); cada um registra quanto levou
+    if(det&&vez%2===1){
+      const t=performance.now();
+      try{ const r=await det.detect(v); if(r&&r.length) achou(r[0].rawValue,'nativo',performance.now()-t); }catch(e){}
+    } else if(typeof ZXingWASM!=='undefined'){
+      est.zxing.ok=true;
+      const w=v.videoWidth,h=v.videoHeight; if(w&&h){
+        cv.width=w; cv.height=h; cx.drawImage(v,0,0,w,h);
+        const t=performance.now();
+        try{ const r=await ZXingWASM.readBarcodes(cx.getImageData(0,0,w,h),{formats:['QRCode'],tryHarder:true,tryRotate:true,tryInvert:false,maxNumberOfSymbols:1});
+          if(r&&r.length&&r[0].isValid) achou(r[0].text,'zxing',performance.now()-t); }catch(e){}
+      }
+    }
+  }
+  setTimeout(laco,80);
+}
+status();
+</script>
+</body>
+</html>
