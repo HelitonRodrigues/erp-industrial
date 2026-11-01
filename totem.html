@@ -78,6 +78,13 @@ h1.q{font-size:clamp(30px,5vw,42px);font-weight:800;letter-spacing:-.025em;margi
 .linhas .big::after{content:"→";position:absolute;top:18px;right:22px;font-size:30px;color:var(--navy);opacity:.25;}
 .linhas .big .ico{position:absolute;top:18px;left:22px;width:54px;height:54px;border-radius:16px;background:var(--navy);color:var(--lime);display:grid;place-items:center;font-size:22px;font-weight:800;letter-spacing:0;}
 
+/* cartão de linha com foto: foto de fundo, faixa escura embaixo, só o nome em branco */
+.linhas .linha-card{color:#fff;background:linear-gradient(150deg,#0B3F66,#042D4D);border:3px solid transparent;}
+.linhas .linha-card.com-foto{background:linear-gradient(to top,rgba(4,25,45,.95) 0%,rgba(4,25,45,.7) 28%,rgba(4,25,45,.08) 62%,rgba(4,25,45,0) 100%),var(--img) center/cover no-repeat,#042D4D;}
+.linhas .linha-card .nm{font-size:clamp(34px,6vw,52px);font-weight:800;letter-spacing:-.02em;line-height:1;text-shadow:0 2px 12px rgba(0,0,0,.55);}
+.linhas .linha-card .ico{background:var(--lime);color:var(--navy);box-shadow:0 4px 14px rgba(0,0,0,.25);}
+.linhas .linha-card::after{color:#fff;opacity:.9;text-shadow:0 2px 8px rgba(0,0,0,.5);}
+.linhas .linha-card.sel{border-color:var(--lime);}
 /* quantidade */
 .qty{display:flex;align-items:center;justify-content:center;gap:22px;background:var(--surface);border-radius:24px;padding:30px;box-shadow:var(--sh);}
 .qty button{width:120px;height:120px;border-radius:28px;background:var(--navy);color:#fff;font-size:60px;font-weight:700;line-height:1;}
@@ -145,6 +152,15 @@ h1.q{font-size:clamp(30px,5vw,42px);font-weight:800;letter-spacing:-.025em;margi
 .run .num{margin-top:auto;display:flex;align-items:baseline;gap:8px;color:var(--muted);font-weight:700;font-size:15px;}
 .run .num em{font-style:normal;font-size:40px;font-weight:800;color:var(--navy);font-variant-numeric:tabular-nums;line-height:1;}
 .run.vazio strong{color:#94A3B8;font-size:19px;}
+/* tela de produtos compacta: tudo numa tela, sem rolar */
+h1.q-prod{margin:0 0 6px;font-size:clamp(26px,4.4vw,34px);}
+.prods .grp{margin:10px 0 6px;font-size:15px;}
+.prods .grid{grid-template-columns:repeat(3,1fr);gap:10px;}
+.prods .big{min-height:var(--ph,76px);padding:6px 12px 6px 26px;font-size:var(--pf,19px);border-radius:16px;gap:2px;line-height:1.12;}
+.prods .prod::before{width:10px;}
+.prods .big small{font-size:12.5px;}
+.prods + .actions{margin-top:14px;}
+.prods + .actions .btn{min-height:62px;padding:12px 24px;font-size:19px;}
 .load{padding:60px 20px;text-align:center;color:var(--muted);font-size:18px;font-weight:700;}
 @media (max-width:560px){.big{min-height:90px;font-size:19px;}.qty button{width:80px;height:80px;font-size:44px;}.qty output{font-size:66px;min-width:90px;}.runs{grid-template-columns:1fr;}}
 </style>
@@ -218,13 +234,13 @@ const prodPorId=id=>PRODUTOS.find(p=>p.id===id);
 async function carregarCadastros(){
   const [e,l,p]=await Promise.all([
     _supabase.from('empresa_config').select('nome_fantasia,razao_social,cnpj,cidade,uf,logo').limit(1).maybeSingle(),
-    _supabase.from('linhas_producao').select('nome,barracao,produtos,status').eq('status','ativo').order('nome'),
+    _supabase.from('linhas_producao').select('nome,barracao,produtos,status,foto').eq('status','ativo').order('nome'),
     _supabase.from('produtos').select('id,nome,linhas,unidade,status').eq('status','ativo').order('nome')]);
   if(l.error||p.error) throw (l.error||p.error);
   EMP=e.data||{};
   PRODUTOS=(p.data||[]).filter(x=>String(x.unidade||'').toLowerCase()!=='toneladas'&&(x.linhas||[]).length)
     .map(x=>({id:x.id,nome:x.nome,linhaProduto:x.linhas[0],tag:String(x.id).replace(/-/g,'').slice(0,3).toUpperCase()}));
-  LINHAS=(l.data||[]).map(x=>({nome:x.nome,barracao:x.barracao||'',
+  LINHAS=(l.data||[]).map(x=>({nome:x.nome,barracao:x.barracao||'',foto:/^https?:\/\//.test(x.foto||'')?x.foto:'',
     sub:(Array.isArray(x.produtos)?x.produtos:[]).filter(s=>String(s.unidade||'').toLowerCase()!=='toneladas').map(s=>s.nome)}))
     .filter(x=>x.sub.some(s=>PRODUTOS.some(p=>norm(p.linhaProduto)===norm(s))));
   if(EMP.logo){ const st=document.createElement('style');
@@ -402,20 +418,31 @@ function telaInicio(){
   <div class="sec-title">Hoje em cada linha</div><div class="runs">${cards}</div>`;
 }
 
+/* cartão da linha com a foto do cadastro (linhas.html) e só o nome */
+const cartaoLinha=(l,acao,sel)=>`<button class="big linha-card ${l.foto?'com-foto':''} ${sel?'sel':''}" ${l.foto?`style="--img:url('${esc_(l.foto)}')"`:''} onclick="${acao}"><span class="ico">${codLinha(l.nome)}</span><span class="nm">${esc_(l.nome)}</span></button>`;
 /* ── imprimir ── */
 function telaLinha(){
   return trilha()+`<h1 class="q">Para qual linha?</h1><div class="linhas">`+
-    LINHAS.map((l,i)=>`<button class="big ${esc.linha===l.nome?'sel':''}" onclick="esc.linha=LINHAS[${i}].nome;ir('produto')"><span class="ico">${codLinha(l.nome)}</span>${esc_(l.nome)}<small>${esc_(l.barracao)}</small></button>`).join('')+
+    LINHAS.map((l,i)=>cartaoLinha(l,`esc.linha=LINHAS[${i}].nome;ir('produto')`,esc.linha===l.nome)).join('')+
     `</div><div class="actions"><button class="btn btn-back" onclick="ir('inicio')">Voltar</button></div>`;
 }
 function telaProduto(){
   const L=LINHAS.find(l=>l.nome===esc.linha);
-  let h=trilha()+`<h1 class="q">Qual produto?</h1><p class="hint">Só aparecem os produtos que a ${esc_(esc.linha)} faz.</p>`;
+  let h=trilha()+`<h1 class="q q-prod">Qual produto?</h1><div class="prods" id="prods">`;
   L.sub.forEach(s=>{const ps=PRODUTOS.filter(p=>norm(p.linhaProduto)===norm(s)); if(!ps.length) return; const c=corDe(s);
     h+=`<div class="grp" style="--c:${c}"><i></i>${esc_(nomeSub(s))}</div><div class="grid">`+
       ps.map(p=>{const u=ultimoHoje(esc.linha,p.nome); return `<button class="big prod ${esc.produto&&esc.produto.id===p.id?'sel':''}" style="--c:${c}" onclick="esc.produto=prodPorId('${p.id}');esc.qtd=1;ir('qtd')">${esc_(p.nome)}${u?`<small>hoje já impresso até o nº ${pad(u,3)}</small>`:''}</button>`;}).join('')+'</div>';});
-  return h+`<div class="actions"><button class="btn btn-back" onclick="ir('linha')">Voltar</button></div>`;
+  return h+`</div><div class="actions"><button class="btn btn-back" onclick="ir('linha')">Voltar</button></div>`;
 }
+/* produtos cabem na tela sem rolar: diminui os cartões até caber (Linha 3 tem 5 grupos) */
+function caberProdutos(){
+  const box=document.getElementById('prods'); if(!box) return;
+  let h=76, f=19;
+  const passo=()=>{ box.style.setProperty('--ph',h+'px'); box.style.setProperty('--pf',f+'px'); };
+  passo();
+  for(let i=0;i<20&&document.documentElement.scrollHeight>window.innerHeight+1&&h>46;i++){ h-=3; if(f>15&&i%2) f-=1; passo(); }
+}
+window.addEventListener('resize',()=>{ if(tela==='produto') caberProdutos(); });
 function telaQtd(){
   const p=esc.produto, u1=ehBag(p)?'bag':'pallet', uN=ehBag(p)?'bags':'pallets';
   return trilha()+`<h1 class="q">Quantos rótulos de ${u1}?</h1><p class="hint">Se sobrar, guarde. Quando este produto voltar hoje nesta linha, use a sobra antes de imprimir mais.</p>
@@ -450,16 +477,16 @@ async function imprimir(){
   }catch(e){ ocupado=false; erroMsg=(e.message||String(e))+' — confira a internet e tente de novo.'; render(); }
 }
 function previas(row,p){ const pal=palDe(row);
-  return `<div class="grp">Rótulo · LaserJet</div><div class="paper"><div class="fit"><div class="in">${rotulo(pal,p)}</div></div></div>
+  return `<div class="grp">Rótulo · LaserJet</div><div class="paper"><div class="fit" data-maxh="0.31"><div class="in">${rotulo(pal,p)}</div></div></div>
   <div class="grp">Etiqueta de amostra · DYMO</div><div class="paper" style="max-width:440px;"><div class="fit"><div class="in">${amostraHTML(pal,p)}</div></div></div>`; }
 function telaFeito(){
   const {rows,p}=ultima, n=rows.length, am=isFicha(p.linhaProduto)?rows.filter(x=>x.numero===1).length:n, u=ehBag(p)?'Bag':'Pallet';
   return `<div class="okmsg"><div class="ic">✓</div><div>${n===1?'1 rótulo':n+' rótulos'}${am?' e '+(am===1?'1 amostra':am+' amostras'):''} enviados para impressão
     <small>${esc_(p.nome)} · ${esc_(rows[0].linha)} · nº ${pad(rows[0].numero,3)}${n>1?' ao '+pad(rows[n-1].numero,3):''}</small></div></div>
   <div class="jobs" id="jobs">${htmlJobs()}</div>
+  <div class="actions" style="margin:0 0 16px;"><button class="btn btn-go" onclick="voltarInicio()">Pronto</button></div>
   <div class="thumbs">${rows.map((x,i)=>`<button class="${i===verIdx?'sel':''}" onclick="verIdx=${i};render()">${u} ${pad(x.numero,3)}</button>`).join('')}</div>
-  ${previas(rows[verIdx],p)}
-  <div class="actions"><button class="btn btn-go" onclick="voltarInicio()">Pronto</button></div>`;
+  ${previas(rows[verIdx],p)}`;
 }
 async function voltarInicio(){ await carregarInicio().catch(()=>{}); ir('inicio'); }
 
@@ -473,7 +500,7 @@ async function reimpLinha(nome){
 }
 function telaReimp(){
   let h=barraErro()+`<h1 class="q">Reimprimir rótulo perdido</h1><p class="hint">Sai igual ao original: mesmo número, mesmo QR. Só os de hoje — rótulo de ontem não vale mais.</p>`;
-  if(!reimp.linha) return h+`<div class="linhas">`+LINHAS.map((l,i)=>`<button class="big" onclick="reimpLinha(LINHAS[${i}].nome)"><span class="ico">${codLinha(l.nome)}</span>${esc_(l.nome)}<small>${esc_(l.barracao)}</small></button>`).join('')+
+  if(!reimp.linha) return h+`<div class="linhas">`+LINHAS.map((l,i)=>cartaoLinha(l,`reimpLinha(LINHAS[${i}].nome)`,false)).join('')+
     `</div><div class="actions"><button class="btn btn-back" onclick="ir('inicio')">Voltar</button></div>`;
   h+=`<div class="grp">${esc_(reimp.linha)} · toque no número que perdeu</div>`;
   if(!reimp.grupos.length) h+=`<div class="empty">Nada impresso hoje na ${esc_(reimp.linha)}.</div>`;
@@ -484,10 +511,10 @@ function telaReimp(){
 }
 function telaReimpConf(){
   const x=reimp.row, p=prodPorNome(x.produto), temAm=!(isFicha(p.linhaProduto)&&x.numero!==1);
-  return barraErro()+`<h1 class="q">Reimprimir ${ehBag(p)?'bag':'pallet'} ${pad(x.numero,3)}?</h1><p class="hint">${esc_(x.produto)} · ${esc_(x.linha)} · ${fD(x.dia)}</p>${previas(x,p)}
-  <div class="actions"><button class="btn btn-back" onclick="ir('reimp')">Voltar</button>
+  return barraErro()+`<h1 class="q">Reimprimir ${ehBag(p)?'bag':'pallet'} ${pad(x.numero,3)}?</h1><p class="hint">${esc_(x.produto)} · ${esc_(x.linha)} · ${fD(x.dia)}</p>
+  <div class="actions" style="margin:0 0 8px;"><button class="btn btn-back" onclick="ir('reimp')">Voltar</button>
   <button class="btn btn-go" ${ocupado?'disabled':''} onclick="reimprimir('rot')">Reimprimir rótulo</button>
-  ${temAm?`<button class="btn btn-go" ${ocupado?'disabled':''} onclick="reimprimir('am')">Reimprimir amostra</button>`:''}</div>`;
+  ${temAm?`<button class="btn btn-go" ${ocupado?'disabled':''} onclick="reimprimir('am')">Reimprimir amostra</button>`:''}</div>${previas(x,p)}`;
 }
 async function reimprimir(oque){
   if(ocupado) return; ocupado=true; render();
@@ -502,13 +529,18 @@ function telaReimpOk(){ const x=reimp.row;
   <div class="jobs" id="jobs">${htmlJobs()}</div><div class="actions"><button class="btn btn-go" onclick="voltarInicio()">Pronto</button></div>`; }
 
 /* ═══ render ═══ */
+// prévia do rótulo: cabe na largura e, com data-maxh, também numa fração da altura da tela (centralizada)
 function ajustarPrevia(){ document.querySelectorAll('.fit').forEach(f=>{const i=f.querySelector('.in'); if(!i) return;
-  const s=f.clientWidth/i.offsetWidth; i.style.transform=`scale(${s})`; f.style.height=(i.offsetHeight*s)+'px';}); }
+  f.style.width=''; let s=f.clientWidth/i.offsetWidth; const mh=parseFloat(f.dataset.maxh||0);
+  if(mh) s=Math.min(s,(window.innerHeight*mh)/i.offsetHeight);
+  i.style.transform=`scale(${s})`; f.style.height=(i.offsetHeight*s)+'px';
+  if(mh){ f.style.width=(i.offsetWidth*s)+'px'; f.style.margin='0 auto'; } }); }
 window.addEventListener('resize',ajustarPrevia);
 function render(){
   const map={inicio:telaInicio,linha:telaLinha,produto:telaProduto,qtd:telaQtd,confirma:telaConfirma,feito:telaFeito,
     reimp:telaReimp,reimpConf:telaReimpConf,reimpOk:telaReimpOk};
   document.getElementById('app').innerHTML=map[tela](); requestAnimationFrame(ajustarPrevia);
+  if(tela==='produto') requestAnimationFrame(caberProdutos);
 }
 function tick(){const d=new Date(); document.getElementById('hora').textContent=fHora(d); document.getElementById('data').textContent=fData(d)+' · '+turnoDe(d);}
 
