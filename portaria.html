@@ -341,6 +341,7 @@ tr.mi-sel td{background:#f0fdf4;}
         <select class="form-input" id="mi-mat" onchange="carregarMinerio()"><option value="CAULIM">Caulim</option><option value="GRAFITOSO">Grafitoso</option></select></div>
       <div class="form-group" style="margin:0;"><label class="form-label">Mês</label><input type="month" class="form-input" id="mi-mes" onchange="carregarMinerio()"></div>
       <button class="btn btn-secondary" onclick="carregarMinerio()">🔄 Atualizar</button>
+      <button class="btn btn-secondary" onclick="miPdfMes()">📄 PDF do mês</button>
       <button class="btn btn-secondary" onclick="miExportar()">⬇️ CSV do mês</button>
     </div>
     <div class="kpis" id="mi-kpis"></div>
@@ -2699,14 +2700,67 @@ function miDesfazer(id){
 async function miImprimirNota(id){
   const n=_miNotas.find(x=>x.id===id); if(!n)return; const vs=await miViagensNota(id);
   const w=window.open('','_blank'); if(!w){toast('Libere as janelas (pop-up) para imprimir.','warning');return;}
-  w.document.write(`<html><head><meta charset="utf-8"><title>Nota ${esc(n.nf_numero||'')}</title><style>body{font-family:Arial,sans-serif;font-size:12px;margin:18px;color:#032036}h2{margin:0 0 4px;color:#042D4D}table{width:100%;border-collapse:collapse;margin-top:10px}th{background:#042D4D;color:#C9FF64;text-align:left;padding:6px}td{padding:5px 6px;border-bottom:1px solid #e2e8f0}.n{text-align:right}tfoot td{font-weight:800;border-top:2px solid #042D4D}</style></head><body>
-    <h2>${n.material==='CAULIM'?'Caulim':'Grafitoso'} — ${n.nf_numero?'NF '+esc(n.nf_numero):'Nota sem nº de NF'}</h2>
+  w.document.write(`<html><head><meta charset="utf-8"><title>Nota ${esc(n.nf_numero||'')}</title><style>@page{size:A4;margin:10mm}body{font-family:Arial,sans-serif;font-size:11px;margin:0;color:#032036}h2{margin:0;color:#042D4D;font-size:16px}.marca{font-size:20px;font-weight:800;color:#042D4D}.marca small{display:block;font-size:9px;color:#64748b;font-weight:700}table{width:100%;border-collapse:collapse;margin-top:10px}th{background:#042D4D;color:#C9FF64;text-align:left;padding:6px}td{padding:5px 6px;border-bottom:1px solid #e2e8f0}.n{text-align:right}tfoot td{font-weight:800;border-top:2px solid #042D4D}</style></head><body>
+    <div style="display:flex;justify-content:space-between;align-items:flex-end;border-bottom:3px solid #042D4D;padding-bottom:6px;margin-bottom:10px;">${marcaEmpresa(_empresa||{})}<h2 style="text-align:right;">${n.material==='CAULIM'?'Caulim':'Grafitoso'} — ${n.nf_numero?'NF '+esc(n.nf_numero):'Nota sem nº de NF'}</h2></div>
     <div>Data da nota: <b>${miData(n.data)}</b> · ${n.viagens} viagens · Total <b>${nf(n.total_kg)} kg (${miT(n.total_kg)})</b></div>
     <table><thead><tr><th>#</th><th>Data</th><th>Placa</th><th>Motorista</th><th>Unidade</th><th>Frente</th><th class="n">Tara</th><th class="n">Bruto</th><th class="n">Líquido</th></tr></thead><tbody>
     ${vs.map((v,i)=>`<tr><td>${i+1}</td><td>${miData(v.data)}</td><td>${esc(v.placa)}</td><td>${esc(v.motorista||'')}</td><td>${esc(miUni[v.unidade]||v.unidade||'')}</td><td>${esc(v.frente||'')}</td><td class="n">${nf(v.tara_kg)}</td><td class="n">${nf(v.bruto_kg)}</td><td class="n">${nf(v.liquido_kg)}</td></tr>`).join('')}
     </tbody><tfoot><tr><td colspan="8">Total</td><td class="n">${nf(n.total_kg)}</td></tr></tfoot></table>
     <p style="margin-top:14px;color:#64748b;">Emitido em ${new Date().toLocaleString('pt-BR')} · ${esc(quemSou()||'')}</p><script>window.onload=()=>window.print()<\/script></body></html>`);
   w.document.close();
+}
+/* PDF do mês: resumo + por frente + notas + todas as viagens (mesmo visual do fechamento) */
+function miPdfMes(){
+  if(!_miMes.length&&!_miNotas.length){toast('Nada para imprimir neste mês.','warning');return;}
+  const w=window.open('','_blank'); if(!w){toast('Libere pop-up para imprimir.','warning');return;}
+  const E=esc, mat=miMat()==='CAULIM'?'Caulim':'Grafitoso', mes=document.getElementById('mi-mes').value;
+  const [y,m]=mes.split('-'); const nomeMes=['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'][Number(m)-1]+'/'+y;
+  const soma=a=>a.reduce((s,v)=>s+Number(v.liquido_kg||0),0);
+  const tot=soma(_miMes), com=soma(_miMes.filter(v=>v.nota_id)), sem=tot-com, saldo=soma(_miPend);
+  const notasMes=_miNotas.filter(n=>String(n.data).slice(0,7)===mes);
+  const grp=(campo)=>{const g={}; _miMes.forEach(v=>{const k=(campo==='unidade'?(miUni[v.unidade]||v.unidade):v[campo])||'—'; (g[k]=g[k]||{n:0,kg:0}); g[k].n++; g[k].kg+=Number(v.liquido_kg||0);}); return Object.entries(g).sort((a,b)=>b[1].kg-a[1].kg);};
+  const nfDe=v=>{const n=_miNotas.find(x=>x.id===v.nota_id); return n?(n.nf_numero?'NF '+n.nf_numero:(n.origem==='planilha'?'nota (planilha)':'nota sem nº')):'sem nota';};
+  const tabResumo=(tit,arr)=>`<div class="bx"><h3>${tit}</h3><table><thead><tr><th>${tit.split(' ').pop()}</th><th class="n">Viagens</th><th class="n">Toneladas</th></tr></thead><tbody>${arr.map(([k,x])=>`<tr><td>${E(k)}</td><td class="n">${x.n}</td><td class="n">${nf(x.kg/1000,2)}</td></tr>`).join('')}</tbody></table></div>`;
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Minério ${E(mat)} ${E(nomeMes)}</title><style>
+    @page{size:A4 landscape;margin:9mm 9mm 11mm;}
+    *{box-sizing:border-box;} body{font-family:Arial,Helvetica,sans-serif;color:#032036;font-size:9.5px;margin:0;}
+    .topo{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:3px solid #042D4D;padding-bottom:6px;margin-bottom:8px;}
+    .marca{font-size:20px;font-weight:800;color:#042D4D;letter-spacing:-.5px;} .marca small{display:block;font-size:9px;color:#64748b;font-weight:700;letter-spacing:0;}
+    h1{font-size:15px;margin:0;color:#042D4D;text-align:right;} .sub{font-size:9.5px;color:#64748b;text-align:right;}
+    .lime{height:4px;background:#C9FF64;margin:-8px 0 10px;}
+    .kp{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-bottom:10px;}
+    .kp div{border:1px solid #cbd5e1;border-left:4px solid #042D4D;border-radius:4px;padding:5px 7px;} .kp b{display:block;font-size:14px;color:#042D4D;} .kp span{font-size:8.5px;color:#64748b;font-weight:700;text-transform:uppercase;}
+    .row{display:grid;grid-template-columns:1fr 1fr 1.6fr;gap:8px;margin-bottom:10px;align-items:start;}
+    h3{font-size:10.5px;margin:0 0 4px;color:#042D4D;text-transform:uppercase;letter-spacing:.3px;}
+    table{width:100%;border-collapse:collapse;} th{background:#042D4D;color:#C9FF64;text-align:left;padding:4px 5px;font-size:8.5px;text-transform:uppercase;}
+    td{padding:3px 5px;border-bottom:1px solid #e2e8f0;} .n{text-align:right;} tr:nth-child(even) td{background:#f8fafc;}
+    tfoot td{font-weight:800;border-top:2px solid #042D4D;background:#fff!important;}
+    .pe{margin-top:8px;color:#64748b;font-size:8.5px;text-align:right;}
+    thead{display:table-header-group;} tr{break-inside:avoid;}
+  </style></head><body>
+  <div class="topo">${marcaEmpresa(_empresa||{})}<div><h1>Entrada de minério — ${E(mat)} · ${E(nomeMes)}</h1><div class="sub">Pesagem na balança da portaria · ${_miMes.length} viagens</div></div></div>
+  <div class="lime"></div>
+  <div class="kp">
+    <div><b>${nf(tot/1000,2)} t</b><span>Puxado no mês</span></div>
+    <div style="border-left-color:#16a34a"><b>${nf(com/1000,2)} t</b><span>Com nota no mês</span></div>
+    <div style="border-left-color:#d97706"><b>${nf(sem/1000,2)} t</b><span>Sem nota no mês</span></div>
+    <div style="border-left-color:#dc2626"><b>${nf(saldo/1000,2)} t</b><span>Saldo sem nota (todas as datas)</span></div>
+    <div><b>${notasMes.length}</b><span>Notas no mês</span></div>
+  </div>
+  <div class="row">
+    ${tabResumo('Por frente',grp('frente'))}
+    ${tabResumo('Por unidade',grp('unidade'))}
+    <div class="bx"><h3>Notas do mês</h3><table><thead><tr><th>Data</th><th>Nº NF</th><th class="n">Viagens</th><th class="n">Toneladas</th></tr></thead><tbody>
+      ${notasMes.length?notasMes.slice().reverse().map(n=>`<tr><td>${miData(n.data)}</td><td>${n.nf_numero?E(n.nf_numero):(n.origem==='planilha'?'(planilha)':'<b style="color:#b45309">a informar</b>')}</td><td class="n">${n.viagens}</td><td class="n">${nf(n.total_kg/1000,2)}</td></tr>`).join(''):'<tr><td colspan="4">Nenhuma nota no mês</td></tr>'}
+    </tbody></table></div>
+  </div>
+  <h3>Viagens do mês</h3>
+  <table><thead><tr><th>#</th><th>Data</th><th>Placa</th><th>Motorista</th><th>Unidade</th><th>Frente</th><th class="n">Tara (kg)</th><th class="n">Bruto (kg)</th><th class="n">Líquido (kg)</th><th>Nota</th></tr></thead><tbody>
+    ${_miMes.map((v,i)=>`<tr><td>${i+1}</td><td>${miData(v.data)}</td><td>${E(v.placa)}</td><td>${E(v.motorista||'')}</td><td>${E(miUni[v.unidade]||v.unidade||'')}</td><td>${E(v.frente||'')}</td><td class="n">${nf(v.tara_kg)}</td><td class="n">${nf(v.bruto_kg)}</td><td class="n">${nf(v.liquido_kg)}</td><td>${E(nfDe(v))}</td></tr>`).join('')}
+  </tbody><tfoot><tr><td colspan="8">Total do mês</td><td class="n">${nf(tot)}</td><td>${nf(tot/1000,2)} t</td></tr></tfoot></table>
+  <div class="pe">Emitido em ${new Date().toLocaleString('pt-BR')} · ${E(quemSou()||'')}</div>
+  </body></html>`);
+  w.document.close(); setTimeout(()=>{try{w.focus();w.print();}catch(e){}},500);
 }
 function miExportar(){
   const linhas=[['Data','Material','Placa','Motorista','Unidade','Frente','Tara (kg)','Bruto (kg)','Liquido (kg)','NF']];
