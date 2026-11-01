@@ -3858,33 +3858,37 @@ function iniciarCam(){
     camEstado('erro','Leitor de QR indisponível','A biblioteca de leitura não carregou (sem internet). Digite o código do pallet no campo acima.');
     fb('Leitor de QR indisponível. Use a digitação do código.','warn');return;
   }
-  /* (nov/2026) Leitura pela IMAGEM INTEIRA em alta resolução, com o leitor nativo do
-     celular quando existe (BarcodeDetector — o mesmo da câmera do Android). Para quem
-     opera, a tela continua igual: o quadradinho é só desenho (camMira). Lê QR pequeno
-     e através de várias camadas de plástico. Se o aparelho não aceitar alta
-     resolução, volta para a configuração antiga automaticamente. */
-  const vc=(base)=>Object.assign({width:{ideal:1920},height:{ideal:1080},advanced:[{focusMode:'continuous'}]},base);
-  const cfgHD=(base)=>({fps:12,disableFlip:true,videoConstraints:vc(base)});
+  /* (nov/2026) Para quem opera, a tela continua igual: um quadradinho no meio (camMira).
+     Por trás, a leitura usa QUASE A IMAGEM TODA (90%) em resolução maior e foco contínuo —
+     lê QR pequeno e através de várias camadas de plástico. A área sombreada da biblioteca
+     fica escondida (CSS), então ninguém vê o quadro grande. Se o aparelho recusar a
+     resolução maior, cai sozinho na configuração antiga (230 px), que já funcionava. */
+  const area=(w,h)=>{const s=Math.max(200,Math.floor(Math.min(w,h)*0.9));return {width:s,height:s};};
+  const cfgHD=(base)=>({fps:12,qrbox:area,disableFlip:true,
+    videoConstraints:Object.assign({width:{ideal:1280},height:{ideal:720},advanced:[{focusMode:'continuous'}]},base)});
   const cfgOld={fps:10,qrbox:{width:230,height:230}};
   const onOk=()=>{_camOn=true;camEstado('on');camMira();fb('Câmera ligada — encaixe o QR do pallet no quadro.','info');};
   camEstado('ligando');
   try{
     const fmt=(typeof Html5QrcodeSupportedFormats!=='undefined')?{formatsToSupport:[Html5QrcodeSupportedFormats.QR_CODE]}:{};
-    _scanner=new Html5Qrcode('qr-reader-cli',Object.assign({verbose:false,experimentalFeatures:{useBarCodeDetectorIfSupported:true}},fmt));
+    _scanner=new Html5Qrcode('qr-reader-cli',Object.assign({verbose:false},fmt));
   }catch(e){camErro(e);return;}
+  const antiga=()=>_scanner.start({facingMode:'environment'},cfgOld,t=>scanCam(t),()=>{}).then(onOk).catch(camErro);
   Html5Qrcode.getCameras().then(cams=>{
     if(cams&&cams.length){
       const back=cams.find(c=>/back|rear|traseir|environment/i.test(c.label||''))||cams[cams.length-1];
       _scanner.start(back.id,cfgHD({deviceId:{exact:back.id}}),t=>scanCam(t),()=>{}).then(onOk)
-        .catch(()=>_scanner.start({facingMode:'environment'},cfgHD({facingMode:'environment'}),t=>scanCam(t),()=>{}).then(onOk)
-        .catch(()=>_scanner.start({facingMode:'environment'},cfgOld,t=>scanCam(t),()=>{}).then(onOk).catch(camErro)));
+        .catch(()=>_scanner.start({facingMode:'environment'},cfgHD({facingMode:'environment'}),t=>scanCam(t),()=>{}).then(onOk).catch(antiga));
     }else{
-      _scanner.start({facingMode:'environment'},cfg,t=>scanCam(t),()=>{}).then(onOk).catch(camErro);
+      _scanner.start({facingMode:'environment'},cfgHD({facingMode:'environment'}),t=>scanCam(t),()=>{}).then(onOk).catch(antiga);
     }
   }).catch(camErro);
 }
 /* quadradinho de mira (só visual — a leitura usa a imagem inteira) */
 function camMira(){
+  if(!document.getElementById('cam-mira-css')){ const st=document.createElement('style'); st.id='cam-mira-css';
+    st.textContent='#qr-reader-cli #qr-shaded-region{border-color:transparent!important;background:transparent!important;box-shadow:none!important;}#qr-reader-cli #qr-shaded-region>div{display:none!important;}';
+    document.head.appendChild(st); }
   const box=document.getElementById('qr-reader-cli'); if(!box||box.querySelector('.cam-mira')) return;
   if(getComputedStyle(box).position==='static') box.style.position='relative';
   const m=document.createElement('div'); m.className='cam-mira';
