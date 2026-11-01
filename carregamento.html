@@ -12,6 +12,7 @@
 <script src="js/certificados.js"></script>
 <script src="js/regras.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/zxing-wasm@3.1.5/dist/iife/reader/index.js"></script>
 <style>
 /* ── ABAS ── */
 .tab-btn{padding:10px 16px;background:none;border:none;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;color:#64748b;border-bottom:3px solid transparent;transition:all .15s;white-space:nowrap;}
@@ -3853,47 +3854,94 @@ function camEstado(estado,msgTit,msgSub){
   if(_patio&&btn)btn.innerHTML=estado==='on'?'⏸️<span>PARAR</span>':(estado==='ligando'?'⏳<span>ABRINDO</span>':'📷<span>CÂMERA</span>');
 }
 function toggleCam(){_ensureAudio();_camOn?pararCam():iniciarCam();}
-function iniciarCam(){
+/* (nov/2026) LEITOR NOVO — testado no celular do carregamento (leitor-teste.html):
+   • Nativo  = BarcodeDetector do Android (o mesmo motor da câmera do celular)
+   • ZXing   = zxing-cpp em WebAssembly (forte, e funciona onde não há o nativo)
+   Câmera em alta resolução (1920×1080) com foco contínuo; lê a IMAGEM INTEIRA.
+   A tela continua igual: o quadradinho (cam-alvo) é só referência para quem aponta.
+   Se nenhum dos dois estiver disponível, volta para a biblioteca antiga (html5-qrcode).
+   Mantém a mesma "cara" do objeto antigo (stop/clear/applyVideoConstraints/
+   getRunningTrackCapabilities) — a lanterna do modo pátio continua funcionando. */
+function LeitorQR(id){ this.id=id; this.stream=null; this.track=null; this.video=null; this.vivo=false; this.det=null; this.vez=0;
+  this.cv=document.createElement('canvas'); this.cx=this.cv.getContext('2d',{willReadFrequently:true}); }
+LeitorQR.prototype.prepararNativo=async function(){
+  try{ if('BarcodeDetector' in window){ const f=await BarcodeDetector.getSupportedFormats(); if(f.includes('qr_code')) this.det=new BarcodeDetector({formats:['qr_code']}); } }catch(e){ this.det=null; }
+  return !!this.det;
+};
+LeitorQR.prototype.start=async function(onTxt){
+  const box=document.getElementById(this.id); if(!box) throw new Error('Quadro da câmera não encontrado');
+  let s;
+  try{ s=await navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080},advanced:[{focusMode:'continuous'}]}}); }
+  catch(e){ if(/NotAllowed|Permission|denied|secure/i.test(String(e&&e.message||e))) throw e;
+    s=await navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:'environment'}}); }
+  this.stream=s; this.track=s.getVideoTracks()[0];
+  const v=document.createElement('video'); v.setAttribute('playsinline',''); v.setAttribute('muted',''); v.muted=true; v.autoplay=true; v.srcObject=s;
+  box.innerHTML=''; box.appendChild(v); this.video=v;
+  try{ await v.play(); }catch(e){}
+  try{ const cap=this.track.getCapabilities?this.track.getCapabilities():{}; if(cap.focusMode&&cap.focusMode.includes('continuous')) await this.track.applyConstraints({advanced:[{focusMode:'continuous'}]}); }catch(e){}
+  this.onTxt=onTxt; this.vivo=true; this._laco();
+};
+LeitorQR.prototype._laco=async function(){
+  if(!this.vivo) return;
+  const v=this.video;
+  try{
+    if(v&&v.readyState>=2&&v.videoWidth){
+      this.vez++;
+      const zx=(typeof ZXingWASM!=='undefined');
+      if(this.det&&(this.vez%2===1||!zx)){
+        const r=await this.det.detect(v); if(r&&r.length&&this.vivo) this.onTxt(r[0].rawValue);
+      } else if(zx){
+        const w=v.videoWidth,h=v.videoHeight; this.cv.width=w; this.cv.height=h; this.cx.drawImage(v,0,0,w,h);
+        const r=await ZXingWASM.readBarcodes(this.cx.getImageData(0,0,w,h),{formats:['QRCode'],tryHarder:true,tryRotate:true,tryInvert:false,maxNumberOfSymbols:1});
+        if(r&&r.length&&r[0].isValid&&this.vivo) this.onTxt(r[0].text);
+      }
+    }
+  }catch(e){}
+  if(this.vivo) setTimeout(()=>this._laco(),80);
+};
+LeitorQR.prototype.stop=function(){ this.vivo=false; try{ this.stream&&this.stream.getTracks().forEach(t=>t.stop()); }catch(e){} return Promise.resolve(); };
+LeitorQR.prototype.clear=function(){ const box=document.getElementById(this.id); if(box) box.innerHTML=''; this.video=null; };
+LeitorQR.prototype.getRunningTrackCapabilities=function(){ try{ return this.track&&this.track.getCapabilities?this.track.getCapabilities():{}; }catch(e){ return {}; } };
+LeitorQR.prototype.applyVideoConstraints=function(c){ return this.track?this.track.applyConstraints(c):Promise.reject(new Error('sem câmera')); };
+
+let _camAbrindo=false;
+async function iniciarCam(){
+  if(_camAbrindo||_camOn) return;            // evita abrir a câmera duas vezes (modo pátio chama em sequência)
+  _camAbrindo=true; try{ await _iniciarCam(); } finally{ _camAbrindo=false; }
+}
+async function _iniciarCam(){
+  const onOk=()=>{_camOn=true;camEstado('on');fb('Câmera ligada — encaixe o QR do pallet no quadro.','info');};
+  camEstado('ligando');
+  const temMidia=!!(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia);
+  if(temMidia){
+    const novo=new LeitorQR('qr-reader-cli');
+    const temNativo=await novo.prepararNativo();
+    if(temNativo||typeof ZXingWASM!=='undefined'){
+      _scanner=novo;
+      try{ await novo.start(t=>scanCam(t)); onOk(); }catch(e){ camErro(e); }
+      return;
+    }
+  }
+  iniciarCamAntiga();
+}
+/* reserva: biblioteca antiga (só se o aparelho não tiver nenhum dos leitores novos) */
+function iniciarCamAntiga(){
   if(typeof Html5Qrcode==='undefined'){
     camEstado('erro','Leitor de QR indisponível','A biblioteca de leitura não carregou (sem internet). Digite o código do pallet no campo acima.');
     fb('Leitor de QR indisponível. Use a digitação do código.','warn');return;
   }
-  /* (nov/2026) Para quem opera, a tela continua igual: um quadradinho no meio (camMira).
-     Por trás, a leitura usa QUASE A IMAGEM TODA (90%) em resolução maior e foco contínuo —
-     lê QR pequeno e através de várias camadas de plástico. A área sombreada da biblioteca
-     fica escondida (CSS), então ninguém vê o quadro grande. Se o aparelho recusar a
-     resolução maior, cai sozinho na configuração antiga (230 px), que já funcionava. */
-  const area=(w,h)=>{const s=Math.max(200,Math.floor(Math.min(w,h)*0.9));return {width:s,height:s};};
-  const cfgHD=(base)=>({fps:12,qrbox:area,disableFlip:true,
-    videoConstraints:Object.assign({width:{ideal:1280},height:{ideal:720},advanced:[{focusMode:'continuous'}]},base)});
-  const cfgOld={fps:10,qrbox:{width:230,height:230}};
-  const onOk=()=>{_camOn=true;camEstado('on');camMira();fb('Câmera ligada — encaixe o QR do pallet no quadro.','info');};
-  camEstado('ligando');
-  try{
-    const fmt=(typeof Html5QrcodeSupportedFormats!=='undefined')?{formatsToSupport:[Html5QrcodeSupportedFormats.QR_CODE]}:{};
-    _scanner=new Html5Qrcode('qr-reader-cli',Object.assign({verbose:false},fmt));
-  }catch(e){camErro(e);return;}
-  const antiga=()=>_scanner.start({facingMode:'environment'},cfgOld,t=>scanCam(t),()=>{}).then(onOk).catch(camErro);
+  const cfg={fps:10,qrbox:{width:230,height:230}};
+  const onOk=()=>{_camOn=true;camEstado('on');fb('Câmera ligada — encaixe o QR do pallet no quadro.','info');};
+  try{_scanner=new Html5Qrcode('qr-reader-cli');}catch(e){camErro(e);return;}
   Html5Qrcode.getCameras().then(cams=>{
     if(cams&&cams.length){
       const back=cams.find(c=>/back|rear|traseir|environment/i.test(c.label||''))||cams[cams.length-1];
-      _scanner.start(back.id,cfgHD({deviceId:{exact:back.id}}),t=>scanCam(t),()=>{}).then(onOk)
-        .catch(()=>_scanner.start({facingMode:'environment'},cfgHD({facingMode:'environment'}),t=>scanCam(t),()=>{}).then(onOk).catch(antiga));
+      _scanner.start(back.id,cfg,t=>scanCam(t),()=>{}).then(onOk)
+        .catch(()=>_scanner.start({facingMode:'environment'},cfg,t=>scanCam(t),()=>{}).then(onOk).catch(camErro));
     }else{
-      _scanner.start({facingMode:'environment'},cfgHD({facingMode:'environment'}),t=>scanCam(t),()=>{}).then(onOk).catch(antiga);
+      _scanner.start({facingMode:'environment'},cfg,t=>scanCam(t),()=>{}).then(onOk).catch(camErro);
     }
   }).catch(camErro);
-}
-/* quadradinho de mira (só visual — a leitura usa a imagem inteira) */
-function camMira(){
-  if(!document.getElementById('cam-mira-css')){ const st=document.createElement('style'); st.id='cam-mira-css';
-    st.textContent='#qr-reader-cli #qr-shaded-region{border-color:transparent!important;background:transparent!important;box-shadow:none!important;}#qr-reader-cli #qr-shaded-region>div{display:none!important;}';
-    document.head.appendChild(st); }
-  const box=document.getElementById('qr-reader-cli'); if(!box||box.querySelector('.cam-mira')) return;
-  if(getComputedStyle(box).position==='static') box.style.position='relative';
-  const m=document.createElement('div'); m.className='cam-mira';
-  m.style.cssText='position:absolute;left:50%;top:50%;width:min(230px,60%);aspect-ratio:1;transform:translate(-50%,-50%);border:3px solid rgba(255,255,255,.95);border-radius:14px;box-shadow:0 0 0 9999px rgba(0,0,0,.28);pointer-events:none;z-index:5;';
-  box.appendChild(m);
 }
 function camErro(e){
   const msg=''+((e&&e.message)?e.message:e);
