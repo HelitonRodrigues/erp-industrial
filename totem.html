@@ -159,8 +159,20 @@ h1.q-prod{margin:0 0 6px;font-size:clamp(26px,4.4vw,34px);}
 .prods .big{min-height:var(--ph,76px);padding:6px 12px 6px 26px;font-size:var(--pf,19px);border-radius:16px;gap:2px;line-height:1.12;}
 .prods .prod::before{width:10px;}
 .prods .big small{font-size:12.5px;}
-.prods + .actions{margin-top:14px;}
-.prods + .actions .btn{min-height:62px;padding:12px 24px;font-size:19px;}
+.brand{display:flex;align-items:center;gap:12px;}
+.logo-top{background:#fff;border-radius:12px;padding:5px 10px;display:flex;align-items:center;height:48px;}
+.logo-top img{height:38px;width:auto;max-width:150px;object-fit:contain;display:block;}
+.brand-t{display:block;}
+/* barra fixa embaixo: Voltar sempre no mesmo lugar */
+.actions.fixo{position:fixed;left:0;right:0;bottom:0;z-index:6;margin:0;padding:12px 18px calc(12px + env(safe-area-inset-bottom,0px));background:rgba(238,242,246,.94);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border-top:1px solid var(--line);flex-wrap:nowrap;}
+.actions.fixo .btn{min-height:68px;padding:14px 26px;}
+.actions.fixo .btn-back{background:var(--surface);}
+.wrap{padding-bottom:120px;}
+/* produto com foto do cadastro (produtos.html) */
+.prods .prod{flex-direction:row;align-items:center;justify-content:flex-start;gap:12px;}
+.prods .prod .ptx{display:flex;flex-direction:column;gap:2px;min-width:0;overflow-wrap:anywhere;hyphens:auto;-webkit-hyphens:auto;}
+.prods .prod.com-foto{padding-left:20px;gap:10px;}
+.prods .prod .pfoto{flex-shrink:0;width:min(50px,calc(var(--ph,76px) - 22px));height:min(50px,calc(var(--ph,76px) - 22px));border-radius:10px;background:#F1F5F9 center/cover no-repeat;box-shadow:inset 0 0 0 1px rgba(4,45,77,.08);}
 .load{padding:60px 20px;text-align:center;color:var(--muted);font-size:18px;font-weight:700;}
 @media (max-width:560px){.big{min-height:90px;font-size:19px;}.qty button{width:80px;height:80px;font-size:44px;}.qty output{font-size:66px;min-width:90px;}.runs{grid-template-columns:1fr;}}
 </style>
@@ -168,7 +180,7 @@ h1.q-prod{margin:0 0 6px;font-size:clamp(26px,4.4vw,34px);}
 <body>
 <header class="top">
   <a href="dashboard.html" class="voltar-erp" title="Voltar ao ERP">←</a>
-  <div class="brand">Central de rótulos<small>Silicate</small></div>
+  <div class="brand"><span class="logo-top" id="logo-top" hidden><img id="logo-img" alt=""></span><span class="brand-t">Central de rótulos<small>Silicate</small></span></div>
   <div class="est" id="est"></div>
   <div class="clock"><b id="hora">--:--</b><span id="data">—</span></div>
   <button class="btn-cheia" id="btn-cheia" onclick="telaCheia()" title="Tela cheia">⛶</button>
@@ -235,14 +247,15 @@ async function carregarCadastros(){
   const [e,l,p]=await Promise.all([
     _supabase.from('empresa_config').select('nome_fantasia,razao_social,cnpj,cidade,uf,logo').limit(1).maybeSingle(),
     _supabase.from('linhas_producao').select('nome,barracao,produtos,status,foto').eq('status','ativo').order('nome'),
-    _supabase.from('produtos').select('id,nome,linhas,unidade,status').eq('status','ativo').order('nome')]);
+    _supabase.from('produtos').select('id,nome,linhas,unidade,status,foto').eq('status','ativo').order('nome')]);
   if(l.error||p.error) throw (l.error||p.error);
   EMP=e.data||{};
   PRODUTOS=(p.data||[]).filter(x=>String(x.unidade||'').toLowerCase()!=='toneladas'&&(x.linhas||[]).length)
-    .map(x=>({id:x.id,nome:x.nome,linhaProduto:x.linhas[0],tag:String(x.id).replace(/-/g,'').slice(0,3).toUpperCase()}));
+    .map(x=>({id:x.id,nome:x.nome,linhaProduto:x.linhas[0],tag:String(x.id).replace(/-/g,'').slice(0,3).toUpperCase(),foto:/^https?:\/\//.test(x.foto||'')?x.foto:''}));
   LINHAS=(l.data||[]).map(x=>({nome:x.nome,barracao:x.barracao||'',foto:/^https?:\/\//.test(x.foto||'')?x.foto:'',
     sub:(Array.isArray(x.produtos)?x.produtos:[]).filter(s=>String(s.unidade||'').toLowerCase()!=='toneladas').map(s=>s.nome)}))
     .filter(x=>x.sub.some(s=>PRODUTOS.some(p=>norm(p.linhaProduto)===norm(s))));
+  if(EMP.logo){ const li=document.getElementById('logo-img'), lt=document.getElementById('logo-top'); if(li&&lt){ li.src=EMP.logo; lt.hidden=false; } }
   if(EMP.logo){ const st=document.createElement('style');
     st.textContent=`.lg{background:url(${EMP.logo}) center/contain no-repeat;-webkit-print-color-adjust:exact;print-color-adjust:exact;}`; document.head.appendChild(st); }
 }
@@ -424,20 +437,20 @@ const cartaoLinha=(l,acao,sel)=>`<button class="big linha-card ${l.foto?'com-fot
 function telaLinha(){
   return trilha()+`<h1 class="q">Para qual linha?</h1><div class="linhas">`+
     LINHAS.map((l,i)=>cartaoLinha(l,`esc.linha=LINHAS[${i}].nome;ir('produto')`,esc.linha===l.nome)).join('')+
-    `</div><div class="actions"><button class="btn btn-back" onclick="ir('inicio')">Voltar</button></div>`;
+    `</div><div class="actions fixo"><button class="btn btn-back" onclick="ir('inicio')">Voltar</button></div>`;
 }
 function telaProduto(){
   const L=LINHAS.find(l=>l.nome===esc.linha);
   let h=trilha()+`<h1 class="q q-prod">Qual produto?</h1><div class="prods" id="prods">`;
   L.sub.forEach(s=>{const ps=PRODUTOS.filter(p=>norm(p.linhaProduto)===norm(s)); if(!ps.length) return; const c=corDe(s);
     h+=`<div class="grp" style="--c:${c}"><i></i>${esc_(nomeSub(s))}</div><div class="grid">`+
-      ps.map(p=>{const u=ultimoHoje(esc.linha,p.nome); return `<button class="big prod ${esc.produto&&esc.produto.id===p.id?'sel':''}" style="--c:${c}" onclick="esc.produto=prodPorId('${p.id}');esc.qtd=1;ir('qtd')">${esc_(p.nome)}${u?`<small>hoje já impresso até o nº ${pad(u,3)}</small>`:''}</button>`;}).join('')+'</div>';});
-  return h+`</div><div class="actions"><button class="btn btn-back" onclick="ir('linha')">Voltar</button></div>`;
+      ps.map(p=>{const u=ultimoHoje(esc.linha,p.nome); return `<button class="big prod ${p.foto?'com-foto':''} ${esc.produto&&esc.produto.id===p.id?'sel':''}" style="--c:${c}" onclick="esc.produto=prodPorId('${p.id}');esc.qtd=1;ir('qtd')">${p.foto?`<span class="pfoto" style="background-image:url('${esc_(p.foto)}')"></span>`:''}<span class="ptx">${esc_(p.nome)}${u?`<small>hoje já impresso até o nº ${pad(u,3)}</small>`:''}</span></button>`;}).join('')+'</div>';});
+  return h+`</div><div class="actions fixo"><button class="btn btn-back" onclick="ir('linha')">Voltar</button></div>`;
 }
 /* produtos cabem na tela sem rolar: diminui os cartões até caber (Linha 3 tem 5 grupos) */
 function caberProdutos(){
   const box=document.getElementById('prods'); if(!box) return;
-  let h=76, f=19;
+  let h=76, f=box.querySelector('.com-foto')?17:19;
   const passo=()=>{ box.style.setProperty('--ph',h+'px'); box.style.setProperty('--pf',f+'px'); };
   passo();
   for(let i=0;i<20&&document.documentElement.scrollHeight>window.innerHeight+1&&h>46;i++){ h-=3; if(f>15&&i%2) f-=1; passo(); }
@@ -450,7 +463,7 @@ function telaQtd(){
   <output>${esc.qtd}</output><button aria-label="Mais" onclick="esc.qtd=Math.min(60,esc.qtd+1);render()" ${esc.qtd>=60?'disabled':''}>+</button></div>
   <div class="rapido"><button onclick="esc.qtd=Math.max(1,esc.qtd-5);render()">−5</button><button onclick="esc.qtd=Math.min(60,esc.qtd+5);render()">+5</button><button onclick="esc.qtd=Math.min(60,esc.qtd+10);render()">+10</button></div>
   <p class="qty-lbl">${esc.qtd} ${esc.qtd===1?u1:uN} de ${esc_(p.nome)}</p>
-  <div class="actions"><button class="btn btn-back" onclick="ir('produto')">Voltar</button><button class="btn btn-go" onclick="ir('confirma')">Continuar</button></div>`;
+  <div class="actions fixo"><button class="btn btn-back" onclick="ir('produto')">Voltar</button><button class="btn btn-go" onclick="ir('confirma')">Continuar</button></div>`;
 }
 function telaConfirma(){
   const p=esc.produto, d=new Date(), dia=iso(d), val=new Date(d); val.setDate(val.getDate()+diasValidade(p));
@@ -462,7 +475,7 @@ function telaConfirma(){
     <dt>${ehBag(p)?'Bags':'Pallets'}</dt><dd>${n1===n2?'Nº '+pad(n1,3):'Nº '+pad(n1,3)+' ao '+pad(n2,3)}<br><small style="font-weight:600;color:var(--muted);font-size:15px;">${n1===1?'Primeiro deste produto hoje nesta linha: começa do 01':'Continua a sequência deste produto hoje nesta linha. Se ainda tem sobra guardada dele, use a sobra antes.'}</small></dd>
     <dt>Fabricação</dt><dd>${fData(d)}</dd><dt>Validade</dt><dd>${fData(val)}</dd><dt>Lote</dt><dd>${lote(p,esc.linha,dia)}</dd>
     <dt>Amostra (DYMO)</dt><dd>${amostra}</dd></dl></div>
-  <div class="actions"><button class="btn btn-back" onclick="ir('qtd')">Voltar</button>
+  <div class="actions fixo"><button class="btn btn-back" onclick="ir('qtd')">Voltar</button>
   <button class="btn btn-go" ${ocupado?'disabled':''} onclick="imprimir()">${ocupado?'Imprimindo…':'Imprimir '+(esc.qtd===1?'1 rótulo':esc.qtd+' rótulos')}</button></div>`;
 }
 async function imprimir(){
@@ -501,13 +514,13 @@ async function reimpLinha(nome){
 function telaReimp(){
   let h=barraErro()+`<h1 class="q">Reimprimir rótulo perdido</h1><p class="hint">Sai igual ao original: mesmo número, mesmo QR. Só os de hoje — rótulo de ontem não vale mais.</p>`;
   if(!reimp.linha) return h+`<div class="linhas">`+LINHAS.map((l,i)=>cartaoLinha(l,`reimpLinha(LINHAS[${i}].nome)`,false)).join('')+
-    `</div><div class="actions"><button class="btn btn-back" onclick="ir('inicio')">Voltar</button></div>`;
+    `</div><div class="actions fixo"><button class="btn btn-back" onclick="ir('inicio')">Voltar</button></div>`;
   h+=`<div class="grp">${esc_(reimp.linha)} · toque no número que perdeu</div>`;
   if(!reimp.grupos.length) h+=`<div class="empty">Nada impresso hoje na ${esc_(reimp.linha)}.</div>`;
   reimp.grupos.forEach((ps,gi)=>{const p=prodPorNome(ps[0].produto), u=ehBag(p)?'Bag':'Pallet';
     h+=`<div class="emis" style="--c:${corDe(p.linhaProduto)}"><h3>${esc_(ps[0].produto)}</h3>
     <div class="pals">${ps.map((x,i)=>`<button onclick="reimp.row=reimp.grupos[${gi}][${i}];ir('reimpConf')">${u} ${pad(x.numero,3)}</button>`).join('')}</div></div>`;});
-  return h+`<div class="actions"><button class="btn btn-back" onclick="reimp.linha=null;render()">Voltar</button></div>`;
+  return h+`<div class="actions fixo"><button class="btn btn-back" onclick="reimp.linha=null;render()">Voltar</button></div>`;
 }
 function telaReimpConf(){
   const x=reimp.row, p=prodPorNome(x.produto), temAm=!(isFicha(p.linhaProduto)&&x.numero!==1);
