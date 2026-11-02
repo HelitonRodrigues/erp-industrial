@@ -3348,6 +3348,7 @@ function confirmarLido(){
    está na lista desta tela: 1) busca pallets criados nos últimos dias; 2) pede ao
    banco para transformar o rótulo em pallet (nasce "a conferir"). Nunca trava. */
 let _buscouNovo=false;
+let _rotuloOutro=null;   // rótulo lido que é de OUTRO produto (não vira pallet)
 async function buscarPalletNovo(txt){
   try{
     const desde=new Date(Date.now()-3*864e5).toISOString();
@@ -3356,7 +3357,15 @@ async function buscarPalletNovo(txt){
     if(!r.error){ const ids=new Set(_pallets.map(x=>x.id));
       (r.data||[]).forEach(p=>{ if(!ids.has(p.id)&&!ehGranel(p.produto)){ _pallets.push(p); ids.add(p.id); } }); }
     if(acharPallet(normalizarLeitura(txt))) return;
-    const t=await _supabase.rpc('totem_pallet_por_rotulo',{p_cod:normalizarLeitura(txt)});
+    /* (nov/2026) rótulo da central ainda sem pallet: SÓ vira pallet (e vai para o laboratório)
+       se o produto for de algum item DESTE caminhão. Produto diferente: não cria nada. */
+    const cod=normalizarLeitura(txt);
+    const ro=await _supabase.from('rotulos_impressos').select('codigo,produto,linha').ilike('codigo',cod).maybeSingle();
+    if(!ro.error&&ro.data){
+      const pedidos=_linhasCarr.filter(x=>!x.granel&&x.produto).map(x=>normNome(x.produto));
+      if(pedidos.length&&!pedidos.includes(normNome(ro.data.produto))){ _rotuloOutro={cod:chaveCodigo(ro.data.codigo),produto:ro.data.produto,linha:ro.data.linha}; return; }
+    }
+    const t=await _supabase.rpc('totem_pallet_por_rotulo',{p_cod:cod});
     if(!t.error&&t.data&&t.data.length){ const ids=new Set(_pallets.map(x=>x.id)); t.data.forEach(p=>{ if(!ids.has(p.id)) _pallets.push(p); }); }
   }catch(e){ console.warn('[pallet novo]',e); }
 }
@@ -3378,6 +3387,9 @@ function processarLeitura(txt){
       const i=document.getElementById('scan-input'); if(i&&(r==='ok'||r==='dup')){ i.value=''; i.focus(); } });
     return 'conf';
   }
+  if(!p&&_rotuloOutro&&chaveCodigo(bruto)===_rotuloOutro.cod){ const ro=_rotuloOutro; _rotuloOutro=null;
+    fb(`🚫 PRODUTO ERRADO: <span class="mono">${esc(bruto)}</span> é <b>${esc(ro.produto)}</b> — o caminhão pede <b>${esc(l.produto||'outro produto')}</b>. Não carregar.`,'err');
+    return 'block'; }
   if(!p){
     fb(`❌ Pallet <span class="mono">${esc(bruto)}</span> não existe no sistema.`,'err');
     mostrarBloqueioTexto('Pallet não encontrado',bruto,'Este código não corresponde a nenhum pallet cadastrado.',causasNaoEncontrado());
@@ -5262,6 +5274,9 @@ function patioLeitura(txt){
   if(!p&&!_buscouNovo){ _patioOcupado=true;
     buscarPalletNovo(txt).then(()=>{ _buscouNovo=true; _patioOcupado=false; let r; try{ r=patioLeitura(txt); }finally{ _buscouNovo=false; } beep(r); });
     return 'conf'; }
+  if(!p&&_rotuloOutro&&chaveCodigo(bruto)===_rotuloOutro.cod){ const ro=_rotuloOutro; _rotuloOutro=null;
+    patioFlash('err','🚫','PRODUTO ERRADO',`Este pallet é <b>${esc(ro.produto)}</b>.<br>O caminhão pede <b>${esc(l.produto)}</b>.<br>Deixe este pallet no lugar.`,{botao:'ENTENDI'});
+    return 'block'; }
   if(!p){patioFlash('err','❓','PALLET NÃO ENCONTRADO',`Código lido: <b class="mono">${esc(bruto)}</b><br>Tente de novo ou toque em DIGITAR.`,{botao:'ENTENDI'});return 'err';}
   if(_allocSet.has(p.id)){patioFlash('warn','🔁','ESTE PALLET JÁ FOI BIPADO',`${esc(codCurto(p))} já está no caminhão.`);return 'dup';}
   if(_doa[p.id]){patioFlash('warn','📦','ESTE É O PALLET ABERTO',`Você tirou sacos do ${esc(codCurto(p))}.<br>Ele não vai no caminhão.`,{botao:'ENTENDI'});return 'dup';}
