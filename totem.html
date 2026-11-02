@@ -222,7 +222,10 @@ const lsSet=(k,v)=>{try{localStorage.setItem(k,v);}catch(e){}};
 /* ═══ regras (iguais ao aferidor) ═══ */
 const isFicha=lp=>{lp=norm(lp);return lp.includes('25kg')||lp.includes('bag')||lp.includes('granel')||lp.includes('bigbag');};
 const ehBag=p=>/big\s*-?\s*bag|\bbags?\b/i.test((p.nome||'')+' '+(p.linhaProduto||''));
-const diasValidade=p=>isFicha(p.linhaProduto)?1095:365;   // 25 kg / Big Bag = 3 anos; demais = 1 ano
+// validade em ANOS (mesmo dia e mês): 02/11/2026 + 3 anos = 02/11/2029.
+// (contar 1095 dias errava 1 dia quando passava por ano bissexto)
+const anosValidade=p=>isFicha(p.linhaProduto)?3:1;   // 25 kg / Big Bag = 3 anos; demais = 1 ano
+function validadeDe(d,p){ const v=new Date(d); v.setFullYear(v.getFullYear()+anosValidade(p)); return v; }
 function corCodigo(nome){
   const s=String(nome||'').replace(/\bcaulim\b/gi,'').replace(/\b25\s*kg\b/gi,'').replace(/\bbig\s*bag\b/gi,'').replace(/\bbigbag\b/gi,'')
     .replace(/\bbag\b/gi,'').replace(/\bgranel\b/gi,'').replace(/[-–—:|/,]+/g,' ').trim().replace(/\s+/g,' ');
@@ -498,7 +501,7 @@ function telaQtd(){
   <div class="actions fixo"><button class="btn btn-back" onclick="ir('produto')">Voltar</button><button class="btn btn-go" onclick="ir('confirma')">Continuar</button></div>`;
 }
 function telaConfirma(){
-  const p=esc.produto, d=new Date(), dia=iso(d), val=new Date(d); val.setDate(val.getDate()+diasValidade(p));
+  const p=esc.produto, d=new Date(), dia=iso(d), val=validadeDe(d,p);
   const n1=ultimoHoje(esc.linha,p.nome)+1, n2=n1+esc.qtd-1;
   const amostra=isFicha(p.linhaProduto)?(n1===1?'1 etiqueta, só do nº 01':'Não sai — só o nº 01 leva amostra'):`1 etiqueta por ${ehBag(p)?'bag':'pallet'}`;
   return trilha()+barraErro()+`<h1 class="q">Confere e imprime</h1>
@@ -513,7 +516,7 @@ function telaConfirma(){
 async function imprimir(){
   if(ocupado) return; ocupado=true; render();
   try{
-    const p=esc.produto, d=new Date(), dia=iso(d), val=new Date(d); val.setDate(val.getDate()+diasValidade(p));
+    const p=esc.produto, d=new Date(), dia=iso(d), val=validadeDe(d,p);
     const {data,error}=await _supabase.rpc('totem_emitir',{p_dia:dia,p_linha:esc.linha,p_produto:p.nome,p_qtd:esc.qtd,p_lote:lote(p,esc.linha,dia),
       p_validade:iso(val),p_turno:turnoDe(d),p_prefixo:prefixo(esc.linha,dia,p),p_criado_por:usuario()});
     if(error) throw error;
