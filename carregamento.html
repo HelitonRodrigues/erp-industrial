@@ -5256,6 +5256,19 @@ function patioLeitura(txt){
   if(!p){patioFlash('err','❓','PALLET NÃO ENCONTRADO',`Código lido: <b class="mono">${esc(bruto)}</b><br>Tente de novo ou toque em DIGITAR.`,{botao:'ENTENDI'});return 'err';}
   if(_allocSet.has(p.id)){patioFlash('warn','🔁','ESTE PALLET JÁ FOI BIPADO',`${esc(codCurto(p))} já está no caminhão.`);return 'dup';}
   if(_doa[p.id]){patioFlash('warn','📦','ESTE É O PALLET ABERTO',`Você tirou sacos do ${esc(codCurto(p))}.<br>Ele não vai no caminhão.`,{botao:'ENTENDI'});return 'dup';}
+  /* (nov/2026) produto diferente do pedido: é a PRIMEIRA coisa conferida — antes do status
+     do laboratório e de qualquer pergunta. Produto errado não entra, esteja como estiver. */
+  let alvo=l;
+  if(l.produto&&normNome(p.produto)!==normNome(l.produto)){
+    /* é de outro item deste mesmo caminhão? entra lá sozinho */
+    const outros=_linhasCarr.filter(x=>!x.granel&&normNome(x.produto)===normNome(p.produto));
+    const outro=outros.find(x=>(x.sacksNeed||0)>allocSacks(x.key))||outros[0];
+    if(outro){alvo=outro;_linhaAtiva=outro.key;}
+    else{
+      patioFlash('err','🚫','PRODUTO ERRADO',`Este pallet é <b>${esc(p.produto)}</b>.<br>O caminhão pede <b>${esc(l.produto)}</b>.<br>Deixe este pallet no lugar.`,{botao:'ENTENDI'});
+      return 'block';
+    }
+  }
   let sit=situacaoPallet(p);
   /* em análise: confere no banco antes (o laboratório pode ter acabado de liberar) */
   if(sit==='analise'&&!_reconferido.has(p.id)){ _patioOcupado=true;
@@ -5271,18 +5284,6 @@ function patioLeitura(txt){
     const t={reprovado:'REPROVADO PELO LABORATÓRIO',decisao:'ESPERANDO DECISÃO DA DIRETORIA',carregado:'JÁ FOI CARREGADO EM OUTRO CAMINHÃO'}[sit]||String(SIT_LBL[sit]||'').toUpperCase();
     patioFlash('err','⛔','NÃO CARREGAR',`<b>${t}</b><br>${esc(p.produto)} · ${esc(codCurto(p))}<br>Deixe este pallet no lugar.`,{botao:'ENTENDI'});
     return 'block';
-  }
-  /* (nov/2026) produto diferente do pedido: avisa ANTES de qualquer outra pergunta */
-  let alvo=l;
-  if(l.produto&&normNome(p.produto)!==normNome(l.produto)){
-    /* é de outro item deste mesmo caminhão? entra lá sozinho */
-    const outros=_linhasCarr.filter(x=>!x.granel&&normNome(x.produto)===normNome(p.produto));
-    const outro=outros.find(x=>(x.sacksNeed||0)>allocSacks(x.key))||outros[0];
-    if(outro){alvo=outro;_linhaAtiva=outro.key;}
-    else{
-      patioFlash('err','🚫','PRODUTO ERRADO',`Este pallet é <b>${esc(p.produto)}</b>.<br>O caminhão pede <b>${esc(l.produto)}</b>.<br>Deixe este pallet no lugar.`,{botao:'ENTENDI'});
-      return 'block';
-    }
   }
   if(precisaQtdPallet(p)&&_qtdInf[p.id]==null){ _patioOcupado=true; perguntarQtdPallet(p,()=>{ _patioOcupado=false; beep(patioLeitura(txt)); },true,()=>{ _patioOcupado=false; }); return 'conf'; }
   if(!sacosDoPallet(p)){patioFlash('err','⚠️','PALLET SEM QUANTIDADE NO SISTEMA','Chame o encarregado.',{botao:'ENTENDI'});return 'err';}
