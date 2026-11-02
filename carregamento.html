@@ -589,7 +589,7 @@ body.patio-on #toast-container{top:10px;bottom:auto;left:10px;right:10px;z-index
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;align-items:center;" id="bar-chips"></div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px;">
       <div class="search-input-wrap" style="flex:1;min-width:210px;"><span class="search-icon">🔍</span><input type="text" class="form-input" id="busca-est" placeholder="Produto, código do pallet / QR, OP, lote..." oninput="renderEstoque()"></div>
-      <label class="sw" title="Pallets pendentes de análise podem ou não sair no carregamento"><input type="checkbox" id="chk-pend" onchange="setPendentes(this.checked)"> Liberar pendentes para carregar</label>
+      <label class="sw" style="display:none;" title="Pallets pendentes de análise podem ou não sair no carregamento"><input type="checkbox" id="chk-pend" onchange="setPendentes(this.checked)"> Liberar pendentes para carregar</label>
       <button class="btn btn-secondary btn-sm" onclick="exportarEstoque()">⬇️ CSV do estoque</button>
     </div>
 
@@ -840,7 +840,7 @@ body.patio-on #toast-container{top:10px;bottom:auto;left:10px;right:10px;z-index
     <div class="modal-header" style="margin-bottom:14px;">
       <div class="modal-title" id="carr-title">Carregar</div>
       <div style="display:flex;align-items:center;gap:12px;">
-        <label class="sw" title="Permitir que pallets ainda pendentes de análise saiam nesta carga"><input type="checkbox" id="chk-pend-carr" onchange="setPendentes(this.checked)"> Pendentes</label>
+        <label class="sw" style="display:none;" title="Permitir que pallets ainda pendentes de análise saiam nesta carga"><input type="checkbox" id="chk-pend-carr" onchange="setPendentes(this.checked)"> Pendentes</label>
         <button class="modal-close" onclick="cancelarCarregar()">✕</button>
       </div>
     </div>
@@ -1209,7 +1209,10 @@ function situacaoPallet(p){
    política conhecida — nunca a decisão. Migration: sql/migrations/004. */
 const POL_PEND_CHAVE='carregamento_liberar_pendentes';
 let _polPend=lsGet(LS_PEND,false)===true;   /* cache até o banco responder */
-function pendentesLiberados(){return _polPend===true;}
+/* (nov/2026) regra da fábrica: pallet EM ANÁLISE não carrega nunca — quem libera é o laboratório,
+   aprovando o pallet (o carregamento avisa o laboratório na hora da leitura). A opção antiga
+   "liberar pendentes" fica sem efeito. */
+function pendentesLiberados(){return false;}
 async function carregarPoliticaPendentes(){
   try{
     const{data,error}=await _supabase.from('app_preferencias').select('dados').eq('chave',POL_PEND_CHAVE).maybeSingle();
@@ -2624,8 +2627,11 @@ function resolverEquipeAutomatica(){
 function definirEquipeAutomatica(depois){
   const r=resolverEquipeAutomatica();
   if(r.erro||!r.operador){
-    toast((r.erro||'Não deu para resolver a equipe pela escala.')+' Escolha manualmente.','warning');
-    abrirSelecaoOperador(depois);
+    /* (nov/2026) sem escala: NÃO abre lista de nomes — quem carrega é o usuário logado.
+       Dá para trocar depois pelo cabeçalho da carga, se precisar. */
+    _opSel={nome:operadorAtual(),funcao:''};_opEncarregado=null;
+    toast('👷 '+operadorAtual()+' — sem escala para este horário, a carga fica no seu nome.','info');
+    if(typeof depois==='function')depois();
     return;
   }
   _opSel={nome:r.operador.nome,funcao:r.operador.funcao||''};
@@ -3384,7 +3390,12 @@ function processarLeitura(txt){
     return 'dup';
   }
   const sit=situacaoPallet(p);
-  if(sit!=='disponivel'&&!(sit==='analise'&&pendentesLiberados())){
+  if(sit==='analise'&&!_reconferido.has(p.id)){
+    statusNoBanco(p).then(()=>{ _reconferido.add(p.id); let r; try{ r=processarLeitura(txt); }finally{ _reconferido.delete(p.id); } beep(r); });
+    return 'conf';
+  }
+  if(sit!=='disponivel'){
+    if(sit==='analise')avisarLabPallet(p);
     mostrarBloqueio(p.id);
     fb(`⛔ <span class="mono">${esc(codigoDigitavel(palCodigo(p)))}</span> BLOQUEADO — ${SIT_LBL[sit]}.`,'err');
     return 'block';
@@ -5216,6 +5227,23 @@ function patioLuz(){
 }
 
 /* ── LEITURA NO PÁTIO ── devolve o tipo do bip */
+/* (nov/2026) pallet em análise no carregamento:
+   1) confere o status no banco (o laboratório pode ter liberado depois que a tela abriu);
+   2) se continua em análise, NÃO carrega e avisa o laboratório (notificação), uma vez por pallet. */
+const _reconferido=new Set(), _avisadoLab=new Set();
+async function statusNoBanco(p){
+  try{ const {data}=await _supabase.from('producao_pallets').select('status,estoque_status').eq('id',p.id).maybeSingle();
+    if(data){ p.status=data.status; p.estoque_status=data.estoque_status; } }catch(e){}
+}
+async function avisarLabPallet(p){
+  if(_avisadoLab.has(p.id))return; _avisadoLab.add(p.id);
+  const o=_carrOrdem||{}, cod=codigoDigitavel(palCodigo(p));
+  const msg=`O carregamento quer levar o pallet ${cod} — ${p.produto}${p.linha?' · '+p.linha:''}${p.data?' · fabricado em '+String(p.data).slice(0,10).split('-').reverse().join('/'):''}. `+
+    `Ordem ${o.numero||'—'}${o.placa?' · placa '+o.placa:''}${o.transportadora?' · '+o.transportadora:''} · quem pediu: ${operadorAtual()}. `+
+    `O pallet está EM ANÁLISE: aprove ou reprove no Laboratório para o carregamento saber se pode levar.`;
+  try{ await _supabase.rpc('lab_notificar',{p_titulo:'🚚 Pallet em análise no carregamento — pode carregar?',p_mensagem:msg,p_tipo:'urgente'}); }
+  catch(e){ console.warn('[aviso ao laboratório]',e); }
+}
 function patioLeitura(txt){
   const l=linhaObj(_linhaAtiva);
   if(!l||l.granel){patioFlash('warn','👆','ESCOLHA O PRODUTO','Toque no produto lá em cima antes de bipar.');return 'err';}
@@ -5228,14 +5256,23 @@ function patioLeitura(txt){
   if(!p){patioFlash('err','❓','PALLET NÃO ENCONTRADO',`Código lido: <b class="mono">${esc(bruto)}</b><br>Tente de novo ou toque em DIGITAR.`,{botao:'ENTENDI'});return 'err';}
   if(_allocSet.has(p.id)){patioFlash('warn','🔁','ESTE PALLET JÁ FOI BIPADO',`${esc(codCurto(p))} já está no caminhão.`);return 'dup';}
   if(_doa[p.id]){patioFlash('warn','📦','ESTE É O PALLET ABERTO',`Você tirou sacos do ${esc(codCurto(p))}.<br>Ele não vai no caminhão.`,{botao:'ENTENDI'});return 'dup';}
-  const sit=situacaoPallet(p);
-  if(sit!=='disponivel'&&!(sit==='analise'&&pendentesLiberados())){
-    const t={reprovado:'REPROVADO PELO LABORATÓRIO',decisao:'ESPERANDO DECISÃO DA DIRETORIA',analise:'AINDA EM ANÁLISE NO LABORATÓRIO',carregado:'JÁ FOI CARREGADO EM OUTRO CAMINHÃO'}[sit]||String(SIT_LBL[sit]||'').toUpperCase();
+  let sit=situacaoPallet(p);
+  /* em análise: confere no banco antes (o laboratório pode ter acabado de liberar) */
+  if(sit==='analise'&&!_reconferido.has(p.id)){ _patioOcupado=true;
+    statusNoBanco(p).then(()=>{ _reconferido.add(p.id); _patioOcupado=false; let r; try{ r=patioLeitura(txt); }finally{ _reconferido.delete(p.id); } beep(r); });
+    return 'conf'; }
+  /* (nov/2026) reprovado, em análise, em decisão ou já carregado: NUNCA entra (sem exceção) */
+  if(sit!=='disponivel'){
+    if(sit==='analise'){
+      const ja=_avisadoLab.has(p.id); avisarLabPallet(p);
+      patioFlash('err','🧪','EM ANÁLISE — NÃO CARREGAR AINDA',`${esc(p.produto)} · ${esc(codCurto(p))}<br><b>${ja?'O laboratório já foi avisado.':'Avisamos o laboratório agora.'}</b><br>Deixe este pallet de lado. Quando o laboratório liberar, bipe de novo.`,{botao:'ENTENDI'});
+      return 'block';
+    }
+    const t={reprovado:'REPROVADO PELO LABORATÓRIO',decisao:'ESPERANDO DECISÃO DA DIRETORIA',carregado:'JÁ FOI CARREGADO EM OUTRO CAMINHÃO'}[sit]||String(SIT_LBL[sit]||'').toUpperCase();
     patioFlash('err','⛔','NÃO CARREGAR',`<b>${t}</b><br>${esc(p.produto)} · ${esc(codCurto(p))}<br>Deixe este pallet no lugar.`,{botao:'ENTENDI'});
     return 'block';
   }
-  if(precisaQtdPallet(p)&&_qtdInf[p.id]==null){ _patioOcupado=true; perguntarQtdPallet(p,()=>{ _patioOcupado=false; beep(patioLeitura(txt)); },true,()=>{ _patioOcupado=false; }); return 'conf'; }
-  if(!sacosDoPallet(p)){patioFlash('err','⚠️','PALLET SEM QUANTIDADE NO SISTEMA','Chame o encarregado.',{botao:'ENTENDI'});return 'err';}
+  /* (nov/2026) produto diferente do pedido: avisa ANTES de qualquer outra pergunta */
   let alvo=l;
   if(l.produto&&normNome(p.produto)!==normNome(l.produto)){
     /* é de outro item deste mesmo caminhão? entra lá sozinho */
@@ -5243,11 +5280,12 @@ function patioLeitura(txt){
     const outro=outros.find(x=>(x.sacksNeed||0)>allocSacks(x.key))||outros[0];
     if(outro){alvo=outro;_linhaAtiva=outro.key;}
     else{
-      patioFlash('err','🚫','PRODUTO ERRADO',`Este pallet é <b>${esc(p.produto)}</b>.<br>O caminhão pede <b>${esc(l.produto)}</b>.`,
-        {botao:'NÃO CARREGAR',botao2:'CARREGAR MESMO ASSIM',depois2:()=>patioIncluir(p,l)});
+      patioFlash('err','🚫','PRODUTO ERRADO',`Este pallet é <b>${esc(p.produto)}</b>.<br>O caminhão pede <b>${esc(l.produto)}</b>.<br>Deixe este pallet no lugar.`,{botao:'ENTENDI'});
       return 'block';
     }
   }
+  if(precisaQtdPallet(p)&&_qtdInf[p.id]==null){ _patioOcupado=true; perguntarQtdPallet(p,()=>{ _patioOcupado=false; beep(patioLeitura(txt)); },true,()=>{ _patioOcupado=false; }); return 'conf'; }
+  if(!sacosDoPallet(p)){patioFlash('err','⚠️','PALLET SEM QUANTIDADE NO SISTEMA','Chame o encarregado.',{botao:'ENTENDI'});return 'err';}
   if(alvo.sacksNeed>0&&allocSacks(alvo.key)>=alvo.sacksNeed){
     patioFlash('warn','✋','ESTE PRODUTO JÁ ESTÁ COMPLETO',`O caminhão já tem todo o ${esc(alvo.produto)} pedido.<br>Não precisa deste pallet.`,
       {botao:'NÃO CARREGAR',botao2:'CARREGAR MESMO ASSIM',depois2:()=>patioIncluir(p,alvo)});
