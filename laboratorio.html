@@ -247,6 +247,7 @@ details.pl-recolhe.pl-rt{margin-top:8px;}
     </div>
   </div>
 
+  <div id="lab-carreg"></div>
   <div id="lab-alertas"></div>
 
   <!-- DASHBOARD LINHAS -->
@@ -1119,15 +1120,11 @@ async function carregarOpsDash(forcar){          // nome mantido: é o 🔄 do q
   renderDashLinhas(); if(forcar){ renderAnalises(); toast('Status das linhas atualizado.','success'); }
 }
 function _tsAnalise(a){ return String(a.data||'')+' '+String(a.hora||'00:00').slice(0,8); }
-function _agoraTs(minAFrente){ const d=new Date(Date.now()+(minAFrente||0)*6e4), p=n=>String(n).padStart(2,'0');
-  return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+' '+p(d.getHours())+':'+p(d.getMinutes())+':00'; }
 function _idadeLab(a){
   if(!a||!a.data) return '';
   const dt=new Date(a.data+'T'+String(a.hora||'00:00').slice(0,5)+':00');
   if(isNaN(dt)) return '';
-  const h0=(Date.now()-dt.getTime())/36e5;
-  if(h0<-0.17) return '<span style="background:#fee2e2;color:#991b1b;border-radius:6px;padding:1px 6px;" title="A data/hora gravada é posterior a agora — confira e corrija a análise">⚠️ data/hora no futuro</span>';
-  const h=Math.max(0,h0);
+  const h=Math.max(0,(Date.now()-dt.getTime())/36e5);
   if(h<1)  return '<span style="background:#dcfce7;color:#15803d;border-radius:6px;padding:1px 6px;">há menos de 1 h</span>';
   if(h<8)  return `<span style="background:#dcfce7;color:#15803d;border-radius:6px;padding:1px 6px;">há ${Math.round(h)} h</span>`;
   if(h<24) return `<span style="background:#fef3c7;color:#92400e;border-radius:6px;padding:1px 6px;">há ${Math.round(h)} h</span>`;
@@ -1158,10 +1155,7 @@ function renderDashLinhas(){
     // (a de ontem continua na lista "📋 todas", mas não diz como a linha está agora).
     const hj=hoje();
     const doLinha=(_analises||[]).filter(a=>a.linha===linha.nome&&String(a.data||'')===hj).sort((x,y)=>_tsAnalise(y).localeCompare(_tsAnalise(x)));
-    // Uma análise gravada com hora no futuro ficava sempre em 1º e escondia os
-    // testes novos do dia. Só entra se não houver nenhuma válida.
-    const lim=_agoraTs(10);
-    const ult=doLinha.find(a=>_tsAnalise(a)<=lim)||doLinha[0];
+    const ult=doLinha[0];
     const st=(ult&&ult.status)||'Aguardando análise';
     const stCls={OK:'ok',Ajuste:'ajuste','Manutenção':'manutencao','Parada':'parada','Aguardando análise':''}[st]||'';
     const stIcon={'OK':'✅','Ajuste':'⚠️','Manutenção':'🔧','Parada':'🛑','Aguardando análise':'⏳'}[st]||'⏳';
@@ -1706,7 +1700,7 @@ function periodoManual(){ const m=document.getElementById('f-lab-mes'); if(m) m.
 // MODAL ANÁLISE
 function openModalAnalise(){
   _eAnaliseId=null; document.getElementById('analise-title').textContent='Nova Análise de Linha';
-  document.getElementById('an-data').value=hoje();   // local — toISOString() jogava para o dia seguinte depois das 21h
+  document.getElementById('an-data').value=new Date().toISOString().split('T')[0];
   document.getElementById('an-hora').value=new Date().toTimeString().slice(0,5);
   document.getElementById('an-status').value='OK'; document.getElementById('an-massa').value='';
   ['an-p20','an-p50','an-p100','an-p200','an-sep','an-umidade','an-obs','an-encarregado'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
@@ -1807,7 +1801,6 @@ async function salvarAnalise(){
   const erro=m=>{errEl.textContent=m; errEl.classList.remove('hidden'); errEl.scrollIntoView({block:'center',behavior:'smooth'});};
   if(!linha||!data){erro('Linha e Data são obrigatórios.'); return;}
   if(!status){erro('Informe o status da linha.'); return;}
-  if(data+' '+String(gv('an-hora')||'00:00').slice(0,5)+':00'>_agoraTs(10)){erro('A data/hora da análise está no futuro ('+fmtD(data)+' '+(gv('an-hora')||'')+'). Confira a data.'); return;}
   const soma=['an-p20','an-p50','an-p100','an-p200'].reduce((t,k)=>t+(numOrNull(gv(k))||0),0);
   if(soma>100.5){erro('A soma do peneiramento passou de 100% ('+soma.toFixed(1)+'%). Confira os valores.'); return;}
   // numOrNull no lugar de parseFloat()||null: umidade 0,0% e densidade 0 não
@@ -1984,6 +1977,74 @@ async function delAnalise(id){
   document.getElementById('modal-confirm').classList.remove('hidden');
 }
 
+
+/* ══════════════════════════════════════════════════════════════════════════
+   CARREGAMENTO PEDINDO LIBERAÇÃO (nov/2026)
+   Quando o carregamento bipa um pallet EM ANÁLISE, ele não deixa carregar e manda
+   uma notificação (notificacoes, fonte='carregamento', detalhe.pallet_id).
+   Aqui ela aparece num quadro vermelho no topo, com som, até o pallet ser
+   aprovado/reprovado (o quadro some sozinho) ou alguém marcar "Visto".
+   O carregamento só libera quando o pallet for APROVADO — é só bipar de novo.
+   ══════════════════════════════════════════════════════════════════════════ */
+let _pedCarreg=[], _pedVistos=new Set(), _pedTimer=null;
+function _pedBip(){
+  try{ const C=window.AudioContext||window.webkitAudioContext; if(!C) return; const c=new C();
+    [0,0.22].forEach(t=>{ const o=c.createOscillator(), g=c.createGain(); o.type='square'; o.frequency.value=880;
+      g.gain.setValueAtTime(0.18,c.currentTime+t); g.gain.exponentialRampToValueAtTime(0.001,c.currentTime+t+0.18);
+      o.connect(g); g.connect(c.destination); o.start(c.currentTime+t); o.stop(c.currentTime+t+0.2); }); }catch(e){}
+}
+async function carregarPedidosCarreg(){
+  try{
+    const desde=new Date(Date.now()-3*864e5).toISOString();
+    const {data,error}=await _supabase.from('notificacoes').select('id,titulo,descricao,detalhe,created_at,status_notif')
+      .eq('fonte','carregamento').eq('modulo','laboratorio').neq('status_notif','concluido').gte('created_at',desde).order('created_at',{ascending:false}).limit(50);
+    if(error) return;
+    let lst=(data||[]).filter(n=>n.detalhe&&n.detalhe.pallet_id);
+    // situação atual de cada pallet: aprovado/reprovado → o pedido já foi respondido
+    const ids=[...new Set(lst.map(n=>n.detalhe.pallet_id))];
+    let st={};
+    if(ids.length){ const r=await _supabase.from('producao_pallets').select('id,status,estoque_status').in('id',ids); (r.data||[]).forEach(x=>st[x.id]=x); }
+    const respondidos=lst.filter(n=>{ const x=st[n.detalhe.pallet_id]; return !x||(x.status&&x.status!=='pendente'); });
+    if(respondidos.length) _supabase.from('notificacoes').update({status_notif:'concluido',resolvido_em:new Date().toISOString(),resolvido_por:'Laboratório (pallet decidido)'}).in('id',respondidos.map(n=>n.id)).then(()=>{});
+    lst=lst.filter(n=>!respondidos.includes(n));
+    const novos=lst.filter(n=>!_pedCarreg.some(x=>x.id===n.id));
+    _pedCarreg=lst; renderPedidosCarreg();
+    if(novos.length&&novos.some(n=>n.status_notif==='novo')) _pedBip();
+  }catch(e){ console.warn('[pedidos do carregamento]',e); }
+}
+function renderPedidosCarreg(){
+  const el=document.getElementById('lab-carreg'); if(!el) return;
+  if(!_pedCarreg.length){ el.innerHTML=''; document.title=document.title.replace(/^\(\d+\) /,''); return; }
+  document.title='('+_pedCarreg.length+') '+document.title.replace(/^\(\d+\) /,'');
+  const E=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  el.innerHTML=`<div class="card" style="border:2px solid #dc2626;background:#fef2f2;margin-bottom:14px;padding:14px 16px;">
+    <div style="font-weight:800;font-size:16px;color:#991b1b;margin-bottom:4px;">🚚 Carregamento pedindo liberação — ${_pedCarreg.length} pallet(s) em análise</div>
+    <div style="font-size:13px;color:#7f1d1d;margin-bottom:10px;">O carregamento está esperando. Aprove ou reprove o pallet: quando aprovar, eles bipam de novo e o pallet entra. Este quadro some sozinho quando o pallet for decidido.</div>
+    ${_pedCarreg.map(n=>{const d=n.detalhe||{};return `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:#fff;border:1px solid #fecaca;border-radius:10px;padding:10px 12px;margin-top:8px;">
+      <div style="flex:1;min-width:240px;"><b style="font-family:monospace;">${E(d.codigo||'')}</b> · <b>${E(d.produto||'')}</b>${d.linha?' · '+E(d.linha):''}
+        <div style="font-size:12px;color:#64748b;">Ordem ${E(d.ordem||'—')}${d.placa?' · placa '+E(d.placa):''}${d.transportadora?' · '+E(d.transportadora):''} · pedido por ${E(d.quem||'—')} às ${new Date(n.created_at).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</div></div>
+      <button class="btn btn-primary btn-sm" onclick="analisarPedidoCarreg('${n.id}')">🔬 Analisar agora</button>
+      <button class="btn btn-secondary btn-sm" onclick="vistoPedidoCarreg('${n.id}')" title="Some daqui; o pallet continua em análise e o carregamento continua bloqueado">Visto</button></div>`;}).join('')}
+  </div>`;
+}
+async function analisarPedidoCarreg(id){
+  const n=_pedCarreg.find(x=>x.id===id); if(!n) return; const pid=n.detalhe.pallet_id;
+  _supabase.from('notificacoes').update({status_notif:'visto',visto_em:new Date().toISOString(),visto_por:(typeof getUser==='function'&&getUser()&&getUser().nome)||null}).eq('id',id).then(()=>{});
+  if(!(_pallets||[]).some(x=>x.id===pid)){
+    const {data}=await _supabase.from('producao_pallets').select('*').eq('id',pid).maybeSingle();
+    if(data){ _pallets=(_pallets||[]).concat([data]); }
+  }
+  showTab('pallets');
+  setTimeout(()=>abrirPalletLab(pid),150);
+}
+async function vistoPedidoCarreg(id){
+  await _supabase.from('notificacoes').update({status_notif:'concluido',resolvido_em:new Date().toISOString(),resolvido_por:(typeof getUser==='function'&&getUser()&&getUser().nome)||'Laboratório'}).eq('id',id);
+  _pedCarreg=_pedCarreg.filter(x=>x.id!==id); renderPedidosCarreg();
+}
+function iniciarPedidosCarreg(){
+  carregarPedidosCarreg(); clearInterval(_pedTimer); _pedTimer=setInterval(carregarPedidosCarreg,30000);
+  try{ _supabase.channel('lab-pedidos-carreg').on('postgres_changes',{event:'INSERT',schema:'public',table:'notificacoes'},p=>{ if(p.new&&p.new.fonte==='carregamento') carregarPedidosCarreg(); }).subscribe(); }catch(e){}
+}
 function showTab(t){
   if(abaNegada(t)){ toast('Sem permissão para acessar esta seção do Laboratório.','warning'); return; }
   LAB_ABAS.forEach(x=>{
@@ -4231,8 +4292,8 @@ function _lauDataBR(d){ return d? new Date(d+'T12:00:00').toLocaleDateString('pt
 async function carregarLaudos(){
   _falhasCarga=(_falhasCarga||[]).filter(f=>!/laudo/i.test(f.tabela));
   const mesEl=document.getElementById('lau-mes');
-  if(mesEl && !mesEl.value) mesEl.value=hoje().slice(0,7);
-  const mes=(mesEl&&mesEl.value)||hoje().slice(0,7);
+  if(mesEl && !mesEl.value) mesEl.value=new Date().toISOString().slice(0,7);
+  const mes=(mesEl&&mesEl.value)||new Date().toISOString().slice(0,7);
   const ini=mes+'-01';
   const fim=new Date(Number(mes.slice(0,4)), Number(mes.slice(5,7)), 0).toISOString().slice(0,10);
   // Antes esta função engolia o erro em silêncio: se lab_laudos não carregasse,
@@ -5302,7 +5363,7 @@ async function salvarLaudo(finalizar){
   };
   if(finalizar){
     // BPF · POP-15/16/17: laudo só com análise externa vigente e lote liberado
-    const hj=hoje();
+    const hj=new Date().toISOString().slice(0,10);
     const ext=asArray(c.externas);
     const venc=ext.filter(x=>x&&x.validade&&String(x.validade).slice(0,10)<hj);
     if((!ext.length||venc.length)&&!(await bpfTravaGenerica('laudo_externo_vencido',{onde:'laboratorio',violou:true,
@@ -8756,7 +8817,7 @@ function limparAssinatura(id){
   cv.getContext('2d').clearRect(0,0,cv.width,cv.height); cv._vazio=true;
 }
 
-init().then(()=>abrirLaudoPorLink()).catch(e=>console.error('[laboratorio] link do laudo:',e));
+init().then(()=>{ abrirLaudoPorLink(); iniciarPedidosCarreg(); }).catch(e=>console.error('[laboratorio] link do laudo:',e));
 
 /* ══════════════════════════════════════════════════════════════════════════
    APROVAR / REPROVAR EM ETAPAS (out/2026)
