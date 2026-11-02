@@ -149,11 +149,34 @@ html.movel .lg-hora{zoom:var(--z,1);}
       <div class="lg-abc"><button type="button" id="lg-abc-btn" onclick="lpTrocarTeclado()">🔤 Minha senha tem letras</button></div>
       <div id="login-error" class="hidden alert alert-danger"></div>
       <button id="btn-login" onclick="doLogin()">Entrar no sistema <span>→</span></button>
+      <button type="button" onclick="abrirTrocaSenha()" style="margin-top:10px;width:100%;background:none;border:0;color:#475569;font-weight:700;font-size:14px;cursor:pointer;padding:8px;text-decoration:underline;">🔑 Trocar minha senha</button>
       <div class="lg-rod">🔒 Conexão segura · <span id="lp-rodape-empresa">Silicate</span> © <span id="lp-rodape-ano">—</span></div>
     </div>
   </div>
 </div>
 
+
+<!-- TROCAR MINHA SENHA (nov/2026): o próprio usuário troca, sabendo a senha atual -->
+<div id="ts-ov" class="hidden" style="position:fixed;inset:0;z-index:9999;background:rgba(3,32,54,.55);display:flex;align-items:center;justify-content:center;padding:16px;">
+  <div style="background:#fff;border-radius:18px;max-width:400px;width:100%;padding:22px 22px 18px;box-shadow:0 20px 60px rgba(0,0,0,.3);">
+    <h3 style="margin:0 0 4px;color:#042D4D;font-size:19px;">🔑 Trocar minha senha</h3>
+    <p style="margin:0 0 14px;color:#64748b;font-size:13px;">Precisa saber a senha atual. Esqueceu? Peça para o seu chefe redefinir.</p>
+    <label class="lg-lab" for="ts-user">Usuário</label>
+    <div class="lg-campo"><span class="ic">👤</span><input id="ts-user" type="text" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="ex.: jean.portaria"></div>
+    <label class="lg-lab" for="ts-atual">Senha atual</label>
+    <div class="lg-campo"><span class="ic">🔒</span><input id="ts-atual" type="password" autocomplete="current-password"></div>
+    <label class="lg-lab" for="ts-nova">Nova senha</label>
+    <div class="lg-campo"><span class="ic">🆕</span><input id="ts-nova" type="password" autocomplete="new-password" placeholder="mínimo 6 caracteres"></div>
+    <label class="lg-lab" for="ts-nova2">Repita a nova senha</label>
+    <div class="lg-campo"><span class="ic">🆕</span><input id="ts-nova2" type="password" autocomplete="new-password" onkeydown="if(event.key==='Enter')trocarSenha()"></div>
+    <label style="display:flex;gap:6px;align-items:center;font-size:13px;color:#475569;margin:6px 0 4px;"><input type="checkbox" onchange="['ts-atual','ts-nova','ts-nova2'].forEach(i=>document.getElementById(i).type=this.checked?'text':'password')"> Mostrar as senhas</label>
+    <div id="ts-erro" class="hidden alert alert-danger" style="margin-top:8px;"></div>
+    <div style="display:flex;gap:10px;margin-top:14px;">
+      <button type="button" onclick="fecharTrocaSenha()" style="flex:1;padding:13px;border-radius:12px;border:1.5px solid #cbd5e1;background:#fff;font-weight:700;cursor:pointer;">Cancelar</button>
+      <button type="button" id="ts-ok" onclick="trocarSenha()" style="flex:1.4;padding:13px;border-radius:12px;border:0;background:#042D4D;color:#C9FF64;font-weight:800;cursor:pointer;">Trocar senha</button>
+    </div>
+  </div>
+</div>
 <!-- ONBOARDING -->
 <div id="page-onboarding" class="hidden">
   <div class="onboarding-wrap">
@@ -582,6 +605,52 @@ async function doLogin() {
     btn.innerHTML='Entrar no sistema <span>→</span>'; btn.disabled=false;
     const inS = document.getElementById('login-senha'); inS.value=''; inS.focus();
   }
+}
+
+/* ── TROCAR MINHA SENHA (nov/2026) ─────────────────────────────────────────
+   O usuário confirma a senha atual (entra), grava a nova no Supabase Auth
+   (auth.updateUser) e sai. Depois entra normalmente com a nova senha.
+   O administrador continua podendo REDEFINIR a senha em Usuários. */
+function abrirTrocaSenha(){
+  const ov=document.getElementById('ts-ov'); ov.classList.remove('hidden');
+  document.getElementById('ts-user').value=document.getElementById('login-email').value.trim();
+  ['ts-atual','ts-nova','ts-nova2'].forEach(i=>document.getElementById(i).value='');
+  document.getElementById('ts-erro').classList.add('hidden');
+  setTimeout(()=>document.getElementById(document.getElementById('ts-user').value?'ts-atual':'ts-user').focus(),60);
+}
+function fecharTrocaSenha(){ document.getElementById('ts-ov').classList.add('hidden'); }
+async function trocarSenha(){
+  const v=id=>document.getElementById(id).value, err=document.getElementById('ts-erro'), btn=document.getElementById('ts-ok');
+  const erro=m=>{ err.textContent=m; err.classList.remove('hidden'); };
+  const ident=v('ts-user').trim(), atual=v('ts-atual'), nova=v('ts-nova'), nova2=v('ts-nova2');
+  if(!ident) return erro('Digite o seu usuário.');
+  if(!atual) return erro('Digite a senha atual.');
+  if(nova.length<6) return erro('A nova senha precisa ter pelo menos 6 caracteres.');
+  if(nova!==nova2) return erro('A nova senha e a repetição não estão iguais.');
+  if(nova===atual) return erro('A nova senha tem que ser diferente da atual.');
+  btn.disabled=true; btn.textContent='Trocando…'; err.classList.add('hidden');
+  try{
+    let email=ident.toLowerCase();
+    if(!ident.includes('@')){
+      const {data:em,error:e1}=await _supabase.rpc('email_do_login',{p_login:ident});
+      if(e1||!em) throw new Error('Usuário "'+ident+'" não encontrado.');
+      email=em;
+    }
+    const {data:auth,error:e2}=await _supabase.auth.signInWithPassword({email,password:atual});
+    if(e2||!auth?.user) throw new Error('Senha atual incorreta.');
+    const {data:u}=await _supabase.from('usuarios').select('id,nome,status').eq('auth_id',auth.user.id).maybeSingle();
+    if(!u||u.status!=='ativo'){ await _supabase.auth.signOut(); throw new Error('Usuário sem cadastro ativo no sistema.'); }
+    const {error:e3}=await _supabase.auth.updateUser({password:nova});
+    if(e3){ await _supabase.auth.signOut(); throw new Error(/weak|short|least/i.test(e3.message)?'Senha muito fraca. Use pelo menos 6 caracteres.':'Não foi possível trocar: '+e3.message); }
+    try{ await _supabase.from('auditoria').insert({acao:'UPDATE',modulo:'AUTH',registro_id:u.id,descricao:'Senha trocada pelo próprio usuário',usuario_email:email}); }catch(e){}
+    await _supabase.auth.signOut();
+    fecharTrocaSenha();
+    document.getElementById('login-email').value=ident; const s=document.getElementById('login-senha'); s.value=''; s.focus();
+    const ok=document.getElementById('login-error'); ok.textContent='✅ Senha trocada! Agora entre com a nova senha.';
+    ok.classList.remove('hidden','alert-danger'); ok.classList.add('alert-success');
+    setTimeout(()=>{ ok.classList.add('hidden'); ok.classList.remove('alert-success'); ok.classList.add('alert-danger'); },8000);
+  }catch(e){ erro(e.message||'Não foi possível trocar a senha.'); }
+  finally{ btn.disabled=false; btn.textContent='Trocar senha'; }
 }
 function toggleSenha() {
   const inp = document.getElementById('login-senha');
