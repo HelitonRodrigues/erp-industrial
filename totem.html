@@ -396,11 +396,13 @@ function acompanharJobs(ids){
     if(_jobs.every(j=>j.status==='impresso'||j.status==='erro')||n>60) clearInterval(_jobTimer);
   },3000);
 }
-const estOn=d=>_est[d]&&(Date.now()-new Date(_est[d]).getTime()<20000);
+/* estação ligada = deu sinal nos últimos 60 s, medido no SERVIDOR (rpc estacoes_status):
+   não depende do relógio do tablet nem do PC, e aguenta a estação ocupada imprimindo */
+const estOn=d=>_est[d]!=null&&_est[d]<60;
 const ST={pendente:'na fila…',imprimindo:'imprimindo…',impresso:'impresso ✓',erro:'erro'};
 const htmlJobs=()=>_jobs.map(j=>`<div class="job">${j.nome} (${j.dest==='laser'?'LaserJet':'DYMO'}): <b class="${j.status}">${ST[j.status]||j.status}</b>${j.status==='pendente'&&!estOn(j.dest)?' — <b class="erro">a estação dessa impressora está desligada no PC</b>':''}${j.erro?' — '+esc_(j.erro):''}</div>`).join('');
 async function lerEstacoes(){
-  try{ const {data}=await _supabase.from('impressao_estacoes').select('destino,visto_em'); (data||[]).forEach(e=>_est[e.destino]=e.visto_em); }catch(e){}
+  try{ const {data,error}=await _supabase.rpc('estacoes_status'); if(!error){ _est={}; (data||[]).forEach(e=>_est[e.destino]=e.segundos); } }catch(e){}
   const bar=document.getElementById('estbar'); if(!bar) return;
   const off=[['laser','LaserJet (rótulos)'],['dymo','DYMO (amostras)']].filter(([d])=>!estOn(d)).map(([,n])=>n);
   if(!off.length){ bar.className='estbar ok'; bar.innerHTML='<span class="dot"></span>Impressoras prontas — LaserJet e DYMO'; }
