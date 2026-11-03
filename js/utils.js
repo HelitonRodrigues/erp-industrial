@@ -159,6 +159,7 @@ const MODULO_FUNCIONALIDADES = {
     { id:'visitantes', label:'🪪 Visitantes' },
     { id:'minerio',    label:'⛏️ Caulim e Grafitoso (minério)' },
     { id:'filito',     label:'🪨 Filito Intercement (portaria-filito.html)' },
+    { id:'filito_ind', label:'📊 Filito Intercement — Indicadores' },
   ],
   abastecimento: [
     { id:'dashboard', label:'📊 Dashboard' },
