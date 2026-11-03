@@ -150,6 +150,15 @@ const MODULO_FUNCIONALIDADES = {
     { id:'comp',       label:'📅 Comparativo' },
     { id:'resumo',     label:'🗂️ Resumo por área' },
   ],
+  portaria: [
+    { id:'fila',       label:'🚛 Fila' },
+    { id:'ordens',     label:'📄 Ordens de carregamento' },
+    { id:'motoristas', label:'👤 Motoristas' },
+    { id:'fechamento', label:'📊 Fechamento do dia' },
+    { id:'historico',  label:'📚 Histórico' },
+    { id:'visitantes', label:'🪪 Visitantes' },
+    { id:'minerio',    label:'⛏️ Caulim e Grafitoso (minério)' },
+  ],
   abastecimento: [
     { id:'dashboard', label:'📊 Dashboard' },
     { id:'historico', label:'📋 Histórico' },
