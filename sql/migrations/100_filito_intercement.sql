@@ -123,3 +123,7 @@ update public.perfis set permissoes = jsonb_set(permissoes,'{portaria,abas,filit
 --  • 175 pedidos (os números na frente dos motoristas; ativos = usados desde set/2026)
 --  • 116 motoristas (placa, transporte, peso caçamba, pedido e filito da última viagem; ativos = viajaram desde jul/2026)
 --  • viagens de 03/11/2026 (origem 'planilha')
+
+-- 03/11/2026 (ajuste): a regra da nota vale também para as viagens da planilha — só conclui com o nº E o PDF.
+-- filito_viagem_regras(): o bloco "if new.status <> 'aguardando_bruto' then new.status := …" saiu de dentro do "if origem = 'portaria'".
+-- As viagens importadas voltaram para pendente_nf (têm o nº, falta o PDF).
