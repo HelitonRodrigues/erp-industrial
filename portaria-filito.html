@@ -277,7 +277,7 @@ function renderBoard(){
       <div class="d-mu"><b>${esc(v.motorista)}</b>${v.transportadora?' · '+esc(v.transportadora):''}</div>
       <div class="d-mu">${v.pedido?`<span class="f-chip ped">pedido ${pedTxt(v.pedido)}</span> `:''}tara <b>${nf(v.tara_kg)}</b>${v.bruto_kg?' · bruto <b>'+nf(v.bruto_kg)+'</b> · líquido <b>'+nf(v.liquido_kg)+'</b> kg':' kg'}${v.cacamba_kg?' · caçamba '+nf(v.cacamba_kg):''}</div>
       ${v.bruto_kg?`<div class="d-mu" style="margin-top:4px;">${difHtml(v)}</div>`:''}
-      ${v.nf_numero?`<div class="d-mu">🧾 NF <b>${esc(v.nf_numero)}</b>${v.nf_path||v.origem==='planilha'?'':' · <b style="color:#7c3aed;">falta o arquivo</b>'}</div>`:''}
+      ${v.nf_numero?`<div class="d-mu">🧾 NF <b>${esc(v.nf_numero)}</b>${v.nf_path?'':' · <b style="color:#7c3aed;">falta o PDF</b>'}</div>`:''}
       <div class="d-tm"><span>entrada <b>${hm(v.entrada_em)}</b></span>${v.saida_em?`<span>bruto <b>${hm(v.saida_em)}</b></span>`:`<span>na balança há <b>${durTxt(Date.now()-Date.parse(v.entrada_em))}</b></span>`}${v.operador?`<span>op. <b>${esc(v.operador)}</b></span>`:''}</div>
       <div class="d-ac">${acao(v)}
         ${v.ticket||v.status!=='aguardando_bruto'?`<button class="btn btn-ghost btn-sm" data-perm="portaria:view" title="Ticket" onclick="verTicket('${v.id}')">🎫</button>`:''}
@@ -336,19 +336,17 @@ function enSugerir(){
   if(q.length<2){box.innerHTML='';return;}
   const l=_mot.filter(m=>norm(m.nome).includes(q)||(qp.length>=3&&normPlaca(m.placa).includes(qp))).sort((a,b)=>(b.ativo-a.ativo)||a.nome.localeCompare(b.nome)).slice(0,8);
   box.innerHTML=l.map(m=>`<div class="ch-sug-it" onclick="enEscolher('${m.id}')"><b>${esc(m.placa||'—')}</b><span>${esc(m.nome)}${m.ativo?'':' <small style="color:#94a3b8;">(inativo)</small>'}</span>
-      <small>${esc(m.transportadora||'')}${m.cacamba_kg?' · caçamba '+nf(m.cacamba_kg):''}${m.pedido?' · pedido '+pedTxt(m.pedido):''}</small></div>`).join('')
+      <small>${esc(m.transportadora||'')}</small></div>`).join('')
     +(pode('create')?`<div class="ch-sug-add" onclick="document.getElementById('en-sug').innerHTML='';editarMotorista(null,true)">＋ Cadastrar motorista novo${q?' "'+esc(document.getElementById('en-mot').value)+'"':''}</div>`:'');
 }
 function enEscolher(id){
   const m=_mot.find(x=>x.id===id);if(!m)return;_en.mot=m;
   document.getElementById('en-sug').innerHTML='';
   const s=(i,x)=>{const e=document.getElementById(i);if(e)e.value=x==null?'':x;};
-  s('en-mot',m.nome);s('en-placa',m.placa);s('en-transp',m.transportadora);s('en-ped',m.pedido);s('en-cac',m.cacamba_kg);
+  // só motorista, placa e transporte vêm do cadastro — pedido, caçamba e pesos o porteiro digita a cada viagem
+  s('en-mot',m.nome);s('en-placa',m.placa);s('en-transp',m.transportadora);
   if(m.produto)_en.prod=m.produto;enProds();enPedNome();
-  // tara da última viagem do motorista (sugestão)
-  if(!_en.id&&!document.getElementById('en-tara').value)_supabase.from('filito_viagens').select('tara_kg,operador').eq('motorista_id',m.id).order('criado_em',{ascending:false}).limit(1).then(({data})=>{
-    const u=data&&data[0];const t=document.getElementById('en-tara');if(u&&t&&!t.value){t.placeholder='última: '+nf(u.tara_kg);} });
-  document.getElementById('en-tara').focus();
+  document.getElementById('en-ped').focus();
 }
 async function garantirPedido(n){
   if(!n||_ped.some(x=>x.numero===n))return true;
@@ -497,7 +495,7 @@ function abrirNF(id){
     <div class="dt-top"><h3 style="margin:0;">🧾 Nota fiscal — ${esc(v.placa)} · ticket ${tk(v.ticket)}</h3><button class="dt-x" onclick="document.getElementById('ov-nf').remove()">✕</button></div>
     <div class="mini">${esc(v.motorista)} · ${esc(prodNome(v.produto))} · líquido <b>${nf(v.liquido_kg)} kg</b> · bruto ${dh(v.saida_em)}</div>
     <div class="pz-step"><span>1</span> Nº da nota</div><input class="form-input f-big" id="nf-num" inputmode="numeric" value="${esc(v.nf_numero||'')}">
-    <div class="pz-step"><span>2</span> Arquivo da nota <small>PDF ou foto</small></div>
+    <div class="pz-step"><span>2</span> PDF da nota <small>(ou foto)</small></div>
     ${v.nf_path?`<div class="ch-novo" style="margin-bottom:8px;">📄 Já tem arquivo: <b>${esc(v.nf_nome||'nota')}</b> <button class="btn btn-secondary btn-sm" onclick="verNF('${v.id}')">Ver</button> · escolha outro para trocar</div>`:''}
     <label class="pz-file"><input type="file" id="nf-arq" accept="application/pdf,image/*" onchange="document.getElementById('nf-arq-n').textContent=this.files[0]?'📎 '+this.files[0].name:'📤 Toque para escolher o arquivo'"><span id="nf-arq-n">📤 Toque para escolher o arquivo</span></label>
     <div class="mini" style="margin-top:8px;">Com o nº e o arquivo, a viagem sai de "Pendente de NF" e fica concluída.</div>
@@ -511,7 +509,6 @@ async function salvarNF(){
   const btn=document.getElementById('nf-ok');btn.disabled=true;
   try{
     const up={nf_numero:num||null,nf_em:new Date().toISOString(),nf_por:quem()};
-    if(v.origem==='planilha')up.status=num?'concluido':'pendente_nf';   // viagem da planilha: basta o nº (o arquivo é opcional)
     if(f){const ext=(f.name.split('.').pop()||'pdf').toLowerCase().replace(/[^a-z0-9]/g,'')||'pdf';
       const path=`portaria/filito/${v.data}/${v.id}_${Date.now()}.${ext}`;
       const r=await _supabase.storage.from('documentos').upload(path,f,{upsert:false,contentType:f.type||undefined});if(r.error)throw r.error;
@@ -555,7 +552,7 @@ function renderViagens(){
   document.getElementById('v-b').innerHTML=l.length?l.slice().reverse().map(v=>`<tr>
     <td>${v.ticket?`<b style="font-family:monospace;">${tk(v.ticket)}</b>`:'<span style="color:#cbd5e1;">—</span>'}</td><td>${dBr(v.data)}</td><td>${hm(v.entrada_em)}</td><td>${hm(v.saida_em)}</td>
     <td><b>${esc(v.motorista)}</b></td><td>${v.pedido?`<span title="${esc(pedNome(v.pedido))}">${esc(v.pedido)}</span>`:'—'}</td><td>${esc(v.placa)}</td><td>${esc(prodNome(v.produto))}</td>
-    <td>${v.nf_numero?esc(v.nf_numero):v.status==='aguardando_bruto'?'<span class="badge badge-warning">na balança</span>':'<span class="badge badge-info">pendente</span>'}${v.nf_numero&&!v.nf_path&&v.origem!=='planilha'?' <small style="color:#7c3aed;">sem arquivo</small>':''}</td>
+    <td>${v.nf_numero?esc(v.nf_numero):v.status==='aguardando_bruto'?'<span class="badge badge-warning">na balança</span>':'<span class="badge badge-info">pendente</span>'}${v.nf_numero&&!v.nf_path?' <small style="color:#7c3aed;">falta o PDF</small>':''}</td>
     <td class="num">${nf(v.cacamba_kg)}</td><td>${esc(v.transportadora||'—')}</td><td class="num">${nf(v.tara_kg)}</td><td class="num">${nf(v.bruto_kg)}</td><td class="num"><b>${nf(v.liquido_kg)}</b></td>
     <td class="num" style="color:${v.diferenca_kg>0?'#b91c1c':'#166534'};font-weight:700;">${v.diferenca_kg==null?'—':(v.diferenca_kg>0?'+':'')+nf(v.diferenca_kg)}</td>
     <td>${esc(v.porteiro_saida||v.porteiro||'—')}</td><td>${esc(v.operador||'—')}</td>
