@@ -127,3 +127,10 @@ update public.perfis set permissoes = jsonb_set(permissoes,'{portaria,abas,filit
 -- 03/11/2026 (ajuste): a regra da nota vale também para as viagens da planilha — só conclui com o nº E o PDF.
 -- filito_viagem_regras(): o bloco "if new.status <> 'aguardando_bruto' then new.status := …" saiu de dentro do "if origem = 'portaria'".
 -- As viagens importadas voltaram para pendente_nf (têm o nº, falta o PDF).
+
+-- 03/11/2026 (ajuste 2): pedido e peso da caçamba são da VIAGEM (do início ao fim do ticket), não do motorista.
+--  • entrada pode ficar sem pedido/caçamba → aparece "Colocar pedido"; no bruto os dois são obrigatórios.
+--  • filito_motoristas.pedido / cacamba_kg deixaram de ser usados pela tela (colunas mantidas — migração aditiva).
+--  • aba de Pedidos removida da tela; filito_pedidos segue guardando o nome de cada nº (digitado na entrada/bruto).
+--  • nova tela "filito_ind" (Indicadores) no catálogo da portaria — porteiro (PRT) e MIN sem acesso:
+update public.perfis set permissoes = jsonb_set(permissoes,'{portaria,abas,filito_ind}','{"view":false,"create":false,"edit":false,"delete":false,"export":false}'::jsonb,true) where codigo in ('PRT','MIN');
