@@ -99,6 +99,7 @@
 .ch-chip.on{background:var(--primary);color:var(--accent);border-color:var(--primary)}
 .ch-card{border:1px solid var(--ln);border-radius:14px;padding:14px;background:#f8fafc;min-height:170px}
 .ch-vazio{color:var(--mu);font-size:13px;text-align:center;padding:30px 10px}
+.lt .lt-h td{background:#032036;color:#d9f99d;font-size:11px;font-weight:800;text-transform:uppercase;position:sticky;top:0}.lt td{padding:7px;border-bottom:1px solid #eef2f7;vertical-align:top}
 .ch-novo{background:#ecfdf5;border:1px solid #86efac;border-radius:10px;padding:12px;color:#166534}
 .ch-mot{display:flex;gap:12px;align-items:center;margin-bottom:10px}
 .ch-av{width:52px;height:52px;border-radius:50%;background:var(--primary);color:var(--accent);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:18px;flex-shrink:0}
@@ -224,7 +225,8 @@
 
   <!-- PÁTIO: lista do dia -->
   <div id="t-patio">
-    <div class="fx"><div class="sel" id="p-sel"></div><input class="form-input grow" id="p-q" placeholder="🔍 Placa, motorista, pedido ou NF" oninput="renderPatio()"></div>
+    <div class="fx"><div class="sel" id="p-sel"></div><input class="form-input grow" id="p-q" placeholder="🔍 Placa, motorista, pedido ou NF" oninput="renderPatio()">
+      <label class="btn btn-secondary" id="p-lote" data-perm="portaria:view" style="cursor:pointer;white-space:nowrap;" title="Escolha vários PDFs: cada nota vai sozinha para o caminhão certo (pela placa)">📤 Subir PDFs<input type="file" accept="application/pdf" multiple style="display:none" onchange="loteNF(this.files);this.value=''"></label></div>
     <div id="p-lista"></div>
   </div>
 
@@ -380,7 +382,7 @@ function renderPatio(){
         <span class="s ${pesado?'ok':''}">⚖️ Bruto ${pesado?hm(v.saida_em):'—'}</span><i></i>
         <span class="s ${s==='ok'?'ok':pesado?'pdf':''}">🧾 ${s==='ok'?'NF '+esc(v.nf_numero)+' ✓':pesado?(v.nf_numero?'NF '+esc(v.nf_numero)+' · falta PDF':'falta nº e PDF'):'Nota'}</span>
         ${v.ticket?`<span class="mu" style="margin-left:4px;">🎫 ${tk(v.ticket)}</span>`:''}</div>
-      <div class="ac">${acao}${v.ticket?`<button class="bt gh" data-perm="portaria:view" title="Ticket" onclick="verTicket('${v.id}')">🎫</button>`:''}${ed?`<button class="bt gh" title="Corrigir" onclick="abrirEntrada('${v.id}')">✏️</button>`:''}${ex&&!pesado?`<button class="bt gh" title="Cancelar entrada" onclick="cancelar('${v.id}')">🗑️</button>`:''}</div></div>`;}).join('')
+      <div class="ac">${acao}<button class="bt gh" title="Visualizar" onclick="verViagem('${v.id}')">👁️</button>${v.ticket?`<button class="bt gh" data-perm="portaria:view" title="Ticket" onclick="verTicket('${v.id}')">🎫</button>`:''}${ed?`<button class="bt gh" title="Corrigir" onclick="abrirEntrada('${v.id}')">✏️</button>`:''}${ex&&!pesado?`<button class="bt gh" title="Cancelar entrada" onclick="cancelar('${v.id}')">🗑️</button>`:''}</div></div>`;}).join('')
     :'<div class="d-vazio" style="background:#fff;border:1px dashed var(--ln);border-radius:12px;padding:30px;">Nada aqui. Para começar: ＋ Registrar entrada.</div>';
 }
 
@@ -614,12 +616,29 @@ function abrirNF(id){
 }
 // lê o nº da nota do DANFE: pela chave de acesso (44 dígitos; nº = posições 26–34) ou pelo "Nº 000.049.238"
 const PDFJS='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js',PDFJS_WORKER='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-async function textoDoPdf(f){
+async function paginasDoPdf(f){
   if(!window.pdfjsLib)await carregarScript(PDFJS);
   pdfjsLib.GlobalWorkerOptions.workerSrc=PDFJS_WORKER;
-  const doc=await pdfjsLib.getDocument({data:new Uint8Array(await f.arrayBuffer())}).promise;
-  let t='';for(let p=1;p<=Math.min(doc.numPages,2);p++){const pg=await doc.getPage(p);const tc=await pg.getTextContent();t+=tc.items.map(i=>i.str).join(' ')+'\n';}
-  return t;
+  const doc=await pdfjsLib.getDocument({data:new Uint8Array(await f.arrayBuffer())}).promise,out=[];
+  for(let p=1;p<=Math.min(doc.numPages,20);p++){const pg=await doc.getPage(p);const tc=await pg.getTextContent();out.push(tc.items.map(i=>i.str).join(' '));}
+  return out;
+}
+async function textoDoPdf(f){return (await paginasDoPdf(f)).slice(0,2).join('\n');}
+/* um DANFE por página: nº da nota + "INFORMAÇÕES COMPLEMENTARES" (Pedido No. 002872 · Motorista: EDINEU · Placa: BXJ 2J15) */
+function dadosDanfe(t){
+  const um=String(t||'').replace(/\s+/g,' '),g=r=>{const m=um.match(r);return m?m[1].trim():null;};
+  const placa=(g(/Placa:\s*([A-Z]{3}\s?-?\s?\d[A-Z0-9]\d{2})/i)||'').toUpperCase().replace(/[^A-Z0-9]/g,'')||null;
+  const mot=g(/Motorista:\s*([^-]+?)\s*-\s*Placa/i),ped=g(/Pedido\s*No\.?\s*:?\s*(\d{3,})/i);
+  return {nf:numeroDaNF(um),motorista:mot?mot.toUpperCase():null,placa,pedido:ped?ped.padStart(6,'0'):null};
+}
+async function danfesDoPdf(f){return (await paginasDoPdf(f)).map((t,i)=>({...dadosDanfe(t),pg:i+1})).filter(d=>d.nf||d.placa);}
+const soNum=x=>x==null||x===''?null:String(parseInt(String(x).replace(/\D/g,''),10));
+const nomeBate=(curto,longo)=>{const a=norm(curto||'').split(' ').filter(Boolean),b=norm(longo||'').split(' ').filter(Boolean);
+  return !!a.length&&a.every(w=>b.some(x=>x===w||x.startsWith(w)));};
+/* confere a nota com a viagem: placa, pedido e motorista */
+function conferirNota(d,v){
+  const it=[[d.placa,v.placa,d.placa===v.placa,'Placa'],[d.pedido,v.pedido,!!v.pedido&&d.pedido===v.pedido,'Pedido'],[d.motorista,v.motorista,nomeBate(d.motorista,v.motorista),'Motorista']];
+  return it.filter(x=>x[0]).map(([a,b,ok,l])=>`<span style="color:${ok?'#166534':'#b91c1c'};font-weight:700;">${ok?'✓':'⚠️'} ${l} ${esc(a)}${ok?'':' (no sistema: '+esc(b||'—')+')'}</span>`).join(' · ');
 }
 function numeroDaNF(t){
   const um=String(t||'').replace(/\s+/g,' ');
@@ -632,12 +651,13 @@ async function nfLerArquivo(f){
   const lb=document.getElementById('nf-arq-n'),av=document.getElementById('nf-aviso'),inp=document.getElementById('nf-num');
   lb.textContent=f?'📎 '+f.name:'📤 Toque para escolher o PDF';av.innerHTML='';if(!f)return;
   if(!/pdf$/i.test(f.type)&&!/\.pdf$/i.test(f.name)){av.innerHTML='📷 Foto: confira e digite o nº da nota.';return;}
-  av.textContent='⏳ Lendo o nº da nota no PDF…';
-  try{const n=numeroDaNF(await textoDoPdf(f));
-    if(!n){av.innerHTML='<span style="color:#b45309;">Não achei o nº no PDF (pode ser escaneado) — digite o nº.</span>';inp.focus();return;}
-    const antes=_nfV&&_nfV.nf_numero?String(parseInt(String(_nfV.nf_numero).replace(/\D/g,''),10)):null;
-    inp.value=n;
-    av.innerHTML=antes&&antes!==n?`<span style="color:#b91c1c;font-weight:800;">⚠️ Este PDF é da nota ${esc(n)}, mas o registrado era ${esc(_nfV.nf_numero)}. Confira se é a nota certa deste caminhão.</span>`:`<span style="color:#166534;font-weight:700;">✓ Nº ${esc(n)} lido do PDF.</span>`;
+  av.textContent='⏳ Lendo a nota no PDF…';
+  try{const ns=await danfesDoPdf(f),v=_nfV;
+    const d=ns.find(x=>x.placa&&x.placa===v.placa)||ns.find(x=>x.nf&&x.nf===soNum(v.nf_numero))||ns[0];
+    if(!d||!d.nf){av.innerHTML='<span style="color:#b45309;">Não achei o nº no PDF (pode ser escaneado) — digite o nº.</span>';inp.focus();return;}
+    const antes=soNum(v.nf_numero);inp.value=d.nf;
+    av.innerHTML=(antes&&antes!==d.nf?`<div style="color:#b91c1c;font-weight:800;">⚠️ Este PDF é da nota ${esc(d.nf)}, mas o registrado era ${esc(v.nf_numero)}. Confira se é a nota certa deste caminhão.</div>`:`<div style="color:#166534;font-weight:700;">✓ Nota ${esc(d.nf)} lida do PDF${ns.length>1?' ('+ns.length+' notas neste PDF — usei a da placa '+esc(v.placa)+')':''}.</div>`)
+      +`<div style="margin-top:4px;">${conferirNota(d,v)}</div>`;
   }catch(e){av.innerHTML='<span style="color:#b45309;">Não consegui ler o PDF — digite o nº.</span>';}
 }
 async function salvarNF(){
@@ -656,6 +676,75 @@ async function salvarNF(){
     toast(data.status==='concluido'?'Nota completa — pronto.':'Salvo. Ainda falta '+(num?'o PDF':'o nº')+' da nota.',data.status==='concluido'?'success':'warning');
     document.getElementById('ov-nf').remove();carregarPatio();if(_aba==='via')carregarViagens();
   }catch(e){toast('Não salvou: '+(e.message||e),'danger');}finally{btn.disabled=false;}
+}
+/* 📤 Vários PDFs de uma vez: lê cada nota (uma por página) e acha o caminhão pela placa → pedido → nº */
+let _lote=[];
+async function loteNF(files){
+  files=[...(files||[])];if(!files.length)return;
+  if(!pode('create')&&!pode('edit')){toast('Sem permissão.','warning');return;}
+  const {data:pend,error}=await _supabase.from('filito_viagens').select('*').eq('status','pendente_nf').order('data',{ascending:false}).limit(500);
+  if(error){toast('Não carregou as pendentes: '+error.message,'danger');return;}
+  toast('Lendo '+files.length+' PDF(s)…');_lote=[];const usados=new Set();
+  for(const f of files){let ns=[];try{ns=await danfesDoPdf(f);}catch(e){}
+    if(!ns.length){_lote.push({f,d:{},v:null,erro:'não consegui ler (escaneado?)'});continue;}
+    for(const d of ns){const livres=(pend||[]).filter(v=>!usados.has(v.id));
+      const v=livres.find(v=>d.nf&&soNum(v.nf_numero)===d.nf&&v.placa===d.placa)||livres.find(v=>v.placa===d.placa&&d.pedido&&v.pedido===d.pedido)||livres.find(v=>v.placa===d.placa)||livres.find(v=>d.nf&&soNum(v.nf_numero)===d.nf);
+      if(v)usados.add(v.id);_lote.push({f,d,v,ok:!!v});}}
+  const ov=document.createElement('div');ov.className='dsm-ov';ov.id='ov-lote';
+  const acha=_lote.filter(x=>x.v).length;
+  ov.innerHTML=`<div class="dsm-mod" style="max-width:980px;"><div class="dt-top"><h3 style="margin:0;">📤 Subir PDFs — ${acha} de ${_lote.length} nota(s) com caminhão</h3><button class="dt-x" onclick="document.getElementById('ov-lote').remove()">✕</button></div>
+    <div class="mini">Dados lidos de "Informações complementares" da nota. Desmarque o que não quiser salvar.</div>
+    <div style="max-height:60vh;overflow:auto;margin-top:8px;"><table class="lt" style="width:100%;font-size:12.5px;border-collapse:collapse;table-layout:fixed;"><colgroup><col style="width:34px;"><col style="width:22%;"><col style="width:18%;"><col style="width:27%;"><col></colgroup><tbody><tr class="lt-h"><td></td><td>Nota</td><td>Na nota</td><td>Caminhão no sistema</td><td>Conferência</td></tr>
+    ${_lote.map((x,i)=>`<tr><td><input type="checkbox" id="lt-${i}" ${x.v?'checked':'disabled'}></td>
+      <td><b>${esc(x.d.nf||'—')}</b><small style="display:block;color:#64748b;">${esc(x.f.name)}${x.d.pg?' · pág. '+x.d.pg:''}</small></td>
+      <td>${esc(x.d.motorista||'—')}<small style="display:block;color:#64748b;">${esc(x.d.placa||'—')} · ${esc(x.d.pedido||'—')}</small></td>
+      <td>${x.v?`<b>${esc(x.v.placa)}</b> · ${esc(x.v.motorista)}<small style="display:block;color:#64748b;">${dBr(x.v.data)} · ticket ${tk(x.v.ticket)}</small>`:`<span style="color:#b91c1c;font-weight:700;">${esc(x.erro||'nenhum caminhão pendente com essa placa')}</span>`}</td>
+      <td>${x.v?conferirNota(x.d,x.v)+(soNum(x.v.nf_numero)&&soNum(x.v.nf_numero)!==x.d.nf?`<br><span style="color:#b91c1c;font-weight:700;">⚠️ nº registrado era ${esc(x.v.nf_numero)}</span>`:''):''}</td></tr>`).join('')}
+    </tbody></table></div>
+    <div class="dsm-ft"><button class="btn btn-secondary" onclick="document.getElementById('ov-lote').remove()">Cancelar</button><button class="btn btn-primary" id="lt-ok" data-perm="portaria:view" onclick="salvarLote()" ${acha?'':'disabled'}>💾 Salvar notas</button></div></div>`;
+  document.body.appendChild(ov);
+}
+async function salvarLote(){
+  const sel=_lote.filter((x,i)=>x.v&&document.getElementById('lt-'+i).checked);if(!sel.length){toast('Nada marcado.','warning');return;}
+  const btn=document.getElementById('lt-ok');btn.disabled=true;const caminho=new Map();let ok=0,falhou=0;
+  for(const x of sel){
+    try{let path=caminho.get(x.f);
+      if(!path){path=`portaria/filito/${x.v.data}/${x.v.id}_${Date.now()}.pdf`;const r=await _supabase.storage.from('documentos').upload(path,x.f,{upsert:false,contentType:'application/pdf'});if(r.error)throw r.error;caminho.set(x.f,path);}
+      const {error}=await _supabase.from('filito_viagens').update({nf_numero:x.d.nf||x.v.nf_numero,nf_path:path,nf_nome:x.f.name,nf_em:new Date().toISOString(),nf_por:quem()}).eq('id',x.v.id);if(error)throw error;
+      addLog('UPDATE','PORTARIA',x.v.id,`Filito: NF ${x.d.nf} + PDF (lote) · ${x.v.placa} · ticket ${tk(x.v.ticket)}`);ok++;
+    }catch(e){falhou++;console.error(e);}}
+  toast(`${ok} nota(s) salvas${falhou?' · '+falhou+' falharam':''}.`,falhou?'warning':'success');
+  document.getElementById('ov-lote').remove();carregarPatio();if(_aba==='via')carregarViagens();
+}
+/* 👁️ Visualizar — tudo da viagem, só leitura (atalhos para ticket, nota e corrigir) */
+function verViagem(id){
+  const v=_ab.find(x=>x.id===id)||_via.find(x=>x.id===id);if(!v)return;
+  const s=sit(v),pesado=v.status!=='aguardando_bruto',cr=pode('create'),ed=pode('edit');
+  const lin=(l,x)=>`<tr><td style="color:#64748b;width:42%;">${l}</td><td><b>${x}</b></td></tr>`;
+  const nota=v.nf_path?`NF ${esc(v.nf_numero||'')} ✓ PDF`:v.nf_dispensada?`NF ${esc(v.nf_numero||'—')} (sem PDF — histórico)`:pesado?(v.nf_numero?`NF ${esc(v.nf_numero)} · <span style="color:#7c3aed;">falta PDF</span>`:'<span style="color:#7c3aed;">falta nº e PDF</span>'):'—';
+  const ov=document.createElement('div');ov.className='dsm-ov';ov.id='ov-vv';ov.onclick=e=>{if(e.target===ov)ov.remove();};
+  ov.innerHTML=`<div class="dsm-mod" style="max-width:820px;">
+    <div class="dt-top"><div class="dt-pl">${esc(v.placa)} <span class="chip prod">${esc(prodNome(v.produto).toUpperCase())}</span><small>${esc(v.motorista)}${v.transportadora?' · '+esc(v.transportadora):''}</small></div>
+      <div style="display:flex;gap:8px;align-items:center;"><span class="st ${s}" style="padding:6px 10px;border-radius:8px;font-size:11px;font-weight:800;">${SIT[s]}</span><button class="dt-x" onclick="document.getElementById('ov-vv').remove()">✕</button></div></div>
+    <div class="dt-kp">
+      <div class="d-k"><div class="v">${nf(v.tara_kg)}</div><div class="l">Tara (kg)</div></div>
+      <div class="d-k"><div class="v">${pesado?nf(v.bruto_kg):'—'}</div><div class="l">Bruto (kg)</div></div>
+      <div class="d-k az"><div class="v">${pesado?nf(v.liquido_kg):'—'}</div><div class="l">Líquido (kg)</div></div>
+      <div class="d-k"><div class="v">${v.cacamba_kg!=null?nf(v.cacamba_kg):'—'}</div><div class="l">Caçamba (kg)</div></div>
+      <div class="d-k ${v.diferenca_kg>0?'rx':'vd'}"><div class="v">${v.diferenca_kg!=null?(v.diferenca_kg>0?'+':'')+nf(v.diferenca_kg):'—'}</div><div class="l">${v.diferenca_kg>0?'Passou do limite':'Diferença'}</div></div></div>
+    <div class="dt-g">
+      <div class="dt-box"><div class="dt-bt">🚚 Viagem</div><table style="width:100%;">
+        ${lin('Ticket',v.ticket?tk(v.ticket):'—')}${lin('Data',dBr(v.data))}${lin('Entrada',hm(v.entrada_em)||'—')}${lin('Saída (bruto)',pesado?hm(v.saida_em)||'—':'—')}
+        ${lin('Na balança',v.saida_em&&v.entrada_em?durTxt(Date.parse(v.saida_em)-Date.parse(v.entrada_em)):'—')}${lin('Pedido',v.pedido?esc(v.pedido)+(pedNome(v.pedido)?' · '+esc(pedNome(v.pedido)):''):'<span style="color:#b91c1c;">falta</span>')}</table></div>
+      <div class="dt-box"><div class="dt-bt">👤 Pessoas e nota</div><table style="width:100%;">
+        ${lin('Motorista',esc(v.motorista))}${lin('Porteiro (entrada)',esc(v.porteiro||'—'))}${lin('Porteiro (bruto)',esc(v.porteiro_saida||'—'))}${lin('Operador',esc(v.operador||'—'))}
+        ${lin('Nota fiscal',nota)}${v.nf_em?lin('PDF enviado',dh(v.nf_em)+(v.nf_por?' · '+esc(v.nf_por):'')):''}</table></div></div>
+    ${v.obs?`<div class="dt-box"><div class="dt-bt">📝 Observação</div>${esc(v.obs)}</div>`:''}
+    <div class="dsm-ft" style="flex-wrap:wrap;"><button class="btn btn-secondary" onclick="document.getElementById('ov-vv').remove()">Fechar</button>
+      ${v.ticket?`<button class="btn btn-secondary" data-perm="portaria:view" onclick="verTicket('${v.id}')">🎫 Ticket</button>`:''}
+      ${v.nf_path?`<button class="btn btn-secondary" onclick="verNF('${v.id}')">📄 Ver nota</button>`:v.status==='pendente_nf'&&(cr||ed)?`<button class="btn btn-secondary" data-perm="portaria:view" onclick="document.getElementById('ov-vv').remove();abrirNF('${v.id}')">📤 Subir PDF</button>`:''}
+      ${ed?`<button class="btn btn-primary" onclick="document.getElementById('ov-vv').remove();abrirEntrada('${v.id}')">✏️ Corrigir</button>`:''}</div></div>`;
+  document.body.appendChild(ov);
 }
 async function verNF(id){
   const v=_ab.find(x=>x.id===id)||_via.find(x=>x.id===id);if(!v||!v.nf_path){toast('Sem PDF da nota.','warning');return;}
@@ -711,7 +800,7 @@ function renderViagens(){
     <td class="n">${nf(v.tara_kg)} / ${nf(v.bruto_kg)}<small><b style="color:#032036;font-size:13px;">${nf(v.liquido_kg)}</b> kg</small></td>
     <td class="n">${nf(v.cacamba_kg)}<small>${difChip(v)}</small></td>
     <td>${esc(v.porteiro_saida||v.porteiro||'—')}<small>${esc(v.operador||'—')}</small></td>
-    <td style="text-align:right;">${v.ticket?`<button class="btn btn-ghost btn-sm" data-perm="portaria:view" title="Ticket" onclick="verTicket('${v.id}')">🎫</button>`:''}${v.nf_path?`<button class="btn btn-ghost btn-sm" title="Nota" onclick="verNF('${v.id}')">📄</button>`:v.status==='pendente_nf'&&sobe?`<button class="btn btn-ghost btn-sm" data-perm="portaria:view" title="Subir PDF da nota" onclick="abrirNF('${v.id}')">📤</button>`:''}${ed?`<button class="btn btn-ghost btn-sm" title="Corrigir" onclick="abrirEntrada('${v.id}')">✏️</button>`:''}</td></tr>`).join('')
+    <td style="text-align:right;"><button class="btn btn-ghost btn-sm" title="Visualizar" onclick="verViagem('${v.id}')">👁️</button>${v.ticket?`<button class="btn btn-ghost btn-sm" data-perm="portaria:view" title="Ticket" onclick="verTicket('${v.id}')">🎫</button>`:''}${v.nf_path?`<button class="btn btn-ghost btn-sm" title="Nota" onclick="verNF('${v.id}')">📄</button>`:v.status==='pendente_nf'&&sobe?`<button class="btn btn-ghost btn-sm" data-perm="portaria:view" title="Subir PDF da nota" onclick="abrirNF('${v.id}')">📤</button>`:''}${ed?`<button class="btn btn-ghost btn-sm" title="Corrigir" onclick="abrirEntrada('${v.id}')">✏️</button>`:''}</td></tr>`).join('')
     :'<tr><td colspan="9" style="text-align:center;color:#94a3b8;padding:24px;">Nenhuma viagem no período</td></tr>';
 }
 function agrupa(l,f){const g={};l.forEach(v=>{const k=f(v)||'—';(g[k]=g[k]||[]).push(v);});return g;}
