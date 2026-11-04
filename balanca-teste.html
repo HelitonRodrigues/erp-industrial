@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Teste da balança da portaria</title>
+<style>
+/* Página de TESTE (nov/2026): lê o indicador de pesagem Weightech WT3000-i pela porta serial/USB do PC da portaria,
+   direto no navegador (Web Serial — Chrome ou Edge no computador). Não grava nada no ERP.
+   Serve para descobrir a velocidade e o formato que o indicador manda, antes de ligar a leitura na Portaria. */
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,'Segoe UI',sans-serif;background:#f1f5f9;color:#042D4D;padding:18px}
+h1{font-size:20px;margin-bottom:4px}p.sub{color:#64748b;font-size:13px;margin-bottom:14px}
+.card{background:#fff;border:1.5px solid #e2e8f0;border-radius:14px;padding:14px 16px;margin-bottom:12px}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+label{font-size:12px;font-weight:800;color:#64748b;text-transform:uppercase}
+select,button{font:inherit;font-size:15px;border-radius:10px;padding:10px 14px;border:1.5px solid #cbd5e1;background:#fff}
+button{font-weight:800;cursor:pointer}button.pr{background:#16a34a;border-color:#16a34a;color:#fff}button.st{background:#fee2e2;border-color:#fca5a5;color:#991b1b}
+.peso{font-size:72px;font-weight:900;letter-spacing:2px;font-variant-numeric:tabular-nums;text-align:center;padding:8px 0}
+.peso small{font-size:22px;color:#64748b}
+.flags{text-align:center;font-weight:800;font-size:14px}.flags span{display:inline-block;margin:0 6px;padding:4px 10px;border-radius:99px;background:#f1f5f9;color:#94a3b8}
+.flags span.on{background:#dcfce7;color:#166534}
+pre{background:#0f172a;color:#d9f99d;border-radius:10px;padding:10px;font-size:12px;height:260px;overflow:auto;white-space:pre-wrap;word-break:break-all}
+.msg{font-size:13px;margin-top:8px}.err{color:#b91c1c;font-weight:700}.ok{color:#166534;font-weight:700}
+.dica{font-size:12.5px;color:#475569;line-height:1.6}
+</style>
+</head>
+<body>
+<h1>⚖️ Teste da balança — indicador WT3000-i</h1>
+<p class="sub">Abra no PC da portaria, no Chrome ou no Edge. Não grava nada no sistema — só mostra o que a balança manda.</p>
+
+<div class="card">
+  <div class="row">
+    <div><label>Velocidade (baud)</label><br>
+      <select id="baud"><option>2400</option><option>4800</option><option selected>9600</option><option>19200</option><option>38400</option><option>115200</option></select></div>
+    <div><label>Formato</label><br>
+      <select id="fmt"><option value="8N1" selected>8 bits · sem paridade · 1 stop (8N1)</option><option value="7E1">7 bits · paridade par · 1 stop (7E1)</option><option value="7O1">7 bits · paridade ímpar · 1 stop (7O1)</option></select></div>
+    <div style="align-self:flex-end;display:flex;gap:8px;">
+      <button class="pr" id="bt-con" onclick="conectar()">🔌 Conectar na balança</button>
+      <button class="st" id="bt-des" onclick="desconectar()" style="display:none;">Desconectar</button>
+      <button onclick="document.getElementById('raw').textContent='';_hex=[]">Limpar</button>
+    </div>
+  </div>
+  <div class="msg" id="msg"></div>
+</div>
+
+<div class="card">
+  <div class="peso" id="peso">—<small> kg</small></div>
+  <div class="flags"><span id="f-est">ESTÁVEL</span><span id="f-neg">NEGATIVO</span><span id="f-recebe">RECEBENDO</span></div>
+</div>
+
+<div class="card">
+  <div class="row" style="justify-content:space-between;margin-bottom:6px;"><label>O que chega da balança (texto)</label>
+    <label><input type="checkbox" id="vhex"> mostrar em HEX</label></div>
+  <pre id="raw"></pre>
+</div>
+
+<div class="card dica">
+  <b>Se não aparecer nada em "O que chega da balança":</b><br>
+  1. Confira se o cabo serial/USB está no PC e se o Windows criou a porta (Gerenciador de dispositivos → Portas COM).<br>
+  2. Feche outro programa que esteja usando a porta (só um programa por vez consegue ler).<br>
+  3. Aperte <b>M+ / Imprime</b> no indicador — se chegar texto só nessa hora, ele está no modo "sob demanda"; no menu do indicador dá para deixar em <b>transmissão contínua</b>.<br>
+  4. Se chegar texto “embaralhado”, troque a velocidade (9600 → 4800 → 2400…) e o formato até ficar legível.<br>
+  Quando o peso aparecer certo aqui, me manda um print desta tela (com o texto de baixo) — com isso eu ligo a leitura direto na pesagem da Portaria.
+</div>
+
+<script>
+let _port=null,_reader=null,_buf='',_hex=[],_ultimo=0;
+const $=id=>document.getElementById(id);
+function msg(t,c){$('msg').className='msg '+(c||'');$('msg').textContent=t;}
+if(!('serial' in navigator))msg('Este navegador não lê porta serial. Use o Chrome ou o Edge no computador (não funciona no celular).','err');
+
+async function conectar(){
+  if(!('serial' in navigator))return;
+  try{
+    _port=await navigator.serial.requestPort();
+    const f=$('fmt').value;
+    await _port.open({baudRate:Number($('baud').value),dataBits:Number(f[0]),parity:{N:'none',E:'even',O:'odd'}[f[1]],stopBits:Number(f[2]),bufferSize:4096});
+    $('bt-con').style.display='none';$('bt-des').style.display='';
+    msg('Conectado em '+$('baud').value+' '+f+'. Esperando dados da balança…','ok');
+    ler();
+  }catch(e){msg('Não conectou: '+(e.message||e),'err');}
+}
+async function desconectar(){
+  try{if(_reader){await _reader.cancel();_reader.releaseLock();}}catch(e){}
+  try{if(_port)await _port.close();}catch(e){}
+  _port=null;_reader=null;$('bt-con').style.display='';$('bt-des').style.display='none';msg('Desconectado.');
+}
+async function ler(){
+  while(_port&&_port.readable){
+    _reader=_port.readable.getReader();
+    try{
+      for(;;){const {value,done}=await _reader.read();if(done)break;if(value)receber(value);}
+    }catch(e){msg('Erro de leitura: '+(e.message||e),'err');}
+    finally{try{_reader.releaseLock();}catch(e){}}
+  }
+}
+function receber(bytes){
+  _ultimo=Date.now();
+  for(const b of bytes){_hex.push(b.toString(16).padStart(2,'0').toUpperCase());_buf+=b===13||b===10?'\n':(b<32?'['+b.toString(16).toUpperCase().padStart(2,'0')+']':String.fromCharCode(b));}
+  if(_hex.length>3000)_hex=_hex.slice(-3000);
+  if(_buf.length>8000)_buf=_buf.slice(-8000);
+  const raw=$('raw');raw.textContent=$('vhex').checked?_hex.join(' '):_buf;raw.scrollTop=raw.scrollHeight;
+  interpretar();
+}
+/* tenta achar o peso no último pedaço recebido: pega o último número com 1 a 7 dígitos (com ou sem vírgula/ponto) */
+function interpretar(){
+  const linhas=_buf.split(/\n|\[02\]|\[03\]/).map(s=>s.trim()).filter(Boolean);
+  const l=linhas[linhas.length-1]||'';
+  const m=[...l.matchAll(/(-)?\s*(\d{1,7}(?:[.,]\d{1,3})?)/g)].pop();
+  if(m){
+    const v=Number(m[2].replace(',','.'));
+    $('peso').innerHTML=(m[1]?'-':'')+v.toLocaleString('pt-BR',{maximumFractionDigits:3})+'<small> kg</small>';
+    $('f-neg').classList.toggle('on',!!m[1]);
+    $('f-est').classList.toggle('on',!/[Mm]|MOV|INST/.test(l));
+  }
+}
+setInterval(()=>{$('f-recebe').classList.toggle('on',Date.now()-_ultimo<1500);},400);
+</script>
+</body>
+</html>
