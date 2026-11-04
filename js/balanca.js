@@ -11,7 +11,8 @@
    • A primeira vez em cada PC alguém toca em "🔌 Conectar balança" e escolhe a porta COM;
      depois o navegador lembra e conecta sozinho.
    • Ao lado dos campos de peso aparece o peso ao vivo + "⚖️ Usar peso da balança".
-     O porteiro ainda pode digitar (balança fora do ar não trava a portaria).
+     Digitar o peso: só Supervisor/Admin (SGR, SADM, ADM). Para o porteiro o campo fica travado —
+     vale só o peso que veio da balança pelo cabo (nov/2026).
    ═══════════════════════════════════════════════════════════════════ */
 (function(){
   const TEM=('serial' in navigator)&&!!window.BroadcastChannel;
@@ -84,6 +85,10 @@
       else if(estado==='sem-sinal'&&lido&&Date.now()-lido.ts<=3000){estado='lendo';avisa();}},1000);
   }
 
+  /* quem pode digitar o peso na mão (balança fora do ar): só supervisor/admin */
+  const LIBERA=['SGR','SADM','ADM'];
+  function podeDigitar(){try{const u=typeof getUser==='function'?getUser():null;return !!u&&LIBERA.includes(u.perfil);}catch(e){return false;}}
+
   /* precisa de um toque do usuário (o navegador pede para escolher a porta COM) */
   async function conectar(){
     if(!TEM)return;
@@ -99,13 +104,33 @@
   .bal-w button{margin-left:auto;border:0;border-radius:10px;padding:10px 14px;font-family:inherit;font-weight:800;font-size:14px;cursor:pointer;background:#16a34a;color:#fff;white-space:nowrap}
   .bal-w button:disabled{background:#cbd5e1;color:#64748b;cursor:default}
   .bal-w button.cx{background:#042D4D;color:#d9f99d}
-  .bal-w .bal-m{flex-basis:100%;font-size:12px;color:#991b1b}`;
+  .bal-w .bal-m{flex-basis:100%;font-size:12px;color:#991b1b}
+  .bal-w .bal-d{flex-basis:100%;font-size:12px;font-weight:700;color:#475569}
+  input.bal-lock{background:#f1f5f9 !important;color:#042D4D !important;cursor:not-allowed;caret-color:transparent}
+  .bal-w.pisca{border-color:#16a34a;box-shadow:0 0 0 3px #bbf7d0}`;
   function css(){if(document.getElementById('css-balanca'))return;const s=document.createElement('style');s.id='css-balanca';s.textContent=CSS;document.head.appendChild(s);}
   const fmt=(kg,t)=>t?(kg/1000).toLocaleString('pt-BR',{minimumFractionDigits:3,maximumFractionDigits:3}):Math.round(kg).toLocaleString('pt-BR');
 
+  function travar(inp,w,txt){
+    if(podeDigitar())return;
+    inp.readOnly=true;inp.classList.add('bal-lock');inp.setAttribute('inputmode','none');
+    if(!inp.dataset.balPh)inp.dataset.balPh=inp.placeholder||'';inp.placeholder='peso só pela balança';
+    inp.title='O peso vem só da balança — toque em "⚖️ Usar peso da balança"';
+    const d=document.createElement('div');d.className='bal-d';d.textContent=txt;w.appendChild(d);
+    inp.addEventListener('mousedown',()=>{w.classList.add('pisca');setTimeout(()=>w.classList.remove('pisca'),900);});
+  }
   function widget(inp,emT){
-    if(!TEM||!inp||inp.dataset.bal)return;
+    if(!inp||inp.dataset.bal)return;
     inp.dataset.bal='1';css();
+    if(!TEM){   // celular / navegador sem porta serial: porteiro não consegue pesar aqui
+      if(podeDigitar())return;
+      const w=document.createElement('div');w.className='bal-w';
+      const par=inp.parentElement;
+      if(par&&getComputedStyle(par).display.includes('flex')&&par.children.length>1)par.after(w);else inp.after(w);
+      w.innerHTML='<span style="font-size:18px;">⚖️</span>';
+      travar(inp,w,'A pesagem só pode ser feita no computador da portaria (Chrome ou Edge), ligado na balança.');
+      return;
+    }
     const w=document.createElement('div');w.className='bal-w';
     const par=inp.parentElement;
     if(par&&getComputedStyle(par).display.includes('flex')&&par.children.length>1)par.after(w);else inp.after(w);
@@ -138,15 +163,16 @@
       eM.style.display=msg?'':'none';eM.textContent=msg;
     };
     ouvintes.add(pinta);pinta();
+    travar(inp,w,'Peso só pela balança: espere ficar ESTÁVEL e toque em "⚖️ Usar peso da balança".');
   }
 
   /* liga o quadrinho em todo campo da lista assim que ele aparece na tela (janelas fixas ou criadas na hora) */
   let campos={};
   function procurar(){for(const id in campos){const e=document.getElementById(id);if(e&&!e.dataset.bal)widget(e,campos[id]==='t');}}
   function ligar(mapa){
-    if(!TEM)return;campos=Object.assign(campos,mapa||{});procurar();
+    campos=Object.assign(campos,mapa||{});procurar();
     let tm=null;new MutationObserver(()=>{clearTimeout(tm);tm=setTimeout(procurar,80);}).observe(document.body,{childList:true,subtree:true});
   }
 
-  window.Balanca={ligar,conectar,widget,on:f=>{ouvintes.add(f);return ()=>ouvintes.delete(f);},atual:()=>lido,estado:()=>estado,interpretar,suportado:TEM};
+  window.Balanca={ligar,conectar,widget,on:f=>{ouvintes.add(f);return ()=>ouvintes.delete(f);},atual:()=>lido,estado:()=>estado,interpretar,podeDigitar,suportado:TEM};
 })();
