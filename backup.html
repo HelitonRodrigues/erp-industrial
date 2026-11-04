@@ -81,12 +81,13 @@
 
     <!-- IMPORTAR -->
     <div class="card bk-card">
-      <h2>📤 Importar num ERP novo</h2>
-      <p>Recoloca um backup num ERP <b>novo e vazio</b>. Num ERP que já tem dados a importação fica travada — não tem como apagar o sistema em uso por engano.</p>
+      <h2 id="im-tit">📤 Importar / ♻️ Restaurar</h2>
+      <p id="im-sub">Recoloca um backup (.zip baixado aqui, de qualquer dia).</p>
       <div id="im-st-banco" class="bk-av in">Conferindo este banco…</div>
       <div id="im-area" style="display:none;">
         <label class="btn btn-secondary bk-bt" style="cursor:pointer;margin-bottom:10px;">📂 Escolher o arquivo do backup (.zip)<input type="file" accept=".zip,application/zip" style="display:none" onchange="lerArquivo(this.files[0]);this.value=''"></label>
         <div id="im-resumo"></div>
+        <label class="bk-op" id="im-op-arq" style="display:none;"><input type="checkbox" id="im-com-arq" checked><span>Recolocar também os arquivos (PDFs e fotos)<small>os do backup são regravados; arquivos novos continuam</small></span></label>
         <button class="btn btn-primary bk-bt" id="im-bt" onclick="pedirConfirmacao()" style="display:none;">📤 Importar este backup</button>
         <div class="bk-pr" id="im-pr"><div class="bk-st" id="im-st"></div><div class="bk-bar"><i id="im-bar"></i></div><div class="bk-log" id="im-log" style="margin-top:8px;"></div></div>
       </div>
@@ -100,6 +101,15 @@
           <li>Saia e entre de novo. Em <b>Usuários</b>, toque no 🔑 de cada pessoa para criar a senha dela.</li>
         </ol>
       </details>
+      <details style="margin-top:8px;"><summary style="cursor:pointer;font-weight:800;color:#042D4D;font-size:13.5px;">Como funciona o Restaurar (ERP em uso)</summary>
+        <ol class="bk-pass" style="margin-top:8px;">
+          <li>Avise todo mundo para <b>parar de lançar</b> no ERP.</li>
+          <li>Escolha o .zip do dia que quer voltar e digite <b>RESTAURAR</b>.</li>
+          <li>O ERP <b>baixa sozinho um backup de agora</b> (garantia: se precisar, dá para voltar para antes da restauração).</li>
+          <li>Apaga os dados atuais e recoloca os do backup. Tudo o que foi lançado <b>depois</b> do backup some.</li>
+          <li>Os logins continuam os mesmos. No fim, saia e entre de novo.</li>
+        </ol>
+      </details>
     </div>
   </div>
 </main>
@@ -108,7 +118,7 @@
 
 <script>
 const JSZIP_URL='https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
-let _info=null,_arqs=[],_zip=null,_man=null;
+let _info=null,_arqs=[],_zip=null,_man=null,_modo='importar';   // importar = ERP novo vazio · restaurar = ERP em uso
 const $=id=>document.getElementById(id);
 const fmtN=n=>Number(n||0).toLocaleString('pt-BR');
 const fmtMB=b=>(Number(b||0)/1048576).toLocaleString('pt-BR',{maximumFractionDigits:1})+' MB';
@@ -142,22 +152,33 @@ async function iniciar(){
   }catch(e){$('ex-tab').textContent='—';toast('Não leu o banco: '+e.message,'error');}
   try{
     const v=await rpc('backup_banco_vazio');
-    if(v.vazio){$('im-st-banco').className='bk-av ok';$('im-st-banco').innerHTML='✅ <b>Este ERP está vazio</b> — pode receber um backup.';$('im-area').style.display='';}
-    else{$('im-st-banco').className='bk-av er';$('im-st-banco').innerHTML=`🔒 <b>Importação travada:</b> este ERP já tem dados (${fmtN(v.linhas)} registros). A importação é só para um ERP novo.`;}
+    if(v.vazio){_modo='importar';$('im-tit').textContent='📤 Importar num ERP novo';$('im-sub').innerHTML='Este ERP está vazio: o backup entra inteiro.';
+      $('im-st-banco').className='bk-av ok';$('im-st-banco').innerHTML='✅ <b>Este ERP está vazio</b> — pode receber um backup.';$('im-bt').textContent='📤 Importar este backup';}
+    else{_modo='restaurar';$('im-tit').textContent='♻️ Restaurar um backup';$('im-sub').innerHTML='Volta o ERP para o dia do backup (de hoje ou de outro dia).';
+      $('im-st-banco').className='bk-av er';$('im-st-banco').innerHTML=`⚠️ <b>Este ERP está em uso</b> (${fmtN(v.linhas)} registros). Restaurar <b>apaga tudo o que foi lançado depois do backup</b>. Antes de apagar, o ERP baixa sozinho um backup de agora.`;
+      $('im-bt').textContent='♻️ Restaurar este backup';$('im-bt').className='btn btn-danger bk-bt';}
+    $('im-area').style.display='';
   }catch(e){$('im-st-banco').className='bk-av er';$('im-st-banco').textContent='Não conferiu o banco: '+e.message;}
 }
 
 /* ════════ EXPORTAR ════════ */
 async function exportar(){
   if(!_info)return;
-  const comArq=$('ex-com-arq').checked;
   $('ex-bt').disabled=true;$('ex-log').innerHTML='';
+  try{await gerarBackup({comArq:$('ex-com-arq').checked,ui:'ex',prefixo:'backup-erp-silicate'});toast('Backup baixado.','success');}
+  catch(e){log('ex-log','ERRO: '+e.message,'er');prog('ex',0,'❌ Não terminou: '+e.message);toast('Backup não terminou: '+e.message,'error');}
+  finally{$('ex-bt').disabled=false;}
+}
+/* monta e baixa o .zip; ui = 'ex' ou 'im' (barra/log); devolve o nome. Lança erro se não terminar. */
+async function gerarBackup({comArq,ui,prefixo,ini=0,fim=100}){
+  const L=(t,c)=>log(ui+'-log',t,c),P=(pct,t)=>prog(ui,ini+(fim-ini)*pct/100,t);
   const t0=Date.now();
-  try{
-    prog('ex',0,'Preparando…');await carregarJSZip();
+  {
+    _info=await rpc('backup_info');if(comArq)_arqs=await rpc('backup_arquivos')||[];
+    P(0,'Preparando…');await carregarJSZip();
     const zip=new JSZip();
     // estrutura
-    log('ex-log','Estrutura do banco…');
+    L('Estrutura do banco…');
     const sql=await rpc('backup_estrutura');
     zip.file('estrutura.sql',sql);
     // dados
@@ -169,14 +190,14 @@ async function exportar(){
       for(let off=0;off<t.linhas||off===0;off+=pag){
         const parte=await rpc('backup_ler',{p_tabela:t.nome,p_offset:off,p_limit:pag});
         linhas.push(...parte);feitos+=parte.length;
-        prog('ex',(comArq?55:95)*feitos/totReg,`Dados: ${t.nome} (${fmtN(linhas.length)}/${fmtN(t.linhas)})`);
+        P((comArq?55:95)*feitos/totReg,`Dados: ${t.nome} (${fmtN(linhas.length)}/${fmtN(t.linhas)})`);
         if(parte.length<pag)break;
       }
       contagem[t.nome]=linhas.length;
       zip.file('dados/'+t.nome+'.json',JSON.stringify(linhas));
-      if(linhas.length!==Number(t.linhas))log('ex-log',`⚠️ ${t.nome}: ${linhas.length} de ${t.linhas} (mudou durante o backup)`,'er');
+      if(linhas.length!==Number(t.linhas))L(`⚠️ ${t.nome}: ${linhas.length} de ${t.linhas} (mudou durante o backup)`,'er');
     }
-    log('ex-log',`Dados: ${tabs.length} tabelas · ${fmtN(feitos)} registros`,'ok');
+    L(`Dados: ${tabs.length} tabelas · ${fmtN(feitos)} registros`,'ok');
     // arquivos
     const falhas=[];let okArq=0;
     if(comArq&&_arqs.length){
@@ -185,12 +206,12 @@ async function exportar(){
         try{const {data,error}=await _supabase.storage.from(a.b).download(a.n);if(error)throw error;
           zip.file('arquivos/'+a.b+'/'+a.n,data,{compression:'STORE',binary:true});okArq++;}
         catch(e){falhas.push(a.b+'/'+a.n+' — '+(e.message||e));}
-        bytes+=Number(a.s||0);prog('ex',55+40*bytes/totB,`Arquivos: ${fmtN(okArq+falhas.length)}/${fmtN(_arqs.length)} · ${fmtMB(bytes)}`);
+        bytes+=Number(a.s||0);P(55+40*bytes/totB,`Arquivos: ${fmtN(okArq+falhas.length)}/${fmtN(_arqs.length)} · ${fmtMB(bytes)}`);
       };
       const fila=_arqs.slice();
       await Promise.all(Array.from({length:4},async()=>{while(fila.length)await um(fila.shift());}));
-      log('ex-log',`Arquivos: ${fmtN(okArq)} de ${fmtN(_arqs.length)}`,falhas.length?'er':'ok');
-      falhas.slice(0,30).forEach(f=>log('ex-log','  ✗ '+f,'er'));if(falhas.length>30)log('ex-log',`  … e mais ${falhas.length-30}`,'er');
+      L(`Arquivos: ${fmtN(okArq)} de ${fmtN(_arqs.length)}`,falhas.length?'er':'ok');
+      falhas.slice(0,30).forEach(f=>L('  ✗ '+f,'er'));if(falhas.length>30)L(`  … e mais ${falhas.length-30}`,'er');
     }
     const user=getUser()||{};
     const man={sistema:'ERP Silicate',versao:_info.versao,gerado_em:new Date().toISOString(),gerado_por:user.nome||'',origem:SUPABASE_URL,
@@ -204,17 +225,16 @@ async function exportar(){
       `manifesto.json → resumo usado na importação\n\n`+
       `Para importar: ERP novo → Backup → Importar → escolher este .zip.\n`+
       `Não vão no arquivo: senhas/logins (Supabase Auth), chave dos avisos (push_config), Edge Functions.\n`);
-    prog('ex',96,'Montando o .zip…');
-    const blob=await zip.generateAsync({type:'blob',compression:'DEFLATE',compressionOptions:{level:6},streamFiles:true},m=>prog('ex',96+4*m.percent/100,'Montando o .zip… '+m.percent.toFixed(0)+'%'));
-    const nome=`backup-erp-silicate-${agora()}.zip`;
+    P(96,'Montando o .zip…');
+    const blob=await zip.generateAsync({type:'blob',compression:'DEFLATE',compressionOptions:{level:6},streamFiles:true},m=>P(96+4*m.percent/100,'Montando o .zip… '+m.percent.toFixed(0)+'%'));
+    const nome=`${prefixo}-${agora()}.zip`;
     const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=nome;document.body.appendChild(a);a.click();
     setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},60000);
-    prog('ex',100,`✅ Pronto: ${nome} · ${fmtMB(blob.size)} · ${Math.round((Date.now()-t0)/1000)} s`);
-    log('ex-log',`Arquivo baixado: ${nome} (${fmtMB(blob.size)})`,'ok');
+    P(100,`✅ Pronto: ${nome} · ${fmtMB(blob.size)} · ${Math.round((Date.now()-t0)/1000)} s`);
+    L(`Arquivo baixado: ${nome} (${fmtMB(blob.size)})`,'ok');
     if(typeof addLog==='function')addLog('EXPORT','BACKUP',nome,`Backup baixado: ${tabs.length} tabelas, ${feitos} registros, ${comArq?okArq+' arquivos':'sem arquivos'} (${fmtMB(blob.size)})`);
-    toast('Backup baixado.','success');
-  }catch(e){log('ex-log','ERRO: '+e.message,'er');prog('ex',0,'❌ Não terminou: '+e.message);toast('Backup não terminou: '+e.message,'error');}
-  finally{$('ex-bt').disabled=false;}
+    return nome;
+  }
 }
 
 /* ════════ IMPORTAR ════════ */
@@ -231,23 +251,31 @@ async function lerArquivo(f){
     _zip=z;_man=man;_man._arquivo=f.name;
     const reg=man.tabelas.reduce((s,t)=>s+Number(t.linhas||0),0);
     const top=man.tabelas.slice().sort((a,b)=>b.linhas-a.linhas).slice(0,8);
-    $('im-resumo').innerHTML=`<div class="bk-av ok"><b>${escH(f.name)}</b><br>Feito em ${new Date(man.gerado_em).toLocaleString('pt-BR')}${man.gerado_por?' por '+escH(man.gerado_por):''}<br>
+    const dt=new Date(man.gerado_em).toLocaleString('pt-BR');
+    $('im-resumo').innerHTML=`<div class="bk-av ok"><b>${escH(f.name)}</b><br>Feito em ${dt}${man.gerado_por?' por '+escH(man.gerado_por):''}<br>
       ${fmtN(man.tabelas.length)} tabelas · ${fmtN(reg)} registros · ${fmtN((man.arquivos||[]).length)} arquivos</div>
       <table class="bk-tab">${top.map(t=>`<tr><td>${escH(t.nome)}</td><td>${fmtN(t.linhas)}</td></tr>`).join('')}${man.tabelas.length>top.length?`<tr><td style="color:#64748b;">… e mais ${fmtN(man.tabelas.length-top.length)} tabelas</td><td></td></tr>`:''}</table>`;
+    if(_modo==='restaurar')$('im-resumo').insertAdjacentHTML('beforeend',`<div class="bk-av er" style="margin-top:10px;">♻️ O ERP vai voltar para <b>${dt}</b>. O que foi lançado depois disso será apagado.</div>`);
+    $('im-op-arq').style.display=(man.arquivos||[]).length?'':'none';
     $('im-bt').style.display='';
   }catch(e){$('im-resumo').innerHTML=`<div class="bk-av er">❌ ${escH(e.message)}</div>`;}
 }
 function pedirConfirmacao(){
   if(!_man)return;
   const ov=document.createElement('div');ov.className='bk-ov';
-  ov.innerHTML=`<div class="bk-mod"><h3>⚠️ Importar o backup neste ERP</h3>
-    <p style="font-size:14px;line-height:1.5;color:#334155;">Os dados do backup vão entrar <b>neste</b> ERP (${escH(SUPABASE_URL.replace(/^https?:\/\//,''))}).<br>
-    Depois de terminar, <b>saia e entre de novo</b>. Para confirmar, digite <b>IMPORTAR</b>:</p>
+  const rest=_modo==='restaurar',PAL=rest?'RESTAURAR':'IMPORTAR',dt=new Date(_man.gerado_em).toLocaleString('pt-BR');
+  ov.innerHTML=`<div class="bk-mod"><h3>⚠️ ${rest?'Restaurar o ERP para '+dt:'Importar o backup neste ERP'}</h3>
+    <p style="font-size:14px;line-height:1.5;color:#334155;">${rest
+      ?`Os dados de <b>agora</b> serão <b>apagados</b> e trocados pelos do backup de <b>${dt}</b>. Tudo o que foi lançado depois disso some.<br>Antes, o ERP baixa sozinho um backup de agora (guarde esse arquivo).<br>`
+      :`Os dados do backup vão entrar <b>neste</b> ERP (${escH(SUPABASE_URL.replace(/^https?:\/\//,''))}).<br>`}
+    Depois de terminar, <b>saia e entre de novo</b>.</p>
+    ${rest?'<label class="bk-op" style="margin:8px 0;"><input type="checkbox" id="im-avisei"><span>Já avisei todo mundo para <b>parar de lançar</b> no ERP</span></label>':''}
+    <p style="font-size:14px;color:#334155;margin:6px 0 0;">Para confirmar, digite <b>${PAL}</b>:</p>
     <input class="form-input" id="im-conf" autocomplete="off" style="font-size:18px;font-weight:800;text-transform:uppercase;margin:6px 0 14px;">
-    <div style="display:flex;gap:10px;justify-content:flex-end;"><button class="btn btn-secondary" id="im-nao">Cancelar</button><button class="btn btn-danger" id="im-sim" disabled>📤 Importar</button></div></div>`;
+    <div style="display:flex;gap:10px;justify-content:flex-end;"><button class="btn btn-secondary" id="im-nao">Cancelar</button><button class="btn btn-danger" id="im-sim" disabled>${rest?'♻️ Restaurar':'📤 Importar'}</button></div></div>`;
   document.body.appendChild(ov);
-  const inp=ov.querySelector('#im-conf'),sim=ov.querySelector('#im-sim');
-  inp.oninput=()=>{sim.disabled=inp.value.trim().toUpperCase()!=='IMPORTAR';};
+  const inp=ov.querySelector('#im-conf'),sim=ov.querySelector('#im-sim'),av=ov.querySelector('#im-avisei');
+  inp.oninput=()=>{sim.disabled=inp.value.trim().toUpperCase()!==PAL||(av&&!av.checked);};if(av)av.onchange=inp.oninput;
   ov.querySelector('#im-nao').onclick=()=>ov.remove();
   sim.onclick=()=>{ov.remove();importar();};
   setTimeout(()=>inp.focus(),30);
@@ -269,11 +297,22 @@ function pedacos(linhas){
 }
 async function importar(){
   const man=_man,z=_zip;if(!man||!z)return;
+  const rest=_modo==='restaurar',comArq=!!(man.arquivos||[]).length&&$('im-com-arq').checked,arqs=comArq?man.arquivos:[];
   $('im-bt').style.display='none';$('im-log').innerHTML='';const t0=Date.now();
-  let sessao=null;
+  const D0=rest?25:0,D1=arqs.length?(rest?70:60):95;   // faixas da barra: garantia · dados · arquivos
+  let sessao=null,garantia='';
   try{
-    prog('im',0,'Conferindo o banco…');
-    sessao=await rpc('backup_iniciar_importacao',{p_arquivo:man._arquivo||''});
+    if(rest){
+      // 1) garantia: backup de AGORA (dados + estrutura) antes de apagar qualquer coisa
+      log('im-log','Baixando o backup de agora (garantia)…');
+      garantia=await gerarBackup({comArq:false,ui:'im',prefixo:'ANTES-DE-RESTAURAR',ini:0,fim:D0});
+      prog('im',D0,'Apagando os dados atuais…');
+      sessao=await rpc('backup_iniciar_restauracao',{p_arquivo:man._arquivo||'',p_confirma:'RESTAURAR'});
+      log('im-log','Dados atuais apagados. Recolocando o backup…');
+    }else{
+      prog('im',0,'Conferindo o banco…');
+      sessao=await rpc('backup_iniciar_importacao',{p_arquivo:man._arquivo||''});
+    }
     const ord=ordemTabelas(man.tabelas);
     const fila=[];   // {tabela, linhas, subst}
     for(const t of ord){
@@ -288,7 +327,7 @@ async function importar(){
         try{const n=await rpc('backup_importar',{p_sessao:sessao,p_tabela:p.tabela,p_linhas:p.linhas,p_substituir:p.subst&&passe===1});
           entrou[p.tabela]=(entrou[p.tabela]||0)+Number(n||0);if(passe===1)env+=p.linhas.length;p.erro=null;}
         catch(e){p.erro=e.message;falhou.push(p);if(passe===1)env+=p.linhas.length;}
-        prog('im',((man.arquivos||[]).length?60:95)*env/totLin,`Dados${passe>1?' (tentativa '+passe+')':''}: ${p.tabela}`);
+        prog('im',D0+(D1-D0)*env/totLin,`Dados${passe>1?' (tentativa '+passe+')':''}: ${p.tabela}`);
       }
       if(falhou.length===pend.length&&passe>1)break;   // nada andou
       pend=falhou;
@@ -297,7 +336,7 @@ async function importar(){
     log('im-log',`Dados: ${fmtN(nOk)} registros entraram`,'ok');
     pend.forEach(p=>log('im-log',`✗ ${p.tabela} (${p.linhas.length} registros): ${p.erro}`,'er'));
     // arquivos
-    const arqs=man.arquivos||[];let okA=0;const falA=[];
+    let okA=0;const falA=[];
     if(arqs.length){
       let i=0;const q=arqs.slice();
       await Promise.all(Array.from({length:4},async()=>{while(q.length){const a=q.shift();
@@ -305,19 +344,23 @@ async function importar(){
           const blob=await f.async('blob');
           const {error}=await _supabase.storage.from(a.b).upload(a.n,blob,{upsert:true,contentType:a.m||undefined});if(error)throw error;okA++;}
         catch(e){falA.push(a.b+'/'+a.n+' — '+(e.message||e));}
-        i++;prog('im',60+35*i/arqs.length,`Arquivos: ${fmtN(i)}/${fmtN(arqs.length)}`);}}));
+        i++;prog('im',D1+(95-D1)*i/arqs.length,`Arquivos: ${fmtN(i)}/${fmtN(arqs.length)}`);}}));
       log('im-log',`Arquivos: ${fmtN(okA)} de ${fmtN(arqs.length)}`,falA.length?'er':'ok');
       falA.slice(0,30).forEach(f=>log('im-log','  ✗ '+f,'er'));if(falA.length>30)log('im-log',`  … e mais ${falA.length-30}`,'er');
     }
     prog('im',97,'Acertando a numeração (tickets, OPs)…');
-    const resumo={arquivo:man._arquivo,backup_de:man.gerado_em,registros:nOk,tabelas_com_erro:pend.map(p=>p.tabela),arquivos:okA,arquivos_erro:falA.length,segundos:Math.round((Date.now()-t0)/1000)};
-    await rpc('backup_finalizar_importacao',{p_sessao:sessao,p_sequencias:man.sequencias||[],p_resumo:resumo});
+    const usuIds=JSON.parse(await z.file('dados/usuarios.json')?.async('string')||'[]').map(u=>u.id).filter(Boolean);
+    const resumo={tipo:_modo,garantia,arquivo:man._arquivo,backup_de:man.gerado_em,registros:nOk,tabelas_com_erro:pend.map(p=>p.tabela),arquivos:okA,arquivos_erro:falA.length,segundos:Math.round((Date.now()-t0)/1000)};
+    await rpc('backup_finalizar_importacao',{p_sessao:sessao,p_sequencias:man.sequencias||[],p_resumo:resumo,p_usuarios:rest&&usuIds.length?usuIds:null});
     const conf=man.tabelas.filter(t=>(entrou[t.nome]||0)<Number(t.linhas||0)).map(t=>`${t.nome}: ${entrou[t.nome]||0} de ${t.linhas}`);
     if(conf.length){log('im-log','Tabelas com menos registros que o backup (já existiam ou deram erro):','er');conf.slice(0,40).forEach(c=>log('im-log','  '+c,'er'));}
-    prog('im',100,pend.length||falA.length?'⚠️ Terminou com avisos — veja a lista abaixo':'✅ Importação concluída');
-    if(typeof addLog==='function')addLog('IMPORT','BACKUP',sessao,`Backup importado (${man._arquivo}): ${nOk} registros, ${okA} arquivos${pend.length?', '+pend.length+' pedaços com erro':''}`);
-    await erpAlert('Importação terminada. Agora saia e entre de novo no ERP.\nEm Usuários, toque no 🔑 de cada pessoa para criar a senha dela.',{titulo:'Backup importado',tipo:'ok',icone:'✅'});
-  }catch(e){log('im-log','ERRO: '+e.message,'er');prog('im',0,'❌ '+e.message);toast('Importação parou: '+e.message,'error');$('im-bt').style.display='';}
+    prog('im',100,pend.length||falA.length?'⚠️ Terminou com avisos — veja a lista abaixo':(rest?'✅ Restauração concluída':'✅ Importação concluída'));
+    if(typeof addLog==='function')addLog(rest?'RESTORE':'IMPORT','BACKUP',sessao,`Backup ${rest?'restaurado':'importado'} (${man._arquivo}, de ${new Date(man.gerado_em).toLocaleString('pt-BR')}): ${nOk} registros, ${okA} arquivos${pend.length?', '+pend.length+' pedaços com erro':''}${garantia?' · garantia: '+garantia:''}`);
+    await erpAlert(rest?`ERP restaurado para ${new Date(man.gerado_em).toLocaleString('pt-BR')}.\nO backup de antes da restauração foi baixado: ${garantia}\nAgora o ERP vai sair — entre de novo.`
+      :'Importação terminada. Agora o ERP vai sair — entre de novo.\nEm Usuários, toque no 🔑 de cada pessoa para criar a senha dela.',{titulo:rest?'Backup restaurado':'Backup importado',tipo:'ok',icone:'✅'});
+    if(!pend.length)doLogout();
+  }catch(e){log('im-log','ERRO: '+e.message,'er');prog('im',0,'❌ '+e.message);toast((rest?'Restauração':'Importação')+' parou: '+e.message,'error');$('im-bt').style.display='';
+    if(rest&&sessao)log('im-log',`⚠️ Os dados atuais já tinham sido apagados. Para voltar a como estava antes, restaure o arquivo ${garantia}.`,'er');}
 }
 </script>
 </body>
