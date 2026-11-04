@@ -20,6 +20,7 @@ const MODULO_MAP = [
   { id:'perfis',         page:'perfis.html',          label:'Perfis & Permissões',  group:'administracao',icon:'🔒' },
   { id:'auditoria',      page:'auditoria.html',       label:'Auditoria',            group:'administracao',icon:'📋' },
   { id:'configuracoes',  page:'configuracoes.html',   label:'Configurações',        group:'administracao',icon:'⚙️' },
+  { id:'backup',         page:'backup.html',          label:'Backup',               group:'administracao',icon:'💾' },
   // CADASTROS
   { id:'funcionarios',   page:'funcionarios.html',    label:'Funcionários',         group:'cadastros',    icon:'👷' },
   { id:'equip_linhas',   page:'equip-linhas.html',    label:'Equip. das Linhas',    group:'cadastros',    icon:'⚙️' },
