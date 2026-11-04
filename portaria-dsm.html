@@ -809,7 +809,8 @@ async function abrirPesagem(id,tipo){
       <button class="dt-x" onclick="document.getElementById('ov-pes').remove()">✕</button></div>
     <div class="mini" style="margin-bottom:2px;">🕒 Data e hora gravadas pelo <b>relógio do servidor</b> no clique em ${ent?'Dar entrada':'Dar saída'}.</div>
     <div class="pz-step"><span>1</span><b>${ent?'Tara (caminhão vazio)':'Bruto (caminhão carregado)'}</b></div>
-    <div style="display:flex;align-items:center;gap:8px;"><input id="pz-peso" class="form-input" inputmode="decimal" placeholder="ex.: ${ent?'15,32':'55,86'}" style="max-width:220px;font-size:24px;font-weight:800;min-height:56px;" oninput="pzLiq()"><b style="font-size:16px;">toneladas</b></div>
+    <div style="display:flex;align-items:center;gap:8px;"><input id="pz-peso" class="form-input" inputmode="decimal" placeholder="ex.: ${ent?'17,980':'55,860'}" style="max-width:220px;font-size:24px;font-weight:800;min-height:56px;" oninput="pzLiq()"><b style="font-size:16px;">t</b></div>
+    <div id="pz-lido" class="mini" style="margin-top:4px;font-size:14px;">Pode digitar em toneladas (17,980) ou em kg (17980) — o sistema entende.</div>
     ${!ent?`<div class="pz-pesos"><div><span>TARA (ENTRADA)</span><b>${c.peso_entrada!=null?nf(c.peso_entrada/1000,3)+' t':'—'}</b><small>caminhão vazio</small></div>
       <div><span>BRUTO (SAÍDA)</span><b id="pz-bru">—</b><small>caminhão carregado</small></div>
       <div class="liq"><span>LÍQUIDO DA CARGA</span><b id="pz-liq">—</b><small>bruto − tara</small></div></div>`:''}
@@ -822,16 +823,30 @@ async function abrirPesagem(id,tipo){
   if(ent&&c.unidade){const b=[...ov.querySelectorAll('.pz-un')].find(b=>b.dataset.u===c.unidade);if(b)b.classList.add('on');}
 }
 let _pz={};
-function pzLiq(){const c=_cam.find(x=>x.id===_pz.id);const el=document.getElementById('pz-liq');if(!el||!c)return;
-  const t=Number(String(document.getElementById('pz-peso').value).replace(/\./g,'').replace(',','.'));
-  document.getElementById('pz-bru').textContent=t?nf(t,3)+' t':'—';
-  el.textContent=t&&c.peso_entrada!=null?nf(t-c.peso_entrada/1000,3)+' t':'—';}
+/* peso do caminhão em TONELADAS a partir do que o porteiro digitar:
+   "17,980" · "17.980" · "17,98" → 17,98 t   |   "17980" · "17.980,0" → 17980 kg → 17,98 t
+   (caminhão pesa de 3 a 80 t: número ≥ 1000 é kg; até 100 é tonelada; entre 100 e 1000 não dá para saber) */
+function pesoT(txt){
+  let x=String(txt||'').trim().replace(/\s|t|kg/gi,'');if(!x)return null;
+  if(x.includes(','))x=x.replace(/\./g,'').replace(',','.');
+  else if((x.match(/\./g)||[]).length>1)x=x.replace(/\./g,'');
+  const v=Number(x);if(!isFinite(v)||v<=0)return NaN;
+  if(v>=1000)return v/1000;if(v<=100)return v;return NaN;
+}
+function pzLiq(){const c=_cam.find(x=>x.id===_pz.id);const lido=document.getElementById('pz-lido');
+  const t=pesoT(document.getElementById('pz-peso').value);
+  if(lido)lido.innerHTML=t==null?'Pode digitar em toneladas (17,980) ou em kg (17980) — o sistema entende.'
+    :isNaN(t)||t<3||t>80?'<b style="color:#b91c1c;">⚠️ Peso estranho — confira o que foi digitado (caminhão pesa entre 3 e 80 t).</b>'
+    :`Vai gravar: <b style="color:#166534;font-size:16px;">${nf(t,3)} t</b> (${nf(Math.round(t*1000))} kg)`;
+  const el=document.getElementById('pz-liq');if(!el||!c)return;const ok=t&&!isNaN(t);
+  document.getElementById('pz-bru').textContent=ok?nf(t,3)+' t':'—';
+  el.textContent=ok&&c.peso_entrada!=null?nf(t-c.peso_entrada/1000,3)+' t':'—';}
 async function pzSalvar(id,tipo){
   const c=_cam.find(x=>x.id===id);if(!c)return;const ent=tipo==='entrada';
   const er=t=>{const e=document.getElementById('pz-erro');e.textContent=t;e.style.display='';};
-  let t=Number(String(document.getElementById('pz-peso').value).replace(/\./g,'').replace(',','.'));
-  if(!t)return er(ent?'Informe a tara.':'Informe o peso bruto.');
-  if(t>80){if(!(await erpConfirm(`O peso digitado é ${nf(t,2)} toneladas.\nParece que foi digitado em kg.`,{titulo:'Confira o peso',icone:'⚖️',ok:'Está certo, seguir',cancelar:'Corrigir'})))return;}
+  const t=pesoT(document.getElementById('pz-peso').value);
+  if(t==null)return er(ent?'Informe a tara.':'Informe o peso bruto.');
+  if(isNaN(t)||t<3||t>80)return er('Peso estranho — confira. Digite em toneladas (ex.: 17,980) ou em kg (ex.: 17980).');
   const un=ent?(document.querySelector('.pz-un.on')||{}).dataset?.u:null;
   if(ent&&!un)return er('Escolha a unidade de carregamento.');
   if(!ent&&c.peso_entrada&&t*1000<=c.peso_entrada)return er('O bruto precisa ser maior que a tara.');
