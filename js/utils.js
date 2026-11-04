@@ -313,6 +313,7 @@ const MODULO_FUNCIONALIDADES = {
   lenha: [
     { id:'recebimentos', label:'📥 Recebimentos' },
     { id:'fechamentos', label:'📅 Fechamentos' },
+    { id:'feitos', label:'🧾 Fechamentos feitos (lançar nota)' },
     { id:'fornecedores', label:'🌲 Fornecedores & Motoristas' },
   ],
   perfis: [
