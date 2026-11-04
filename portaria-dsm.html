@@ -485,6 +485,58 @@ async function cancelar(id){
   if(error){toast(error.message,'danger');return;}toast('Registro cancelado.','success');carregarPatio();
 }
 
+/* ═══ VER ARQUIVO NA PRÓPRIA TELA — PDF/foto num quadro; XML da NF-e vira um DANFE para ler ═══ */
+async function verArq(path,titulo){
+  if(!path)return;
+  const {data,error}=await _supabase.storage.from('documentos').createSignedUrl(path,900);
+  if(error||!data){toast('Não abriu o arquivo: '+(error?error.message:''),'danger');return;}
+  const url=data.signedUrl,xml=/\.xml$/i.test(path),img=/\.(png|jpe?g|webp|gif)$/i.test(path);
+  let corpo;
+  if(xml){try{const t=await (await fetch(url)).text();corpo=`<iframe id="va-fr" style="flex:1;width:100%;border:1px solid #e2e8f0;border-radius:10px;background:#fff;"></iframe>`;_vaHtml=danfeDoXml(t);}
+    catch(e){toast('Não consegui ler o XML: '+e.message,'danger');return;}}
+  else corpo=img?`<div style="flex:1;overflow:auto;text-align:center;"><img src="${url}" style="max-width:100%;"></div>`:`<iframe src="${url}" style="flex:1;width:100%;border:1px solid #e2e8f0;border-radius:10px;"></iframe>`;
+  const ov=document.createElement('div');ov.className='dsm-ov';ov.style.zIndex=21000;ov.onclick=e=>{if(e.target===ov)ov.remove();};
+  ov.innerHTML=`<div class="dsm-mod" style="max-width:1000px;height:92vh;display:flex;flex-direction:column;gap:10px;">
+    <div class="dt-top" style="margin:0;"><h3 style="margin:0;">${titulo}</h3><button class="dt-x" onclick="this.closest('.dsm-ov').remove()">✕</button></div>${corpo}
+    <div class="dsm-ft" style="margin:0;">${xml?`<button class="btn btn-secondary" onclick="document.getElementById('va-fr').contentWindow.print()">🖨️ Imprimir</button>`:''}<a class="btn btn-secondary" href="${url}" download>⬇️ Baixar ${xml?'XML':'arquivo'}</a><button class="btn btn-primary" onclick="this.closest('.dsm-ov').remove()">Fechar</button></div></div>`;
+  document.body.appendChild(ov);
+  if(xml)document.getElementById('va-fr').srcdoc=_vaHtml;
+}
+let _vaHtml='';
+function danfeDoXml(txt){
+  const x=new DOMParser().parseFromString(txt,'text/xml');
+  const tag=(n,el)=>{const e=(el||x).getElementsByTagName(n)[0];return e?e.textContent.trim():'';};
+  const no=n=>x.getElementsByTagName(n)[0]||null;
+  const inf=no('infNFe');if(!inf)throw new Error('não é XML de NF-e');
+  const ide=no('ide'),emit=no('emit'),dest=no('dest'),tot=no('ICMSTot'),tr=no('transp'),prot=no('infProt');
+  const ch=(inf.getAttribute('Id')||'').replace(/\D/g,'')||tag('chNFe',prot);
+  const doc=v=>{v=String(v||'');return v.length===14?v.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/,'$1.$2.$3/$4-$5'):v.length===11?v.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/,'$1.$2.$3-$4'):v;};
+  const end=e=>e?[tag('xLgr',e)+(tag('nro',e)?', '+tag('nro',e):''),tag('xBairro',e),tag('xMun',e)+(tag('UF',e)?'/'+tag('UF',e):''),tag('CEP',e)?'CEP '+tag('CEP',e):''].filter(Boolean).join(' · '):'';
+  const dt=v=>v?new Date(v).toLocaleString('pt-BR'):'';
+  const n=(v,d=2)=>v===''||v==null?'':Number(v).toLocaleString('pt-BR',{minimumFractionDigits:d,maximumFractionDigits:d});
+  const frete={0:'0 – Emitente (CIF)',1:'1 – Destinatário (FOB)',2:'2 – Terceiros',3:'3 – Próprio rem.',4:'4 – Próprio dest.',9:'9 – Sem frete'}[tag('modFrete',tr)]||tag('modFrete',tr);
+  const itens=[...x.getElementsByTagName('det')].map(d=>`<tr><td>${esc(tag('cProd',d))}</td><td>${esc(tag('xProd',d))}</td><td>${esc(tag('NCM',d))}</td><td>${esc(tag('CFOP',d))}</td><td>${esc(tag('uCom',d))}</td><td class="n">${n(tag('qCom',d),3)}</td><td class="n">${n(tag('vUnCom',d),4)}</td><td class="n">${n(tag('vProd',d))}</td></tr>`).join('');
+  const vol=tr?tr.getElementsByTagName('vol')[0]:null;
+  const cx=(l,v,w)=>`<div class="cx" style="${w?'grid-column:span '+w:''}"><small>${l}</small><b>${v||'&nbsp;'}</b></div>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><style>
+    body{font:11px Arial,sans-serif;color:#111;margin:14px}h1{font-size:15px;margin:0}.g{display:grid;grid-template-columns:repeat(6,1fr);border:1px solid #000;border-bottom:0}
+    .cx{border-right:1px solid #000;border-bottom:1px solid #000;padding:3px 5px;min-height:28px}.cx:last-child{border-right:0}.cx small{display:block;font-size:8px;text-transform:uppercase;color:#333}.cx b{font-size:11px}
+    .t{font-weight:bold;font-size:9px;margin:8px 0 2px;text-transform:uppercase}table{width:100%;border-collapse:collapse}th,td{border:1px solid #000;padding:3px 4px;font-size:10px;text-align:left}th{font-size:8px;background:#eee}.n{text-align:right}
+    .top{display:grid;grid-template-columns:2fr 1fr 2fr;border:1px solid #000}.top>div{padding:6px;border-right:1px solid #000}.top>div:last-child{border-right:0}.ch{font-family:monospace;font-size:11px;letter-spacing:1px}
+    .av{background:#fef3c7;border:1px solid #f59e0b;padding:5px 8px;margin-bottom:8px;font-size:10px}@media print{.av{display:none}}</style></head><body>
+    <div class="av">Visualização do XML da NF-e (DANFE simplificado gerado a partir do arquivo enviado).</div>
+    <div class="top"><div><h1>${esc(tag('xNome',emit))}</h1>${esc(end(emit.getElementsByTagName('enderEmit')[0]))}<br>CNPJ ${doc(tag('CNPJ',emit))} · IE ${esc(tag('IE',emit))}</div>
+      <div style="text-align:center"><b style="font-size:16px">DANFE</b><br>${tag('tpNF',ide)==='1'?'1 – SAÍDA':'0 – ENTRADA'}<br><b style="font-size:14px">Nº ${esc(tag('nNF',ide))}</b><br>Série ${esc(tag('serie',ide))}</div>
+      <div><small>CHAVE DE ACESSO</small><div class="ch">${(ch||'').replace(/(\d{4})/g,'$1 ')}</div><small>PROTOCOLO</small><div>${esc(tag('nProt',prot))} ${dt(tag('dhRecbto',prot))}</div></div></div>
+    <div class="g">${cx('Natureza da operação',esc(tag('natOp',ide)),4)}${cx('Emissão',dt(tag('dhEmi',ide)),1)}${cx('Saída',dt(tag('dhSaiEnt',ide)),1)}</div>
+    <div class="t">Destinatário</div><div class="g">${cx('Nome / razão social',esc(tag('xNome',dest)),4)}${cx('CNPJ / CPF',doc(tag('CNPJ',dest)||tag('CPF',dest)),2)}${cx('Endereço',esc(end(dest&&dest.getElementsByTagName('enderDest')[0])),6)}</div>
+    <div class="t">Totais</div><div class="g">${cx('Valor dos produtos','R$ '+n(tag('vProd',tot)),2)}${cx('Frete','R$ '+n(tag('vFrete',tot)),1)}${cx('ICMS','R$ '+n(tag('vICMS',tot)),1)}${cx('IPI','R$ '+n(tag('vIPI',tot)),1)}${cx('Valor total da nota','R$ '+n(tag('vNF',tot)),1)}</div>
+    <div class="t">Transportador / volumes</div><div class="g">${cx('Transportadora',esc(tag('xNome',tr&&tr.getElementsByTagName('transporta')[0])),3)}${cx('Frete',esc(frete),1)}${cx('Placa',esc(tag('placa',tr)),1)}${cx('UF',esc(tag('UF',tr&&tr.getElementsByTagName('veicTransp')[0])),1)}
+      ${cx('Quantidade',esc(tag('qVol',vol)),1)}${cx('Espécie',esc(tag('esp',vol)),1)}${cx('Peso líquido',vol?n(tag('pesoL',vol),3):'',2)}${cx('Peso bruto',vol?n(tag('pesoB',vol),3):'',2)}</div>
+    <div class="t">Produtos</div><table><tr><th>Código</th><th>Descrição</th><th>NCM</th><th>CFOP</th><th>Un.</th><th class="n">Qtd.</th><th class="n">Vl. unit.</th><th class="n">Vl. total</th></tr>${itens}</table>
+    <div class="t">Informações complementares</div><div style="border:1px solid #000;padding:5px;min-height:40px;white-space:pre-wrap">${esc(tag('infCpl'))}</div>
+    </body></html>`;
+}
 /* ═══ DETALHE DO CAMINHÃO — ficha completa (linha do tempo, tempos com alerta, pesos, NF, anexos, correções) ═══ */
 async function detalhe(id){
   let c=_cam.find(x=>x.id===id)||_hist.find(x=>x.id===id)||_fat.find(x=>x.id===id);
@@ -537,7 +589,7 @@ async function detalhe(id){
             <tr><td>Frete</td><td>${esc(c.nf_frete||'—')}${c.retira?` · <b>retira: ${c.retira}</b>`:''}</td></tr>
             ${c.nf_chave&&!/^EX/.test(c.nf_chave)?`<tr><td>Chave</td><td style="font-size:11px;word-break:break-all;">${esc(c.nf_chave)}</td></tr>`:''}</table>`:'<div class="dt-o">Ainda sem NF.</div>'}</div>
         <div class="dt-box"><div class="dt-bt">📎 Anexos</div><div class="d-ac" style="margin-top:0;">
-          ${lte?`<a class="btn btn-secondary btn-sm" target="_blank" href="${lte}">⚖️ Ticket de entrada</a>`:''}${lts?`<a class="btn btn-secondary btn-sm" target="_blank" href="${lts}">⚖️ Ticket de saída</a>`:''}${lnf?`<a class="btn btn-secondary btn-sm" target="_blank" href="${lnf}">🧾 NF</a>`:''}
+          ${lnf?`<button class="btn btn-primary btn-sm" onclick="verArq('${esc(c.nf_arquivo)}','🧾 NF ${esc(c.nf_numero||'')} · ${esc(c.placa)}')">🧾 Ver nota</button>`:''}${lte?`<button class="btn btn-secondary btn-sm" onclick="verArq('${esc(c.ticket_entrada)}','⚖️ Ticket de entrada · ${esc(c.placa)}')">⚖️ Ticket de entrada</button>`:''}${lts?`<button class="btn btn-secondary btn-sm" onclick="verArq('${esc(c.ticket_saida)}','⚖️ Ticket de saída · ${esc(c.placa)}')">⚖️ Ticket de saída</button>`:''}
           ${!lte&&!lts&&!lnf?'<span class="dt-o">Nenhum arquivo anexado.</span>':''}</div></div>
       </div></div>
     <div class="dt-box"><div class="dt-bt">🕘 Correções de horário ${(co||[]).length?`<span class="badge badge-warning">${co.length}</span>`:''}</div>
