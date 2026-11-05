@@ -4575,8 +4575,21 @@ function _normLoteMP(v){ return String(v||'').toUpperCase().replace(/\s+/g,''); 
 function _lauMPdaOp(op){
   const lp=_lauLoteProducaoDaOp(op);
   if(lp){ const m=(_caulimLotesMP||[]).find(x=>x.id===lp.lote_mp_id); if(m) return m; }
-  const alvo=_normLoteMP(op&&op.lote_mp); if(!alvo) return null;
-  return (_caulimLotesMP||[]).find(x=>_normLoteMP(x.numero)===alvo)||null;
+  const alvo=_normLoteMP(op&&op.lote_mp);
+  const m=alvo?(_caulimLotesMP||[]).find(x=>_normLoteMP(x.numero)===alvo):null;
+  return m||_lauMPdoProduto(op);
+}
+// (nov/2026) OP sem "Lote MP" informado: usa o último Lote de MP (até a data da OP) do
+// produto; senão, da variação declarada do produto. É dele que vêm frente de extração e M.M.
+function _lauMPdoProduto(op){
+  const pNome=_lauProdutoDaOp(op); if(!pNome) return null;
+  const pc=(_prods||[]).find(x=>_lauNorm(x.nome)===_lauNorm(pNome));
+  const ate=String((op&&op.data)||'9999-12-31');
+  const ls=(_caulimLotesMP||[]).filter(l=>!l.data||String(l.data)<=ate).sort(_ordLoteMP);
+  if(pc){ const m=ls.find(l=>String(l.produto_id)===String(pc.id)); if(m) return m; }
+  const q=pc?(_produtosQualidade||{})[pc.id]:null;
+  const vid=(q&&q.variacao_id)||((variacaoPeloNomeProduto(pNome)||{}).id);
+  return vid?(ls.find(l=>String(l.variacao_declarada_id)===String(vid))||null):null;
 }
 function _lauLoteMPdaOp(op){
   const mp=_lauMPdaOp(op);
@@ -4880,8 +4893,11 @@ async function montarCertificado(op, existente){
   const demais=[];
   if(!na.includes('umidade')) demais.push({k:'umidade',rot:'Umidade (%)',min:q?q.limite_umidade_min??null:null,max:q?q.limite_umidade_max??null:null,
     res:an.lista.length?mediaCampo('umidade'):(fonte.umidade!=null?_r2(Number(fonte.umidade)):null)});
-  if(!na.includes('mm')&&(q&&q.limite_mm_min!=null||an.lista.some(a=>a.mm_result!=null)))
-    demais.push({k:'mm',rot:'M.M — material mineral (%)',min:q?q.limite_mm_min??null:null,max:null,res:mediaCampo('mm_result')});
+  // M.M: mínimo do Lote de MP da OP (variação declarada); resultado das análises ou, sem elas, o medido no lote
+  const mpMM=_lauMPdaOp(op), mmMin=mpMM&&mpMM.mm_min!=null?Number(mpMM.mm_min):(q?q.limite_mm_min??null:null);
+  const mmPal=an.lista.some(a=>a.mm_result!=null), mmLote=mpMM&&mpMM.mm_result!=null?_r2(Number(mpMM.mm_result)):null;
+  if(!na.includes('mm')&&(mmMin!=null||mmPal||mmLote!=null))
+    demais.push({k:'mm',rot:'M.M — material mineral (%)',min:mmMin,max:null,res:mmPal?mediaCampo('mm_result'):mmLote});
   if(!na.includes('peso_esp')&&(q&&(q.limite_peso_esp_min!=null||q.limite_peso_esp_max!=null)||an.lista.some(a=>a.peso_esp_result!=null)))
     demais.push({k:'pe',rot:'Peso específico aparente (g/cm³)',min:q?q.limite_peso_esp_min??null:null,max:q?q.limite_peso_esp_max??null:null,res:mediaCampo('peso_esp_result')});
   const total={min:q&&!na.includes('retido')?q.limite_total_retido_min??null:null, max:q&&!na.includes('retido')?q.limite_total_retido_max??null:null};
@@ -5912,6 +5928,27 @@ function variacaoPeloNomeProduto(nome){
 // (out/2026) QUEM MANDA É O LOTE DE MP: a variação de cor vinculada só pode ser uma
 // variação que já foi declarada em Lotes de MP, e o STD (L*, a*, b*) vem da cor
 // medida no ÚLTIMO lote de MP daquela variação (o ΔE máx. vem do cadastro da variação).
+// (nov/2026) M.M — MATERIAL MINERAL vem do LOTE DE MP: o mínimo (e o medido, se tiver) é lançado
+// em Caulim → Lotes de MP e vai sozinho para Limites por Produto (produtos da mesma variação) e para o laudo.
+const _ordLoteMP=(a,b)=>String(b.data||b.criado_em||'').localeCompare(String(a.data||a.criado_em||''))||String(b.numero||'').localeCompare(String(a.numero||''));
+function mmLoteMPDoProduto(pid,vid,ate){
+  const ls=(_caulimLotesMP||[]).filter(l=>(l.mm_min!=null||l.mm_result!=null)&&(!ate||!l.data||String(l.data)<=String(ate))).sort(_ordLoteMP);
+  return (pid&&ls.find(l=>String(l.produto_id)===String(pid)))||(vid&&ls.find(l=>String(l.variacao_declarada_id)===String(vid)))||null;
+}
+// Salvou um lote de MP com M.M: se ele é o lote mais novo da variação, o mínimo vai para os
+// produtos dessa variação em Limites por Produto (menos os marcados "M.M não se aplica").
+async function mmLevarParaProdutos(lote){
+  if(!lote||lote.mm_min==null) return 0;
+  const vid=lote.variacao_declarada_id, ult=vid?lpUltimoLoteMPDaVar(vid):null;
+  if(vid&&ult&&String(ult.id)!==String(lote.id)) return 0;   // lote antigo: não mexe no produto
+  const pids=Object.keys(_produtosQualidade||{}).filter(pid=>{ const q=_produtosQualidade[pid]||{};
+    return !lpNA(q).includes('mm')&&((vid&&String(q.variacao_id)===String(vid))||String(pid)===String(lote.produto_id)); });
+  if(!pids.length) return 0;
+  const {error}=await _supabase.from('lab_produto_qualidade').update({limite_mm_min:Number(lote.mm_min)}).in('produto_id',pids);
+  if(error){ toast('Lote salvo, mas o M.M não foi para Limites por Produto: '+error.message,'warning'); return 0; }
+  pids.forEach(pid=>{ _produtosQualidade[pid].limite_mm_min=Number(lote.mm_min); });
+  return pids.length;
+}
 function lpUltimoLoteMPDaVar(vid){
   return (_caulimLotesMP||[]).filter(l=>String(l.variacao_declarada_id)===String(vid))
     .sort((a,b)=>String(b.data||b.created_at||'').localeCompare(String(a.data||a.created_at||''))||String(b.numero||'').localeCompare(String(a.numero||'')))[0]||null;
@@ -6012,9 +6049,12 @@ function abrirLimiteProduto(pid){
     ${lpBlocoGrupo('retido',`<div class="form-grid-2">
       ${num('lp-ret-min','Inferior (%)',q.limite_total_retido_min,'0.1')}${num('lp-ret-max','Superior (%)',q.limite_total_retido_max,'0.1')}
     </div>`,q)}
-    ${lpBlocoGrupo('mm',`<div class="form-grid-2">
-      ${num('lp-mm','Mínimo (%)',q.limite_mm_min)}<div></div>
-    </div>`,q)}
+    ${(()=>{ const naMM=lpNA(q).includes('mm'), lt=pid?mmLoteMPDoProduto(pid,q.variacao_id):null;
+      if(naMM) return '';
+      return `<div class="form-group" style="margin:8px 0 0;"><label class="form-label">M.M — material mineral (%)</label>
+        <div style="font-size:13px;padding:9px 12px;border-radius:10px;background:#f8fafc;border:1.5px solid #e2e8f0;color:#334155;">${lt&&lt.mm_min!=null
+          ?`Mínimo <strong>${esc(lt.mm_min)} %</strong> — vem do Lote de MP <strong>${esc(lt.numero||'')}</strong>`
+          :`Lance o M.M no Lote de MP desta variação (Caulim → Lotes de MP)${q.limite_mm_min!=null?` · hoje: mínimo <strong>${esc(q.limite_mm_min)} %</strong>`:''}`}</div></div>`; })()}
     ${lpBlocoGrupo('peso_esp',`<div class="form-grid-2">
       ${num('lp-pe-min','Mínimo (g/cm³)',q.limite_peso_esp_min)}${num('lp-pe-max','Máximo (g/cm³)',q.limite_peso_esp_max)}
     </div>`,q)}
@@ -6116,6 +6156,8 @@ async function salvarLimiteProduto(pid){
   const desfazer=()=>{ if(eraNovo) delete _produtosQualidade[pid]; else _produtosQualidade[pid]=copiaAntes; };
   const q=garantirQualidade(pid);
   const na=lpGruposNA();
+  // M.M saiu desta tela (vem do Lote de MP): quem já estava "não se aplica" continua assim
+  if(lpNA(q).includes('mm')&&!na.includes('mm')) na.push('mm');
   // grupo marcado como "não se aplica" grava em branco — e a decisão fica registrada
   const v=(grupo,id)=>na.includes(grupo)?null:numOrNull(gv(id));
   q.nao_se_aplica=na;
@@ -6126,7 +6168,8 @@ async function salvarLimiteProduto(pid){
   q.limite_agua_min_ml=v('agua','lp-agua-min');       q.limite_agua_max_ml=v('agua','lp-agua-max');
   q.limite_densidade_min=v('densidade','lp-dens-min');q.limite_densidade_max=v('densidade','lp-dens-max');
   q.limite_total_retido_min=v('retido','lp-ret-min'); q.limite_total_retido_max=v('retido','lp-ret-max');
-  q.limite_mm_min=v('mm','lp-mm');
+  { const lt=mmLoteMPDoProduto(pid,gv('lp-variacao')||q.variacao_id);   // M.M vem do Lote de MP
+    if(na.includes('mm')) q.limite_mm_min=null; else if(lt&&lt.mm_min!=null) q.limite_mm_min=Number(lt.mm_min); }
   q.limite_peso_esp_min=v('peso_esp','lp-pe-min');    q.limite_peso_esp_max=v('peso_esp','lp-pe-max');
   q.cor_hex=gv('lp-cor')||null;
   q.aditivo_padrao=na.includes('aditivo')?'nenhum':(gv('lp-aditivo')||null);
@@ -6186,7 +6229,7 @@ function verLimiteProduto(pid){
     ${cel('Água',lpFaixaG(q,'agua',q.limite_agua_min_ml,q.limite_agua_max_ml,'mL'))}
     ${cel('Densidade',lpFaixaG(q,'densidade',q.limite_densidade_min,q.limite_densidade_max,'g/mL'))}
     ${cel('Total retido',lpFaixaG(q,'retido',q.limite_total_retido_min,q.limite_total_retido_max,'%'))}
-    ${cel('M.M mín.',lpNA(q).includes('mm')?'não se aplica':(q.limite_mm_min!=null?q.limite_mm_min+' %':'—'))}
+    ${cel('M.M mín.',lpNA(q).includes('mm')?'não se aplica':(q.limite_mm_min!=null?q.limite_mm_min+' % (lote de MP)':'—'))}
     ${cel('Peso específico',lpFaixaG(q,'peso_esp',q.limite_peso_esp_min,q.limite_peso_esp_max,'g/cm³'))}
     ${cel('Aditivo',lpRotuloAditivo(q,nome))}
     ${cel('Dosagem do aditivo',q.aditivo_dosagem_g!=null?q.aditivo_dosagem_g+' g':'—')}
@@ -6415,7 +6458,7 @@ function renderCaulimMP(){
       <div class="sec-title" style="margin:0;">Lotes de Matéria-Prima</div>
       <button class="btn btn-primary btn-sm" onclick="abrirNovoLoteMP()">+ Novo Lote de MP</button>
     </div>
-    <div class="table-wrap"><table style="font-size:12px;"><thead><tr><th>Número</th><th>Frente(s)</th><th>Variação Declarada</th><th>Montante</th><th>ΔE</th><th>Cor</th><th>Umidade</th><th>Dureza</th><th>Retido #200</th><th>📷</th><th>Analista</th><th></th></tr></thead>
+    <div class="table-wrap"><table style="font-size:12px;"><thead><tr><th>Número</th><th>Frente(s)</th><th>Variação Declarada</th><th>Montante</th><th>ΔE</th><th>Cor</th><th>Umidade</th><th>Dureza</th><th>Retido #200</th><th>M.M</th><th>📷</th><th>Analista</th><th></th></tr></thead>
     <tbody>${(_caulimLotesMP||[]).map(l=>{
       const frs=Array.isArray(l.frentes)&&l.frentes.length?l.frentes:null;
       const rotFrente = frs
@@ -6431,10 +6474,11 @@ function renderCaulimMP(){
       <td>${l.umidade_pct!=null?esc(l.umidade_pct)+'%':'—'}</td>
       <td>${l.dureza!=null?esc(l.dureza):'—'}</td>
       <td>${l.retido_200!=null?esc(l.retido_200)+'%':'—'}</td>
+      <td>${l.mm_min!=null?'mín. '+esc(l.mm_min)+'%':'—'}${l.mm_result!=null?'<br><span style="color:#64748b;">medido '+esc(l.mm_result)+'%</span>':''}</td>
       <td>${fotos?`<button class="btn btn-ghost btn-sm" style="padding:2px 7px;" onclick="verFotosLoteMP('${l.id}')">📷 ${fotos}</button>`:'<span style="color:#cbd5e1;">—</span>'}</td>
       <td>${esc(l.analista_mp||'—')}</td>
       <td><button class="btn btn-secondary btn-sm" onclick="abrirNovoLoteMP('${l.id}')" title="Editar o lote">✏️ Editar</button></td>
-    </tr>`;}).join('')||'<tr><td colspan="12" style="text-align:center;color:#94a3b8;">Nenhum lote de MP cadastrado</td></tr>'}</tbody></table></div>
+    </tr>`;}).join('')||'<tr><td colspan="13" style="text-align:center;color:#94a3b8;">Nenhum lote de MP cadastrado</td></tr>'}</tbody></table></div>
   </div>`;
 }
 
@@ -6788,6 +6832,13 @@ function abrirNovoLoteMP(id){
       <div class="form-group"><label class="form-label" style="font-size:11px;">Retido #200 (%) <span id="mp-lim-r200" style="color:#94a3b8;font-weight:500;"></span> <span id="mp-st-r200"></span></label>
         <input id="mp-r200" type="number" step="0.01" class="form-input" oninput="mpAvaliarCaract()"></div>
     </div>
+    <div class="form-grid-3" style="margin-top:4px;">
+      <div class="form-group"><label class="form-label" style="font-size:11px;">M.M — material mineral · mínimo (%)</label>
+        <input id="mp-mm-min" type="number" step="0.01" class="form-input"></div>
+      <div class="form-group"><label class="form-label" style="font-size:11px;">M.M — medido no lote (%) <span style="color:#94a3b8;font-weight:500;">opcional</span></label>
+        <input id="mp-mm-res" type="number" step="0.01" class="form-input"></div>
+      <div style="font-size:11.5px;color:#64748b;align-self:center;">O mínimo vai sozinho para Limites por Produto (produtos desta variação) e para o laudo.</div>
+    </div>
   </div>`;
   const footer=`<button class="btn btn-secondary" onclick="closeModal('modal-lote-mp')">Cancelar</button><button class="btn btn-primary" id="btn-salvar-lote-mp" onclick="salvarLoteMP()">💾 Salvar Lote de MP</button>`;
   openModal('modal-lote-mp',ed?'✏️ Editar Lote de MP — '+esc(ed.numero):'🪨 Novo Lote de Matéria-Prima',body,footer,{lg:true});
@@ -6797,6 +6848,7 @@ function abrirNovoLoteMP(id){
     pv('mp-r',ed.cor_r); pv('mp-g',ed.cor_g); pv('mp-b-rgb',ed.cor_b_rgb);
     pv('mp-l',ed.cor_l); pv('mp-a',ed.cor_a); pv('mp-b',ed.cor_b);
     pv('mp-umidade',ed.umidade_pct); pv('mp-dureza',ed.dureza); pv('mp-r200',ed.retido_200??(ed.granulometria&&ed.granulometria.retido_200));
+    pv('mp-mm-min',ed.mm_min); pv('mp-mm-res',ed.mm_result);
     const sel=document.getElementById('mp-variacao');
     if(sel){ sel.dataset.tocado='1';   // a variação gravada manda; a cor não troca sozinha
       let pid=ed.produto_id||'';
@@ -6922,7 +6974,8 @@ async function salvarLoteMP(){
     retido_200:numOrNull(gv('mp-r200')), dureza:numOrNull(gv('mp-dureza')),
     especificacao:{produto:cfg.nome, sigla:cfg.sigla, variacao:cfg.v?cfg.v.nome:null,
       std:st, caracterizacao:caract.map(e=>({ensaio:e.rot,valor:e.valor,min:e.min,max:e.max,situacao:e.status}))},
-    umidade_pct:numOrNull(gv('mp-umidade')),analista_mp:analista};
+    umidade_pct:numOrNull(gv('mp-umidade')),analista_mp:analista,
+    mm_min:numOrNull(gv('mp-mm-min')), mm_result:numOrNull(gv('mp-mm-res'))};
 
   // BPF · POP-02: cor fora do ΔE e análise química da variação vencida
   if(de!=null&&Number(de)>1.0){
@@ -6941,13 +6994,15 @@ async function salvarLoteMP(){
       const i=_caulimLotesMP.findIndex(x=>x.id===_mpEditId); if(i>=0) _caulimLotesMP[i]=nd;
       await addLog('UPDATE','CAULIM_LOTE_MP',nd.id,'Lote de MP '+numero+' editado');
       _mpEditId=null;
-      closeModal('modal-lote-mp'); toast('Lote de MP '+numero+' atualizado.','success'); renderCaulimMP();
+      const nmm=await mmLevarParaProdutos(nd);
+      closeModal('modal-lote-mp'); toast('Lote de MP '+numero+' atualizado.'+(nmm?` M.M levado para ${nmm} produto(s).`:''),'success'); renderCaulimMP();
       return;
     }
     const{data:nd,error}=await _supabase.from('caulim_lotes_mp').insert(row).select().single(); if(error) throw error;
     _caulimLotesMP.unshift(nd);
     await addLog('CREATE','CAULIM_LOTE_MP',nd.id,numero);
-    closeModal('modal-lote-mp'); toast('Lote de MP '+numero+' registrado.','success'); renderCaulimMP();
+    const nmm=await mmLevarParaProdutos(nd);
+    closeModal('modal-lote-mp'); toast('Lote de MP '+numero+' registrado.'+(nmm?` M.M levado para ${nmm} produto(s).`:''),'success'); renderCaulimMP();
     await registrarBpfLoteMP(nd);
   }catch(e){
     if(btn){btn.disabled=false;btn.innerHTML='💾 Salvar Lote de MP';}
