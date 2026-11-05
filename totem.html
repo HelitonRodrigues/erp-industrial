@@ -208,13 +208,18 @@ h1.q-prod{margin:0 0 6px;font-size:clamp(26px,4.4vw,34px);}
    Migration: sql/migrations/096_central_rotulos.sql
    ══════════════════════════════════════════════════════════════════════════ */
 const pad=(n,k=2)=>String(n).padStart(k,'0');
-const fData=d=>pad(d.getDate())+'/'+pad(d.getMonth()+1)+'/'+d.getFullYear();
-const fHora=d=>pad(d.getHours())+':'+pad(d.getMinutes());
+// data/hora sempre no horário de Brasília (o fuso do tablet pode estar errado)
+const _spParts=d=>{try{const o={};new Intl.DateTimeFormat('en-GB',{timeZone:'America/Sao_Paulo',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(d).forEach(x=>o[x.type]=x.value);return o;}catch(e){return {day:pad(d.getDate()),month:pad(d.getMonth()+1),year:d.getFullYear(),hour:pad(d.getHours()),minute:pad(d.getMinutes())};}};
+const fData=d=>{const o=_spParts(d);return o.day+'/'+o.month+'/'+o.year;};
+const fHora=d=>{const o=_spParts(d);return o.hour+':'+o.minute;};
 const iso=d=>d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());
 const fD=s=>{if(!s)return '—';const[y,m,d]=String(s).slice(0,10).split('-');return d+'/'+m+'/'+y;};
 const esc_=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const norm=s=>String(s||'').toLowerCase().replace(/\s/g,'');
-const hojeIso=()=>iso(new Date()), ontemIso=()=>iso(new Date(Date.now()-864e5));
+// "hoje" sempre no horário de Brasília — tablet com fuso errado não pode mudar o dia dos rótulos
+const _fmtSP=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Sao_Paulo',year:'numeric',month:'2-digit',day:'2-digit'});
+const isoSP=d=>{try{return _fmtSP.format(d);}catch(e){return iso(d);}};
+const hojeIso=()=>isoSP(new Date()), ontemIso=()=>isoSP(new Date(Date.now()-864e5));
 const usuario=()=>{try{return (JSON.parse(sessionStorage.getItem('erp_user')||localStorage.getItem('erp_user')||'{}').nome)||'Central de rótulos';}catch(e){return 'Central de rótulos';}};
 const lsGet=(k,d)=>{try{const v=localStorage.getItem(k);return v==null?d:v;}catch(e){return d;}};
 const lsSet=(k,v)=>{try{localStorage.setItem(k,v);}catch(e){}};
@@ -241,7 +246,7 @@ function codLinha(nome){
 }
 function lote(p,linha,dia){ const cor=corCodigo(p.nome), d=dia.replace(/-/g,''); return (isFicha(p.linhaProduto)&&cor)?d+cor:codLinha(linha)+'-'+d; }
 const prefixo=(linha,dia,p)=>`${codLinha(linha)}-${dia.replace(/-/g,'')}-${p.tag}-`;
-function turnoDe(d){const m=d.getHours()*60+d.getMinutes();return m<440?'3º - Madrugada':(m<940?'1º - Manhã':'2º - Noite');}
+function turnoDe(d){const o=_spParts(d),m=(+o.hour)*60+(+o.minute);return m<440?'3º - Madrugada':(m<940?'1º - Manhã':'2º - Noite');}
 const COR={'concentrado10kg':'#1D4ED8','linha20kg':'#C2410C','linha25kg':'#6D28D9','impermeabilizante':'#0E7490','bag':'#7C4A12'};
 const corDe=lp=>COR[norm(lp)]||'#475569';
 const nomeSub=lp=>({'bag':'Big Bag','linha20kg':'Linha 20 kg','linha25kg':'Linha 25 kg','concentrado10kg':'Concentrado 10 kg'}[norm(lp)]||lp);
@@ -267,9 +272,16 @@ async function carregarCadastros(){
   { const st=document.createElement('style');
     st.textContent=`.lg{background:url(${LOGO_SIMBOLO}) center/contain no-repeat;-webkit-print-color-adjust:exact;print-color-adjust:exact;}`; document.head.appendChild(st); }
 }
+let _hojeEm=null, _hojeErro='';   // quando a lista de hoje foi lida · por que não leu
 async function carregarHoje(){
-  const {data,error}=await _supabase.from('rotulos_emissoes').select('id,dia,linha,produto,numero_ini,numero_fim,criado_em').eq('dia',hojeIso()).order('criado_em');
-  if(error) throw error; _emHoje=data||[];
+  try{
+    // sem login válido o banco devolve lista VAZIA sem erro — e a tela diria "Nada impresso hoje"
+    const {data:{session}}=await _supabase.auth.getSession();
+    if(!session) throw new Error('O login da central expirou — toque em "Entrar de novo".');
+    const {data,error}=await _supabase.from('rotulos_emissoes').select('id,dia,linha,produto,numero_ini,numero_fim,criado_em').eq('dia',hojeIso()).order('criado_em');
+    if(error) throw error;
+    _emHoje=data||[]; _hojeEm=new Date(); _hojeErro='';
+  }catch(e){ _hojeErro=String(e&&e.message||e); throw e; }
 }
 const ultimoHoje=(linha,produto)=>_emHoje.filter(e=>e.linha===linha&&e.produto===produto).reduce((m,e)=>Math.max(m,e.numero_fim),0);
 const palDe=r=>({numero:r.numero,codigo:r.codigo,lote:r.lote,validade:r.validade,data:r.dia,linha:r.linha,produto:r.produto});
@@ -455,14 +467,17 @@ async function carregarInicio(){
 function telaInicio(){
   const dia=hojeIso();
   const cards=LINHAS.map(l=>{ const es=_emHoje.filter(e=>e.linha===l.nome), u=es[es.length-1];
-    if(!u) return `<div class="run vazio"><b>${esc_(l.nome)}</b><strong>Nada impresso hoje</strong></div>`;
+    if(!u) return `<div class="run vazio"><b>${esc_(l.nome)}</b><strong>${_hojeErro?'Sem leitura agora':'Nada impresso hoje'}</strong></div>`;
     const p=prodPorNome(u.produto);
     return `<div class="run" style="--c:${corDe(p.linhaProduto)}"><b>${esc_(l.nome)}</b><strong>${esc_(u.produto)}</strong><div class="num">impresso até o nº <em>${pad(ultimoHoje(l.nome,u.produto),3)}</em></div></div>`; }).join('');
   return `${_temOntem&&lsGet('central_aviso_ontem','')!==dia?`<div class="virada"><b>Rótulos de ontem não valem mais</b>Se sobrou algum rótulo de ontem, jogue no lixo. Os de hoje começam do 01.
       <div style="margin-top:12px;"><button class="btn btn-go" style="min-height:56px;padding:12px 22px;font-size:18px;" onclick="lsSet('central_aviso_ontem',hojeIso());render()">Ok, joguei fora</button></div></div>`:''}
   <button class="hero" onclick="esc={linha:null,produto:null,qtd:1};ir('linha')"><span>Produto novo ou acabaram os rótulos?</span>Imprimir rótulos</button>
   <button class="reimp" onclick="abrirReimp()"><span class="ic">↻</span><span>Reimprimir rótulo perdido<small>Sai igual: mesmo número e mesmo QR</small></span></button>
-  <div class="sec-title">Hoje em cada linha</div><div class="runs">${cards}</div>`;
+  ${_hojeErro?`<div class="virada" style="border-color:#dc2626;background:#fee2e2;"><b>Não consegui ver o que já foi impresso hoje</b>${esc_(_hojeErro)}
+      <div style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap;"><button class="btn btn-go" style="min-height:56px;padding:12px 22px;font-size:18px;" onclick="voltarInicio()">Tentar de novo</button>
+      <a class="btn" style="min-height:56px;padding:12px 22px;font-size:18px;display:inline-flex;align-items:center;background:#042D4D;color:#fff;border-radius:14px;text-decoration:none;font-weight:800;" href="index.html?volta=totem.html">Entrar de novo</a></div></div>`:''}
+  <div class="sec-title">Hoje em cada linha <small style="font-weight:600;color:var(--muted);font-size:14px;">${fD(dia)}${_hojeEm?' · atualizado às '+fHora(_hojeEm):''}</small></div><div class="runs">${cards}</div>`;
 }
 
 /* fotos de linhas e produtos: baixa tudo logo que a central abre (e a cada 30 min),
@@ -515,7 +530,7 @@ function telaQtd(){
   <div class="actions fixo"><button class="btn btn-back" onclick="ir('produto')">Voltar</button><button class="btn btn-go" onclick="ir('confirma')">Continuar</button></div>`;
 }
 function telaConfirma(){
-  const p=esc.produto, d=new Date(), dia=iso(d), val=validadeDe(d,p);
+  const p=esc.produto, d=new Date(), dia=hojeIso(), val=validadeDe(new Date(dia+'T12:00:00'),p);   // dia de Brasília
   const n1=ultimoHoje(esc.linha,p.nome)+1, n2=n1+esc.qtd-1;
   const amostra=isFicha(p.linhaProduto)?(n1===1?'1 etiqueta, só do nº 01':'Não sai — só o nº 01 leva amostra'):`1 etiqueta por ${ehBag(p)?'bag':'pallet'}`;
   return trilha()+barraErro()+`<h1 class="q">Confere e imprime</h1>
@@ -530,7 +545,7 @@ function telaConfirma(){
 async function imprimir(){
   if(ocupado) return; ocupado=true; render();
   try{
-    const p=esc.produto, d=new Date(), dia=iso(d), val=validadeDe(d,p);
+    const p=esc.produto, d=new Date(), dia=hojeIso(), val=validadeDe(new Date(dia+'T12:00:00'),p);   // dia de Brasília
     const {data,error}=await _supabase.rpc('totem_emitir',{p_dia:dia,p_linha:esc.linha,p_produto:p.nome,p_qtd:esc.qtd,p_lote:lote(p,esc.linha,dia),
       p_validade:iso(val),p_turno:turnoDe(d),p_prefixo:prefixo(esc.linha,dia,p),p_criado_por:usuario()});
     if(error) throw error;
@@ -625,7 +640,7 @@ function telaCheia(){ if(_comoApp()) return; try{ const el=document.documentElem
   _parado=setTimeout(()=>{ if(tela!=='inicio'&&!ocupado) voltarInicio(); },180000); }));
 // virou o dia com a tela aberta: recarrega numeração e aviso
 let _diaAberto=hojeIso();
-setInterval(()=>{ if(hojeIso()!==_diaAberto){ _diaAberto=hojeIso(); if(tela==='inicio') carregarInicio().then(render).catch(()=>{}); } },60000);
+setInterval(()=>{ if(hojeIso()!==_diaAberto){ _diaAberto=hojeIso(); _emHoje=[]; carregarInicio().catch(()=>{}).then(()=>{ if(tela==='inicio') render(); }); } },60000);
 
 // "instalar" a central como app (tela cheia, sem barra do navegador)
 if('serviceWorker' in navigator&&location.protocol==='https:'){ navigator.serviceWorker.register('/sw-totem.js',{scope:'/totem.html'}).catch(()=>{}); }
@@ -637,11 +652,12 @@ document.addEventListener('fullscreenchange',atualizaBtnCheia); document.addEven
   let sess=null; try{({data:{session:sess}}=await _supabase.auth.getSession());}catch(e){}
   if(!sess){ document.getElementById('app').innerHTML=`<div class="empty" style="text-align:center;font-size:18px;">🔒 A central precisa de um login do ERP (uma vez).<br><br><a href="index.html?volta=totem.html" style="font-weight:800;color:#042D4D;">Fazer login</a> e depois voltar para esta página.</div>`; return; }
   tick(); setInterval(tick,15000);
-  try{ await carregarCadastros(); await carregarInicio(); }
+  try{ await carregarCadastros(); await carregarInicio().catch(()=>{}); }
   catch(e){ document.getElementById('app').innerHTML=`<div class="okmsg err"><div class="ic">!</div><div>Não carregou os cadastros<small>${esc_(e.message||e)} — confira a internet e recarregue.</small></div></div>`; return; }
   render(); atualizaBtnCheia(); lerEstacoes(); setInterval(lerEstacoes,10000);
   preCarregarFotos();
-  setInterval(()=>{ if(tela==='inicio') carregarInicio().then(render).catch(()=>{}); },60000);
+  setInterval(()=>{ if(tela==='inicio') carregarInicio().catch(()=>{}).then(render); },30000);
+  document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible'&&tela==='inicio') carregarInicio().catch(()=>{}).then(render); });
 })();
 </script>
 </body>
