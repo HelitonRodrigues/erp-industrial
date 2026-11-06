@@ -447,6 +447,7 @@ tr.mi-sel td{background:#f0fdf4;}
         <button class="btn btn-secondary btn-sm" data-perm="portaria:view" onclick="miPdfMes()">📄 PDF do mês</button>
         <button class="btn btn-secondary btn-sm" onclick="miExportar()">⬇️ CSV do mês</button></div>
       <span style="flex:1;"></span>
+      <button class="btn btn-secondary" id="mi-btn-int" onclick="miInternosAbrir()" style="min-height:46px;display:none;">🚚 Caminhões internos</button>
       <button class="btn btn-primary" id="mi-btn-ent" data-perm="portaria:create" onclick="miNovaEntrada()" style="min-height:46px;">＋ Registrar entrada</button>
     </div>
     <div class="kpis" id="mi-kpis"></div>
@@ -829,7 +830,7 @@ tr.mi-sel td{background:#f0fdf4;}
           <div class="mi-matsel grande" id="mi-f-mat"></div></div>
         <div class="mi-form">
           <div class="form-group" style="margin:0;"><label class="form-label">Data</label><input type="date" class="form-input" id="mi-f-data"></div>
-          <div class="form-group" style="margin:0;"><label class="form-label">Placa <span class="req">*</span></label><input class="form-input" id="mi-f-placa" list="mi-dl-placas" autocomplete="off" placeholder="ABC1D23" oninput="this.value=this.value.toUpperCase().replace(/[^A-Z0-9]/g,'')" onchange="miPlaca()"></div>
+          <div class="form-group" style="margin:0;"><label class="form-label">Placa <span class="req">*</span></label><input class="form-input" id="mi-f-placa" list="mi-dl-placas" autocomplete="off" placeholder="ABC1D23" oninput="this.value=this.value.toUpperCase().replace(/[^A-Z0-9]/g,'')" onchange="miPlaca()"><div id="mi-f-interno" style="display:none;margin-top:4px;font-size:12.5px;font-weight:800;color:#166534;"></div></div>
           <div class="form-group" style="margin:0;"><label class="form-label">Motorista</label><input class="form-input" id="mi-f-mot" list="mi-dl-mot" autocomplete="off" oninput="this.value=this.value.toUpperCase()"></div>
           <div class="form-group" style="margin:0;"><label class="form-label">Unidade</label><select class="form-input" id="mi-f-uni"><option value="PATIO">Pátio</option><option value="FABRICA">Fábrica</option><option value="BRITADOR">Britador</option></select></div>
           <div class="form-group" style="margin:0;"><label class="form-label">Frente</label><input class="form-input" id="mi-f-frente" list="mi-dl-frentes" autocomplete="off" oninput="this.value=this.value.toUpperCase()"></div>
@@ -2729,7 +2730,16 @@ function miMatForm(m){
   _miFMat=m; const s=document.getElementById('mi-f-mat'); s.classList.remove('erro');
   s.querySelectorAll('button[data-m]').forEach(b=>b.classList.toggle('on',b.dataset.m===m));
 }
+/* 🚚 CAMINHÕES INTERNOS (nov/2026): tara fixa cadastrada. Chegou carregado → pesa só o bruto na
+   balança, a tara vem do cadastro e a viagem fecha na hora (ticket). Cadastro em minerio_caminhoes_internos. */
+let _miInternos={}, _miInterno=null;
+async function miCarregarInternos(){
+  const {data,error}=await _supabase.from('minerio_caminhoes_internos').select('*').order('placa');
+  if(error){ console.warn('[caminhões internos]',error.message); return; }
+  _miInternos={}; (data||[]).forEach(c=>{ _miInternos[c.placa]=c; });
+}
 async function carregarMinerio(){
+  await miCarregarInternos();
   await miCarregarMateriais();
   if(!document.getElementById('mi-mes').value)document.getElementById('mi-mes').value=hojeISO().slice(0,7);
   if(!document.getElementById('mi-f-data').value)document.getElementById('mi-f-data').value=hojeISO();
@@ -2786,6 +2796,7 @@ function renderMinerio(){
     k(String(semNf),'Notas sem nº de NF','informar quando chegar',semNf?'#dc2626':'#94a3b8',"document.getElementById('mi-n-semnf').checked=true;miSec('not')");
   document.getElementById('mi-b-ger').style.display=checkPerm(MOD,'create')?'':'none';
   document.getElementById('mi-btn-ent').style.display=checkPerm(MOD,'create')?'':'none';
+  { const bi=document.getElementById('mi-btn-int'); if(bi) bi.style.display=miPodeCorr()?'':'none'; }
   document.getElementById('mi-b-ind').style.display=miVeInd()?'':'none'; miVisSec();
   if(_miSec==='pes')renderMiPatio(); else if(_miSec==='via')renderMiPesagens(); else if(_miSec==='ger')renderMiGerar(); else if(_miSec==='not')renderMiNotas();
 }
@@ -2993,13 +3004,29 @@ function miIndImprimir(){
 }
 /* ── 1 · entrada ── */
 function miPlaca(){
-  const p=document.getElementById('mi-f-placa').value, u=_miUlt.placa[p]; if(!u||_miEdit)return;
+  const p=document.getElementById('mi-f-placa').value, u=_miUlt.placa[p];
+  if(!_miEdit) miMarcarInterno(p);
+  if(!u||_miEdit)return;
   const f=id=>document.getElementById(id);
   if(!f('mi-f-mot').value)f('mi-f-mot').value=u.motorista||'';
   if(u.unidade)f('mi-f-uni').value=u.unidade;
   if(!f('mi-f-frente').value&&u.frente)f('mi-f-frente').value=u.frente;
-  if(_miFModo==null)miModoForm(!!u.chegou_carregado);   // o peso NÃO vem da última viagem: só da balança
+  if(_miFModo==null&&!_miInterno)miModoForm(!!u.chegou_carregado);   // o peso NÃO vem da última viagem: só da balança
   miLiq();
+}
+function miMarcarInterno(placa){
+  const c=_miInternos[String(placa||'').toUpperCase()];
+  _miInterno=c&&c.ativo!==false?c:null;
+  const box=document.getElementById('mi-f-interno'), modo=document.getElementById('mi-f-modo');
+  if(_miInterno){
+    box.style.display=''; box.innerHTML=`🚚 Caminhão interno · tara fixa <b>${nf(_miInterno.tara_kg)} kg</b> — pese só o bruto`;
+    miModoForm(true); modo.style.pointerEvents='none'; modo.style.opacity='.55';
+    const fm=document.getElementById('mi-f-mot'); if(fm&&!fm.value&&_miInterno.motorista) fm.value=_miInterno.motorista;
+    document.getElementById('mi-f-salvar').textContent='✅ Registrar e fechar a viagem';
+  }else{
+    box.style.display='none'; box.innerHTML=''; modo.style.pointerEvents=''; modo.style.opacity='';
+    if(!_miEdit) document.getElementById('mi-f-salvar').textContent='➡️ Registrar entrada';
+  }
 }
 function miLiq(){
   const t=Number(document.getElementById('mi-f-tara').value||0), b=Number(document.getElementById('mi-f-bruto').value||0);
@@ -3022,7 +3049,7 @@ function miLimpar(){
   document.getElementById('mi-f-data').value=hojeISO(); document.getElementById('mi-f-uni').value='PATIO';
   _miFMat=null; document.querySelectorAll('#mi-f-mat button[data-m]').forEach(b=>b.classList.remove('on')); document.getElementById('mi-f-mat').classList.remove('erro');
   document.getElementById('mi-f-salvar').textContent='➡️ Registrar entrada';
-  _miFModo=null; miModoForm(null); miModoEd(false); miLiq();
+  _miFModo=null; miModoForm(null); miModoEd(false); miLiq(); miMarcarInterno('');
 }
 function miNovaEntrada(){ if(!guardAction(MOD,'create'))return; miLimpar(); document.getElementById('m-mi-ent').classList.remove('hidden'); setTimeout(()=>document.getElementById('mi-f-placa').focus(),60); }
 function miFecharEntrada(){ closeModal('m-mi-ent'); miLimpar(); }
@@ -3052,6 +3079,12 @@ async function miSalvar(){
     if(reg.bruto_kg<1000){toast('O bruto é em KG (ex.: 37.400). Confira.','warning');return;}
     if(reg.bruto_kg<=reg.tara_kg){toast('O bruto tem que ser maior que a tara.','warning');return;}
   }
+  // caminhão interno: tara do cadastro, viagem fecha na hora (vale só para entrada nova)
+  const interno=!_miEdit&&_miInternos[reg.placa]&&_miInternos[reg.placa].ativo!==false?_miInternos[reg.placa]:null;
+  if(interno){
+    reg.tara_kg=Number(interno.tara_kg);
+    if(!(reg.bruto_kg>reg.tara_kg)){toast(`O bruto tem que ser maior que a tara fixa (${nf(reg.tara_kg)} kg).`,'warning');return;}
+  }
   if(!_miEdit||!pesado){
     const ja=_miAg.find(x=>x.placa===reg.placa&&x.id!==_miEdit);
     if(ja){toast(`A placa ${reg.placa} já está na balança esperando a 2ª pesagem (entrou ${hmDia(ja.entrada_em||ja.criado_em)}).`,'warning');return;}
@@ -3061,6 +3094,13 @@ async function miSalvar(){
     if(_miEdit){
       const {error}=await _supabase.from('minerio_viagens').update(reg).eq('id',_miEdit).is('nota_id',null);
       if(error)throw error; addLog('UPDATE','PORTARIA',_miEdit,`Minério: ${pesado?'viagem':'entrada'} ${reg.placa} ${reg.data} alterada (${reg.material})`); toast(pesado?'Viagem alterada.':'Entrada alterada.');
+    }else if(interno){
+      Object.assign(reg,{status:'pesado',chegou_carregado:true,criado_por:quemSou(),bruto_por:quemSou()});
+      const {data,error}=await _supabase.from('minerio_viagens').insert(reg).select('*').single();
+      if(error)throw error;
+      addLog('INSERT','PORTARIA',data.id,`Minério: caminhão interno ${reg.placa} ${reg.material} bruto ${nf(reg.bruto_kg)} − tara fixa ${nf(reg.tara_kg)} = ${nf(reg.bruto_kg-reg.tara_kg)} kg · ticket ${miTk(data.ticket)}`);
+      toast(`Viagem fechada: ${nf(reg.bruto_kg-reg.tara_kg)} kg · ticket ${miTk(data.ticket)}`,'success');
+      closeModal('m-mi-ent'); miLimpar(); if(_miSec!=='pes')miSec('pes'); miAbrirTicket(data,true); await carregarMinerio(); return;
     }else{
       Object.assign(reg,{status:'aguardando_bruto',criado_por:quemSou()}); if(!cc)reg.bruto_kg=null;
       const {data,error}=await _supabase.from('minerio_viagens').insert(reg).select('id').single();
@@ -3070,6 +3110,31 @@ async function miSalvar(){
     const novo=!_miEdit; closeModal('m-mi-ent'); miLimpar(); if(novo&&_miSec!=='pes')miSec('pes'); await carregarMinerio();
   }catch(e){toast('Não salvou: '+(/aguardando_placa/.test(e.message||'')?'essa placa já está aguardando bruto.':(e.message||e)),'error');}
   finally{btn.disabled=false;}
+}
+function miInternosAbrir(){
+  if(!miPodeCorr()){toast('Só supervisor cadastra caminhão interno.','warning');return;}
+  const ls=Object.values(_miInternos).sort((a,b)=>a.placa.localeCompare(b.placa));
+  const linha=c=>`<tr><td><input class="form-input mi-int-placa" value="${esc(c.placa||'')}" style="max-width:120px;text-transform:uppercase;" oninput="this.value=this.value.toUpperCase().replace(/[^A-Z0-9]/g,'')"></td>
+    <td><input class="form-input mi-int-tara" type="number" step="10" value="${c.tara_kg??''}" style="max-width:120px;"></td>
+    <td><input class="form-input mi-int-mot" value="${esc(c.motorista||'')}" oninput="this.value=this.value.toUpperCase()"></td>
+    <td style="text-align:center;"><input type="checkbox" class="mi-int-ativo" ${c.ativo===false?'':'checked'} style="width:20px;height:20px;"></td></tr>`;
+  const ov=document.createElement('div'); ov.className='modal-overlay'; ov.id='m-mi-int';
+  ov.innerHTML=`<div class="modal" style="max-width:640px;width:96vw;"><div class="modal-header"><div class="modal-title">🚚 Caminhões internos — tara fixa</div><button class="modal-close" onclick="document.getElementById('m-mi-int').remove()">✕</button></div>
+    <p style="font-size:12.5px;color:#64748b;margin:-4px 0 10px;">Placa cadastrada aqui: na entrada o porteiro pesa só o bruto, a tara vem daqui e a viagem fecha na hora.</p>
+    <div class="table-wrap no-cel"><table><thead><tr><th>Placa</th><th>Tara (kg)</th><th>Motorista</th><th>Ativo</th></tr></thead><tbody id="mi-int-body">${ls.map(linha).join('')}</tbody></table></div>
+    <button class="btn btn-secondary btn-sm" style="margin-top:8px;" onclick="document.getElementById('mi-int-body').insertAdjacentHTML('beforeend',window._miIntLinha({}))">＋ Caminhão</button>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px;"><button class="btn btn-secondary" onclick="document.getElementById('m-mi-int').remove()">Cancelar</button><button class="btn btn-primary" onclick="miInternosSalvar()">💾 Salvar</button></div></div>`;
+  window._miIntLinha=linha; document.body.appendChild(ov);
+}
+async function miInternosSalvar(){
+  const rows=[...document.querySelectorAll('#mi-int-body tr')].map(tr=>({placa:tr.querySelector('.mi-int-placa').value.trim().toUpperCase(),
+    tara_kg:Number(tr.querySelector('.mi-int-tara').value||0),motorista:tr.querySelector('.mi-int-mot').value.trim()||null,
+    ativo:tr.querySelector('.mi-int-ativo').checked,atualizado_em:new Date().toISOString(),atualizado_por:quemSou()})).filter(r=>r.placa);
+  const ruim=rows.find(r=>!(r.tara_kg>=1000)); if(ruim){toast(`Tara da placa ${ruim.placa}: informe em kg (ex.: 12.640).`,'warning');return;}
+  const {error}=await _supabase.from('minerio_caminhoes_internos').upsert(rows,{onConflict:'placa'});
+  if(error){toast('Não salvou: '+error.message,'error');return;}
+  addLog('UPDATE','PORTARIA','minerio_caminhoes_internos','Minério: caminhões internos — '+rows.map(r=>r.placa+' '+nf(r.tara_kg)+' kg'+(r.ativo?'':' (inativo)')).join(', '));
+  document.getElementById('m-mi-int').remove(); toast('Caminhões internos salvos.','success'); await miCarregarInternos();
 }
 /* ✏️ Corrigir viagem de minério: só quem tem "Editar" marcado na tela Minério do perfil (porteiro não tem) */
 function miPodeCorr(){return typeof checkPermTab==='function'?checkPermTab(MOD,'minerio','edit'):checkPerm(MOD,'edit');}
