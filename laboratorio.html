@@ -409,8 +409,8 @@ details.pl-recolhe.pl-rt{margin-top:8px;}
     </div>
     <div id="lau-empty" style="display:none;text-align:center;padding:40px;color:#94a3b8;">
       <div style="font-size:42px;">📜</div>
-      <div style="font-size:14px;font-weight:700;color:#475569;margin-top:6px;">Nenhuma OP destes produtos no período</div>
-      <div style="font-size:12px;margin-top:4px;">O certificado é gerado para as OPs de caulim (saco, bag e granel).</div>
+      <div style="font-size:14px;font-weight:700;color:#475569;margin-top:6px;">Nenhum lote liberado para laudo no período</div>
+      <div style="font-size:12px;margin-top:4px;">O lote aparece aqui depois que o pallet é aprovado na Análise de Pallet (caulim saco, bag e granel).</div>
     </div>
   </div>
 
@@ -4284,7 +4284,10 @@ function _lauValidade(dataFab, anos){
   if(!dataFab) return '';
   const d=new Date(dataFab+'T12:00:00'); if(isNaN(d)) return '';
   const a=anos!=null?Number(anos):LAUDO_VALIDADE_ANOS;
-  d.setDate(d.getDate()+Math.round(a*365));
+  // anos inteiros = mesmo dia e mês (06/11/2026 → 06/11/2029); contar 365×N dias
+  // errava 1 dia por causa do ano bissexto (saía 05/11/2029)
+  if(Math.abs(a-Math.round(a))<0.02) d.setFullYear(d.getFullYear()+Math.round(a));
+  else d.setDate(d.getDate()+Math.round(a*365));
   return d.toISOString().slice(0,10);
 }
 function _lauDataBR(d){ return d? new Date(d+'T12:00:00').toLocaleDateString('pt-BR') : '—'; }
@@ -4314,6 +4317,15 @@ async function carregarLaudos(){
     return asArray(o.produtos_op).some(p=>_lauEhProdutoLaudo(p&&(p.nome||p.produto)));
   });
   _lauLaudos=laudos||[]; _lauLimQuim=lim||[]; _lauCarr=carr||[];
+  // Só entra na aba Laudo o que o Laboratório JÁ APROVOU na Análise de Pallet:
+  // OP + produto com pelo menos um pallet (ou carga de granel) aprovado.
+  _lauAprov=new Set();
+  const _idsOps=_lauOps.map(o=>o.id);
+  for(let k=0;k<_idsOps.length;k+=150){
+    const pa=await safe(_supabase.from('producao_pallets').select('lancamento_id,produto,status')
+      .in('lancamento_id',_idsOps.slice(k,k+150)).eq('status','aprovado'),'pallets aprovados');
+    pa.forEach(p=>_lauAprov.add(p.lancamento_id+'|'+_lauNorm(p.produto)));
+  }
   _empresa=(empCfg&&empCfg[0])||{};
   const av=document.getElementById('lau-aviso');
   const _todasFalhas=[..._falhas.map(f=>({tabela:'',erro:f})),
@@ -4413,7 +4425,7 @@ function _lauProdutoDaOp(op){
 // embalagens diferentes (25 kg ensacado + big bag + granel), somando a produção
 // e as análises dos pallets. Só aparece separado quando o lote é diferente.
 // OP com dois lotes (Branco 01 + Branco 02) entra uma vez em cada lote.
-let _lauGrupos=[], _lauGrupoAtual=null;
+let _lauGrupos=[], _lauGrupoAtual=null, _lauAprov=new Set(), _lauAguardando=0;
 const _lauOrdTurno=t=>/^3/.test(t||'')?0:/^1/.test(t||'')?1:/^2/.test(t||'')?2:3;
 // quantidade na unidade do laudo: granel é apontado em kg na OP → t; bag = t; saco = sc
 function _lauQtdUn(prod, bruto){
@@ -4450,9 +4462,12 @@ function _lauEmbTxt(g){
   return g.embs.map(e=>e.emb+' '+(e.un==='sc'?_lauFmtQ(e.q)+' sc':_lauFmtQ(e.kg/1000)+' t')).join(' · ');
 }
 function _lauMontarGrupos(){
-  const mapa=new Map();
+  const mapa=new Map(), espera=new Set();
   _lauOps.forEach(op=>_lauItensLaudoDaOp(op).forEach(it=>{
     const k=it.lote?'lote:'+_lauNorm(it.lote):'op:'+op.id+'|'+_lauNorm(it.prod);
+    // ainda não aprovado na Análise de Pallet (e sem laudo começado): fica fora da aba
+    const temLaudo=_lauLaudos.some(l=>l.producao_id===op.id);
+    if(!temLaudo&&!_lauAprov.has(op.id+'|'+_lauNorm(it.prod))){ if(it.kg>0) espera.add(k); return; }
     if(!mapa.has(k)) mapa.set(k,{k, lote:it.lote, ops:[], kgPorOp:{}, porProd:{}});
     const g=mapa.get(k);
     if(!g.ops.includes(op)) g.ops.push(op);
@@ -4460,6 +4475,7 @@ function _lauMontarGrupos(){
     const pp=g.porProd[it.prod]=g.porProd[it.prod]||{prod:it.prod,un:it.un,q:0,kg:0,qOp:{}};
     pp.q+=it.q; pp.kg+=it.kg; pp.qOp[op.id]=(pp.qOp[op.id]||0)+it.q;
   }));
+  _lauAguardando=[...espera].filter(k=>!mapa.has(k)).length;
   _lauGrupos=[...mapa.values()].map(g=>{
     // OP que não produziu nada deste lote (turno parado) não entra no laudo de quem produziu
     const tot=Object.values(g.kgPorOp).reduce((s,x)=>s+x,0);
@@ -4516,7 +4532,8 @@ function renderLaudoTab(){
     const rasc=_lauGrupos.filter(g=>g.laudo&&g.laudo.status!=='finalizado').length;
     const fin=_lauGrupos.filter(g=>g.laudo&&g.laudo.status==='finalizado').length;
     kEl.innerHTML=[['📋 Lotes no mês',total,'#475569'],['⚪ Sem laudo',sem,sem?'#dc2626':'#94a3b8'],
-                   ['✏️ Em rascunho',rasc,rasc?'#b45309':'#94a3b8'],['✅ Finalizados',fin,'#16a34a']]
+                   ['✏️ Em rascunho',rasc,rasc?'#b45309':'#94a3b8'],['✅ Finalizados',fin,'#16a34a'],
+                   ['⏳ Aguardando aprovação do pallet',_lauAguardando,_lauAguardando?'#2563eb':'#94a3b8']]
       .map(([t,v,cor])=>`<div class="card" style="padding:12px;text-align:center;"><div style="font-size:20px;font-weight:800;color:${cor};">${v}</div><div style="font-size:11px;color:#64748b;margin-top:2px;">${t}</div></div>`).join('');
   }
   const empty=document.getElementById('lau-empty');
@@ -5020,10 +5037,7 @@ async function montarCertificado(op, existente){
   if(!na.includes('umidade')) demais.push({k:'umidade',rot:'Umidade (%)',min:q?q.limite_umidade_min??null:null,max:q?q.limite_umidade_max??null:null,
     res:an.lista.length?mediaCampo('umidade'):(fonte.umidade!=null?_r2(Number(fonte.umidade)):null)});
   // M.M: mínimo do Lote de MP da OP (variação declarada); resultado das análises ou, sem elas, o medido no lote
-  const mpMM=_lauMPdaOp(op), mmMin=mpMM&&mpMM.mm_min!=null?Number(mpMM.mm_min):(q?q.limite_mm_min??null:null);
-  const mmPal=an.lista.some(a=>a.mm_result!=null), mmLote=mpMM&&mpMM.mm_result!=null?_r2(Number(mpMM.mm_result)):null;
-  if(!na.includes('mm')&&(mmMin!=null||mmPal||mmLote!=null))
-    demais.push({k:'mm',rot:'M.M — material mineral (%)',min:mmMin,max:null,res:mmPal?mediaCampo('mm_result'):mmLote});
+  // M.M — material mineral NÃO sai mais no laudo (pedido do dono, nov/2026): fica no Lote MP.
   if(!na.includes('peso_esp')&&(q&&(q.limite_peso_esp_min!=null||q.limite_peso_esp_max!=null)||an.lista.some(a=>a.peso_esp_result!=null)))
     demais.push({k:'pe',rot:'Peso específico aparente (g/cm³)',min:q?q.limite_peso_esp_min??null:null,max:q?q.limite_peso_esp_max??null:null,res:mediaCampo('peso_esp_result')});
   const total={min:q&&!na.includes('retido')?q.limite_total_retido_min??null:null, max:q&&!na.includes('retido')?q.limite_total_retido_max??null:null};
@@ -5048,7 +5062,7 @@ async function montarCertificado(op, existente){
     lote:(grp&&grp.lote)||(item&&item.lote)||_lauLoteDaOp(op)||'',
     lote_mp:_lauLoteMPdaOp(op)||'', frente:_lauFrenteDaOp(op)||'',
     data_fab:opsLote[0].data||op.data||'',
-    validade:(item&&item.validade)||_lauValidade(op.data,_lauValidadeAnosProduto(prod)),
+    validade:_lauValidade(opsLote[0].data||op.data,_lauValidadeAnosProduto(prod)),
     validade_anos:_lauValidadeAnosProduto(prod),
     qtd:grp?grp.qtd:_lauQtdProduzida(op),
     ident:{composicao:_lauPadraoProduto(prod,'composicao'),modo_usar:_lauPadraoProduto(prod,'modo_usar'),
