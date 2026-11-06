@@ -392,7 +392,7 @@ details.pl-recolhe.pl-rt{margin-top:8px;}
           <button class="btn btn-secondary btn-sm" onclick="abrirConfigRT()" title="Responsável Técnico fixo do certificado">⚙️ Responsável Técnico</button>
           <input type="month" id="lau-mes" class="form-input" style="width:150px;" onchange="carregarLaudos()">
           <select id="lau-filtro" class="form-input" style="width:170px;" onchange="renderLaudoTab()">
-            <option value="">Todas as OPs</option>
+            <option value="">Todos os lotes</option>
             <option value="sem">Sem laudo</option>
             <option value="rascunho">Laudo em rascunho</option>
             <option value="finalizado">Laudo finalizado</option>
@@ -4397,22 +4397,69 @@ function _lauProdutoDaOp(op){
   return alvo ? (alvo.nome||alvo.produto) : (op.produto||'—');
 }
 
+// ── LAUDO É DO LOTE (nov/2026) ───────────────────────────────────────────
+// Duas OPs com o MESMO produto e o MESMO lote (ex.: Madrugada e Manhã do Branco 01
+// no mesmo dia) viram UMA linha e UM certificado, somando a produção e as análises
+// dos pallets. Só aparece duas vezes quando o lote é diferente. OP com dois produtos
+// de laudo (Branco 01 + Branco 02) entra uma vez em cada lote.
+let _lauGrupos=[], _lauGrupoAtual=null;
+const _lauOrdTurno=t=>/^3/.test(t||'')?0:/^1/.test(t||'')?1:/^2/.test(t||'')?2:3;
+function _lauItensLaudoDaOp(op){
+  const its=asArray(op.produtos_op).filter(p=>p&&_lauEhProdutoLaudo(p.nome||p.produto));
+  if(its.length) return its.map(it=>({prod:it.nome||it.produto, lote:it.lote||op.lote_produto||op.lote||'', qtd:_lauQtdItem(it)}));
+  return [{prod:_lauProdutoDaOp(op), lote:_lauLoteDaOp(op), qtd:Number(op.total_sacos)||0}];
+}
+function _lauMontarGrupos(){
+  const mapa=new Map();
+  _lauOps.forEach(op=>_lauItensLaudoDaOp(op).forEach(it=>{
+    const k=_lauNorm(it.prod)+'|'+(it.lote?_lauNorm(it.lote):'op:'+op.id);
+    if(!mapa.has(k)) mapa.set(k,{k, prod:it.prod, lote:it.lote, ops:[], qtdPorOp:{}});
+    const g=mapa.get(k);
+    if(!g.ops.includes(op)) g.ops.push(op);
+    g.qtdPorOp[op.id]=(g.qtdPorOp[op.id]||0)+it.qtd;
+  }));
+  _lauGrupos=[...mapa.values()].map(g=>{
+    // OP que não produziu nada deste lote (turno parado) não entra no laudo de quem produziu
+    const tot=Object.values(g.qtdPorOp).reduce((s,x)=>s+x,0);
+    if(tot>0) g.ops=g.ops.filter(o=>(g.qtdPorOp[o.id]||0)>0||_lauLaudos.some(l=>l.producao_id===o.id));
+    g.ops.sort((a,b)=>String(a.data).localeCompare(String(b.data))||_lauOrdTurno(a.turno)-_lauOrdTurno(b.turno));
+    const ids=g.ops.map(o=>o.id), np=_lauNorm(g.prod);
+    const ls=_lauLaudos.filter(l=>ids.includes(l.producao_id)&&(!l.produto||_lauNorm(l.produto)===np));
+    g.laudo=ls.find(l=>l.status==='finalizado')||ls[0]||null;
+    g.rep=(g.laudo&&g.ops.find(o=>o.id===g.laudo.producao_id))||g.ops[0];
+    g.qtd=Object.values(g.qtdPorOp).reduce((s,x)=>s+x,0);
+    g.dataFim=g.ops[g.ops.length-1].data;
+    return g;
+  }).sort((a,b)=>String(b.dataFim).localeCompare(String(a.dataFim))||String(a.prod).localeCompare(String(b.prod)));
+}
+function _lauGrupo(chave){ return _lauGrupos.find(g=>g.k===chave)||null; }
+// por OP (link do Carregamento/Portaria): o grupo do laudo daquela OP, ou o 1º lote dela
+function _lauGrupoDaOp(opId, prod){
+  const np=prod?_lauNorm(prod):null;
+  return _lauGrupos.find(g=>g.ops.some(o=>o.id===opId)&&(!np||_lauNorm(g.prod)===np))
+      || _lauGrupos.find(g=>g.ops.some(o=>o.id===opId)) || null;
+}
+const _lauGK=g=>esc(encodeURIComponent(g.k));
+const _lauDeGK=s=>{ try{ return decodeURIComponent(s); }catch(e){ return s; } };
+function _lauOpsTxt(g){ return g.ops.map(o=>o.op_numero||'—').join(' / '); }
+
 function renderLaudoTab(){
   const tb=document.getElementById('lau-tbody'); if(!tb) return;
   const filtro=(document.getElementById('lau-filtro')||{}).value||'';
-  let lista=_lauOps.slice();
-  if(filtro==='sem') lista=lista.filter(o=>!_lauDoOp(o.id));
-  if(filtro==='rascunho') lista=lista.filter(o=>{const l=_lauDoOp(o.id); return l&&l.status!=='finalizado';});
-  if(filtro==='finalizado') lista=lista.filter(o=>{const l=_lauDoOp(o.id); return l&&l.status==='finalizado';});
+  _lauMontarGrupos();
+  let lista=_lauGrupos.slice();
+  if(filtro==='sem') lista=lista.filter(g=>!g.laudo);
+  if(filtro==='rascunho') lista=lista.filter(g=>g.laudo&&g.laudo.status!=='finalizado');
+  if(filtro==='finalizado') lista=lista.filter(g=>g.laudo&&g.laudo.status==='finalizado');
 
   // KPIs
   const kEl=document.getElementById('lau-kpis');
   if(kEl){
-    const total=_lauOps.length;
-    const sem=_lauOps.filter(o=>!_lauDoOp(o.id)).length;
-    const rasc=_lauOps.filter(o=>{const l=_lauDoOp(o.id);return l&&l.status!=='finalizado';}).length;
-    const fin=_lauOps.filter(o=>{const l=_lauDoOp(o.id);return l&&l.status==='finalizado';}).length;
-    kEl.innerHTML=[['📋 OPs no mês',total,'#475569'],['⚪ Sem laudo',sem,sem?'#dc2626':'#94a3b8'],
+    const total=_lauGrupos.length;
+    const sem=_lauGrupos.filter(g=>!g.laudo).length;
+    const rasc=_lauGrupos.filter(g=>g.laudo&&g.laudo.status!=='finalizado').length;
+    const fin=_lauGrupos.filter(g=>g.laudo&&g.laudo.status==='finalizado').length;
+    kEl.innerHTML=[['📋 Lotes no mês',total,'#475569'],['⚪ Sem laudo',sem,sem?'#dc2626':'#94a3b8'],
                    ['✏️ Em rascunho',rasc,rasc?'#b45309':'#94a3b8'],['✅ Finalizados',fin,'#16a34a']]
       .map(([t,v,cor])=>`<div class="card" style="padding:12px;text-align:center;"><div style="font-size:20px;font-weight:800;color:${cor};">${v}</div><div style="font-size:11px;color:#64748b;margin-top:2px;">${t}</div></div>`).join('');
   }
@@ -4420,28 +4467,30 @@ function renderLaudoTab(){
   if(!lista.length){ tb.innerHTML=''; if(empty)empty.style.display=''; return; }
   if(empty)empty.style.display='none';
 
-  tb.innerHTML=lista.map(op=>{
-    const l=_lauDoOp(op.id);
-    const prod=_lauProdutoDaOp(op);
+  tb.innerHTML=lista.map(g=>{
+    const l=g.laudo, prod=g.prod;
     const un=_lauUnidade(prod);
-    const qtdProd=_lauQtdProduzida(op);
+    const qtdProd=g.qtd;
     const carregado=l?_lauCarregadoDoLaudo(l.id):0;
     const badge = !l ? '<span class="sb" style="background:#f1f5f9;color:#64748b;">sem laudo</span>'
       : l.status==='finalizado' ? `<span class="sb" style="background:#dcfce7;color:#15803d;">✅ ${esc(l.numero||'sem número')}</span>`
       : `<span class="sb" style="background:#fef3c7;color:#92400e;">✏️ rascunho</span>`;
+    const datas=[...new Set(g.ops.map(o=>_lauDataBR(o.data)))].join(', ');
+    const linhas=[...new Set(g.ops.map(o=>o.linha||'—'))].join(', ');
+    const gk=_lauGK(g);
     return `<tr>
-      <td style="font-family:monospace;font-size:11.5px;">${esc(op.op_numero||'—')}</td>
-      <td style="font-size:12px;">${_lauDataBR(op.data)}</td>
-      <td style="font-size:12px;">${esc(op.linha||'—')}</td>
+      <td style="font-family:monospace;font-size:11.5px;">${g.ops.map(o=>esc(o.op_numero||'—')).join('<br>')}${g.ops.length>1?`<div style="font-family:inherit;font-size:10.5px;color:#64748b;">${g.ops.length} OPs · mesmo lote</div>`:''}</td>
+      <td style="font-size:12px;">${datas}</td>
+      <td style="font-size:12px;">${esc(linhas)}</td>
       <td style="font-size:12px;font-weight:700;">${esc(prod)}</td>
-      <td style="font-family:monospace;font-size:11.5px;">${esc(_lauLoteDaOp(op)||'—')}</td>
+      <td style="font-family:monospace;font-size:11.5px;">${esc(g.lote||'—')}</td>
       <td class="cp-num" style="font-size:12px;">${qtdProd.toLocaleString('pt-BR')} ${un}</td>
       <td class="cp-num" style="font-size:12px;${carregado>0?'font-weight:700;color:#15803d;':'color:#94a3b8;'}">${carregado?carregado.toLocaleString('pt-BR')+' '+un:'—'}</td>
       <td>${badge}</td>
       <td style="white-space:nowrap;">
-        <button class="btn btn-secondary btn-sm" onclick="abrirLaudo('${op.id}')" title="${l?'Abrir laudo':'Criar laudo'}">${l?'📄 Abrir':'+ Criar'}</button>
-        ${l?`<button class="btn btn-secondary btn-sm" onclick="abrirCarregamentoLaudo('${op.id}')" title="Registrar quanto deste lote foi carregado">📦</button>
-             <button class="btn btn-secondary btn-sm" onclick="abrirLaudo('${op.id}',true)" title="Baixar/Imprimir">🖨️</button>`:''}
+        <button class="btn btn-secondary btn-sm" onclick="abrirLaudo('${gk}')" title="${l?'Abrir laudo':'Criar laudo'}">${l?'📄 Abrir':'+ Criar'}</button>
+        ${l?`<button class="btn btn-secondary btn-sm" onclick="abrirCarregamentoLaudo('${gk}')" title="Registrar quanto deste lote foi carregado">📦</button>
+             <button class="btn btn-secondary btn-sm" onclick="abrirLaudo('${gk}',true)" title="Baixar/Imprimir">🖨️</button>`:''}
       </td>
     </tr>`;
   }).join('');
@@ -4675,27 +4724,32 @@ function somaSacosDosPallets(op,pals){
   if(!cap) return null;
   return Math.round(pals.length*cap);
 }
-function abrirCarregamentoLaudo(opId){
+function abrirCarregamentoLaudo(chave){
   if(!guardAction('laboratorio','edit'))return;
-  const op=_lauOps.find(o=>o.id===opId); if(!op) return;
-  const laudo=_lauDoOp(opId);
+  const gk=_lauDeGK(chave);
+  const g=_lauGrupo(gk)||_lauGrupoDaOp(gk); if(!g) return;
+  const op=g.rep, laudo=g.laudo;
   if(!laudo){ toast('Emita o certificado antes de registrar carregamento.','warning'); return; }
 
-  const un=_lauUnidade(_lauProdutoDaOp(op));
+  const un=_lauUnidade(g.prod);
   const jaReg=_lauCarr.filter(x=>x.laudo_id===laudo.id);
   const somaReg=jaReg.reduce((s,x)=>s+(Number(x.quantidade)||0),0);
-  const qtdProd=_lauQtdProduzida(op);
-  const pals=palletsCarregadosDaOP(opId);
+  const qtdProd=g.qtd;
+  // laudo é do lote: pallets carregados de TODAS as OPs do lote
+  const palsPorOp=g.ops.map(o=>({o,p:palletsCarregadosDaOP(o.id)}));
+  const pals=palsPorOp.flatMap(x=>x.p);
   // BUG grave: a sugestão era `pals.length` — 4 pallets de 180 sacos sugeriam
   // "4 sacos" no campo rotulado "Quantidade (sc)". Agora soma a capacidade real
-  // dos pallets a partir de produtos_op[].pallets[] da OP.
-  const sugestao=somaSacosDosPallets(op,pals);
+  // dos pallets a partir de produtos_op[].pallets[] de cada OP.
+  const sugs=palsPorOp.filter(x=>x.p.length).map(x=>somaSacosDosPallets(x.o,x.p));
+  const sugestao=sugs.length&&sugs.every(v=>v!=null)?sugs.reduce((s,v)=>s+v,0):null;
   const saldo=qtdProd-somaReg;
+  const gq=_lauGK(g);
 
   const body=`
     <div class="af-box" style="margin-bottom:12px;">
       <div class="form-grid-3">
-        ${[['Certificado',laudo.numero||'—'],['OP',op.op_numero||'—'],['Produto',_lauProdutoDaOp(op)||'—'],
+        ${[['Certificado',laudo.numero||'—'],[g.ops.length>1?'OPs do lote':'OP',_lauOpsTxt(g)],['Produto',g.prod||'—'],
            ['Produzido',qtdProd.toLocaleString('pt-BR')+' '+un],
            ['Já registrado',somaReg.toLocaleString('pt-BR')+' '+un],
            ['Saldo',(qtdProd-somaReg).toLocaleString('pt-BR')+' '+un]]
@@ -4704,10 +4758,10 @@ function abrirCarregamentoLaudo(opId){
       </div>
     </div>
     ${pals.length?`<div style="padding:10px 13px;border-radius:9px;background:#f0fdf4;border-left:4px solid #16a34a;font-size:12.5px;color:#15803d;margin-bottom:12px;">
-      <strong>${pals.length} pallet(s) desta OP já constam como carregados</strong> no módulo de carregamento.
+      <strong>${pals.length} pallet(s) deste lote já constam como carregados</strong> no módulo de carregamento.
       ${pals.slice(0,12).map(p=>'#'+p.numero).join(', ')}${pals.length>12?'…':''}</div>`
     :`<div style="padding:10px 13px;border-radius:9px;background:#eff6ff;border-left:4px solid #2563eb;font-size:12.5px;color:#1e40af;margin-bottom:12px;">
-      Nenhum pallet desta OP aparece como carregado ainda. Você pode registrar a quantidade manualmente.</div>`}
+      Nenhum pallet deste lote aparece como carregado ainda. Você pode registrar a quantidade manualmente.</div>`}
 
     <div class="form-grid-3">
       <div class="form-group"><label class="form-label">Data do carregamento</label>
@@ -4730,21 +4784,22 @@ function abrirCarregamentoLaudo(opId){
         <th>Data</th><th>Cliente</th><th>NF</th><th>Quantidade</th><th></th></tr></thead><tbody>
         ${jaReg.map(x=>`<tr><td>${esc(x.data||'—')}</td><td>${esc(x.cliente||'—')}${x.origem==='carregamento'?`<div style="font-size:10.5px;color:#15803d;">🚛 automático · ordem ${esc(x.ordem_numero||'—')}${x.placa?' · '+esc(x.placa):''}</div>`:''}</td><td>${esc(x.nota_fiscal||'—')}</td>
           <td><strong>${Number(x.quantidade||0).toLocaleString('pt-BR')} ${x.unidade||un}</strong></td>
-          <td><button class="btn btn-ghost btn-sm" style="color:var(--danger);" onclick="excluirCarregamentoLaudo('${x.id}','${opId}')">🗑️</button></td></tr>`).join('')}
+          <td><button class="btn btn-ghost btn-sm" style="color:var(--danger);" onclick="excluirCarregamentoLaudo('${x.id}','${gq}')">🗑️</button></td></tr>`).join('')}
       </tbody></table></div>`:''}`;
 
   openModal('modal-lau-carr','📦 Carregamento do certificado '+(laudo.numero||''),body,
     `<button class="btn btn-secondary" onclick="closeModal('modal-lau-carr')">Fechar</button>
-     <button class="btn btn-primary" id="btn-lc" onclick="salvarCarregamentoLaudo('${opId}')">💾 Registrar</button>`,{lg:true});
+     <button class="btn btn-primary" id="btn-lc" onclick="salvarCarregamentoLaudo('${gq}')">💾 Registrar</button>`,{lg:true});
 }
-async function salvarCarregamentoLaudo(opId){
+async function salvarCarregamentoLaudo(chave){
   if(!guardAction('laboratorio','edit'))return;
-  const laudo=_lauDoOp(opId); if(!laudo) return;
-  const op=_lauOps.find(o=>o.id===opId);
+  const gk=_lauDeGK(chave);
+  const g=_lauGrupo(gk)||_lauGrupoDaOp(gk); if(!g||!g.laudo) return;
+  const laudo=g.laudo;
   const qtd=numOrNull(gv('lc-qtd'));
   if(qtd==null||qtd<=0){ toast('Informe a quantidade carregada.','warning'); return; }
-  // Não existia validação contra o saldo: dava para registrar mais do que a OP produziu.
-  const qtdProd=_lauQtdProduzida(op);
+  // Não existia validação contra o saldo: dava para registrar mais do que o lote produziu.
+  const qtdProd=g.qtd;
   const jaReg=_lauCarr.filter(x=>x.laudo_id===laudo.id).reduce((t,x)=>t+(Number(x.quantidade)||0),0);
   if(qtdProd>0 && qtd+jaReg>qtdProd*1.001){
     toast(`Quantidade acima do saldo: produzido ${qtdProd.toLocaleString('pt-BR')}, já registrado ${jaReg.toLocaleString('pt-BR')}. Saldo ${(qtdProd-jaReg).toLocaleString('pt-BR')}.`,'danger');
@@ -4759,7 +4814,7 @@ async function salvarCarregamentoLaudo(opId){
       cliente:document.getElementById('lc-cliente').value||null,
       nota_fiscal:document.getElementById('lc-nf').value||null,
       quantidade:qtd,
-      unidade:_lauUnidade(_lauProdutoDaOp(op)),
+      unidade:_lauUnidade(g.prod),
       obs:document.getElementById('lc-obs').value||null,
       criado_por:u?.nome||u?.email||'sistema',
     }),'registrar carregamento');
@@ -4771,17 +4826,17 @@ async function salvarCarregamentoLaudo(opId){
   }catch(e){ toast('Erro: '+(e.message||e),'danger'); }
   btn.disabled=false; btn.innerHTML='💾 Registrar';
 }
-async function excluirCarregamentoLaudo(id,opId){
+async function excluirCarregamentoLaudo(id,chave){
   if(!guardAction('laboratorio','delete'))return;
   const r=await db(_supabase.from('lab_laudo_carregamentos').delete().eq('id',id),'excluir carregamento');
   if(r.error) return;
   toast('Registro removido.','success');
   await carregarLaudos();
-  abrirCarregamentoLaudo(opId);
+  abrirCarregamentoLaudo(chave);
 }
 
-function abrirLaudo(opId, jaImprimir){
-  return Promise.resolve().then(()=>_abrirLaudoInterno(opId, jaImprimir)).catch(e=>{
+function abrirLaudo(opId, jaImprimir, prod){
+  return Promise.resolve().then(()=>_abrirLaudoInterno(opId, jaImprimir, prod)).catch(e=>{
     console.error('abrirLaudo',e);
     const c=document.getElementById('lau-corpo');
     if(c){
@@ -4852,7 +4907,10 @@ function _faixa(min,max){
 function _fmtNumBR(v,d){ if(v==null||v==='') return ''; const n=Number(v); if(isNaN(n)) return String(v); return n.toLocaleString('pt-BR',{minimumFractionDigits:d??2,maximumFractionDigits:d??2}); }
 
 async function montarCertificado(op, existente){
-  const prod=_lauProdutoDaOp(op);
+  // laudo do LOTE: mesmo produto + mesmo lote em várias OPs → soma produção e análises
+  const grp=(_lauGrupoAtual&&_lauGrupoAtual.ops.includes(op))?_lauGrupoAtual:null;
+  const opsLote=grp?grp.ops:[op];
+  const prod=grp?grp.prod:_lauProdutoDaOp(op);
   const {pc,q}=_lauQualidadeDoProduto(prod);
   const item=_lauItemDaOp(op,prod);
   const fin=!!(existente&&existente.status==='finalizado');
@@ -4861,11 +4919,18 @@ async function montarCertificado(op, existente){
   const na=lpNA(q);
 
   // Pallets da OP podem não estar entre os 600 carregados: busca as do lote.
-  if(!(_palletAnalises||[]).some(a=>a.lancamento_id===op.id)){
-    const r=await _supabase.from('lab_pallet_analises').select('*').eq('lancamento_id',op.id).limit(200);
-    if(!r.error&&r.data&&r.data.length) _palletAnalises=(_palletAnalises||[]).concat(r.data);
+  const faltam=opsLote.filter(o=>!(_palletAnalises||[]).some(a=>a.lancamento_id===o.id)).map(o=>o.id);
+  if(faltam.length){
+    const r=await _supabase.from('lab_pallet_analises').select('*').in('lancamento_id',faltam).limit(200*faltam.length);
+    if(r.error) toast('Não consegui ler as análises dos pallets do lote: '+r.error.message,'warning');
+    else if(r.data&&r.data.length) _palletAnalises=(_palletAnalises||[]).concat(r.data);
   }
-  const an=_lauAnalisesPalletDaOp(op,prod);
+  const _ans=opsLote.map(o=>_lauAnalisesPalletDaOp(o,prod));
+  const _aprovs=_ans.flatMap(a=>a.soAprovadas?a.lista:[]);
+  const _todas=_ans.flatMap(a=>a.soAprovadas?[]:a.lista);
+  // mesma regra de antes, no lote inteiro: havendo aprovadas, só elas contam
+  const an=_aprovs.length?{lista:_aprovs,soAprovadas:true,total:_ans.reduce((s,a)=>s+a.total,0)}
+                         :{lista:_todas,soAprovadas:false,total:_ans.reduce((s,a)=>s+a.total,0)};
 
   // ── ensaios do lote: especificação de Limites por Produto, resultado = média das análises
   const pensIds=q?lpPensMedidas(q):[];
@@ -4914,15 +4979,15 @@ async function montarCertificado(op, existente){
   const e=_empresa||{};
   const cert={
     opId:op.id, laudoId:existente?existente.id:null, numero:existente&&existente.numero||null, finalizado:fin,
-    op_numero:op.op_numero||'', produto:prod, unidade:un, granel,
+    op_numero:opsLote.map(o=>o.op_numero).filter(Boolean).join(' / ')||'', produto:prod, unidade:un, granel,
     variacao:_lauVariacaoDaOp(op)||'',
     classificacao:(pc&&pc.laudo_classificacao)||'Veículo Mineral',
-    lote:(item&&item.lote)||_lauLoteDaOp(op)||'',
+    lote:(grp&&grp.lote)||(item&&item.lote)||_lauLoteDaOp(op)||'',
     lote_mp:_lauLoteMPdaOp(op)||'', frente:_lauFrenteDaOp(op)||'',
-    data_fab:op.data||'',
+    data_fab:opsLote[0].data||op.data||'',
     validade:(item&&item.validade)||_lauValidade(op.data,_lauValidadeAnosProduto(prod)),
     validade_anos:_lauValidadeAnosProduto(prod),
-    qtd:_lauQtdProduzida(op),
+    qtd:grp?grp.qtd:_lauQtdProduzida(op),
     ident:{composicao:_lauPadraoProduto(prod,'composicao'),modo_usar:_lauPadraoProduto(prod,'modo_usar'),
            precaucoes:_lauPadraoProduto(prod,'precaucoes'),registro:_lauPadraoProduto(prod,'registro')},
     peneiras, total, demais, quim,
@@ -5300,16 +5365,21 @@ function _lauPintarBarra(vd){
     ${av.length?`<div style="margin-top:6px;font-size:11.5px;color:#92400e;">${av.map(x=>(/^ℹ️/.test(x)?'':'⚠️ ')+esc(x)).join('<br>')}</div>`:''}`;
 }
 
-async function _abrirLaudoInterno(opId, jaImprimir){
-  const op=_lauOps.find(o=>o.id===opId);
-  if(!op){ throw new Error('OP '+opId+' não está na lista carregada. Recarregue a aba ou ajuste o filtro de mês.'); }
-  const existente=_lauDoOp(opId);
+// `chave` = lote da lista (produto|lote) — ou o id da OP (link do Carregamento/Portaria)
+async function _abrirLaudoInterno(chave, jaImprimir, prod){
+  if(!_lauGrupos.length) _lauMontarGrupos();
+  const gk=_lauDeGK(chave);
+  const g=_lauGrupo(gk)||_lauGrupoDaOp(gk,prod);
+  if(!g){ throw new Error('OP/lote '+gk+' não está na lista carregada. Recarregue a aba ou ajuste o filtro de mês.'); }
+  const op=g.rep;
+  const existente=g.laudo;
+  _lauGrupoAtual=g;
   _cert=await montarCertificado(op,existente);
   if(existente){ _cert.assinado_em=existente.assinado_em; _cert.assinatura_hash=existente.assinatura_hash; }
   // laudo finalizado antes da 051 não tem a folha no Storage: grava agora (Carregamento/Portaria usam)
   if(existente&&existente.status==='finalizado'&&!existente.arquivo_path) _lauGravarArquivo(existente,_cert);
-  _lauEdit={opId, laudoId:existente?existente.id:null, produto:_cert.produto, unidade:_cert.unidade};
-  document.getElementById('lau-tit').textContent=(existente&&existente.numero?('📜 '+existente.numero):'📜 Novo Certificado')+' — OP '+(op.op_numero||'');
+  _lauEdit={opId:op.id, gk:g.k, laudoId:existente?existente.id:null, produto:_cert.produto, unidade:_cert.unidade};
+  document.getElementById('lau-tit').textContent=(existente&&existente.numero?('📜 '+existente.numero):'📜 Novo Certificado')+' — '+(g.ops.length>1?'OPs ':'OP ')+_lauOpsTxt(g);
   document.getElementById('lau-corpo').innerHTML=`<div id="lau-barra" style="padding:9px 12px;border-radius:9px;background:#f8fafc;border:1px solid #e2e8f0;margin-bottom:10px;font-size:12.5px;"></div>
     <iframe id="lau-frame" title="Certificado" style="width:100%;border:0;border-radius:8px;background:#E5E7EB;min-height:600px;"></iframe>`;
   const modal=document.querySelector('#m-laudo .modal'); if(modal) modal.style.maxWidth='960px';
@@ -5329,7 +5399,13 @@ async function _abrirLaudoInterno(opId, jaImprimir){
 }
 
 function _lauPalletsDaOp(op){
-  return (_pallets||[]).filter(p=>(p.producao&&p.producao.id===op.id)||p.lancamento_id===op.id);
+  const g=_lauGrupoAtual&&_lauGrupoAtual.ops.includes(op)?_lauGrupoAtual:null;
+  const ids=g?g.ops.map(o=>o.id):[op.id];
+  const todos=(_pallets||[]).filter(p=>ids.includes((p.producao&&p.producao.id)||p.lancamento_id));
+  if(!g) return todos;
+  // OP com dois produtos (Branco 01 + 02): só os pallets do produto deste lote
+  const doProd=todos.filter(p=>_lauNorm(p.produto)===_lauNorm(g.prod));
+  return doProd.length?doProd:todos;
 }
 function _lauAprovadoresPallets(op){
   const aprov=_lauPalletsDaOp(op).filter(p=>p.status==='aprovado'&&p.responsavel_lab);
@@ -5343,6 +5419,8 @@ async function salvarLaudo(finalizar){
   if(!_lauEdit||!_cert) return;
   if(!guardAction('laboratorio','edit')) return;
   const op=_lauOps.find(o=>o.id===_lauEdit.opId); if(!op) return;
+  const grp=(_lauGrupoAtual&&_lauGrupoAtual.k===_lauEdit.gk)?_lauGrupoAtual:null;
+  const opsLote=grp?grp.ops:[op];
   _lauLerCampos();
   const c=_cert, vd=vereditoCert(c), u=getUser()||{};
   if(finalizar){
@@ -5357,7 +5435,7 @@ async function salvarLaudo(finalizar){
   const aprovs=_lauAprovadoresPallets(op);
   const um=c.demais.find(d=>d.k==='umidade'), mm=c.demais.find(d=>d.k==='mm'), pe=c.demais.find(d=>d.k==='pe');
   const row={
-    producao_id:op.id, referencia_id:op.id, op_numero:op.op_numero||null, tipo:'op', produto:c.produto,
+    producao_id:op.id, referencia_id:op.id, op_numero:opsLote.map(o=>o.op_numero).filter(Boolean).join(' / ')||null, tipo:'op', produto:c.produto,
     variacao:c.variacao||null, classificacao:c.classificacao, lote:c.lote||null, lote_mp:c.lote_mp||null,
     frente_extracao:c.frente||null, data_fabricacao:c.data_fab||null, validade:c.validade||null, validade_anos:Math.round(c.validade_anos)||LAUDO_VALIDADE_ANOS,
     composicao_txt:c.ident.composicao, modo_usar:c.ident.modo_usar, precaucoes:c.ident.precaucoes, registro_txt:c.ident.registro,
@@ -5374,7 +5452,7 @@ async function salvarLaudo(finalizar){
     responsavel:c.rt.nome||null, responsavel_id:c.rt.id||null, responsavel_cargo:c.rt.cargo||null,
     rt_nome:c.rt.nome||null, rt_crea:c.rt.registro||null, emitido_por:u.nome||u.email||null,
     aprovador_pallets:aprovs.map(x=>x.nome).join(', ')||null, aprovador_pallets_id:(aprovs[0]&&aprovs[0].id)||null,
-    dados_snapshot:{fonte_ensaios:c.fonte, variacao:c.variacao, lote_mp:c.lote_mp, frente:c.frente, veredito:vd.status, gravado_em:new Date().toISOString()},
+    dados_snapshot:{fonte_ensaios:c.fonte, variacao:c.variacao, lote_mp:c.lote_mp, frente:c.frente, veredito:vd.status, ops_lote:opsLote.map(o=>({id:o.id,op:o.op_numero})), gravado_em:new Date().toISOString()},
     atualizado_em:new Date().toISOString(),
   };
   if(finalizar){
@@ -5404,11 +5482,12 @@ async function salvarLaudo(finalizar){
     if(finalizar){
       c.finalizado=true; c.assinado_em=salvo.assinado_em||row.assinado_em; c.assinatura_hash=salvo.assinatura_hash||row.assinatura_hash;
       await _lauGravarArquivo(salvo,c);      // folha pronta no Storage → Carregamento/Portaria imprimem (051)
-      const rp=await _supabase.from('producao').update({laudo_id:salvo.id,laudo_numero:salvo.numero}).eq('id',op.id);
-      if(rp.error) toast('Laudo salvo, mas não consegui gravar o vínculo na OP: '+rp.error.message,'warning');
-      op.laudo_id=salvo.id; op.laudo_numero=salvo.numero;
+      // o laudo é do lote: todas as OPs do lote apontam para ele
+      const rp=await _supabase.from('producao').update({laudo_id:salvo.id,laudo_numero:salvo.numero}).in('id',opsLote.map(o=>o.id));
+      if(rp.error) toast('Laudo salvo, mas não consegui gravar o vínculo nas OPs: '+rp.error.message,'warning');
+      else opsLote.forEach(o=>{ o.laudo_id=salvo.id; o.laudo_numero=salvo.numero; });
     }
-    await addLog(finalizar?'UPDATE':'CREATE','LABORATORIO',salvo.id,`Laudo ${salvo.numero||''} ${finalizar?'FINALIZADO':'salvo em rascunho'} — OP ${op.op_numero||''} · ${vd.status}`);
+    await addLog(finalizar?'UPDATE':'CREATE','LABORATORIO',salvo.id,`Laudo ${salvo.numero||''} ${finalizar?'FINALIZADO':'salvo em rascunho'} — OP ${row.op_numero||''} · ${vd.status}`);
     renderLaudoTab();
     toast(finalizar?`✅ Certificado ${salvo.numero||''} finalizado (${vd.status}).`:'Rascunho salvo.','success');
     if(finalizar) closeModal('m-laudo');
@@ -5437,12 +5516,12 @@ async function _lauGravarArquivo(laudo,c){
 // Link direto: laboratorio.html?laudo=<id>&imprimir=1 (vem do Carregamento / Portaria)
 async function abrirLaudoPorLink(){
   const q=new URLSearchParams(location.search), id=q.get('laudo'); if(!id) return;
-  const {data:l}=await _supabase.from('lab_laudos').select('id,producao_id').eq('id',id).single();
+  const {data:l}=await _supabase.from('lab_laudos').select('id,producao_id,produto').eq('id',id).single();
   if(!l||!l.producao_id){ toast('Certificado não encontrado.','warning'); return; }
   const {data:op}=await _supabase.from('producao').select('id,data').eq('id',l.producao_id).single();
   const mes=document.getElementById('lau-mes'); if(mes&&op&&op.data) mes.value=String(op.data).slice(0,7);
   showTab('laudo'); await carregarLaudos();
-  abrirLaudo(l.producao_id, q.get('imprimir')==='1');
+  abrirLaudo(l.producao_id, q.get('imprimir')==='1', l.produto);
 }
 
 // Baixar / imprimir: imprime a própria folha da tela (mesmo HTML, mesmo CSS).
