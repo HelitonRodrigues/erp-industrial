@@ -4369,8 +4369,18 @@ function _lauAnalisesExternasVigentes(produtoNome, variacaoId){
   };
 }
 function _lauDoOp(opId){ return _lauLaudos.find(l=>l.producao_id===opId) || null; }
-function _lauCarregadoDoLaudo(laudoId){
-  return _lauCarr.filter(x=>x.laudo_id===laudoId).reduce((s,x)=>s+(Number(x.quantidade)||0),0);
+function _lauCarregadoDoLaudo(laudoId, g){
+  const regs=_lauCarr.filter(x=>x.laudo_id===laudoId);
+  if(!g) return regs.reduce((s,x)=>s+(Number(x.quantidade)||0),0);
+  // laudo do lote em TONELADAS: peso gravado pela carga; senão converte pela unidade do registro
+  return regs.reduce((s,x)=>{
+    const q=Number(x.quantidade)||0, u=String(x.unidade||'').toLowerCase();
+    if(x.peso_kg!=null&&Number(x.peso_kg)>0) return s+Number(x.peso_kg)/1000;
+    if(u==='t') return s+q;
+    if(u==='bag') return s+q*_lauPesoUnidadeKg(x.produto||g.prod,'t')/1000;
+    if(u==='sc') return s+q*_lauPesoUnidadeKg(x.produto||g.prods.find(p=>_lauUnidade(p)==='sc')||g.prod,'sc')/1000;
+    return s+q;
+  },0);
 }
 // A quantidade do produto vive em produtos_op[].total_sacos — `qtd` não
 // existe nessa estrutura, então a conta sempre caía no total da OP inteira e
@@ -4398,36 +4408,82 @@ function _lauProdutoDaOp(op){
 }
 
 // ── LAUDO É DO LOTE (nov/2026) ───────────────────────────────────────────
-// Duas OPs com o MESMO produto e o MESMO lote (ex.: Madrugada e Manhã do Branco 01
-// no mesmo dia) viram UMA linha e UM certificado, somando a produção e as análises
-// dos pallets. Só aparece duas vezes quando o lote é diferente. OP com dois produtos
-// de laudo (Branco 01 + Branco 02) entra uma vez em cada lote.
+// O lote é o material (ex.: 20261103B01 = Caulim Branco 01 do dia 03). Tudo que
+// tem o MESMO lote vira UMA linha e UM certificado — OPs de turnos diferentes e
+// embalagens diferentes (25 kg ensacado + big bag + granel), somando a produção
+// e as análises dos pallets. Só aparece separado quando o lote é diferente.
+// OP com dois lotes (Branco 01 + Branco 02) entra uma vez em cada lote.
 let _lauGrupos=[], _lauGrupoAtual=null;
 const _lauOrdTurno=t=>/^3/.test(t||'')?0:/^1/.test(t||'')?1:/^2/.test(t||'')?2:3;
+// quantidade na unidade do laudo: granel é apontado em kg na OP → t; bag = t; saco = sc
+function _lauQtdUn(prod, bruto){
+  const un=_lauUnidade(prod), granel=/granel/.test(_lauNorm(prod));
+  const q=granel?(Number(bruto)||0)/1000:(Number(bruto)||0);
+  const kg=un==='t'?q*1000:q*_lauPesoUnidadeKg(prod,'sc');
+  return {un,q,kg};
+}
 function _lauItensLaudoDaOp(op){
   const its=asArray(op.produtos_op).filter(p=>p&&_lauEhProdutoLaudo(p.nome||p.produto));
-  if(its.length) return its.map(it=>({prod:it.nome||it.produto, lote:it.lote||op.lote_produto||op.lote||'', qtd:_lauQtdItem(it)}));
-  return [{prod:_lauProdutoDaOp(op), lote:_lauLoteDaOp(op), qtd:Number(op.total_sacos)||0}];
+  const fim=(prod,lote,bruto)=>Object.assign({prod,lote},_lauQtdUn(prod,bruto));
+  if(its.length) return its.map(it=>fim(it.nome||it.produto, it.lote||op.lote_produto||op.lote||'', _lauQtdItem(it)));
+  return [fim(_lauProdutoDaOp(op), _lauLoteDaOp(op), Number(op.total_sacos)||0)];
+}
+function _lauFmtQ(q){ return (Math.round(q*1000)/1000).toLocaleString('pt-BR'); }
+// Mesmo lote = mesmo produto (o material). O que muda é só a embalagem:
+// "Big Bag Caulim Branco 01" / "Caulim 25kg - Branco 01" → material "Caulim Branco 01".
+function _lauEmbalagem(prod){
+  const n=_lauNorm(prod);
+  if(n.includes('granel')) return 'Granel';
+  if(n.includes('bag')) return 'Bag';
+  const kg=n.match(/(\d+(?:[.,]\d+)?)\s*kg/);
+  return 'Ensacado'+(kg?' '+kg[1]+' kg':'');
+}
+function _lauMaterial(prods){
+  const limpo=p=>String(p||'').replace(/big\s*bag/ig,' ').replace(/\bgranel\b/ig,' ').replace(/\d+(?:[.,]\d+)?\s*kg/ig,' ')
+    .replace(/\s+-\s+|\s-|-\s/g,' ').replace(/\s{2,}/g,' ').trim();
+  const nomes=[...new Set((prods||[]).map(limpo).filter(Boolean))];
+  return nomes.length===1?nomes[0]:(nomes.join(' / ')||String((prods||[])[0]||''));
+}
+// Produzido do lote em TONELADAS (+ quanto em cada embalagem)
+function _lauQtdTxt(g){ return _lauFmtQ(g.qtd)+' t'; }
+function _lauEmbTxt(g){
+  return g.embs.map(e=>e.emb+' '+(e.un==='sc'?_lauFmtQ(e.q)+' sc':_lauFmtQ(e.kg/1000)+' t')).join(' · ');
 }
 function _lauMontarGrupos(){
   const mapa=new Map();
   _lauOps.forEach(op=>_lauItensLaudoDaOp(op).forEach(it=>{
-    const k=_lauNorm(it.prod)+'|'+(it.lote?_lauNorm(it.lote):'op:'+op.id);
-    if(!mapa.has(k)) mapa.set(k,{k, prod:it.prod, lote:it.lote, ops:[], qtdPorOp:{}});
+    const k=it.lote?'lote:'+_lauNorm(it.lote):'op:'+op.id+'|'+_lauNorm(it.prod);
+    if(!mapa.has(k)) mapa.set(k,{k, lote:it.lote, ops:[], kgPorOp:{}, porProd:{}});
     const g=mapa.get(k);
     if(!g.ops.includes(op)) g.ops.push(op);
-    g.qtdPorOp[op.id]=(g.qtdPorOp[op.id]||0)+it.qtd;
+    g.kgPorOp[op.id]=(g.kgPorOp[op.id]||0)+it.kg;
+    const pp=g.porProd[it.prod]=g.porProd[it.prod]||{prod:it.prod,un:it.un,q:0,kg:0,qOp:{}};
+    pp.q+=it.q; pp.kg+=it.kg; pp.qOp[op.id]=(pp.qOp[op.id]||0)+it.q;
   }));
   _lauGrupos=[...mapa.values()].map(g=>{
     // OP que não produziu nada deste lote (turno parado) não entra no laudo de quem produziu
-    const tot=Object.values(g.qtdPorOp).reduce((s,x)=>s+x,0);
-    if(tot>0) g.ops=g.ops.filter(o=>(g.qtdPorOp[o.id]||0)>0||_lauLaudos.some(l=>l.producao_id===o.id));
+    const tot=Object.values(g.kgPorOp).reduce((s,x)=>s+x,0);
+    if(tot>0) g.ops=g.ops.filter(o=>(g.kgPorOp[o.id]||0)>0||_lauLaudos.some(l=>l.producao_id===o.id));
     g.ops.sort((a,b)=>String(a.data).localeCompare(String(b.data))||_lauOrdTurno(a.turno)-_lauOrdTurno(b.turno));
-    const ids=g.ops.map(o=>o.id), np=_lauNorm(g.prod);
-    const ls=_lauLaudos.filter(l=>ids.includes(l.producao_id)&&(!l.produto||_lauNorm(l.produto)===np));
+    // produtos do lote (sem os que ficaram com 0 quando há produção)
+    let pps=Object.values(g.porProd);
+    if(tot>0) pps=pps.filter(p=>p.kg>0);
+    pps.sort((a,b)=>b.kg-a.kg);
+    g.prods=pps.map(p=>p.prod);
+    g.prod=g.prods[0]||Object.keys(g.porProd)[0];   // principal (mais kg): limites e cadastro
+    g.qtdUn={}; pps.forEach(p=>{ g.qtdUn[p.un]=(g.qtdUn[p.un]||0)+p.q; });
+    g.misto=Object.keys(g.qtdUn).length>1;
+    g.kg=tot;
+    g.un='t';                       // laudo do lote sempre em toneladas
+    g.qtd=tot/1000;
+    g.material=_lauMaterial(g.prods.length?g.prods:Object.keys(g.porProd));
+    const em={}; pps.forEach(p=>{ const e=_lauEmbalagem(p.prod); const x=em[e]=em[e]||{emb:e,un:p.un,q:0,kg:0}; x.q+=p.q; x.kg+=p.kg; });
+    g.embs=Object.values(em);
+    const ids=g.ops.map(o=>o.id), nl=_lauNorm(g.lote), nps=g.prods.map(_lauNorm);
+    const ls=_lauLaudos.filter(l=>ids.includes(l.producao_id)&&
+      (g.lote ? (!l.lote||_lauNorm(l.lote)===nl) : (!l.produto||nps.includes(_lauNorm(l.produto)))));
     g.laudo=ls.find(l=>l.status==='finalizado')||ls[0]||null;
     g.rep=(g.laudo&&g.ops.find(o=>o.id===g.laudo.producao_id))||g.ops[0];
-    g.qtd=Object.values(g.qtdPorOp).reduce((s,x)=>s+x,0);
     g.dataFim=g.ops[g.ops.length-1].data;
     return g;
   }).sort((a,b)=>String(b.dataFim).localeCompare(String(a.dataFim))||String(a.prod).localeCompare(String(b.prod)));
@@ -4436,7 +4492,7 @@ function _lauGrupo(chave){ return _lauGrupos.find(g=>g.k===chave)||null; }
 // por OP (link do Carregamento/Portaria): o grupo do laudo daquela OP, ou o 1º lote dela
 function _lauGrupoDaOp(opId, prod){
   const np=prod?_lauNorm(prod):null;
-  return _lauGrupos.find(g=>g.ops.some(o=>o.id===opId)&&(!np||_lauNorm(g.prod)===np))
+  return _lauGrupos.find(g=>g.ops.some(o=>o.id===opId)&&(!np||g.prods.some(p=>_lauNorm(p)===np)))
       || _lauGrupos.find(g=>g.ops.some(o=>o.id===opId)) || null;
 }
 const _lauGK=g=>esc(encodeURIComponent(g.k));
@@ -4468,10 +4524,9 @@ function renderLaudoTab(){
   if(empty)empty.style.display='none';
 
   tb.innerHTML=lista.map(g=>{
-    const l=g.laudo, prod=g.prod;
-    const un=_lauUnidade(prod);
-    const qtdProd=g.qtd;
-    const carregado=l?_lauCarregadoDoLaudo(l.id):0;
+    const l=g.laudo;
+    const un=g.un;
+    const carregado=l?_lauCarregadoDoLaudo(l.id,g):0;
     const badge = !l ? '<span class="sb" style="background:#f1f5f9;color:#64748b;">sem laudo</span>'
       : l.status==='finalizado' ? `<span class="sb" style="background:#dcfce7;color:#15803d;">✅ ${esc(l.numero||'sem número')}</span>`
       : `<span class="sb" style="background:#fef3c7;color:#92400e;">✏️ rascunho</span>`;
@@ -4482,10 +4537,10 @@ function renderLaudoTab(){
       <td style="font-family:monospace;font-size:11.5px;">${g.ops.map(o=>esc(o.op_numero||'—')).join('<br>')}${g.ops.length>1?`<div style="font-family:inherit;font-size:10.5px;color:#64748b;">${g.ops.length} OPs · mesmo lote</div>`:''}</td>
       <td style="font-size:12px;">${datas}</td>
       <td style="font-size:12px;">${esc(linhas)}</td>
-      <td style="font-size:12px;font-weight:700;">${esc(prod)}</td>
+      <td style="font-size:12px;font-weight:700;">${esc(g.material)}<div style="font-size:10.5px;font-weight:600;color:#64748b;">${esc(g.embs.map(e=>e.emb).join(' + '))}</div></td>
       <td style="font-family:monospace;font-size:11.5px;">${esc(g.lote||'—')}</td>
-      <td class="cp-num" style="font-size:12px;">${qtdProd.toLocaleString('pt-BR')} ${un}</td>
-      <td class="cp-num" style="font-size:12px;${carregado>0?'font-weight:700;color:#15803d;':'color:#94a3b8;'}">${carregado?carregado.toLocaleString('pt-BR')+' '+un:'—'}</td>
+      <td class="cp-num" style="font-size:12px;">${_lauQtdTxt(g)}${g.embs.length>1||g.embs.some(e=>e.un==='sc')?`<div style="font-size:10.5px;color:#64748b;">${esc(_lauEmbTxt(g))}</div>`:''}</td>
+      <td class="cp-num" style="font-size:12px;${carregado>0?'font-weight:700;color:#15803d;':'color:#94a3b8;'}">${carregado?_lauFmtQ(carregado)+' '+un:'—'}</td>
       <td>${badge}</td>
       <td style="white-space:nowrap;">
         <button class="btn btn-secondary btn-sm" onclick="abrirLaudo('${gk}')" title="${l?'Abrir laudo':'Criar laudo'}">${l?'📄 Abrir':'+ Criar'}</button>
@@ -4731,9 +4786,9 @@ function abrirCarregamentoLaudo(chave){
   const op=g.rep, laudo=g.laudo;
   if(!laudo){ toast('Emita o certificado antes de registrar carregamento.','warning'); return; }
 
-  const un=_lauUnidade(g.prod);
+  const un=g.un;
   const jaReg=_lauCarr.filter(x=>x.laudo_id===laudo.id);
-  const somaReg=jaReg.reduce((s,x)=>s+(Number(x.quantidade)||0),0);
+  const somaReg=_lauCarregadoDoLaudo(laudo.id,g);
   const qtdProd=g.qtd;
   // laudo é do lote: pallets carregados de TODAS as OPs do lote
   const palsPorOp=g.ops.map(o=>({o,p:palletsCarregadosDaOP(o.id)}));
@@ -4741,18 +4796,24 @@ function abrirCarregamentoLaudo(chave){
   // BUG grave: a sugestão era `pals.length` — 4 pallets de 180 sacos sugeriam
   // "4 sacos" no campo rotulado "Quantidade (sc)". Agora soma a capacidade real
   // dos pallets a partir de produtos_op[].pallets[] de cada OP.
-  const sugs=palsPorOp.filter(x=>x.p.length).map(x=>somaSacosDosPallets(x.o,x.p));
-  const sugestao=sugs.length&&sugs.every(v=>v!=null)?sugs.reduce((s,v)=>s+v,0):null;
+  // em toneladas: bag = peso do bag; pallet de saco = sacos do pallet × peso do saco
+  let sugKg=0, sugOk=pals.length>0;
+  palsPorOp.forEach(({o,p})=>{
+    const bags=p.filter(x=>_lauUnidade(x.produto)==='t'), scs=p.filter(x=>_lauUnidade(x.produto)!=='t');
+    bags.forEach(x=>{ sugKg+=_lauPesoUnidadeKg(x.produto,'t'); });
+    if(scs.length){ const sc=somaSacosDosPallets(o,scs); if(sc==null) sugOk=false; else sugKg+=sc*_lauPesoUnidadeKg(scs[0].produto||g.prod,'sc'); }
+  });
+  const sugestao=sugOk&&sugKg>0?Math.round(sugKg)/1000:null;
   const saldo=qtdProd-somaReg;
   const gq=_lauGK(g);
 
   const body=`
     <div class="af-box" style="margin-bottom:12px;">
       <div class="form-grid-3">
-        ${[['Certificado',laudo.numero||'—'],[g.ops.length>1?'OPs do lote':'OP',_lauOpsTxt(g)],['Produto',g.prod||'—'],
-           ['Produzido',qtdProd.toLocaleString('pt-BR')+' '+un],
-           ['Já registrado',somaReg.toLocaleString('pt-BR')+' '+un],
-           ['Saldo',(qtdProd-somaReg).toLocaleString('pt-BR')+' '+un]]
+        ${[['Certificado',laudo.numero||'—'],[g.ops.length>1?'OPs do lote':'OP',_lauOpsTxt(g)],['Produto',esc(g.material)+' · '+esc(g.embs.map(e=>e.emb).join(' + '))],
+           ['Produzido',_lauFmtQ(qtdProd)+' '+un],
+           ['Já registrado',_lauFmtQ(somaReg)+' '+un],
+           ['Saldo',_lauFmtQ(qtdProd-somaReg)+' '+un]]
           .map(([k,v])=>`<div><div style="font-size:10px;font-weight:800;color:#94a3b8;text-transform:uppercase;">${k}</div>
             <div style="font-size:13px;font-weight:700;color:var(--primary);">${v}</div></div>`).join('')}
       </div>
@@ -4800,7 +4861,7 @@ async function salvarCarregamentoLaudo(chave){
   if(qtd==null||qtd<=0){ toast('Informe a quantidade carregada.','warning'); return; }
   // Não existia validação contra o saldo: dava para registrar mais do que o lote produziu.
   const qtdProd=g.qtd;
-  const jaReg=_lauCarr.filter(x=>x.laudo_id===laudo.id).reduce((t,x)=>t+(Number(x.quantidade)||0),0);
+  const jaReg=_lauCarregadoDoLaudo(laudo.id,g);
   if(qtdProd>0 && qtd+jaReg>qtdProd*1.001){
     toast(`Quantidade acima do saldo: produzido ${qtdProd.toLocaleString('pt-BR')}, já registrado ${jaReg.toLocaleString('pt-BR')}. Saldo ${(qtdProd-jaReg).toLocaleString('pt-BR')}.`,'danger');
     return;
@@ -4814,7 +4875,7 @@ async function salvarCarregamentoLaudo(chave){
       cliente:document.getElementById('lc-cliente').value||null,
       nota_fiscal:document.getElementById('lc-nf').value||null,
       quantidade:qtd,
-      unidade:_lauUnidade(g.prod),
+      unidade:g.un,
       obs:document.getElementById('lc-obs').value||null,
       criado_por:u?.nome||u?.email||'sistema',
     }),'registrar carregamento');
@@ -4915,7 +4976,7 @@ async function montarCertificado(op, existente){
   const item=_lauItemDaOp(op,prod);
   const fin=!!(existente&&existente.status==='finalizado');
   const granel=/granel/.test(_lauNorm(prod));
-  const un=granel?'t':_lauUnidade(prod);
+  const un=grp?grp.un:(granel?'t':_lauUnidade(prod));
   const na=lpNA(q);
 
   // Pallets da OP podem não estar entre os 600 carregados: busca as do lote.
@@ -4925,7 +4986,7 @@ async function montarCertificado(op, existente){
     if(r.error) toast('Não consegui ler as análises dos pallets do lote: '+r.error.message,'warning');
     else if(r.data&&r.data.length) _palletAnalises=(_palletAnalises||[]).concat(r.data);
   }
-  const _ans=opsLote.map(o=>_lauAnalisesPalletDaOp(o,prod));
+  const _ans=opsLote.flatMap(o=>(grp?grp.prods:[prod]).map(pr=>_lauAnalisesPalletDaOp(o,pr)));
   const _aprovs=_ans.flatMap(a=>a.soAprovadas?a.lista:[]);
   const _todas=_ans.flatMap(a=>a.soAprovadas?[]:a.lista);
   // mesma regra de antes, no lote inteiro: havendo aprovadas, só elas contam
@@ -4980,6 +5041,8 @@ async function montarCertificado(op, existente){
   const cert={
     opId:op.id, laudoId:existente?existente.id:null, numero:existente&&existente.numero||null, finalizado:fin,
     op_numero:opsLote.map(o=>o.op_numero).filter(Boolean).join(' / ')||'', produto:prod, unidade:un, granel,
+    produtos:grp?grp.prods.slice():[prod],
+    material:grp?grp.material:_lauMaterial([prod]), embalagens:grp?grp.embs.map(e=>e.emb):[_lauEmbalagem(prod)],
     variacao:_lauVariacaoDaOp(op)||'',
     classificacao:(pc&&pc.laudo_classificacao)||'Veículo Mineral',
     lote:(grp&&grp.lote)||(item&&item.lote)||_lauLoteDaOp(op)||'',
@@ -5008,6 +5071,10 @@ async function montarCertificado(op, existente){
                precaucoes:existente.precaucoes||cert.ident.precaucoes,registro:existente.registro_txt||cert.ident.registro},
         externas:asArray(existente.analises_externas),
         rt:{id:existente.responsavel_id||null,nome:existente.responsavel||existente.rt_nome||'',cargo:existente.responsavel_cargo||'',registro:existente.rt_crea||''}});
+      const sn=existente.dados_snapshot||{};
+      if(Array.isArray(sn.produtos)&&sn.produtos.length) cert.produtos=sn.produtos;   // como foi certificado
+      if(sn.material) cert.material=sn.material;
+      if(Array.isArray(sn.embalagens)&&sn.embalagens.length) cert.embalagens=sn.embalagens;
       if(gs.length) cert.peneiras=gs.map(g=>({id:g.peneira_id||null,mm:g.mm??'',mesh:g.mesh??'',min:g.min??null,max:g.max??null,espec:g.espec||'',res:g.resultado??null}));
       const qs=asArray(existente.analise_quimica); if(qs.length) cert.quim=qs.map(x=>({oxido:x.oxido,min:x.minimo??null,max:x.maximo??null,res:x.resultado??null}));
       cert.total={min:null,max:null,espec:existente.total_retido_espec||''};
@@ -5121,7 +5188,7 @@ function htmlCertificado(c, editavel){
 
   <div class="sec">Identificação do fornecimento e do lote</div>
   <table class="cab"><colgroup><col style="width:23.85%"><col style="width:26.19%"><col style="width:23.83%"><col style="width:26.13%"></colgroup>
-    <tr class="z"><td class="rot">Produto</td><td>${E(String(c.produto||'').toUpperCase())||'—'}</td><td class="rot">Variação (COR)</td><td>${E(c.variacao)||'—'}</td></tr>
+    <tr class="z"><td class="rot">Produto</td><td>${E(String(c.material||c.produto||'').toUpperCase())||'—'}${c.embalagens&&c.embalagens.length?`<div style="font-size:.85em;font-weight:400;">Embalagem: ${E(c.embalagens.join(' · '))}</div>`:''}</td><td class="rot">Variação (COR)</td><td>${E(c.variacao)||'—'}</td></tr>
     <tr><td class="rot">Classificação</td><td>${E(c.classificacao)||'—'}</td><td class="rot">Lote de produção</td><td class="cz">${E(c.lote)||'—'}</td></tr>
     <tr class="z"><td class="rot">Lote de matéria-prima</td><td class="cz">${E(c.lote_mp)||'—'}</td><td class="rot">Frente de extração</td><td>${E(c.frente)||'—'}</td></tr>
     <tr><td class="rot">Data de fabricação</td><td>${_lauDataBR(c.data_fab)}</td><td class="rot">Validade</td><td>${_lauDataBR(c.validade)}${meses?` (${meses} meses)`:''}</td></tr>
@@ -5403,8 +5470,9 @@ function _lauPalletsDaOp(op){
   const ids=g?g.ops.map(o=>o.id):[op.id];
   const todos=(_pallets||[]).filter(p=>ids.includes((p.producao&&p.producao.id)||p.lancamento_id));
   if(!g) return todos;
-  // OP com dois produtos (Branco 01 + 02): só os pallets do produto deste lote
-  const doProd=todos.filter(p=>_lauNorm(p.produto)===_lauNorm(g.prod));
+  // OP com dois lotes (Branco 01 + 02): só os pallets dos produtos deste lote
+  const nps=g.prods.map(_lauNorm);
+  const doProd=todos.filter(p=>nps.includes(_lauNorm(p.produto)));
   return doProd.length?doProd:todos;
 }
 function _lauAprovadoresPallets(op){
@@ -5452,7 +5520,7 @@ async function salvarLaudo(finalizar){
     responsavel:c.rt.nome||null, responsavel_id:c.rt.id||null, responsavel_cargo:c.rt.cargo||null,
     rt_nome:c.rt.nome||null, rt_crea:c.rt.registro||null, emitido_por:u.nome||u.email||null,
     aprovador_pallets:aprovs.map(x=>x.nome).join(', ')||null, aprovador_pallets_id:(aprovs[0]&&aprovs[0].id)||null,
-    dados_snapshot:{fonte_ensaios:c.fonte, variacao:c.variacao, lote_mp:c.lote_mp, frente:c.frente, veredito:vd.status, ops_lote:opsLote.map(o=>({id:o.id,op:o.op_numero})), gravado_em:new Date().toISOString()},
+    dados_snapshot:{fonte_ensaios:c.fonte, variacao:c.variacao, lote_mp:c.lote_mp, frente:c.frente, veredito:vd.status, ops_lote:opsLote.map(o=>({id:o.id,op:o.op_numero})), produtos:c.produtos||[c.produto], material:c.material||null, embalagens:c.embalagens||null, gravado_em:new Date().toISOString()},
     atualizado_em:new Date().toISOString(),
   };
   if(finalizar){
