@@ -88,7 +88,9 @@
       if(tipo==='granel'){qtd=Number(i.ton)||0;kg=qtd*1000;}
       else if(tipo==='bag'){qtd=Number(i.sacos)||1;kg=qtd*(pu||1000);}      // 1 registro bipado = 1 bag (ou o nº gravado)
       else{qtd=Number(i.sacos)||0;kg=qtd*(pu||0);}
-      const g=grupos[laudo.id]=grupos[laudo.id]||{laudo,sugerido,qtd:0,kg:0,itens:0,unidade:un,clientes:new Set(),pedidos:new Set(),produto:i.produto};
+      // o laudo é do LOTE e pode cobrir saco + bag + granel: soma por laudo E unidade (não mistura sc com t)
+      const gk=laudo.id+'|'+un;
+      const g=grupos[gk]=grupos[gk]||{laudo,sugerido,qtd:0,kg:0,itens:0,unidade:un,clientes:new Set(),pedidos:new Set(),produto:i.produto};
       g.qtd+=qtd; g.kg+=kg; g.itens++; if(i.cliente)g.clientes.add(i.cliente); if(i.pedido)g.pedidos.add(i.pedido);
     });
     const dd=a=>[...new Map(a.map(x=>[x.op+'|'+x.lote+'|'+x.produto,x])).values()];
