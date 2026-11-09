@@ -133,6 +133,13 @@ h1.q{font-size:clamp(30px,5vw,42px);font-weight:800;letter-spacing:-.025em;margi
 .pals{display:flex;flex-wrap:wrap;gap:10px;margin-top:10px;}
 .pals button{border:2px solid var(--navy);background:var(--surface);color:var(--navy);border-radius:12px;padding:12px 16px;font-weight:800;font-size:17px;}
 .pals button:active{background:var(--ok-soft);}
+.pals button.on{background:var(--navy);color:#fff;}
+.emis-top{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;}
+.emis-top h3{margin:0;}
+.emis .todos{border:2px solid var(--navy);background:var(--surface);color:var(--navy);border-radius:12px;padding:10px 14px;font-weight:800;font-size:16px;}
+.emis .nsel{margin-top:6px;font-weight:800;color:var(--navy);font-size:15px;}
+.rsel{background:var(--surface);border:2px solid var(--line);border-radius:14px;padding:12px 16px;margin:8px 0;font-size:18px;line-height:1.4;}
+.rsel span{color:#64748b;font-weight:700;}
 .empty{background:var(--surface);border:2px dashed var(--line);border-radius:18px;padding:24px;color:var(--muted);font-weight:600;margin-top:10px;font-size:17px;}
 .foot{margin-top:30px;}
 
@@ -408,7 +415,7 @@ function amostraHTML(pal,p){
 /* ═══ fila de impressão (estacao-impressao.html?destino=laser | dymo) ═══ */
 async function enfileirar(rows,p,oque){
   const ids=[], pals=rows.map(palDe), ficha=isFicha(p.linhaProduto);
-  const titulo=`${p.nome} · ${pals[0].linha} · nº ${pad(pals[0].numero,3)}${pals.length>1?' a '+pad(pals[pals.length-1].numero,3):''}`;
+  const titulo=`${p.nome} · ${pals[0].linha} · nº ${faixas(pals.map(x=>x.numero))}`;
   if(oque!=='am'){
     const estilo=`<style>.lg{background:url(${LOGO_SIMBOLO}) center/contain no-repeat;-webkit-print-color-adjust:exact;print-color-adjust:exact;}</style>`;
     const html=estilo+pals.map(x=>ficha
@@ -452,7 +459,7 @@ async function lerEstacoes(){
 
 /* ═══ navegação ═══ */
 let tela='inicio', esc={linha:null,produto:null,qtd:1}, ultima=null, verIdx=0, ocupado=false, erroMsg='';
-let reimp={linha:null,grupos:[],row:null,oque:''};
+let reimp={linha:null,grupos:[],row:null,oque:'',sel:new Set(),feitos:[]};
 function ir(k){tela=k;erroMsg='';render();window.scrollTo({top:0});}
 const barraErro=()=>erroMsg?`<div class="okmsg err"><div class="ic">!</div><div>Não deu certo<small>${esc_(erroMsg)}</small></div></div>`:'';
 const PASSOS=[{k:'linha',t:'Linha',v:()=>esc.linha},{k:'produto',t:'Produto',v:()=>esc.produto&&esc.produto.nome},{k:'qtd',t:'Quantidade'},{k:'confirma',t:'Imprimir'}];
@@ -569,42 +576,68 @@ function telaFeito(){
 }
 async function voltarInicio(){ await carregarInicio().catch(()=>{}); ir('inicio'); }
 
-/* ── reimpressão: mesmo número, mesmo QR (só de hoje) ── */
-function abrirReimp(){ reimp={linha:null,grupos:[],row:null,oque:''}; ir('reimp'); }
+/* ── reimpressão: mesmo número, mesmo QR (só de hoje) ──
+   Pode marcar VÁRIOS números (de um ou mais produtos) e reimprimir de uma vez. */
+function abrirReimp(){ reimp={linha:null,grupos:[],row:null,oque:'',sel:new Set(),feitos:[]}; ir('reimp'); }
 async function reimpLinha(nome){
-  reimp.linha=nome; render();
+  reimp.linha=nome; reimp.sel=new Set(); render();
   const {data,error}=await _supabase.from('rotulos_impressos').select('*').eq('linha',nome).eq('dia',hojeIso()).order('produto').order('numero').limit(2000);
   if(error){erroMsg=error.message;render();return;}
   const g={}; (data||[]).forEach(x=>{(g[x.produto]=g[x.produto]||[]).push(x);}); reimp.grupos=Object.values(g); render();
 }
+function reimpTog(gi,i){ const id=reimp.grupos[gi][i].id; reimp.sel.has(id)?reimp.sel.delete(id):reimp.sel.add(id); render(); }
+function reimpTodos(gi){ const ps=reimp.grupos[gi], todos=ps.every(x=>reimp.sel.has(x.id));
+  ps.forEach(x=>todos?reimp.sel.delete(x.id):reimp.sel.add(x.id)); render(); }
+// selecionados agrupados por produto, em ordem de número
+function reimpSel(){ return reimp.grupos.map(ps=>ps.filter(x=>reimp.sel.has(x.id))).filter(ps=>ps.length); }
+// 1,2,3,5,7,8 → "001 a 003, 005, 007 e 008"
+function faixas(nums){ const n=[...nums].sort((a,b)=>a-b), out=[]; let i=0;
+  while(i<n.length){ let j=i; while(j+1<n.length&&n[j+1]===n[j]+1) j++;
+    out.push(j-i>=2?pad(n[i],3)+' a '+pad(n[j],3):(j>i?pad(n[i],3)+', '+pad(n[j],3):pad(n[i],3))); i=j+1; }
+  return out.join(', '); }
 function telaReimp(){
   let h=barraErro()+`<h1 class="q">Reimprimir rótulo perdido</h1><p class="hint">Sai igual ao original: mesmo número, mesmo QR. Só os de hoje — rótulo de ontem não vale mais.</p>`;
   if(!reimp.linha) return h+`<div class="linhas">`+LINHAS.map((l,i)=>cartaoLinha(l,`reimpLinha(LINHAS[${i}].nome)`,false)).join('')+
     `</div><div class="actions fixo"><button class="btn btn-back" onclick="ir('inicio')">Voltar</button></div>`;
-  h+=`<div class="grp">${esc_(reimp.linha)} · toque no número que perdeu</div>`;
+  h+=`<div class="grp">${esc_(reimp.linha)} · toque nos números que perdeu (pode marcar vários)</div>`;
   if(!reimp.grupos.length) h+=`<div class="empty">Nada impresso hoje na ${esc_(reimp.linha)}.</div>`;
-  reimp.grupos.forEach((ps,gi)=>{const p=prodPorNome(ps[0].produto), u=ehBag(p)?'Bag':'Pallet';
-    h+=`<div class="emis" style="--c:${corDe(p.linhaProduto)}"><h3>${esc_(ps[0].produto)}</h3>
-    <div class="pals">${ps.map((x,i)=>`<button onclick="reimp.row=reimp.grupos[${gi}][${i}];ir('reimpConf')">${u} ${pad(x.numero,3)}</button>`).join('')}</div></div>`;});
-  return h+`<div class="actions fixo"><button class="btn btn-back" onclick="reimp.linha=null;render()">Voltar</button></div>`;
+  reimp.grupos.forEach((ps,gi)=>{const p=prodPorNome(ps[0].produto), u=ehBag(p)?'Bag':'Pallet', todos=ps.every(x=>reimp.sel.has(x.id)), n=ps.filter(x=>reimp.sel.has(x.id)).length;
+    h+=`<div class="emis" style="--c:${corDe(p.linhaProduto)}"><div class="emis-top"><h3>${esc_(ps[0].produto)}</h3>
+      <button class="todos" onclick="reimpTodos(${gi})">${todos?'✕ Desmarcar todos':'☑ Marcar todos ('+ps.length+')'}</button></div>
+    ${n?`<div class="nsel">${n} marcado(s)</div>`:''}
+    <div class="pals">${ps.map((x,i)=>`<button class="${reimp.sel.has(x.id)?'on':''}" onclick="reimpTog(${gi},${i})">${reimp.sel.has(x.id)?'✓ ':''}${u} ${pad(x.numero,3)}</button>`).join('')}</div></div>`;});
+  const tot=reimp.sel.size;
+  return h+`<div class="actions fixo"><button class="btn btn-back" onclick="reimp.linha=null;reimp.sel=new Set();render()">Voltar</button>
+    <button class="btn btn-go" ${tot?'':'disabled style="opacity:.45"'} onclick="ir('reimpConf')">${tot?'Reimprimir '+tot+(tot>1?' rótulos':' rótulo'):'Marque os números'}</button></div>`;
 }
 function telaReimpConf(){
-  const x=reimp.row, p=prodPorNome(x.produto), temAm=!(isFicha(p.linhaProduto)&&x.numero!==1);
-  return barraErro()+`<h1 class="q">Reimprimir ${ehBag(p)?'bag':'pallet'} ${pad(x.numero,3)}?</h1><p class="hint">${esc_(x.produto)} · ${esc_(x.linha)} · ${fD(x.dia)}</p>
-  <div class="actions" style="margin:0 0 8px;"><button class="btn btn-back" onclick="ir('reimp')">Voltar</button>
-  <button class="btn btn-go" ${ocupado?'disabled':''} onclick="reimprimir('rot')">Reimprimir rótulo</button>
-  ${temAm?`<button class="btn btn-go" ${ocupado?'disabled':''} onclick="reimprimir('am')">Reimprimir amostra</button>`:''}</div>${previas(x,p)}`;
+  const gs=reimpSel(); if(!gs.length){ tela='reimp'; return telaReimp(); }
+  const tot=gs.reduce((t,ps)=>t+ps.length,0);
+  const temAm=gs.some(ps=>{const p=prodPorNome(ps[0].produto);return !isFicha(p.linhaProduto)||ps.some(x=>x.numero===1);});
+  const x=gs[0][0], p=prodPorNome(x.produto);
+  const lista=gs.map(ps=>{const pp=prodPorNome(ps[0].produto);return `<div class="rsel"><b>${esc_(ps[0].produto)}</b><br>${ehBag(pp)?'Bag':'Pallet'} ${faixas(ps.map(y=>y.numero))} <span>(${ps.length})</span></div>`;}).join('');
+  return barraErro()+`<h1 class="q">Reimprimir ${tot} ${tot>1?'rótulos':'rótulo'}?</h1><p class="hint">${esc_(x.linha)} · ${fD(x.dia)} · mesmo número e mesmo QR do original</p>
+  ${lista}
+  <div class="actions" style="margin:12px 0 8px;"><button class="btn btn-back" onclick="ir('reimp')">Voltar</button>
+  <button class="btn btn-go" ${ocupado?'disabled':''} onclick="reimprimir('rot')">${ocupado?'Enviando...':'Reimprimir '+(tot>1?tot+' rótulos':'rótulo')}</button>
+  ${temAm?`<button class="btn btn-go" ${ocupado?'disabled':''} onclick="reimprimir('am')">Reimprimir amostra</button>`:''}</div>
+  ${tot>1?'<p class="hint" style="margin:6px 0;">Prévia do primeiro:</p>':''}${previas(x,p)}`;
 }
 async function reimprimir(oque){
   if(ocupado) return; ocupado=true; render();
-  try{ const x=reimp.row, p=prodPorNome(x.produto);
-    const ids=await enfileirar([x],p,oque);
-    if(oque==='rot') await _supabase.from('rotulos_impressos').update({vias:(x.vias||1)+1}).eq('id',x.id);
-    reimp.oque=oque; ocupado=false; ir('reimpOk'); acompanharJobs(ids);
+  try{ const gs=reimpSel(), ids=[];
+    for(const ps of gs){ const p=prodPorNome(ps[0].produto);
+      ids.push(...await enfileirar(ps,p,oque));
+      if(oque==='rot') await Promise.all(ps.map(x=>_supabase.from('rotulos_impressos').update({vias:(x.vias||1)+1}).eq('id',x.id)));
+    }
+    reimp.feitos=gs.map(ps=>({produto:ps[0].produto,nums:ps.map(x=>x.numero)}));
+    reimp.oque=oque; reimp.sel=new Set(); ocupado=false; ir('reimpOk'); acompanharJobs(ids);
   }catch(e){ ocupado=false; erroMsg=e.message||String(e); render(); }
 }
-function telaReimpOk(){ const x=reimp.row;
-  return `<div class="okmsg"><div class="ic">✓</div><div>${reimp.oque==='am'?'Amostra':'Rótulo'} do nº ${pad(x.numero,3)} enviado para impressão<small>Mesmo número e mesmo QR do original</small></div></div>
+function telaReimpOk(){
+  const tot=(reimp.feitos||[]).reduce((t,f)=>t+f.nums.length,0), oq=reimp.oque==='am'?'Amostra':'Rótulo';
+  const det=(reimp.feitos||[]).map(f=>`${esc_(f.produto)}: nº ${faixas(f.nums)}`).join('<br>');
+  return `<div class="okmsg"><div class="ic">✓</div><div>${tot>1?oq+'s':oq} enviado${tot>1?'s':''} para impressão${tot>1?' ('+tot+')':''}<small>${det}<br>Mesmo número e mesmo QR do original</small></div></div>
   <div class="jobs" id="jobs">${htmlJobs()}</div><div class="actions"><button class="btn btn-go" onclick="voltarInicio()">Pronto</button></div>`; }
 
 /* ═══ render ═══ */
