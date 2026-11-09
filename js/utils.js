@@ -55,6 +55,7 @@ const MODULO_MAP = [
   { id:'solicitacoes',   page:'solicitacoes.html',    label:'Solicitações',         group:'suprimentos',  icon:'📝' },
   { id:'compras',        page:'compras.html',         label:'Compras',              group:'suprimentos',  icon:'🛒' },
   { id:'lenha',          page:'lenha.html',           label:'Lenha',                group:'suprimentos',  icon:'🪵' },
+  { id:'fechamento_grafitoso', page:'fechamento-grafitoso.html', label:'Fechamento Grafitoso', group:'suprimentos', icon:'🚚' },
   // CUSTOS
   { id:'custos',         page:'custos.html',          label:'Gestão de Custos',     group:'custos',       icon:'💰' },
   // LOGÍSTICA
@@ -310,6 +311,10 @@ const MODULO_FUNCIONALIDADES = {
     { id:'movimentos', label:'📋 Movimentos' },
     { id:'resumo', label:'📊 Resumos' },
     { id:'cadastro', label:'⚙️ Cadastro & Ficha' },
+  ],
+  fechamento_grafitoso: [
+    { id:'novo',  label:'🚚 Novo fechamento' },
+    { id:'feitos', label:'🧾 Fechamentos feitos' },
   ],
   lenha: [
     { id:'recebimentos', label:'📥 Recebimentos' },
