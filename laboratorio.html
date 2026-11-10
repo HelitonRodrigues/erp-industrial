@@ -3763,6 +3763,8 @@ async function salvarStatusPallet(){
 
     if(stPallet==='aprovado'||stPallet==='reprovado')
       await refletirStatusNaOP(alvo.map(x=>x.id),stPallet,resp,linha.hora);
+    // aprovado → laudo do lote nasce/atualiza sozinho (rascunho)
+    if(stPallet==='aprovado') await _lauAutoGerar(alvo.map(x=>x.lancamento_id||(x.producao&&x.producao.id)).concat([p.lancamento_id]),p.produto);
 
     toast(v.aprovado
       ? `✅ Aprovado — ${okPal} pallet(s) liberado(s).`
@@ -4292,11 +4294,11 @@ function _lauValidade(dataFab, anos){
 }
 function _lauDataBR(d){ return d? new Date(d+'T12:00:00').toLocaleDateString('pt-BR') : '—'; }
 
-async function carregarLaudos(){
+async function carregarLaudos(mesForcado){
   _falhasCarga=(_falhasCarga||[]).filter(f=>!/laudo/i.test(f.tabela));
   const mesEl=document.getElementById('lau-mes');
   if(mesEl && !mesEl.value) mesEl.value=new Date().toISOString().slice(0,7);
-  const mes=(mesEl&&mesEl.value)||new Date().toISOString().slice(0,7);
+  const mes=(typeof mesForcado==='string'&&mesForcado)||(mesEl&&mesEl.value)||new Date().toISOString().slice(0,7);
   const ini=mes+'-01';
   const fim=new Date(Number(mes.slice(0,4)), Number(mes.slice(5,7)), 0).toISOString().slice(0,10);
   // Antes esta função engolia o erro em silêncio: se lab_laudos não carregasse,
@@ -4341,14 +4343,16 @@ async function carregarLaudos(){
 
 // Lê as três análises externas do fluxo do caulim (POP-17) e diz o que está
 // vigente e o que venceu. A DATA trava; o valor sinaliza.
-function _lauVariacaoIdDaOp(op){
-  const lp=_lauLoteProducaoDaOp(op);
+// (nov/2026) OP com dois produtos (Big Bag Cinza + Big Bag Branco 01): tudo aqui é pelo
+// PRODUTO e LOTE do laudo — antes pegava o 1º item da OP e o laudo do Branco 01 saía Cinza.
+function _lauVariacaoIdDaOp(op,prod,lote){
+  const lp=_lauLoteProducaoDaOp(op,lote);
   if(lp&&lp.variacao_id) return lp.variacao_id;
-  const mp=_lauMPdaOp(op);
+  const mp=_lauMPdaOp(op,prod,lote);
   if(mp&&mp.variacao_declarada_id) return mp.variacao_declarada_id;
   if(mp&&mp.produto_id){ const qm=(_produtosQualidade||{})[mp.produto_id]; if(qm&&qm.variacao_id) return qm.variacao_id; }
-  // produto da OP → variação vinculada em Limites por Produto
-  const pNome=_lauProdutoDaOp(op);
+  // produto do laudo → variação vinculada em Limites por Produto
+  const pNome=prod||_lauProdutoDaOp(op);
   const pc=(_prods||[]).find(x=>_lauNorm(x.nome)===_lauNorm(pNome));
   const q=pc?(_produtosQualidade||{})[pc.id]:null;
   if(q&&q.variacao_id) return q.variacao_id;
@@ -4464,11 +4468,12 @@ function _lauEmbTxt(g){
 function _lauMontarGrupos(){
   const mapa=new Map(), espera=new Set();
   _lauOps.forEach(op=>_lauItensLaudoDaOp(op).forEach(it=>{
-    const k=it.lote?'lote:'+_lauNorm(it.lote):'op:'+op.id+'|'+_lauNorm(it.prod);
+    // mesmo lote em linhas diferentes = laudos diferentes (nov/2026)
+    const k=it.lote?'lote:'+_lauNorm(it.lote)+'|'+_lauNorm(op.linha):'op:'+op.id+'|'+_lauNorm(it.prod);
     // ainda não aprovado na Análise de Pallet (e sem laudo começado): fica fora da aba
     const temLaudo=_lauLaudos.some(l=>l.producao_id===op.id);
     if(!temLaudo&&!_lauAprov.has(op.id+'|'+_lauNorm(it.prod))){ if(it.kg>0) espera.add(k); return; }
-    if(!mapa.has(k)) mapa.set(k,{k, lote:it.lote, ops:[], kgPorOp:{}, porProd:{}});
+    if(!mapa.has(k)) mapa.set(k,{k, lote:it.lote, linha:op.linha||'', ops:[], kgPorOp:{}, porProd:{}});
     const g=mapa.get(k);
     if(!g.ops.includes(op)) g.ops.push(op);
     g.kgPorOp[op.id]=(g.kgPorOp[op.id]||0)+it.kg;
@@ -4546,7 +4551,9 @@ function renderLaudoTab(){
     const carregado=l?_lauCarregadoDoLaudo(l.id,g):0;
     const badge = !l ? '<span class="sb" style="background:#f1f5f9;color:#64748b;">sem laudo</span>'
       : l.status==='finalizado' ? `<span class="sb" style="background:#dcfce7;color:#15803d;">✅ ${esc(l.numero||'sem número')}</span>`
-      : `<span class="sb" style="background:#fef3c7;color:#92400e;">✏️ rascunho</span>`;
+      : (l.dados_snapshot&&l.dados_snapshot.auto)
+        ? `<span class="sb" style="background:#dbeafe;color:#1e40af;" title="Gerado sozinho na aprovação do pallet — confira e finalize">🤖 pronto p/ finalizar</span>`
+        : `<span class="sb" style="background:#fef3c7;color:#92400e;">✏️ rascunho</span>`;
     const datas=[...new Set(g.ops.map(o=>_lauDataBR(o.data)))].join(', ');
     const linhas=[...new Set(g.ops.map(o=>o.linha||'—'))].join(', ');
     const gk=_lauGK(g);
@@ -4668,42 +4675,55 @@ function _lauAssinaturaLote(v){
   let d=m[1]; if(d.length===8) d=d.slice(2);   // YYYYMMDD → YYMMDD
   return d+m[2];
 }
-function _lauLoteProducaoDaOp(op){
-  if(op&&op.lote_producao_id){
+function _lauLoteProducaoDaOp(op,lote){
+  if(op&&op.lote_producao_id&&!(lote&&_lauItensLaudoDaOp(op).length>1)){
     const byId=(_caulimLotesProducao||[]).find(l=>l.id===op.lote_producao_id);
     if(byId) return byId;
   }
-  const num=_lauLoteDaOp(op);
+  const num=lote||_lauLoteDaOp(op);
   if(!num) return null;
   const alvo=_lauAssinaturaLote(num);
   return (_caulimLotesProducao||[]).find(l=>String(l.numero||'').trim()===String(num).trim())
       || (alvo?(_caulimLotesProducao||[]).find(l=>_lauAssinaturaLote(l.numero)===alvo):null)
       || null;
 }
-function _lauVariacaoDaOp(op){
-  const lp=_lauLoteProducaoDaOp(op);
+function _lauVariacaoDaOp(op,prod,lote){
+  const lp=_lauLoteProducaoDaOp(op,lote);
   if(lp&&lp.variacao) return lp.variacao;
-  const vid=_lauVariacaoIdDaOp(op);
+  const vid=_lauVariacaoIdDaOp(op,prod,lote);
   const v=vid?(_caulimVariacoes||[]).find(x=>x.id===vid):null;
   if(v) return v.nome||v.codigo||'';
   // Sem lote no laboratório: deduz do nome do produto (Branco, Cinza…).
-  const m=/(branco|cinza|amarelo|creme|bege)/i.exec(String(_lauProdutoDaOp(op)||''));
+  const m=/(branco|cinza|amarelo|creme|bege)/i.exec(String(prod||_lauProdutoDaOp(op)||''));
   return m?m[1].charAt(0).toUpperCase()+m[1].slice(1).toLowerCase():'';
 }
 // Lote de MP da OP: o encarregado informa o nº no campo "Lote MP" da Produção
 // (com a lista dos lotes do laboratório). Lote de produção antigo continua valendo.
 function _normLoteMP(v){ return String(v||'').toUpperCase().replace(/\s+/g,''); }
-function _lauMPdaOp(op){
-  const lp=_lauLoteProducaoDaOp(op);
+function _lauMPdaOp(op,prod,lote){
+  const lp=_lauLoteProducaoDaOp(op,lote);
   if(lp){ const m=(_caulimLotesMP||[]).find(x=>x.id===lp.lote_mp_id); if(m) return m; }
   const alvo=_normLoteMP(op&&op.lote_mp);
-  const m=alvo?(_caulimLotesMP||[]).find(x=>_normLoteMP(x.numero)===alvo):null;
-  return m||_lauMPdoProduto(op);
+  let m=alvo?(_caulimLotesMP||[]).find(x=>_normLoteMP(x.numero)===alvo):null;
+  // o "Lote MP" é um só para a OP inteira: com dois produtos na OP só vale se for do produto do laudo
+  if(m&&prod&&_lauItensLaudoDaOp(op).length>1&&!_lauMPeDoProduto(m,prod)) m=null;
+  return m||_lauMPdoProduto(op,prod);
+}
+function _lauVariacaoIdDoProduto(pNome){
+  const pc=(_prods||[]).find(x=>_lauNorm(x.nome)===_lauNorm(pNome));
+  const q=pc?(_produtosQualidade||{})[pc.id]:null;
+  return (q&&q.variacao_id)||((variacaoPeloNomeProduto(pNome)||{}).id)||null;
+}
+function _lauMPeDoProduto(mp,pNome){
+  const pc=(_prods||[]).find(x=>_lauNorm(x.nome)===_lauNorm(pNome));
+  if(pc&&mp.produto_id) return String(mp.produto_id)===String(pc.id);
+  const vid=_lauVariacaoIdDoProduto(pNome);
+  return !!(vid&&mp.variacao_declarada_id&&String(mp.variacao_declarada_id)===String(vid));
 }
 // (nov/2026) OP sem "Lote MP" informado: usa o último Lote de MP (até a data da OP) do
 // produto; senão, da variação declarada do produto. É dele que vêm frente de extração e M.M.
-function _lauMPdoProduto(op){
-  const pNome=_lauProdutoDaOp(op); if(!pNome) return null;
+function _lauMPdoProduto(op,prod){
+  const pNome=prod||_lauProdutoDaOp(op); if(!pNome) return null;
   const pc=(_prods||[]).find(x=>_lauNorm(x.nome)===_lauNorm(pNome));
   const ate=String((op&&op.data)||'9999-12-31');
   const ls=(_caulimLotesMP||[]).filter(l=>!l.data||String(l.data)<=ate).sort(_ordLoteMP);
@@ -4712,12 +4732,12 @@ function _lauMPdoProduto(op){
   const vid=(q&&q.variacao_id)||((variacaoPeloNomeProduto(pNome)||{}).id);
   return vid?(ls.find(l=>String(l.variacao_declarada_id)===String(vid))||null):null;
 }
-function _lauLoteMPdaOp(op){
-  const mp=_lauMPdaOp(op);
-  return mp?(mp.numero||''):((op&&op.lote_mp)||'');
+function _lauLoteMPdaOp(op,prod,lote){
+  const mp=_lauMPdaOp(op,prod,lote);
+  return mp?(mp.numero||''):(prod&&_lauItensLaudoDaOp(op).length>1?'':((op&&op.lote_mp)||''));
 }
-function _lauFrenteDaOp(op){
-  const mp=_lauMPdaOp(op);
+function _lauFrenteDaOp(op,prod,lote){
+  const mp=_lauMPdaOp(op,prod,lote);
   if(!mp) return '';
   const frs=asArray(mp.frentes).filter(f=>f&&f.nome);
   if(frs.length) return frs.map(f=>f.nome+(frs.length>1&&f.mistura_pct!=null?' ('+f.mistura_pct+'%)':'')).join(' + ');
@@ -5025,7 +5045,8 @@ async function montarCertificado(op, existente){
   // sem análise de pallet: cai na análise da linha do mesmo dia (aba Análises)
   let fonte=an.lista.length?{tipo:'pallets',n:an.lista.length,soAprovadas:an.soAprovadas}:{tipo:'nenhum',n:0};
   if(!an.lista.length){
-    const anLinha=(_analises||[]).find(a=>a.linha===op.linha && a.data===op.data);
+    const doProd=a=>!a.produto||(grp?grp.prods:[prod]).some(pr=>_lauNorm(pr)===_lauNorm(a.produto));
+    const anLinha=opsLote.map(o=>(_analises||[]).find(a=>a.linha===o.linha&&a.data===o.data&&doProd(a))).find(Boolean);
     if(anLinha){
       const pen=normalizarPeneiramento(anLinha,prod);
       peneiras.forEach(p=>{ const m=pen.find(x=>String(x.mesh||'').replace(/\D/g,'')===p.mesh.replace(/\D/g,'')); if(m&&m.resultado!=='') p.res=_r2(Number(m.resultado)); });
@@ -5043,7 +5064,8 @@ async function montarCertificado(op, existente){
   const total={min:q&&!na.includes('retido')?q.limite_total_retido_min??null:null, max:q&&!na.includes('retido')?q.limite_total_retido_max??null:null};
 
   // ── química e externas (só assinadas/vigentes, da variação do produto)
-  const varId=_lauVariacaoIdDaOp(op);
+  const loteCert=(grp&&grp.lote)||(item&&item.lote)||_lauLoteDaOp(op)||'';
+  const varId=_lauVariacaoIdDaOp(op,prod,loteCert);
   const ext=_lauAnalisesExternasVigentes(prod,varId);
   const qx=ext.quimica;
   const lims=_lauLimitesQuimicos(prod);
@@ -5057,10 +5079,10 @@ async function montarCertificado(op, existente){
     op_numero:opsLote.map(o=>o.op_numero).filter(Boolean).join(' / ')||'', produto:prod, unidade:un, granel,
     produtos:grp?grp.prods.slice():[prod],
     material:grp?grp.material:_lauMaterial([prod]), embalagens:grp?grp.embs.map(e=>e.emb):[_lauEmbalagem(prod)],
-    variacao:_lauVariacaoDaOp(op)||'',
+    variacao:_lauVariacaoDaOp(op,prod,loteCert)||'',
     classificacao:(pc&&pc.laudo_classificacao)||'Veículo Mineral',
-    lote:(grp&&grp.lote)||(item&&item.lote)||_lauLoteDaOp(op)||'',
-    lote_mp:_lauLoteMPdaOp(op)||'', frente:_lauFrenteDaOp(op)||'',
+    lote:loteCert,
+    lote_mp:_lauLoteMPdaOp(op,prod,loteCert)||'', frente:_lauFrenteDaOp(op,prod,loteCert)||'',
     data_fab:opsLote[0].data||op.data||'',
     validade:_lauValidade(opsLote[0].data||op.data,_lauValidadeAnosProduto(prod)),
     validade_anos:_lauValidadeAnosProduto(prod),
@@ -5097,7 +5119,7 @@ async function montarCertificado(op, existente){
         existente.mm_result!=null||existente.mm_min!=null?{k:'mm',rot:'M.M — material mineral (%)',min:existente.mm_min??null,max:null,res:existente.mm_result??null}:null,
         existente.peso_esp_result!=null||existente.peso_esp_min!=null?{k:'pe',rot:'Peso específico aparente (g/cm³)',min:existente.peso_esp_min??null,max:existente.peso_esp_max??null,res:existente.peso_esp_result??null}:null,
       ].filter(Boolean);
-    }else{
+    }else if(!(existente.dados_snapshot&&existente.dados_snapshot.auto)){
       gs.forEach(g=>{ const p=cert.peneiras.find(x=>(g.peneira_id&&String(x.id)===String(g.peneira_id))||String(x.mesh)===String(g.mesh||'').replace('#',''));
         if(p&&g.resultado!=null&&g.resultado!=='') p.res=Number(g.resultado); });
       const set=(k,v)=>{ const d=cert.demais.find(x=>x.k===k); if(d&&v!=null) d.res=Number(v); };
@@ -5498,13 +5520,48 @@ function _lauAprovadoresPallets(op){
 }
 function _lauAprovadorPallets(op){ return _lauAprovadoresPallets(op).map(x=>x.nome).join(', '); }
 
-async function salvarLaudo(finalizar){
+// ── LAUDO AUTOMÁTICO (nov/2026) ─────────────────────────────────────────
+// Aprovou pallet na Análise de Pallet → o laudo do lote (lote + linha) nasce ou é
+// atualizado sozinho como RASCUNHO, com produção e média das análises aprovadas.
+// Finalizar (assinatura do RT) continua sendo um clique no laudo.
+// Não mexe em laudo finalizado nem em rascunho que alguém editou à mão.
+async function _lauAutoGerar(opIds,produto){
+  const prev={e:_lauEdit,c:_cert,g:_lauGrupoAtual}, feitos=[];
+  try{
+    if(!_lauEhProdutoLaudo(produto)) return;
+    const ids=[...new Set((opIds||[]).filter(Boolean))]; if(!ids.length) return;
+    const {data:ops,error}=await _supabase.from('producao').select('id,data').in('id',ids);
+    if(error) throw error;
+    const np=_lauNorm(produto);
+    for(const mes of [...new Set((ops||[]).map(o=>String(o.data).slice(0,7)))]){
+      await carregarLaudos(mes);
+      const gs=_lauGrupos.filter(g=>g.ops.some(o=>ids.includes(o.id))&&g.prods.some(p=>_lauNorm(p)===np));
+      for(const g of gs){
+        if(g.laudo&&(g.laudo.status==='finalizado'||!(g.laudo.dados_snapshot&&g.laudo.dados_snapshot.auto))) continue;
+        _lauGrupoAtual=g;
+        _cert=await montarCertificado(g.rep,g.laudo);
+        _lauEdit={opId:g.rep.id,gk:g.k,laudoId:g.laudo?g.laudo.id:null,produto:_cert.produto,unidade:_cert.unidade};
+        const salvo=await salvarLaudo(false,{auto:true});
+        if(salvo) feitos.push((salvo.numero||'rascunho')+' · lote '+(g.lote||'—')+' · '+(g.linha||''));
+      }
+    }
+    if(feitos.length) toast('📜 Laudo gerado automático: '+feitos.join(' | ')+'. Confira e finalize na aba Laudo.','success');
+  }catch(e){
+    toast('Pallet aprovado, mas o laudo automático não foi gerado: '+((e&&e.message)||e)+'. Crie pela aba Laudo.','warning');
+  }finally{
+    _lauEdit=prev.e; _cert=prev.c; _lauGrupoAtual=prev.g;
+    try{ await carregarLaudos(); }catch(e){ console.warn('[laudo] recarregar aba',e); }
+  }
+}
+async function salvarLaudo(finalizar,opts){
+  const auto=!!(opts&&opts.auto);          // rascunho gerado sozinho na aprovação do pallet
   if(!_lauEdit||!_cert) return;
-  if(!guardAction('laboratorio','edit')) return;
+  if(auto) finalizar=false;
+  else if(!guardAction('laboratorio','edit')) return;
   const op=_lauOps.find(o=>o.id===_lauEdit.opId); if(!op) return;
   const grp=(_lauGrupoAtual&&_lauGrupoAtual.k===_lauEdit.gk)?_lauGrupoAtual:null;
   const opsLote=grp?grp.ops:[op];
-  _lauLerCampos();
+  if(!auto) _lauLerCampos();
   const c=_cert, vd=vereditoCert(c), u=getUser()||{};
   if(finalizar){
     if(!c.rt.nome){ toast('Configure o Responsável Técnico (⚙️ na aba Laudo) antes de finalizar.','danger'); return; }
@@ -5535,9 +5592,11 @@ async function salvarLaudo(finalizar){
     responsavel:c.rt.nome||null, responsavel_id:c.rt.id||null, responsavel_cargo:c.rt.cargo||null,
     rt_nome:c.rt.nome||null, rt_crea:c.rt.registro||null, emitido_por:u.nome||u.email||null,
     aprovador_pallets:aprovs.map(x=>x.nome).join(', ')||null, aprovador_pallets_id:(aprovs[0]&&aprovs[0].id)||null,
-    dados_snapshot:{fonte_ensaios:c.fonte, variacao:c.variacao, lote_mp:c.lote_mp, frente:c.frente, veredito:vd.status, ops_lote:opsLote.map(o=>({id:o.id,op:o.op_numero})), produtos:c.produtos||[c.produto], material:c.material||null, embalagens:c.embalagens||null, gravado_em:new Date().toISOString()},
+    dados_snapshot:{fonte_ensaios:c.fonte, variacao:c.variacao, lote_mp:c.lote_mp, frente:c.frente, veredito:vd.status, ops_lote:opsLote.map(o=>({id:o.id,op:o.op_numero})), produtos:c.produtos||[c.produto], material:c.material||null, embalagens:c.embalagens||null, linha:(grp&&grp.linha)||op.linha||null, auto, gravado_em:new Date().toISOString()},
     atualizado_em:new Date().toISOString(),
   };
+  // rascunho automático: o RT só entra na finalização (evita bater na trava RT ≠ quem aprovou)
+  if(auto){ row.responsavel_id=null; }
   if(finalizar){
     // BPF · POP-15/16/17: laudo só com análise externa vigente e lote liberado
     const hj=new Date().toISOString().slice(0,10);
@@ -5570,12 +5629,14 @@ async function salvarLaudo(finalizar){
       if(rp.error) toast('Laudo salvo, mas não consegui gravar o vínculo nas OPs: '+rp.error.message,'warning');
       else opsLote.forEach(o=>{ o.laudo_id=salvo.id; o.laudo_numero=salvo.numero; });
     }
-    await addLog(finalizar?'UPDATE':'CREATE','LABORATORIO',salvo.id,`Laudo ${salvo.numero||''} ${finalizar?'FINALIZADO':'salvo em rascunho'} — OP ${row.op_numero||''} · ${vd.status}`);
+    await addLog(finalizar?'UPDATE':'CREATE','LABORATORIO',salvo.id,`Laudo ${salvo.numero||''} ${finalizar?'FINALIZADO':(auto?'gerado automático (rascunho)':'salvo em rascunho')} — lote ${row.lote||''} · ${(grp&&grp.linha)||op.linha||''} · OP ${row.op_numero||''} · ${vd.status}`);
+    if(auto) return salvo;
     renderLaudoTab();
     toast(finalizar?`✅ Certificado ${salvo.numero||''} finalizado (${vd.status}).`:'Rascunho salvo.','success');
     if(finalizar) closeModal('m-laudo');
   }catch(e){
     const msg=(e&&e.message)||String(e);
+    if(auto) throw e;
     if(/chk_laudo_segregacao/i.test(msg)) toast('O banco recusou: quem assina o certificado não pode ser quem aprovou os pallets.','danger');
     else toast('Erro ao salvar o certificado: '+msg,'danger');
   }
