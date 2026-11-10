@@ -10,6 +10,7 @@
 <script src="js/supabase.js"></script>
 <script src="js/utils.js"></script>
 <script src="js/celular.js"></script>
+<script src="js/qrcode.min.js"></script>
 <script src="js/certificados.js"></script>
 <style>
 .kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;margin-bottom:18px;}
@@ -2100,6 +2101,15 @@ async function cargaDaOrdem(numero){
   _cargaCache[String(numero)]=res;
   return res;
 }
+/* romaneio: em vez da lista crua de códigos, "Bag 1 a 12, 15, 20 a 38" + 1º e último código (a lista completa com QR vai na relação anexa ao certificado) */
+function unidadesTxt(x,cert){
+  if(x.tipo==='granel'||!x.codigos.length)return '—';
+  const cods=[...x.codigos].sort((a,b)=>(numDoCodigo(a)??1e9)-(numDoCodigo(b)??1e9)), nums=cods.map(numDoCodigo);
+  const U=x.tipo==='bag'?'Bag':'Pallet', fx=window.certFaixas?certFaixas(nums):'';
+  const pre=c=>String(c).replace(/P\d+\s*$/i,''), ini=cods[0], fim=cods[cods.length-1];
+  return `<b>${U}${cods.length>1?'s':''} ${E2(fx||cods.length)}</b><div class="cod">${E2(ini)}${cods.length>1?' … '+E2(pre(ini)===pre(fim)?fim.slice(pre(fim).length):fim):''}</div>${cert?'<div style="font-size:8px;color:#64748b;">QR de cada um na relação anexa ao certificado</div>':''}`;
+}
+const E2=x=>esc(String(x));
 const qtdTxt=(q,u)=>nf(q,u==='t'?2:0)+' '+(u==='t'?'t':u==='bag'?(q===1?'bag':'bags'):'sc');
 function htmlCarga(c){
   if(!c||!c.grupos.length)return '<div class="aviso">Nenhum pallet bipado no Carregamento para esta ordem ainda.</div>';
@@ -2196,7 +2206,7 @@ async function renderCertOrdem(o,boxId){
   box.innerHTML=temCaulim?'<div class="aviso info">📜 Buscando certificado de análise…</div>':'';
   const lista=await certDaOrdem(o.id);
   if(!document.getElementById(boxId))return;
-  box.innerHTML=lista.length?`<div style="font-size:12px;font-weight:800;color:var(--primary);text-transform:uppercase;margin-bottom:6px;">📜 Certificado de análise — entregar ao motorista</div>${certHtml(lista)}`
+  box.innerHTML=lista.length?`<div style="font-size:12px;font-weight:800;color:var(--primary);text-transform:uppercase;margin-bottom:6px;">📜 Certificado de análise — entregar ao motorista</div>${certHtml(lista,{unidades:true})}`
     :temCaulim?`<div class="aviso">📜 Esta carga tem caulim, mas ainda <b>não há certificado de análise</b> ligado. ${o.status==='finalizado'?'':'Ele aparece quando o Carregamento salvar a carga e o Laboratório tiver finalizado o laudo da OP.'}</div>`:'';
 }
 /* documentos para entregar ao motorista: romaneio (assinatura) + 1 certificado por lote carregado */
@@ -2209,7 +2219,7 @@ async function abrirDocumentos(portId){
   const temCaulim=o&&itensDe(o).some(i=>certEhProduto(i.produto)||certEhProduto(i.produto_erp));
   box.innerHTML=`<div class="op" style="cursor:default;display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px;">
       <span>🧾 <b>Romaneio de saída</b> — pesos, carga bipada e campo de assinatura</span><button class="btn btn-primary btn-sm" onclick="imprimirSaida('${v.id}')">🖨️ Imprimir</button></div>
-    ${certs.length?`<div style="font-size:12px;font-weight:800;color:var(--primary);text-transform:uppercase;margin:8px 0 6px;">📜 Certificados de análise — um por lote carregado</div>${certHtml(certs)}`
+    ${certs.length?`<div style="font-size:12px;font-weight:800;color:var(--primary);text-transform:uppercase;margin:8px 0 6px;">📜 Certificados de análise — um por lote carregado</div>${certHtml(certs,{unidades:true})}`
       :temCaulim?'<div class="aviso">📜 Carga de caulim sem certificado ligado: o Laboratório precisa finalizar o laudo dos lotes (Laboratório → Laudo). Depois reimprima pelo Histórico.</div>':''}`;
 }
 let _empP={};
@@ -2242,9 +2252,9 @@ async function imprimirSaida(portId,soVer){
   <div class="p" style="grid-template-columns:repeat(${v.peso_produto!=null?5:3},1fr);"><div><small>TARA</small>${t(v.peso_tara)}</div><div><small>BRUTO</small>${t(v.peso_bruto)}</div><div><small>LÍQUIDO (BALANÇA)</small>${t(v.peso_liquido)}</div>
     ${v.peso_produto!=null?`<div><small>PALLETS</small>${v.qtd_pallets||0} × ${nf(v.peso_pallet_kg||0,1)} kg</div><div style="background:#042D4D;color:#C9FF64;"><small style="color:#a9c3d8;">LÍQUIDO PRODUTO</small>${t(v.peso_produto)}</div>`:''}</div>
   ${v.peso_esperado!=null&&v.peso_produto!=null?`<div style="font-size:9.5px;">Produto pelo carregamento: <b>${t(v.peso_esperado)}</b> · diferença balança: <b style="color:${Math.abs(difKg(v.peso_produto,v.peso_esperado))>TOL_KG?'#dc2626':'#15803d'};">${difTxt(difKg(v.peso_produto,v.peso_esperado))}</b>${Math.abs(difKg(v.peso_produto,v.peso_esperado))>TOL_KG?` <b style="color:#dc2626;">(fora da tolerância de ±${TOL_KG} kg)</b>`:''}</div>`:''}
-  ${carga&&carga.grupos.length?`<div class="sec">Carga conferida (QR bipados no carregamento)</div><table><thead><tr><th>Produto</th><th>Lote</th><th class="n">Pallets/bags</th><th class="n">Quantidade</th><th>Certificado</th><th>Códigos</th></tr></thead><tbody>
+  ${carga&&carga.grupos.length?`<div class="sec">Carga conferida (QR bipados no carregamento)</div><table><thead><tr><th>Produto</th><th>Lote</th><th class="n">Pallets/bags</th><th class="n">Quantidade</th><th>Certificado</th><th>Unidades (nº do rótulo)</th></tr></thead><tbody>
     ${carga.grupos.map(x=>{const c=certs.find(k=>k.laudo&&String(k.laudo.lote||'').toUpperCase().replace(/\s/g,'')===String(x.lote).toUpperCase().replace(/\s/g,''));
-      return `<tr><td><b>${E(x.produto)}</b></td><td>${E(x.lote)}</td><td class="n">${x.tipo==='granel'?'—':x.itens}</td><td class="n"><b>${qtdTxt(x.qtd,x.un)}</b></td><td>${c?E(c.laudo.numero):''}</td><td class="cod">${x.codigos.slice(0,40).map(E).join(' ')}${x.codigos.length>40?' …':''}</td></tr>`;}).join('')}</tbody></table>`:''}
+      return `<tr><td><b>${E(x.produto)}</b></td><td>${E(x.lote)}</td><td class="n">${x.tipo==='granel'?'—':x.itens}</td><td class="n"><b>${qtdTxt(x.qtd,x.un)}</b></td><td>${c?E(c.laudo.numero):''}</td><td>${unidadesTxt(x,c)}</td></tr>`;}).join('')}</tbody></table>`:''}
   ${r?`<div class="sec">Entregas (ordem de carregamento)</div><table><thead><tr><th>#</th><th>Cliente</th><th>Cidade</th><th>Pedido</th><th>Produto</th><th class="n">Qtd.</th><th class="n">Unid.</th></tr></thead><tbody>${r.it.map(i=>`<tr><td>${i.ordem_entrega??''}</td><td>${E(i.cliente)}</td><td>${E(i.cidade||'')}</td><td>${E(i.pedido||'')}</td><td>${E(i.produto_erp||i.produto)}</td><td class="n">${E(i.quantidade)}</td><td class="n">${E(i.unidades||'')}</td></tr>`).join('')}</tbody></table>`:''}
   ${certs.length?`<div style="margin-top:8px;font-size:9.5px;"><b>Certificados de análise entregues:</b> ${certs.map(c=>E(c.laudo.numero||'')+' (lote '+E(c.laudo.lote||'—')+' · '+qtdTxt(Number(c.quantidade)||0,c.unidade==='sc'?'sc':c.unidade)+')').join(' · ')}</div>`:''}
   <div class="termo"><b>Termo de responsabilidade do motorista:</b> declaro que recebi as mercadorias acima em perfeito estado de conservação, conferi a quantidade e os pesos e me responsabilizo pelo transporte e entrega nos destinos indicados${certs.length?', junto com os certificados de análise listados':''}.</div>
@@ -2441,7 +2451,7 @@ function renderFechamento(){
     <td class="num">${l.pallets??'—'}</td><td class="num">${(()=>{const d=difKg(l.produto_t,l.esperado), fora=d!=null&&Math.abs(d)>TOL_KG;
       return `<b class="${d==null?'':fora?'liq-erro':'liq-ok'}">${l.produto_t!=null?nf(l.produto_t,3)+' t':'—'}</b>${d!=null?`<div style="font-size:10.5px;" class="${fora?'liq-erro':'liq-ok'}">${fora?'⚠ ':''}${difTxt(d)}</div>`:''}`;})()}</td>
     <td><div class="fe-prods">${Object.entries(l.prods).map(([n,p])=>`<span class="${p.sem?'sem':''}" title="${p.sem?'Sem cadastro no ERP':''}">${esc(n)} <b>${fmtUn(p.qtd,p.un)}</b></span>`).join('')||'<span>—</span>'}${l.fonte==='ordem'&&Object.keys(l.prods).length?' <span style="background:none;color:#94a3b8;">(pela ordem)</span>':''}</div></td>
-    <td style="white-space:nowrap;text-align:right;"><button class="btn btn-ghost btn-sm" title="Visualizar o romaneio" onclick="imprimirSaida('${l.id}',true)">👁️</button><button class="btn btn-ghost btn-sm" title="Imprimir o romaneio de novo" onclick="imprimirSaida('${l.id}')">🖨️</button><button class="btn btn-ghost btn-sm" title="Errou algo? Volta o caminhão para o carregamento" style="color:#b45309;" onclick="voltarParaCarregamento('${l.id}')">↩</button></td></tr>`).join('')
+    <td style="white-space:nowrap;text-align:right;"><button class="btn btn-ghost btn-sm" title="Visualizar o romaneio" onclick="imprimirSaida('${l.id}',true)">👁️</button><button class="btn btn-ghost btn-sm" title="Imprimir o romaneio de novo" onclick="imprimirSaida('${l.id}')">🖨️</button><button class="btn btn-ghost btn-sm" title="Certificado de análise (laudo) e relação dos bags/pallets carregados" onclick="abrirDocumentos('${l.id}')">📜</button><button class="btn btn-ghost btn-sm" title="Errou algo? Volta o caminhão para o carregamento" style="color:#b45309;" onclick="voltarParaCarregamento('${l.id}')">↩</button></td></tr>`).join('')
     :'<tr><td colspan="13"><div class="empty-state" style="padding:24px;"><p>Nenhum caminhão saiu neste dia.</p></div></td></tr>';
   const gs=Object.entries(f.grupos).sort((a,b)=>(a[0]==='Sem cadastro no ERP')-(b[0]==='Sem cadastro no ERP')||a[0].localeCompare(b[0]));
   document.getElementById('fe-grupos').innerHTML=gs.map(([g,ps])=>{const lst=Object.entries(ps).sort((a,b)=>b[1].qtd-a[1].qtd), un=[...new Set(lst.map(x=>x[1].un))];
