@@ -208,7 +208,7 @@ h1.q-prod{margin:0 0 6px;font-size:clamp(26px,4.4vw,34px);}
      rotulos_impressos. RÓTULO IMPRESSO NÃO É ESTOQUE.
    • O pallet nasce quando a OP confirma (trigger → totem_alocar, na ordem dos
      turnos 3º→1º→2º) ou quando o carregamento lê o QR (fica "a conferir").
-   • Rótulo → fila "laser" · amostra → fila "dymo" (25 kg e Big Bag: só o nº 01).
+   • Rótulo → fila "laser" · amostra → fila "dymo" (caulim 25/20 kg, Big Bag, granel: nº 01 e de 10 em 10).
      Quem imprime é a estacao-impressao.html do PC (?destino=laser e a da DYMO).
    • QR de 60 mm com link curto em MAIÚSCULAS (…/R/CODIGO): modo alfanumérico,
      33×33 módulos — atravessa várias camadas de plástico.
@@ -239,6 +239,10 @@ const ehBag=p=>/big\s*-?\s*bag|\bbags?\b/i.test((p.nome||'')+' '+(p.linhaProduto
 // lote data+cor e 3 anos: 25 kg, bag, granel e CAULIM 20 kg (GeoPlus/Liga 20 kg = como concentrado). Igual à producao.html (_ehFichaLote).
 // isFicha continua só para o layout do rótulo e das amostras.
 const fichaLote=p=>isFicha(p.linhaProduto)||(norm((p.linhaProduto||'')+' '+(p.nome||'')).includes('20kg')&&/caulim/i.test(p.nome||''));
+// AMOSTRA (DYMO): caulim 25 kg, 20 kg, big bag e granel → só o nº 01 e de 10 em 10 (10, 20, 30…):
+// 20 rótulos (01 a 20) = 3 amostras (01, 10, 20). Concentrado 10 kg, GeoPlus/Liga 20 kg e demais → 1 por pallet.
+const amostraDe10=p=>fichaLote(p);
+const levaAmostra=(p,n)=>!amostraDe10(p)||n===1||n%10===0;
 const anosValidade=p=>fichaLote(p)?3:1;   // 25 kg / Big Bag / caulim 20 kg = 3 anos; demais = 1 ano
 function validadeDe(d,p){ const v=new Date(d); v.setFullYear(v.getFullYear()+anosValidade(p)); return v; }
 function corCodigo(produtoNome){  // cópia da producao.html (corCodigoCaulim)
@@ -528,7 +532,7 @@ function rotuloSimples(pal,p){
 }
 const rotulo=(pal,p)=>isFicha(p.linhaProduto)?rotuloCompleto(pal,p):rotuloSimples(pal,p);
 function amostraHTML(pal,p){
-  if(isFicha(p.linhaProduto)&&pal.numero!==1) return `<div style="width:89mm;height:28mm;display:flex;align-items:center;justify-content:center;font:700 9pt Arial,sans-serif;color:#64748b;background:#f8fafc;">Sem amostra — só o nº 01 leva</div>`;
+  if(!levaAmostra(p,pal.numero)) return `<div style="width:89mm;height:28mm;display:flex;align-items:center;justify-content:center;text-align:center;font:700 9pt Arial,sans-serif;color:#64748b;background:#f8fafc;">Sem amostra — leva o nº 01<br>e de 10 em 10 (10, 20, 30…)</div>`;
   const linha=t=>`<div style="margin-top:1px;border-bottom:0.6pt solid #475569;min-height:9pt;"></div><div style="font-size:4.5pt;color:#94a3b8;text-transform:uppercase;letter-spacing:.3px;">${t}</div>`;
   const campo=(l,v,q)=>`<div style="padding:0.4mm 0;min-width:0;"><div style="font-size:4.5pt;color:#94a3b8;font-weight:700;text-transform:uppercase;letter-spacing:.3px;">${l}</div><div style="font-size:${q&&String(v||'').length>24?'6.3pt':'7.5pt'};font-weight:800;color:#042D4D;line-height:1.1;${q?'max-height:14pt;overflow:hidden;':'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;'}">${esc_(v||'—')}</div></div>`;
   return `<div style="width:89mm;height:28mm;padding:1.5mm 2.5mm;box-sizing:border-box;font-family:Arial,sans-serif;background:#fff;overflow:hidden;">
@@ -552,7 +556,7 @@ async function enfileirar(rows,p,oque){
     if(r.error) throw r.error; ids.push({id:r.data.id,nome:'Rótulos',dest:'laser'});
   }
   if(oque!=='rot'){
-    const am=ficha?pals.filter(x=>x.numero===1):pals;
+    const am=pals.filter(x=>levaAmostra(p,x.numero));
     if(am.length){
       const html=am.map(x=>`<div style="page-break-after:always;">${amostraHTML(x,p)}</div>`).join('');
       const r=await _supabase.from('impressao_fila').insert({destino:'dymo',tipo:'amostra',titulo:'Amostras · '+titulo,tamanho:'89mm 28mm',qtd:am.length,criado_por:usuario(),html}).select('id').single();
@@ -668,7 +672,10 @@ function telaQtd(){
 function telaConfirma(){
   const p=esc.produto, d=new Date(), dia=hojeIso(), val=validadeDe(new Date(dia+'T12:00:00'),p);   // dia de Brasília
   const n1=ultimoHoje(esc.linha,p.nome)+1, n2=n1+esc.qtd-1;
-  const amostra=isFicha(p.linhaProduto)?(n1===1?'1 etiqueta, só do nº 01':'Não sai — só o nº 01 leva amostra'):`1 etiqueta por ${ehBag(p)?'bag':'pallet'}`;
+  const nAm=[]; for(let n=n1;n<=n2;n++) if(levaAmostra(p,n)) nAm.push(n);
+  const amostra=!amostraDe10(p)?`1 etiqueta por ${ehBag(p)?'bag':'pallet'}`
+    :(nAm.length?`${nAm.length===1?'1 etiqueta':nAm.length+' etiquetas'}: nº ${nAm.map(n=>pad(n,2)).join(', ')}<br><small style="font-weight:600;color:var(--muted);font-size:15px;">Amostra no nº 01 e de 10 em 10</small>`
+      :`Não sai nesta impressão<br><small style="font-weight:600;color:var(--muted);font-size:15px;">Amostra no nº 01 e de 10 em 10 — próxima no nº ${pad(Math.ceil((n2+1)/10)*10,2)}</small>`);
   return trilha()+barraErro()+`<h1 class="q">Confere e imprime</h1>
   <div class="sum" style="--c:${corDe(p.linhaProduto)}"><div class="band"></div><dl>
     <dt>Linha</dt><dd>${esc_(esc.linha)}</dd><dt>Produto</dt><dd>${esc_(p.nome)}</dd>
@@ -693,7 +700,7 @@ function previas(row,p){ const pal=palDe(row);
   return `<div class="grp">Rótulo · LaserJet</div><div class="paper"><div class="fit" data-maxh="0.31"><div class="in">${rotulo(pal,p)}</div></div></div>
   <div class="grp">Etiqueta de amostra · DYMO</div><div class="paper" style="max-width:380px;"><div class="fit"><div class="in">${amostraHTML(pal,p)}</div></div></div>`; }
 function telaFeito(){
-  const {rows,p}=ultima, n=rows.length, am=isFicha(p.linhaProduto)?rows.filter(x=>x.numero===1).length:n, u=ehBag(p)?'Bag':'Pallet';
+  const {rows,p}=ultima, n=rows.length, am=rows.filter(x=>levaAmostra(p,x.numero)).length, u=ehBag(p)?'Bag':'Pallet';
   return `<div class="okmsg"><div class="ic">✓</div><div>${n===1?'1 rótulo':n+' rótulos'}${am?' e '+(am===1?'1 amostra':am+' amostras'):''} enviados para impressão
     <small>${esc_(p.nome)} · ${esc_(rows[0].linha)} · nº ${pad(rows[0].numero,3)}${n>1?' ao '+pad(rows[n-1].numero,3):''}</small></div></div>
   <div class="jobs" id="jobs">${htmlJobs()}</div>
@@ -740,7 +747,7 @@ function telaReimp(){
 function telaReimpConf(){
   const gs=reimpSel(); if(!gs.length){ tela='reimp'; return telaReimp(); }
   const tot=gs.reduce((t,ps)=>t+ps.length,0);
-  const temAm=gs.some(ps=>{const p=prodPorNome(ps[0].produto);return !isFicha(p.linhaProduto)||ps.some(x=>x.numero===1);});
+  const temAm=gs.some(ps=>{const p=prodPorNome(ps[0].produto);return ps.some(x=>levaAmostra(p,x.numero));});
   const x=gs[0][0], p=prodPorNome(x.produto);
   const lista=gs.map(ps=>{const pp=prodPorNome(ps[0].produto);return `<div class="rsel"><b>${esc_(ps[0].produto)}</b><br>${ehBag(pp)?'Bag':'Pallet'} ${faixas(ps.map(y=>y.numero))} <span>(${ps.length})</span></div>`;}).join('');
   return barraErro()+`<h1 class="q">Reimprimir ${tot} ${tot>1?'rótulos':'rótulo'}?</h1><p class="hint">${esc_(x.linha)} · ${fD(x.dia)} · mesmo número e mesmo QR do original</p>
