@@ -4359,7 +4359,7 @@ async function _lauGerarFaltantes(){
     &&_lauDiaFechado(g)));
   if(!sem.length) return;
   _lauGerando=true;
-  const prev={e:_lauEdit,c:_cert,g:_lauGrupoAtual}, feitos=[];
+  const prev={e:_lauEdit,c:_cert,g:_lauGrupoAtual}, feitos=[], erros=[];
   try{
     // situação de todos os pallets/bags das OPs desses lotes, numa leitura só
     const ids=[...new Set(sem.flatMap(g=>g.ops.map(o=>o.id)))], pal=[];
@@ -4371,14 +4371,18 @@ async function _lauGerarFaltantes(){
       const oids=g.ops.map(o=>o.id), nps=g.prods.map(_lauNorm);
       const falta=pal.filter(p=>oids.includes(p.lancamento_id)&&nps.includes(_lauNorm(p.produto))&&p.status!=='aprovado'&&p.status!=='reprovado').length;
       if(falta) continue;
-      _lauGrupoAtual=g; _cert=await montarCertificado(g.rep,g.laudo||null);
-      // rascunho automático que continua travado pelo MESMO motivo (ex.: Cinza sem análise externa): não regrava
-      if(g.laudo){ const mt=_lauMotivosAuto(_cert,vereditoCert(_cert),g.rep).join('; ');
-        if(mt&&mt===(g.laudo.dados_snapshot.auto_motivo||'')) continue; }
-      _lauEdit={opId:g.rep.id,gk:g.k,laudoId:g.laudo?g.laudo.id:null,produto:_cert.produto,unidade:_cert.unidade};
-      const salvo=await salvarLaudo(_lauDiaFechado(g),{auto:true});
-      if(salvo) feitos.push((salvo.numero||'laudo')+(salvo.status==='finalizado'?' ✅':' ⚠️'));
+      try{
+        const dono=_lauOpDono(g);
+        _lauGrupoAtual=g; _cert=await montarCertificado(dono,g.laudo||null);
+        // rascunho automático que continua travado pelo MESMO motivo (ex.: Cinza sem análise externa): não regrava
+        if(g.laudo){ const mt=_lauMotivosAuto(_cert,vereditoCert(_cert),dono).join('; ');
+          if(mt&&mt===(g.laudo.dados_snapshot.auto_motivo||'')) continue; }
+        _lauEdit={opId:dono.id,gk:g.k,laudoId:g.laudo?g.laudo.id:null,produto:_cert.produto,unidade:_cert.unidade};
+        const salvo=await salvarLaudo(_lauDiaFechado(g),{auto:true});
+        if(salvo) feitos.push((salvo.numero||'laudo')+(salvo.status==='finalizado'?' ✅':' ⚠️'));
+      }catch(e){ erros.push('lote '+(g.lote||'—')+' · '+(g.linha||'')+': '+((e&&e.message)||e)); }
     }
+    if(erros.length) toast('Laudo automático não gravou '+erros.length+' lote(s): '+erros.join(' | '),'warning');
   }catch(e){ toast('Não consegui gerar os laudos dos lotes já aprovados: '+((e&&e.message)||e),'warning'); }
   finally{ _lauEdit=prev.e; _cert=prev.c; _lauGrupoAtual=prev.g; _lauGerando=false; }
   if(feitos.length){ renderLaudoTab(); toast('📜 '+feitos.length+' laudo(s) automático(s) dos lotes já aprovados: '+feitos.join(', ')+' (⚠️ = ficou em rascunho, veja o motivo na lista).','success'); }
@@ -5574,6 +5578,7 @@ function _lauAprovadorPallets(op){ return _lauAprovadoresPallets(op).map(x=>x.no
 // sem química externa assinada, análise externa vencida, RT não configurado ou RT = quem aprovou.
 // Não mexe em laudo finalizado nem em rascunho que alguém editou à mão.
 const _lauDiaFechado=g=>String(g.dataFim||'')<hoje();
+const _lauOpDono=g=>g.laudo?g.rep:(g.ops.find(o=>!_lauLaudos.some(l=>l.producao_id===o.id))||g.rep);
 // pallets/bags/cargas do lote (OPs do grupo × produtos do grupo) ainda sem julgamento
 async function _lauPendentesDoGrupo(g){
   const r=await _supabase.from('producao_pallets').select('id,produto,status').in('lancamento_id',g.ops.map(o=>o.id));
@@ -5597,10 +5602,13 @@ async function _lauAutoGerar(opIds,produto){
         // só quando TODA a produção do lote (nesta linha) já foi julgada: nenhum pallet/bag pendente
         const falta=await _lauPendentesDoGrupo(g);
         if(falta>0){ pend.push('lote '+(g.lote||'—')+' ('+falta+' a analisar)'); continue; }
+        const dono=_lauOpDono(g);
         _lauGrupoAtual=g;
-        _cert=await montarCertificado(g.rep,g.laudo);
-        _lauEdit={opId:g.rep.id,gk:g.k,laudoId:g.laudo?g.laudo.id:null,produto:_cert.produto,unidade:_cert.unidade};
-        const salvo=await salvarLaudo(_lauDiaFechado(g),{auto:true});
+        _cert=await montarCertificado(dono,g.laudo);
+        _lauEdit={opId:dono.id,gk:g.k,laudoId:g.laudo?g.laudo.id:null,produto:_cert.produto,unidade:_cert.unidade};
+        let salvo=null;
+        try{ salvo=await salvarLaudo(_lauDiaFechado(g),{auto:true}); }
+        catch(e){ pend.push('lote '+(g.lote||'—')+': '+((e&&e.message)||e)); continue; }
         if(salvo) feitos.push((salvo.numero||'laudo')+' · lote '+(g.lote||'—')+' · '+(g.linha||'')
           +(salvo.status==='finalizado'?' ✅':' — '+((salvo.dados_snapshot&&salvo.dados_snapshot.auto_motivo)||'rascunho')));
       }
