@@ -4339,6 +4339,35 @@ async function carregarLaudos(mesForcado){
         <div style="font-size:11px;margin-top:5px;">Rode <code>lab_002_laudo.sql</code> no Supabase.</div></div>`
     : '';
   renderLaudoTab();
+  // abriu o mês na aba: lote já todo aprovado e ainda sem laudo → gera o rascunho agora
+  if(typeof mesForcado!=='string'&&!_todasFalhas.length) _lauGerarFaltantes();
+}
+let _lauGerando=false;
+async function _lauGerarFaltantes(){
+  if(_lauGerando) return;
+  if(typeof checkPerm==='function'&&!checkPerm('laboratorio','edit')) return;
+  const sem=_lauGrupos.filter(g=>!g.laudo); if(!sem.length) return;
+  _lauGerando=true;
+  const prev={e:_lauEdit,c:_cert,g:_lauGrupoAtual}, feitos=[];
+  try{
+    // situação de todos os pallets/bags das OPs desses lotes, numa leitura só
+    const ids=[...new Set(sem.flatMap(g=>g.ops.map(o=>o.id)))], pal=[];
+    for(let k=0;k<ids.length;k+=150){
+      const r=await _supabase.from('producao_pallets').select('lancamento_id,produto,status').in('lancamento_id',ids.slice(k,k+150));
+      if(r.error) throw r.error; pal.push(...(r.data||[]));
+    }
+    for(const g of sem.slice().reverse()){          // do mais antigo para o mais novo
+      const oids=g.ops.map(o=>o.id), nps=g.prods.map(_lauNorm);
+      const falta=pal.filter(p=>oids.includes(p.lancamento_id)&&nps.includes(_lauNorm(p.produto))&&p.status!=='aprovado'&&p.status!=='reprovado').length;
+      if(falta) continue;
+      _lauGrupoAtual=g; _cert=await montarCertificado(g.rep,null);
+      _lauEdit={opId:g.rep.id,gk:g.k,laudoId:null,produto:_cert.produto,unidade:_cert.unidade};
+      const salvo=await salvarLaudo(false,{auto:true});
+      if(salvo) feitos.push(salvo.numero||'rascunho');
+    }
+  }catch(e){ toast('Não consegui gerar os laudos dos lotes já aprovados: '+((e&&e.message)||e),'warning'); }
+  finally{ _lauEdit=prev.e; _cert=prev.c; _lauGrupoAtual=prev.g; _lauGerando=false; }
+  if(feitos.length){ renderLaudoTab(); toast('📜 '+feitos.length+' laudo(s) gerado(s) dos lotes já aprovados ('+feitos.join(', ')+'). Confira e finalize.','success'); }
 }
 
 // Lê as três análises externas do fluxo do caulim (POP-17) e diz o que está
@@ -5116,7 +5145,7 @@ async function montarCertificado(op, existente){
       cert.total={min:null,max:null,espec:existente.total_retido_espec||''};
       cert.demais=[
         existente.umidade_result!=null||existente.umidade_max!=null?{k:'umidade',rot:'Umidade (%)',min:null,max:existente.umidade_max??null,res:existente.umidade_result??null}:null,
-        existente.mm_result!=null||existente.mm_min!=null?{k:'mm',rot:'M.M — material mineral (%)',min:existente.mm_min??null,max:null,res:existente.mm_result??null}:null,
+        // M.M — material mineral não sai mais no laudo, nem nos já finalizados (pedido do dono, nov/2026)
         existente.peso_esp_result!=null||existente.peso_esp_min!=null?{k:'pe',rot:'Peso específico aparente (g/cm³)',min:existente.peso_esp_min??null,max:existente.peso_esp_max??null,res:existente.peso_esp_result??null}:null,
       ].filter(Boolean);
     }else if(!(existente.dados_snapshot&&existente.dados_snapshot.auto)){
@@ -5525,8 +5554,15 @@ function _lauAprovadorPallets(op){ return _lauAprovadoresPallets(op).map(x=>x.no
 // atualizado sozinho como RASCUNHO, com produção e média das análises aprovadas.
 // Finalizar (assinatura do RT) continua sendo um clique no laudo.
 // Não mexe em laudo finalizado nem em rascunho que alguém editou à mão.
+// pallets/bags/cargas do lote (OPs do grupo × produtos do grupo) ainda sem julgamento
+async function _lauPendentesDoGrupo(g){
+  const r=await _supabase.from('producao_pallets').select('id,produto,status').in('lancamento_id',g.ops.map(o=>o.id));
+  if(r.error) throw r.error;
+  const nps=g.prods.map(_lauNorm);
+  return (r.data||[]).filter(p=>nps.includes(_lauNorm(p.produto))&&p.status!=='aprovado'&&p.status!=='reprovado').length;
+}
 async function _lauAutoGerar(opIds,produto){
-  const prev={e:_lauEdit,c:_cert,g:_lauGrupoAtual}, feitos=[];
+  const prev={e:_lauEdit,c:_cert,g:_lauGrupoAtual}, feitos=[], pend=[];
   try{
     if(!_lauEhProdutoLaudo(produto)) return;
     const ids=[...new Set((opIds||[]).filter(Boolean))]; if(!ids.length) return;
@@ -5538,6 +5574,9 @@ async function _lauAutoGerar(opIds,produto){
       const gs=_lauGrupos.filter(g=>g.ops.some(o=>ids.includes(o.id))&&g.prods.some(p=>_lauNorm(p)===np));
       for(const g of gs){
         if(g.laudo&&(g.laudo.status==='finalizado'||!(g.laudo.dados_snapshot&&g.laudo.dados_snapshot.auto))) continue;
+        // só quando TODA a produção do lote (nesta linha) já foi julgada: nenhum pallet/bag pendente
+        const falta=await _lauPendentesDoGrupo(g);
+        if(falta>0){ pend.push('lote '+(g.lote||'—')+' ('+falta+' a analisar)'); continue; }
         _lauGrupoAtual=g;
         _cert=await montarCertificado(g.rep,g.laudo);
         _lauEdit={opId:g.rep.id,gk:g.k,laudoId:g.laudo?g.laudo.id:null,produto:_cert.produto,unidade:_cert.unidade};
@@ -5546,6 +5585,7 @@ async function _lauAutoGerar(opIds,produto){
       }
     }
     if(feitos.length) toast('📜 Laudo gerado automático: '+feitos.join(' | ')+'. Confira e finalize na aba Laudo.','success');
+    else if(pend.length) toast('📜 O laudo sai sozinho quando todo o lote estiver aprovado — falta: '+pend.join(' | ')+'.','info');
   }catch(e){
     toast('Pallet aprovado, mas o laudo automático não foi gerado: '+((e&&e.message)||e)+'. Crie pela aba Laudo.','warning');
   }finally{
