@@ -12,23 +12,29 @@
 <script src="js/regras.js"></script>
 <style>
 /* ══════════════════════════════════════════════════════════════════════════
-   FECHAMENTO DIÁRIO (out/2026) — mesmo desenho do Painel da fábrica
-   Abre no dia de ONTEM (D-1). Cada produto na sua unidade: sacos, bags e
-   granel em t (a OP do granel é lançada em kg). Totais por unidade — nunca
-   somando saco com bag com tonelada. Fonte: rpc_fechamento_dia (migração 008).
+   FECHAMENTO DIÁRIO DA FÁBRICA (nov/2026) — mesmo modelo do PDF do fechamento:
+   7 folhas (produto acabado da fábrica, insumos da fábrica, Felisbina, caixas
+   Topdry, insumos Felisbina, Preparador, Tintas).
+   Regras do dia D (iguais ao controle mensal):
+   • PRODUÇÃO do dia D = OPs de D (manhã/tarde/noite) + madrugada de D+1.
+   • ESTOQUE LIBERADO  = estoque inicial + produzido − em análise − reprovado
+                         − diferença − carregado (desde o último estoque inicial).
+   • EM ANÁLISE só para sacaria 10 kg e 20 kg (bag, 25 kg e granel saem liberados).
+   • Insumos da fábrica no fim do dia D = movimentos até D + a madrugada de D+1.
+   • Felisbina = movimentos até D. Diesel = bombas ativas no fim do dia (até 08:00 de D+1).
+   Dados próprios do fechamento em pa_ajustes (migração 114): estoque_inicial,
+   carregamento, diferenca e contagem.
    ══════════════════════════════════════════════════════════════════════════ */
 :root{
-  --ok:#16a34a; --ok-bg:#dcfce7; --ok-line:#22c55e;
-  --warn:#b45309; --warn-bg:#fef3c7; --warn-line:#f59e0b;
-  --bad:#dc2626; --bad-bg:#fee2e2; --bad-line:#ef4444;
-  --wd-line:#e3e9f0; --line-soft:#f1f5f9;
-  --ink-2:#475569; --ink-3:#64748b; --ink-4:#94a3b8; --ink-5:#cbd5e1;
-  --wd-shadow:0 1px 2px rgba(4,45,77,.05);
+  --fd-cab:#2f4f53; --fd-zebra:#f2f6f6; --fd-lib:#fff6e5; --fd-linha:#d5dcdd;
+  --g1:#0e5c8c; --g2:#1b7fa8; --g3:#2f9ba0; --g4:#4a6e80; --g5:#a0906e;
+  --wd-line:#e3e9f0; --line-soft:#f1f5f9; --ink-2:#475569; --ink-3:#64748b; --ink-5:#cbd5e1;
+  --warn:#b45309; --warn-bg:#fef3c7;
 }
 button:focus-visible,a:focus-visible,[role="button"]:focus-visible{outline:2px solid var(--primary);outline-offset:2px;}
 
-/* cabeçalho e dia de referência (igual ao Painel) */
-.fx-head{display:flex;justify-content:space-between;align-items:flex-end;gap:14px;flex-wrap:wrap;margin-bottom:18px;}
+/* cabeçalho da tela e dia de referência */
+.fx-head{display:flex;justify-content:space-between;align-items:flex-end;gap:14px;flex-wrap:wrap;margin-bottom:16px;}
 .fx-head h1{margin:0;font-size:26px;font-weight:800;color:var(--primary);letter-spacing:-.4px;}
 .fx-head p{margin:3px 0 0;font-size:13px;color:var(--ink-3);}
 .fx-r{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
@@ -50,89 +56,70 @@ button:focus-visible,a:focus-visible,[role="button"]:focus-visible{outline:2px s
 .fx-btn:hover{border-color:var(--primary);}
 .fx-btn.pri{background:var(--primary);border-color:var(--primary);color:var(--accent);}
 
-/* avisos de saúde dos dados */
-.fx-avisos{display:flex;flex-direction:column;gap:8px;margin-bottom:14px;}
+/* atalhos para as folhas */
+.fd-nav{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;}
+.fd-nav a{font-size:12px;font-weight:700;color:var(--primary);background:#fff;border:1px solid var(--wd-line);border-radius:20px;padding:5px 12px;text-decoration:none;}
+.fd-nav a:hover{border-color:var(--primary);}
+
+.fx-avisos{display:flex;flex-direction:column;gap:8px;margin-bottom:12px;}
 .fx-av{display:flex;gap:10px;align-items:flex-start;background:var(--warn-bg);color:#7c2d12;border-radius:12px;padding:10px 14px;font-size:13px;line-height:1.45;}
-.fx-av b{color:#7c2d12;}
 .fx-av .ic{font-size:18px;line-height:1.2;}
 
-/* folha do relatório */
-.fx-folha{background:#fff;border:1px solid var(--wd-line);border-radius:16px;padding:22px 24px;box-shadow:var(--wd-shadow);}
-.fx-cab{display:flex;align-items:flex-end;gap:14px;margin:-4px 0 18px;}
-.fx-cab img{height:48px;object-fit:contain;}
-.fx-cab .logo-ph{width:48px;height:48px;border-radius:12px;background:var(--line-soft);display:flex;align-items:center;justify-content:center;font-size:24px;}
-.fx-cab .t{font-size:18px;font-weight:800;color:var(--primary);}
-.fx-cab .d{font-size:13.5px;color:var(--ink-2);font-weight:700;margin-top:1px;}
-.fx-cab .d::first-letter{text-transform:uppercase;}
-.fx-cab .g{margin-left:auto;text-align:right;font-size:11px;color:var(--ink-4);}
+/* folhas — iguais ao PDF */
+.fd-folha{background:#fff;border:1px solid var(--wd-line);border-radius:14px;padding:18px 18px 22px;margin-bottom:16px;box-shadow:0 1px 2px rgba(4,45,77,.05);scroll-margin-top:70px;}
+.fd-tit{text-align:center;font-size:19px;font-weight:800;color:var(--fd-cab);letter-spacing:.2px;margin:0;}
+.fd-data{text-align:center;font-size:13px;font-weight:800;color:#111;margin:4px 0 6px;}
+.fd-wrap{overflow-x:auto;}
+table.fd caption{caption-side:top;}
+table.fd{width:100%;border-collapse:collapse;font-size:11.5px;color:#111;font-family:Arial,Helvetica,sans-serif;}
+table.fd th{border-radius:0 !important;background:var(--fd-cab);color:#fff;font-weight:700;font-size:11px;padding:7px 8px;text-align:center;border:1px solid var(--fd-cab);text-transform:uppercase;line-height:1.25;}
+table.fd th.sec{font-size:13px;padding:5px 8px;border-bottom:1px solid #fff3;}
+table.fd td{padding:2px 7px;border-left:1px solid var(--fd-linha);border-right:1px solid var(--fd-linha);height:17px;white-space:nowrap;}
+table.fd tbody tr:nth-child(even) td{background:var(--fd-zebra);}
+table.fd td.nm{text-align:left;}
+table.fd td.n{text-align:center;font-variant-numeric:tabular-nums;}
+table.fd td.lib{background:var(--fd-lib) !important;font-weight:800;text-align:center;}
+table.fd td.un{text-align:center;text-transform:uppercase;}
+table.fd td.grp{color:#fff;font-weight:800;text-align:center;vertical-align:middle;white-space:normal;font-size:11.5px;line-height:1.25;
+  border-top:1px solid var(--fd-cab);border-bottom:1px solid var(--fd-cab);}
+table.fd tr.ini td{border-top:1px solid var(--fd-cab);}
+table.fd tr.tot td{background:var(--fd-cab) !important;color:#fff;font-weight:800;border-color:var(--fd-cab);height:20px;}
+table.fd td.comprar{background:#fde2e4 !important;color:#c0262d;font-style:italic;font-weight:700;text-align:center;}
+table.fd td.ok{text-align:center;}
+table.fd td.est{font-weight:800;}
+table.fd tr:last-child td{border-bottom:1px solid var(--fd-cab);}
+.fd-outros{font-size:12px;color:var(--ink-2);margin-top:8px;}
 
-/* tiles */
-.tiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:22px;}
-.tile{border:1px solid var(--wd-line);border-radius:14px;padding:14px 16px;min-width:0;}
-.tile.hero{background:var(--primary);border-color:var(--primary);}
-.tile-l{font-size:12.5px;font-weight:700;color:var(--ink-2);}
-.tile-v{font-size:clamp(20px,1.8vw,27px);font-weight:800;color:var(--primary);letter-spacing:-.5px;line-height:1.15;margin-top:6px;font-variant-numeric:tabular-nums;}
-.tile-v small{font-size:12.5px;font-weight:700;color:var(--ink-3);letter-spacing:0;margin-left:2px;}
-.tile-s{font-size:11.5px;color:var(--ink-3);margin-top:4px;line-height:1.4;}
-.tile.hero .tile-l{color:rgba(255,255,255,.8);} .tile.hero .tile-v{color:var(--accent);}
-.tile.hero .tile-v small{color:rgba(255,255,255,.6);} .tile.hero .tile-s{color:rgba(255,255,255,.62);}
-.tile.alerta .tile-v{color:var(--bad);}
+.fx-como{margin-top:4px;background:var(--line-soft);border-radius:12px;padding:12px 14px;font-size:12.5px;color:var(--ink-2);line-height:1.6;}
 
-/* seções */
-.fx-sec{display:flex;justify-content:space-between;align-items:flex-end;gap:10px;flex-wrap:wrap;margin:6px 0 10px;}
-.fx-sec h2{margin:0;font-size:16px;font-weight:800;color:var(--primary);}
-.fx-sec p{margin:2px 0 0;font-size:12px;color:var(--ink-3);}
-.seg{display:flex;gap:3px;background:var(--line-soft);padding:3px;border-radius:10px;}
-.seg button{border:0;background:transparent;font:inherit;font-size:12.5px;font-weight:700;color:var(--ink-3);padding:6px 12px;border-radius:7px;cursor:pointer;}
-.seg button.on{background:var(--accent);color:var(--primary);box-shadow:0 1px 3px rgba(4,45,77,.18);}
-.seg button:not(.on):hover{color:var(--primary);background:rgba(255,255,255,.6);}
-.fx-quebra{margin-top:26px;}
+/* modais de lançamento */
+.lc-tab{width:100%;border-collapse:collapse;font-size:13px;}
+.lc-tab th{font-size:11px;text-transform:uppercase;color:var(--ink-3);text-align:left;padding:6px 6px;border-bottom:1.5px solid var(--wd-line);position:sticky;top:0;background:#fff;z-index:1;}
+.lc-tab td{padding:4px 6px;border-bottom:1px solid var(--line-soft);}
+.lc-tab tr.g td{background:#f8fafc;font-weight:800;font-size:11.5px;color:var(--ink-2);padding:6px;}
+.lc-tab input{width:110px;text-align:right;padding:6px 8px;border:1.5px solid var(--wd-line);border-radius:8px;font:inherit;font-size:13px;}
+.lc-tab input:focus{border-color:var(--primary);outline:none;}
+.lc-tab input.mud{border-color:#f59e0b;background:#fffbeb;}
+.lc-scroll{max-height:58vh;overflow:auto;}
+.lc-dica{font-size:12px;color:var(--ink-3);margin:0 0 10px;line-height:1.5;}
 
-/* tabela */
-.tb-wrap{overflow-x:auto;margin:0 -2px;}
-table.fx{width:100%;border-collapse:separate;border-spacing:0;font-size:13px;}
-table.fx thead th{padding:9px 11px;font-size:11px;white-space:nowrap;}
-table.fx thead th:first-child{border-radius:8px 0 0 8px;}
-table.fx thead th:last-child{border-radius:0 8px 8px 0;}
-table.fx td{padding:9px 11px;border-bottom:1px solid var(--line-soft);color:var(--ink-2);vertical-align:middle;}
-table.fx .num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;}
-table.fx .nome{font-weight:700;color:var(--primary);}
-table.fx tr.grp td{background:#f8fafc;font-size:12px;font-weight:800;color:var(--ink-2);padding:8px 11px;border-bottom:1px solid var(--wd-line);}
-table.fx tr.sub td{font-weight:800;color:var(--primary);border-top:1.5px solid var(--wd-line);border-bottom:0;padding-bottom:14px;}
-table.fx tr.parado td{color:var(--ink-4);}
-table.fx tr.parado .nome{color:var(--ink-3);font-weight:600;}
-table.fx .mov{font-weight:800;color:var(--primary);}
-table.fx .neg{color:var(--bad);font-weight:800;}
-table.fx .zero{color:var(--ink-5);}
-.un{font-size:11px;font-weight:600;color:var(--ink-4);margin-left:3px;}
-.pill{display:inline-block;font-size:11.5px;font-weight:800;padding:3px 10px;border-radius:20px;white-space:nowrap;}
-.pill.ok{background:var(--ok-bg);color:#166534;} .pill.comprar{background:var(--bad-bg);color:#991b1b;}
-.sb-cell{display:flex;align-items:center;gap:8px;min-width:120px;}
-.sb{flex:1;height:7px;background:var(--line-soft);border-radius:6px;overflow:hidden;min-width:50px;position:relative;}
-.sb>span{display:block;height:100%;border-radius:6px;}
-.sb>i{position:absolute;top:-2px;bottom:-2px;width:2px;background:var(--ink-3);border-radius:2px;}
-.fx-vazio{text-align:center;color:var(--ink-4);padding:22px;font-size:13px;}
-.fx-como{margin-top:20px;background:var(--line-soft);border-radius:12px;padding:12px 14px;font-size:12.5px;color:var(--ink-2);line-height:1.55;}
-
-@media (max-width:900px){ .tiles{grid-template-columns:repeat(2,minmax(0,1fr));} }
 @media (max-width:640px){
   .fx-r{width:100%;flex-direction:column;align-items:stretch;} .ref-main{flex:1;min-width:0;} .fx-btn{justify-content:center;}
-  .fx-folha{padding:14px;border-radius:14px;}
-  .fx-cab .g{display:none;}
+  .fd-folha{padding:12px 8px;}
   .topbar-user > div:last-child{display:none;}
 }
 @media print{
-  @page{size:A4 portrait;margin:10mm 12mm;}
-  .sidebar,.topbar,.no-print,#sidebar-container,#toast-container{display:none !important;}
+  @page{size:A4 portrait;margin:8mm 7mm;}
+  .sidebar,.topbar,.no-print,#sidebar-container,#toast-container,.modal-overlay{display:none !important;}
   .main-content{margin:0 !important;padding:0 !important;}
   body{background:#fff !important;}
-  .fx-folha{box-shadow:none !important;border:none !important;padding:0 !important;}
-  .tiles{grid-template-columns:repeat(4,1fr) !important;gap:6px !important;margin-bottom:14px !important;}
-  .tile{padding:8px 10px !important;}
-  .tile-v{font-size:17px !important;}
-  table.fx{font-size:10px !important;}
-  table.fx td,table.fx thead th{padding:4px 6px !important;}
-  .fx-quebra{page-break-before:always;margin-top:0 !important;}
+  .fd-folha{box-shadow:none !important;border:none !important;padding:0 !important;margin:0 0 6mm !important;border-radius:0 !important;}
+  .fd-folha{page-break-inside:auto;}
+  table.fd caption{break-after:avoid;page-break-after:avoid;}
+  thead{display:table-header-group;}
+  .fd-tit{font-size:13pt;} .fd-data{font-size:9pt;}
+  table.fd{font-size:7pt;} table.fd th{font-size:6.8pt;padding:3px 4px;} table.fd th.sec{font-size:8pt;}
+  table.fd td{height:auto;padding:1px 4px;} table.fd td.grp{font-size:7pt;}
   tr{page-break-inside:avoid;}
   *{-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;}
 }
@@ -156,7 +143,7 @@ table.fx .zero{color:var(--ink-5);}
   <div class="fx-head no-print">
     <div>
       <h1>Fechamento diário</h1>
-      <p>Produto acabado e insumos no fim do dia — direto dos lançamentos</p>
+      <p>Estoque de produto acabado, insumos, Felisbina, Preparador e Tintas no fim do dia</p>
     </div>
     <div class="fx-r">
       <div class="ref-ctl">
@@ -168,51 +155,81 @@ table.fx .zero{color:var(--ink-5);}
         </div>
         <button type="button" class="ref-btn" id="ref-next" onclick="mudarDia(1)" aria-label="Próximo dia">›</button>
       </div>
+      <button type="button" class="fx-btn" id="bt-carreg" onclick="abrirCarregamento()" style="display:none;">🚚 Carregamento do dia</button>
+      <button type="button" class="fx-btn" id="bt-estoque" onclick="abrirEstoque()" style="display:none;">📦 Estoque inicial e contagens</button>
       <button type="button" class="fx-btn pri" onclick="window.print()">🖨️ Imprimir / PDF</button>
     </div>
   </div>
 
+  <nav class="fd-nav no-print">
+    <a href="#f-pa">Produto acabado</a><a href="#f-ins">Insumos da fábrica</a><a href="#f-fpa">Felisbina</a>
+    <a href="#f-td">Caixas Topdry</a><a href="#f-fins">Insumos Felisbina</a><a href="#f-prep">Preparador</a><a href="#f-tin">Tintas</a>
+  </nav>
+
   <div class="fx-avisos no-print" id="fx-avisos"></div>
+  <div id="fd-folhas"><div class="fd-folha" style="text-align:center;color:var(--ink-3);">Carregando…</div></div>
 
-  <div class="fx-folha" id="fx-folha">
-    <!-- cabeçalho da empresa (logo, nome fantasia, razão social, CNPJ/IE, endereço) — Configurações → Empresa -->
-    <div id="fx-empresa-cab"></div>
-    <div class="fx-cab">
-      <div>
-        <div class="t">Fechamento diário da fábrica</div>
-        <div class="d" id="fx-cab-data">—</div>
-      </div>
-      <div class="g" id="fx-gerado"></div>
-    </div>
-
-    <div class="tiles" id="fx-tiles"></div>
-
-    <div class="fx-sec">
-      <div><h2>Produto acabado</h2><p>Na unidade de cada produto · granel em toneladas</p></div>
-      <div class="seg no-print" id="seg-pa">
-        <button type="button" class="on" data-v="mov" onclick="setFiltroPA('mov')">Com movimento</button>
-        <button type="button" data-v="todos" onclick="setFiltroPA('todos')">Todos</button>
-      </div>
-    </div>
-    <div class="tb-wrap"><table class="fx" id="fx-pa"></table></div>
-
-    <div class="fx-sec fx-quebra">
-      <div><h2>Insumos</h2><p>Saldo no fim do dia contra o estoque mínimo</p></div>
-      <div class="seg no-print" id="seg-ins">
-        <button type="button" class="on" data-v="todos" onclick="setFiltroIns('todos')">Todos</button>
-        <button type="button" data-v="comprar" onclick="setFiltroIns('comprar')">Comprar</button>
-      </div>
-    </div>
-    <div class="tb-wrap"><table class="fx" id="fx-ins"></table></div>
-
-    <div class="fx-como no-print">
-      <b>Como ler:</b> <i>Em análise</i> é a produção de OPs que o laboratório ainda não liberou.
-      <i>Estoque liberado</i> = estoque total − em análise. O estoque de produto acabado parte do que foi produzido e
-      carregado <b>dentro do ERP</b>; a contagem física inicial entra pela tabela de ajustes (<code>pa_ajustes</code>).
-    </div>
+  <div class="fx-como no-print">
+    <b>Como o fechamento é montado:</b>
+    <b>Produção</b> do dia = OPs do dia (manhã e noite) + a madrugada do dia seguinte.
+    <b>Em análise</b> = OPs de sacaria 10 kg e 20 kg que o laboratório ainda não aprovou (bag, 25 kg e granel saem liberados).
+    <b>Estoque liberado</b> = estoque inicial + produzido − em análise − reprovado − diferença − carregado.
+    <b>Carregamento</b> e <b>diferença</b> entram pelo botão 🚚; o estoque do mês anterior e as contagens (pallet PBR e invertido,
+    aditivo em estoque, bag de areia, produto vencido) pelo botão 📦.
+    Insumos da fábrica vêm de Insumos (fim do dia + madrugada seguinte); Felisbina, Preparador e Tintas vêm da Felisbina;
+    diesel = bombas ativas no fim do dia. Granel em kg.
   </div>
 </main>
 <div id="toast-container"></div>
+
+<!-- ══════════ MODAL: CARREGAMENTO E DIFERENÇA DO DIA ══════════ -->
+<div id="m-carreg" class="modal-overlay hidden">
+  <div class="modal modal-lg" style="max-width:640px;">
+    <div class="modal-header">
+      <div class="modal-title" id="mc-tit">🚚 Carregamento do dia</div>
+      <button class="modal-close" onclick="closeModal('m-carreg')">✕</button>
+    </div>
+    <p class="lc-dica">Quantidade carregada até meia-noite e a diferença de estoque do dia (positivo = faltou). Bag em unidades, granel em kg. Deixe em branco o que não teve.</p>
+    <div class="lc-scroll"><table class="lc-tab" id="mc-tab"></table></div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('m-carreg')">Cancelar</button>
+      <button class="btn btn-primary" id="mc-btn" onclick="salvarCarregamento()">💾 Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ MODAL: ESTOQUE INICIAL E CONTAGENS ══════════ -->
+<div id="m-estoque" class="modal-overlay hidden">
+  <div class="modal modal-lg" style="max-width:640px;">
+    <div class="modal-header">
+      <div class="modal-title">📦 Estoque inicial e contagens</div>
+      <button class="modal-close" onclick="closeModal('m-estoque')">✕</button>
+    </div>
+    <div class="form-group" style="margin:0 0 8px;max-width:260px;">
+      <label class="form-label">Vale a partir do fim do dia</label>
+      <input type="date" class="form-input" id="me-data" onchange="renderEstoque()">
+    </div>
+    <p class="lc-dica">Estoque inicial = contagem do produto no fim deste dia (ex.: último dia do mês). O fechamento conta a produção, o carregamento e a diferença <b>depois</b> dele. Contagens valem até a próxima contagem. Só grava o que você mudar.</p>
+    <div class="lc-scroll"><table class="lc-tab" id="me-tab"></table></div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('m-estoque')">Cancelar</button>
+      <button class="btn btn-primary" id="me-btn" onclick="salvarEstoque()">💾 Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ MODAL CONFIRMAR ══════════ -->
+<div id="m-conf" class="modal-overlay hidden">
+  <div class="modal" style="max-width:440px;">
+    <div class="modal-header"><div class="modal-title">⚠️ Confirmar</div>
+      <button class="modal-close" onclick="closeModal('m-conf')">✕</button></div>
+    <p id="conf-msg" style="font-size:14px;color:#475569;line-height:1.6;padding:4px 0;"></p>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('m-conf')">Cancelar</button>
+      <button class="btn btn-primary" id="conf-ok">Confirmar</button>
+    </div>
+  </div>
+</div>
 
 <script>
 fetch('partials/sidebar.html').then(r=>r.text()).then(html=>{
@@ -222,16 +239,129 @@ fetch('partials/sidebar.html').then(r=>r.text()).then(html=>{
   initSidebar('fechamento.html');
 }).catch(e=>console.warn('[sidebar]',e));
 
-/* ── datas no fuso local ── */
+/* ══════════════ MODELO DAS FOLHAS (igual ao PDF do fechamento) ══════════════ */
+// Produto acabado da fábrica: [rótulo no PDF, nome do produto no ERP]
+const PA_FAB=[
+  {g:'10KG',quar:true,itens:[
+    ['LIGA CONCENTRADO 10KG','Liga Concentrado 10kg'],['SIKAL CONCENTRADO 10KG','Sikal Concentrado 10kg'],
+    ['GEOPLUS CONCENTRADO 10KG','Geoplus Concentrado 10kg'],['LIGAPRO 10KG','LigaPro 10kg'],['LIGANEX 10KG','LigaNex 10kg'],
+    ['LIGA CONCENTRADO C/ IMPERMEAB. 10KG','Liga Concentrado c/ Impermeabilizante 10kg'],
+    ['LIGA CONCENTRADO C/ IMPERMEAB. 50 10KG','Liga Original c/ Impermeabilizante 50'],
+    ['SIKAL CONCENTRADO C/ IMPERMEAB. 10KG','Sikal Concentrado c/ Impemeabilizante 10kg'],
+    ['LIGAPRO +IMPERMEABILIZANTE 10KG','LigaPro c/ Impermeabilizante 10kg'],['LIGANEX +IMPERMEABILIZANTE 10KG','LigaNex c/ Impermeabilizante 10kg']]},
+  {g:'20KG',quar:true,itens:[
+    ['LIGA ORIGINAL 20 KG','Liga Original 20kg'],['GEOPLUS 20 KG','GeoPlus 20Kg'],['CAULIM 20 KG - BRANCO 01','Caulim 20kg - Branco 01'],
+    ['CAULIM 20 KG - BRANCO 02','Caulim 20kg - Branco 02'],['CAULIM 20 KG - CREME 02','Caulim 20kg - Creme 02'],['CAULIM 20 KG - CINZA','Caulim 20kg - Cinza']]},
+  {g:'25KG',itens:[
+    ['CAULIM 25 KG - BRANCO 01','Caulim 25kg - Branco 01'],['CAULIM 25 KG - BRANCO 02','Caulim 25kg - Branco 02'],['CAULIM 25 KG - BRANCO 03','Caulim 25kg - Branco 03'],
+    ['CAULIM 25 KG - CREME 01','Caulim 25kg - Creme 01'],['CAULIM 25 KG - CREME 02','Caulim 25kg - Creme 02'],['CAULIM 25 KG - CREME 03','Caulim 25kg - Creme 03'],
+    ['CAULIM 25 KG - MARGUERITA','Caulim 25kg - Marguerita']]},
+  {g:'BAG',itens:[
+    ['BAG SILICATE MATERIAL CINZA','Big Bag Caulim Cinza'],['BAG SILICATE MATERIAL CINZA - IMPERMEABILIZANTE','Big Bag Caulim Cinza c/ Impermeabilizante'],
+    ['BAG SILICATE CAULIM BRANCO 01','Big Bag Caulim Branco 01'],['BAG SILICATE CAULIM BRANCO 02','Big Bag Caulim Branco 02'],['BAG SILICATE CAULIM BRANCO 03','Big Bag Caulim Branco 03'],
+    ['BAG SILICATE CAULIM CREME 01','Big Bag Caulim Creme 01'],['BAG SILICATE CAULIM CREME 02','Big Bag Caulim Creme 02'],['BAG SILICATE CAULIM CREME 03','Big Bag Caulim Creme 03'],
+    ['BAG SILICATE CAULIM - BRASIL MINAS','Big Bag Caulim Brasil Minas']]},
+  {g:'TON',cor:'--g5',itens:[['CAULIM GRANEL - CINZA','Caulim Granel - Cinza'],['CAULIM GRANEL - BRANCO 02','Caulim Granel - Branco 02']]},
+  {g:'SACOS',cor:'--g5',itens:[['TOPDRY','Topdry']]},
+];
+
+// Insumos da fábrica. src: ins=código do insumo · cont=contagem · felis=item da Felisbina · diesel
+const INS_FAB=[
+  {g:'EMBALAGEM',itens:[
+    ['EMBALAGEM - LIGA CONCENTRADO 10KG','SACO (S)',{ins:'ALM-0459'}],['EMBALAGEM - SIKAL CONCENTRADO 10KG','SACO (S)',{ins:'ALM-0464'}],
+    ['EMBALAGEM - GEOPLUS CONCENTRADO 10KG','SACO (S)',{ins:'ALM-0458'}],['EMBALAGEM - LIGAPRO 10KG','SACO (S)',{ins:'ALM-0477'}],
+    ['EMBALAGEM - LIGANEX 10KG','SACO (S)',{ins:'ALM-0478'}],['EMBALAGEM - LIGA CONCENTRADO C/ IMPERMEAB. 10KG','SACO (S)',{ins:'ALM-0460'}],
+    ['EMBALAGEM - LIGA CONCENTRADO C/ IMPERMEAB. 50 10KG','SACO (S)',{ins:'ALM-0462'}],['EMBALAGEM - SIKAL CONCENTRADO C/ IMPERMEAB. 10KG','SACO (S)',{ins:'ALM-0465'}],
+    ['EMBALAGEM - LIGAPRO +IMPERMEABILIZANTE 10KG','SACO (S)',{ins:'ALM-0479'}],['EMBALAGEM - LIGANEX +IMPERMEABILIZANTE 10KG','SACO (S)',{ins:'ALM-0480'}],
+    ['EMBALAGEM - LIGA ORIGINAL 20 KG','SACO (S)',{ins:'ALM-0461'}],['EMBALAGEM - GEOPLUS 20 KG','SACO (S)',{ins:'ALM-0457'}],
+    ['EMBALAGEM - CAULIM 25 Kg','SACO (S)',{ins:'ALM-0456'}],['EMBALAGEM - CAULIM 20 Kg','SACO (S)',{ins:'ALM-0476'}],
+    ['EMBALAGEM - BAG SILICATE','SACO (S)',{ins:'ALM-0448'}],['EMBALAGEM - TOPDRY','SACO (S)',{ins:'ALM-0463'}]]},
+  {g:'PALLET',itens:[
+    // o saldo de pallet em Insumos é o total; o PDF separa PBR e invertido (contados à mão)
+    ['PALLET PADRÃO - 1,05 X 1,20 m','PEÇA (S)',{ins:'ALM-0454',menos:['PALLET PBR','PALLET INVERTIDO']}],
+    ['PALLET PBR','PEÇA (S)',{cont:'PALLET PBR'}],['PALLET INVERTIDO - 1,20 X 1,05 m','PEÇA (S)',{cont:'PALLET INVERTIDO'}]]},
+  {g:'OPERACIONAL',itens:[
+    ['LENHA','M³',{ins:'ALM-0450'},2],['MARTELO','PEÇA (S)',{ins:'ALM-0481'}],['GAVETA','PEÇA (S)',{ins:'ALM-0482'}],
+    ['GRELHA','PEÇA (S)',{ins:'ALM-0483'}],['EIXOS','PEÇA (S)',{ins:'ALM-0484'}],['PLASTICO STRETCH','ROLOS',{ins:'ALM-0455'}]]},
+  {g:'ADITIVO',itens:[
+    ['ADITIVO 20KG','KG',{ins:'ALM-0447'},2],['ADITIVO CONCENTRADO','KG',{ins:'ALM-0446'},2],
+    ['ESTOQUE ADITIVO 1 - PARDO','KG',{cont:'ADITIVO 1 PARDO'},'a'],['ESTOQUE ADITIVO 2 - LIGA','KG',{cont:'ADITIVO 2 LIGA'},'a'],
+    ['ESTOQUE ADITIVO 2 - SIKAL','KG',{cont:'ADITIVO 2 SIKAL'},'a']]},
+  {g:'COMBUSTÍVEL',itens:[['DIESEL','LITRO (S)',{diesel:true},2]]},
+  {g:'TOPDRY',itens:[
+    ['SACHE BR','UNID.',{felis:'SACHE BR'}],['SACHE BLP','UNID.',{felis:'SACHE BLP'}],['MATERIAL (A)','UNID.',{felis:'MATERIAL (A)'}],
+    ['MATERIAL (B)','UNID.',{felis:'MATERIAL (B)'}],['MATERIAL (C)','UNID.',{felis:'MATERIAL (C)'}],
+    ['BAG AREIA PARA TOPDRY','BAG (S)',{cont:'BAG AREIA TOPDRY'}],['BAG AREIA FINA','BAG (S)',{cont:'BAG AREIA FINA'}]]},
+];
+// contagens à mão (pa_ajustes motivo 'contagem') — aparecem no modal 📦
+const CONTAGENS=[['PALLET PBR','Pallet PBR','peças'],['PALLET INVERTIDO','Pallet invertido 1,20 × 1,05 m','peças'],
+  ['ADITIVO 1 PARDO','Estoque aditivo 1 — pardo','kg'],['ADITIVO 2 LIGA','Estoque aditivo 2 — Liga','kg'],['ADITIVO 2 SIKAL','Estoque aditivo 2 — Sikal','kg'],
+  ['BAG AREIA TOPDRY','Bag de areia para Topdry','bags'],['BAG AREIA FINA','Bag de areia fina','bags'],
+  ['PU40 BRANCO VENCIDO','Original PU40 branco — vencido','un'],['ADESIVO 20G VENCIDO','Adesivo instantâneo 20 g — vencido','un']];
+
+// Felisbina — produto acabado
+const F_PA=[
+  {g:'SACHE (S)',itens:['STAND POUNCH 10 DOSES','LIGA ORIGINAL 50g','LIGA ORIGINAL 50g (MS)','SIKALMAX 50g','SIKALMAX 50g - PROJEÇÃO','KILIGA 50g']},
+  {g:'LITRO (S)',itens:['SIKAL 1L','SIKAL 5L','LIGA AD 1L','LIGA AD 3,6L','LIGA AD 18L','CHAPISTEC 3,6L','CHAPISTEC 18L','CHAPISTEC 1,8L','VEDA MASSA 1L']},
+  {g:'CAIXA (S)',itens:['ORIGINAL TOPDRY LAJE','ORIGINAL TOPDRY PISCINA','ORIGINAL TOPDRY BALDRAME','ORIGINAL TOPDRY RODAPÉ','ORIGINAL TOPDRY BANHEIRO']},
+];
+const _TD=['LAJE','PISCINA','BALDRAME','RODAPÉ','BANHEIRO'];
+const F_TOPDRY=[
+  {g:'CAIXAS NOVAS TOPDRY',itens:_TD.map(t=>['CAIXA - ORIGINAL TOPDRY '+t,'CAIXA (S)','CAIXA ORIGINAL TOPDRY '+t])},
+  {g:'CAIXAS ANTIGAS TOPDRY',itens:_TD.map(t=>['ORIGINAL TOPDRY '+t,'CAIXA (S)',null])},   // sem cadastro: sempre "-"
+];
+const _LP=['IMPER PRO 3,6L','IMPER PRO 18L','BETUMEX 3,6L','BETUMEX 18L','SELADOR ACRILICO 3,6L','SELADOR ACRILICO 18L',
+  'FUNDO PREPARADOR 3,6L','FUNDO PREPARADOR 18L','MASSA ACRILICA 5KG','MASSA ACRILICA 25KG','MASSA CORRIDA 5KG','MASSA CORRIDA 25KG'];
+const F_INS=[
+  {g:'SACHE (S)',itens:[['EMBALAGEM - STAND POUNCH 10 DOSES','SACHE (S)','EMBALAGEM STAND POUNCH 10 DOSES'],['EMBALAGEM - LIGA ORIGINAL 50g','SACHE (S)','EMBALAGEM LIGA ORIGINAL 50g'],
+    ['EMBALAGEM - KILIGA 50g','SACHE (S)','EMBALAGEM KILIGA 50g'],['EMBALAGEM - SIKALMAX 50g','SACHE (S)','EMBALAGEM SIKALMAX 50g']]},
+  {g:'LITRO (S)',itens:['1L','5L','LIGA AD 3,6L','LIGA AD 18L','CHAPISTEC 1,8L','CHAPISTEC 3,6L','CHAPISTEC 18L','VEDA MASSA 1L']
+    .map(x=>['EMBALAGEM - '+x,'LITRO (S)','EMBALAGEM '+x])},
+  {g:'LATA (S)',itens:_LP.slice(0,12).map(x=>['LATA - '+x,'LATA(S)','LATA '+x])},
+  {g:'CAIXA (S)',itens:[['CAIXAS - LIGA ORIGINAL 50g','CAIXA (S)','CAIXAS LIGA ORIGINAL 50g'],['CAIXAS - KILIGA 50g','CAIXA (S)','CAIXAS KILIGA 50g'],
+    ['CAIXAS - SIKALMAX 50g','CAIXA (S)','CAIXAS SIKALMAX 50g'],['CAIXAS - PADRÃO SILICATE 001','CAIXA (S)','CAIXAS PADRÃO SILICATE 001'],
+    ['CAIXAS - PADRÃO SILICATE 002','CAIXA (S)','CAIXAS PADRÃO SILICATE 002']]},
+  {g:'RÓTULO (S)',itens:[['RÓTULOS - LIGA AD 1L','RÓTULO (S)','RÓTULO LIGA AD 1L'],['RÓTULOS - SIKAL 1L','RÓTULO (S)','RÓTULO SIKAL 1L'],['RÓTULOS - SIKAL 5L','RÓTULO (S)','RÓTULO SIKAL 5L']]},
+  {g:'TAMPA (S)',itens:[['TAMPA - LIGA AD 1L','TAMPA (S)','TAMPA LIGA AD 1L'],['TAMPAS - SIKAL 1L','TAMPA (S)','TAMPA SIKAL 1L'],
+    ['TAMPAS - LIGA ORIGINAL 5L','TAMPA (S)','TAMPA LIGA 5L'],['TAMPAS - SIKAL 5L','TAMPA (S)','TAMPA SIKAL 5L']]
+    .concat(_LP.map(x=>['TAMPA - '+x,'TAMPA(S)','TAMPA '+x]))},
+];
+// Preparador e Tintas (coluna ENTRADA). [rótulo, item Felisbina, contagem a descontar / contagem própria]
+const F_PREP=[
+  {g:'LITRO (S)',itens:[['IMPER PRO 3,6L'],['IMPER PRO 18L'],['BETUMEX 3,6L'],['BETUMEX 18L'],['SELADOR ACRILICO 3,6L'],['SELADOR ACRILICO 18L'],
+    ['FUNDO PREPARADOR 3,6L'],['FUNDO PREPARADOR 18','FUNDO PREPARADOR 18L']]},
+  {g:'KG',itens:[['MASSA ACRILICA 5KG'],['MASSA ACRILICA 25KG'],['MASSA CORRIDA 5KG'],['MASSA CORRIDA 25KG']]},
+  {g:'UN',itens:[['ORIGINAL PU40 BRANCO','ORIGINAL PU40 BRANCO',{menos:'PU40 BRANCO VENCIDO'}],['ORIGINAL PU40 BRANCO (VENCIDO)',null,{cont:'PU40 BRANCO VENCIDO'}],['ORIGINAL PU40 CINZA']]},
+  {g:'G',itens:[['ADESIVO INSTANTÃNEO 20G','ADESIVO INSTANTANEO 20G',{menos:'ADESIVO 20G VENCIDO'}],['ADESIVO INSTANTANEO 20G (VENCIDO)',null,{cont:'ADESIVO 20G VENCIDO'}]]},
+];
+const F_TIN=[
+  {g:'MAXIMA PERFORMANCE',itens:['BRANCO','GELO','PALHA','AREIA'].flatMap(c=>['3,6L','18L'].map(v=>['MAXIMA PERFORMANCE '+c+' '+v]))},
+  {g:'ULTRA RENDIMENTO',itens:['BRANCO','GELO','PALHA','CINZA'].flatMap(c=>['3,6L','18L'].map(v=>['ULTRA RENDIMENTO '+c+' '+v]))},
+  {g:'ELASTOMIC',itens:['BRANCO','INOX','GRIS','CONCRETO','NANQUIM'].flatMap(c=>['3,6L','18L'].map(v=>['ELASTOMIC '+c+' '+v]))},
+];
+const CORES=['--g1','--g2','--g3','--g4','--g5'];
+
+/* ══════════════ UTILITÁRIOS ══════════════ */
 function _iso(d){ return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
 function _hoje(){ return _iso(new Date()); }
 function _somaDias(iso,n){ const d=new Date(iso+'T12:00:00'); d.setDate(d.getDate()+n); return _iso(d); }
 function _ontem(){ return _somaDias(_hoje(),-1); }
-const fN=(v,d=0)=>(Number(v)||0).toLocaleString('pt-BR',{minimumFractionDigits:d,maximumFractionDigits:d});
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const dataLonga=iso=>new Date(iso+'T12:00:00').toLocaleDateString('pt-BR',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
+const norm=s=>String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/\s+/g,' ').trim();
+const num=v=>{ const x=Number(v); return isFinite(x)?x:0; };
+const dBR=iso=>iso?iso.split('-').reverse().join('/'):'';
+// número no padrão do PDF: zero vira "-"
+function fmt(v,dec){ if(v==null) return '-'; if(dec==='a') dec=Math.abs(v-Math.round(v))>0.004?2:0; dec=dec||0; const r=Number(v.toFixed(dec)); if(Math.abs(r)<(dec?0.005:0.5)) return '-';
+  return r.toLocaleString('pt-BR',{minimumFractionDigits:dec,maximumFractionDigits:dec}); }
+const ehMadrugada=t=>/madrug/i.test(t||'');
+const usuario=()=>{ const u=(typeof getUser==='function')?getUser():null; return u?(u.nome||u.email||null):null; };
+async function todos(montar){   // lê tudo, de 1000 em 1000 (o servidor corta em 1000 por consulta)
+  let out=[], i=0;
+  for(;;){ const {data,error}=await montar().range(i,i+999); if(error) throw error; out=out.concat(data||[]); if(!data||data.length<1000) break; i+=1000; }
+  return out;
+}
 
-/* ── dia de referência: padrão ONTEM ── */
+/* ══════════════ DIA DE REFERÊNCIA (padrão ONTEM) ══════════════ */
 let _dia=_ontem();
 function syncDia(){
   const h=_hoje(), o=_ontem();
@@ -246,113 +376,324 @@ function mudarDia(n){ const x=_somaDias(_dia,n); if(x>_hoje()) return; _dia=x; s
 function escolherDia(v){ if(!v) return; _dia=v>_hoje()?_hoje():v; syncDia(); gerar(); }
 function abrirCalendario(){ const i=document.getElementById('fx-data'); try{ i.showPicker(); }catch(e){ i.style.pointerEvents='auto'; i.focus(); } }
 
-/* ── unidade de cada produto (cadastro) ──
-   sacos → sc · unidades → bags · toneladas → t (o RPC devolve o granel em kg, como a OP lança) */
-let _PRODS=[], _FX=null, _filtroPA='mov', _filtroIns='todos', _ultCarga=null;
-const GRUPOS=[['sc','Sacos','sc',0],['bags','Bags','bags',0],['t','Granel','t',1]];
-function _unidadeDe(nome){
-  const un=(window.Regras?Regras.unidadeDoProduto(nome,_PRODS):'')||'';
-  return { k:/unid/i.test(un)?'bags':/ton/i.test(un)?'t':'sc', un };
-}
-const _conv=(v,un)=>window.Regras?Regras.qtdNaUnidadeDoProduto(v,un):(Number(v)||0);
+/* ══════════════ CARGA DOS DADOS ══════════════ */
+let _PA=[];          // pa_ajustes até o dia
+let _R=null;         // resultado calculado
+let _gerando=0;
 
-async function carregarBase(){
-  const [emp,pr,cg]=await Promise.all([
-    typeof carregarEmpresaPDF==='function'?carregarEmpresaPDF():_supabase.from('empresa_config').select('*').limit(1).maybeSingle().then(r=>r.data),
-    _supabase.from('produtos').select('nome,unidade'),
-    _supabase.from('carregamentos').select('data').order('data',{ascending:false}).limit(1),
-  ]);
-  if(typeof cabecalhoEmpresaHTML==='function') document.getElementById('fx-empresa-cab').innerHTML=cabecalhoEmpresaHTML(emp||{});
-  _PRODS=(pr&&pr.data)||[];
-  _ultCarga=cg&&cg.data&&cg.data[0]?String(cg.data[0].data).slice(0,10):null;
+// último registro (≤ dia) de um motivo por chave normalizada
+function ultimoPor(motivo,ate){
+  const m={};
+  _PA.filter(r=>r.motivo===motivo&&r.data<=ate).forEach(r=>{ const k=norm(r.produto); if(!m[k]||r.data>m[k].data||(r.data===m[k].data&&String(r.criado_em)>String(m[k].criado_em))) m[k]=r; });
+  return m;
 }
+const contagem=(k,ate)=>{ const r=ultimoPor('contagem',ate||_dia)[norm(k)]; return r?num(r.sacos):0; };
 
 async function gerar(){
-  document.getElementById('fx-cab-data').textContent=dataLonga(_dia)+(_dia===_hoje()?' (parcial)':'');
-  document.getElementById('fx-gerado').textContent='Gerado pelo sistema em '+new Date().toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
-  document.getElementById('fx-pa').innerHTML='<tbody><tr><td class="fx-vazio">Carregando…</td></tr></tbody>';
-  const {data:fx,error}=await _supabase.rpc('rpc_fechamento_dia',{p_data:_dia});
-  if(error){ toast('Erro ao gerar: '+(error.message||error),'danger'); document.getElementById('fx-pa').innerHTML='<tbody><tr><td class="fx-vazio">Não foi possível gerar o fechamento.</td></tr></tbody>'; return; }
-  // converte cada produto para a unidade dele
-  const prods=(fx.produtos||[]).map(p=>{
-    const u=_unidadeDe(p.produto);
-    const c=k=>_conv(p[k],u.un);
-    return { nome:p.produto, k:u.k, prod:c('producao_dia'), anal:c('em_analise'), carr:c('carregado_dia'), lib:c('estoque_liberado'), tot:c('estoque_total') };
+  const meu=++_gerando;
+  const D=_dia, D1=_somaDias(D,1);
+  document.getElementById('fd-folhas').innerHTML='<div class="fd-folha" style="text-align:center;color:var(--ink-3);">Carregando…</div>';
+  try{
+    // 1) lançamentos do fechamento (estoque inicial, carregamento, diferença, contagens)
+    _PA=await todos(()=>_supabase.from('pa_ajustes').select('id,data,produto,sacos,motivo,criado_em').lte('data',D).order('id'));
+    const EI=ultimoPor('estoque_inicial',D);
+    const datasEI=Object.values(EI).map(r=>r.data).sort();
+    const inicio=datasEI[0]||D;   // sem estoque inicial: só o dia (e aviso)
+
+    // 2) o resto em paralelo
+    const [ops,ins,movIns,fItens,fMov,bombas,entr,regs,prods]=await Promise.all([
+      todos(()=>_supabase.from('producao').select('id,data,turno,status,op_numero,produtos_op').gte('data',inicio).lte('data',D1).order('id')),
+      todos(()=>_supabase.from('insumos').select('id,codigo,nome,tipo,unidade_estoque,status').order('id')),
+      todos(()=>_supabase.from('insumos_movimentos').select('id,insumo_id,data,tipo,quantidade,origem_id').lte('data',D1).order('id')),
+      todos(()=>_supabase.from('felis_itens').select('id,nome,grupo,categoria,unidade,estoque_minimo,status').order('id')),
+      todos(()=>_supabase.from('felis_movimentos').select('id,item_id,data,tipo,quantidade').lte('data',D).order('id')),
+      todos(()=>_supabase.from('abastecimento_bombas').select('id,nome,litros_atual,ativo').order('id')),
+      todos(()=>_supabase.from('abastecimento_entradas').select('id,bomba_id,data,litros').gt('data',D).order('id')),
+      todos(()=>_supabase.from('abastecimento_registros').select('id,bomba_id,data,litros').gte('data',new Date(D1+'T08:00:00').toISOString()).order('id')),
+      todos(()=>_supabase.from('produtos').select('id,nome,status').order('id')),
+    ]);
+    if(meu!==_gerando) return;
+    _R=calcular({D,D1,EI,ops,ins,movIns,fItens,fMov,bombas,entr,regs,prods});
+    render();
+  }catch(e){
+    console.error(e);
+    if(meu!==_gerando) return;
+    toast('Erro ao montar o fechamento: '+(e.message||e),'danger');
+    document.getElementById('fd-folhas').innerHTML='<div class="fd-folha" style="text-align:center;color:#b91c1c;">Não foi possível montar o fechamento. '+esc(e.message||e)+'</div>';
+  }
+}
+
+/* ══════════════ CÁLCULO ══════════════ */
+function calcular(x){
+  const {D,D1,EI}=x;
+  const avisos=[];
+  // ── produção por "dia de produção" (madrugada conta no dia anterior)
+  const diaProd=op=>ehMadrugada(op.turno)?_somaDias(op.data,-1):op.data;
+  const prodK={};   // chave → {nome, dia, cum:{} } calculado por produto
+  const sacosDe=it=>num(it.total_sacos!=null&&it.total_sacos!==''?it.total_sacos:it.sacos_pallets);
+  const opsP=[];
+  x.ops.forEach(op=>{ (Array.isArray(op.produtos_op)?op.produtos_op:[]).forEach(it=>{
+    if(!it||!it.produto) return; opsP.push({k:norm(it.produto),nome:it.produto,dia:diaProd(op),status:op.status,s:sacosDe(it)}); }); });
+
+  // ── produtos da fábrica: modelo + o que aparecer fora dele (grupo OUTROS)
+  const noModelo=new Set(PA_FAB.flatMap(g=>g.itens.map(i=>norm(i[1]))));
+  const quar=new Set(PA_FAB.filter(g=>g.quar).flatMap(g=>g.itens.map(i=>norm(i[1]))));
+  const fora={};
+  opsP.filter(p=>p.dia<=D).forEach(p=>{ if(!noModelo.has(p.k)) fora[p.k]=p.nome; });
+  _PA.filter(r=>['estoque_inicial','carregamento','diferenca'].includes(r.motivo)).forEach(r=>{ const k=norm(r.produto); if(!noModelo.has(k)) fora[k]=r.produto; });
+  const grupos=PA_FAB.map(g=>({g:g.g,cor:g.cor,itens:g.itens.map(([rot,erp])=>({rot,k:norm(erp)}))}));
+  if(Object.keys(fora).length) grupos.push({g:'OUTROS',cor:'--g4',itens:Object.entries(fora).map(([k,n])=>({rot:String(n).toUpperCase(),k}))});
+
+  const semEI=[];
+  grupos.forEach(g=>g.itens.forEach(it=>{
+    const ei=EI[it.k], de=ei?ei.data:null;
+    const depois=d=>d<=D&&(!de||d>de);
+    const prodDia=opsP.filter(p=>p.k===it.k&&p.dia===D).reduce((a,p)=>a+p.s,0);
+    const ps=opsP.filter(p=>p.k===it.k&&depois(p.dia));
+    const produzido=ps.reduce((a,p)=>a+p.s,0);
+    const emAnalise=quar.has(it.k)?ps.filter(p=>p.status==='em_analise').reduce((a,p)=>a+p.s,0):0;
+    const reprovado=ps.filter(p=>p.status==='reprovado').reduce((a,p)=>a+p.s,0);
+    const pa=m=>_PA.filter(r=>r.motivo===m&&norm(r.produto)===it.k&&depois(r.data));
+    const carr=pa('carregamento').reduce((a,r)=>a+num(r.sacos),0);
+    const dif=pa('diferenca').reduce((a,r)=>a+num(r.sacos),0);
+    const carrDia=pa('carregamento').filter(r=>r.data===D).reduce((a,r)=>a+num(r.sacos),0);
+    if(!ei&&(produzido||carr||dif)) semEI.push(it.rot);
+    Object.assign(it,{prod:prodDia,anal:emAnalise,carr:carrDia,lib:(ei?num(ei.sacos):0)+produzido-emAnalise-reprovado-dif-carr,
+      det:{ei:ei?num(ei.sacos):null,de,produzido,emAnalise,reprovado,dif,carr}});
+  }));
+  if(semEI.length) avisos.push(`<b>Sem estoque inicial</b> para ${semEI.map(esc).join(', ')} — o estoque liberado conta só o que foi lançado depois. Lance pelo botão 📦.`);
+  if(!Object.keys(EI).length) avisos.push('<b>Nenhum estoque inicial lançado até este dia.</b> O estoque liberado mostra só a produção do dia. Lance o estoque do fim do mês anterior pelo botão 📦.');
+
+  // ── insumos da fábrica: até D + madrugada de D+1 (OP da madrugada de D+1)
+  const madD1=new Set(x.ops.filter(o=>o.data===D1&&ehMadrugada(o.turno)).map(o=>o.op_numero).filter(Boolean));
+  const SIN={entrada:1,devolucao:1,retorno:1,ajuste:1,consumo:-1,perda:-1,saida:-1};
+  const saldoIns={};
+  x.movIns.forEach(m=>{ if(m.data<=D||(m.data===D1&&madD1.has(m.origem_id))) saldoIns[m.insumo_id]=(saldoIns[m.insumo_id]||0)+(SIN[m.tipo]||0)*num(m.quantidade); });
+  const insPorCod={}; x.ins.forEach(i=>{ if(i.codigo) insPorCod[i.codigo]=i; });
+
+  // ── Felisbina: até D
+  const fPorNome={}; x.fItens.forEach(i=>{ fPorNome[norm(i.nome)]=i; });
+  const fSaldo={}, fDia={};
+  x.fMov.forEach(m=>{ fSaldo[m.item_id]=(fSaldo[m.item_id]||0)+num(m.quantidade);
+    if(m.data===D){ const o=fDia[m.item_id]=fDia[m.item_id]||{}; o[m.tipo]=(o[m.tipo]||0)+num(m.quantidade); } });
+  const fUsados=new Set();
+  const faltaF=[], faltaI=[];
+  const felis=nome=>{ if(!nome) return null; const i=fPorNome[norm(nome)]; if(!i){ faltaF.push(nome); return null; }
+    fUsados.add(i.id); return {it:i,saldo:fSaldo[i.id]||0,dia:fDia[i.id]||{}}; };
+
+  // ── diesel: bombas ativas agora, voltando ao fim do dia (entradas depois de D saem, abastecimentos depois de 08:00 de D+1 voltam)
+  const ativas=new Set(x.bombas.filter(b=>b.ativo).map(b=>b.id));
+  let diesel=x.bombas.filter(b=>b.ativo).reduce((a,b)=>a+num(b.litros_atual),0);
+  x.entr.forEach(e=>{ if(ativas.has(e.bomba_id)) diesel-=num(e.litros); });
+  x.regs.forEach(r=>{ if(ativas.has(r.bomba_id)) diesel+=num(r.litros); });
+
+  // valor de uma linha de insumo da fábrica
+  const insUsados=new Set();
+  const valorSrc=src=>{
+    if(src.ins){ const i=insPorCod[src.ins]; if(!i){ faltaI.push(src.ins); return null; }
+      insUsados.add(i.id); let v=saldoIns[i.id]||0; (src.menos||[]).forEach(k=>{ v-=contagem(k,D); }); return v; }
+    if(src.cont) return contagem(src.cont,D);
+    if(src.felis){ const f=felis(src.felis); return f?f.saldo:null; }
+    if(src.diesel) return diesel;
+    return null;
+  };
+  const insFab=INS_FAB.map(g=>({g:g.g,itens:g.itens.map(([rot,un,src,dec])=>({rot,un,dec:dec||0,v:valorSrc(src)}))}));
+  const insFora=x.ins.filter(i=>!insUsados.has(i.id)&&i.status!=='inativo'&&i.tipo!=='MP_MINERAL'&&Math.abs(saldoIns[i.id]||0)>0.0001);
+  if(insFora.length) insFab.push({g:'OUTROS',itens:insFora.map(i=>({rot:String(i.nome).toUpperCase(),un:String(i.unidade_estoque||'').toUpperCase(),dec:'a',v:saldoIns[i.id]||0}))});
+
+  // Felisbina produto acabado
+  const fPA=F_PA.map(g=>({g:g.g,itens:g.itens.map(n=>{ const f=felis(n);
+    return {rot:n,prod:f?num(f.dia.producao):0,carr:f?-num(f.dia.carregamento):0,lib:f?f.saldo:null}; })}));
+  // caixas Topdry
+  const fTD=F_TOPDRY.map(g=>({g:g.g,itens:g.itens.map(([rot,un,n])=>{ const f=felis(n);
+    const min=f?num(f.it.estoque_minimo):0; return {rot,un,v:f?f.saldo:null,min,comprar:!!f&&f.saldo<min}; })}));
+  // insumos Felisbina
+  const fIns=F_INS.map(g=>({g:g.g,itens:g.itens.map(([rot,un,n])=>{ const f=felis(n);
+    const min=f?num(f.it.estoque_minimo):0; return {rot,un,v:f?f.saldo:null,min,comprar:!!f&&f.saldo<min}; })}));
+  // Preparador e Tintas
+  const linhaRev=([rot,nome,op])=>{
+    if(op&&op.cont) return {rot,ent:0,carr:0,lib:contagem(op.cont,D)};
+    const f=felis(nome===undefined?rot:nome);
+    let lib=f?f.saldo:null; if(f&&op&&op.menos) lib-=contagem(op.menos,D);
+    return {rot,ent:f?num(f.dia.entrada):0,carr:f?-num(f.dia.carregamento):0,lib};
+  };
+  const fPrep=F_PREP.map(g=>({g:g.g,itens:g.itens.map(linhaRev)}));
+  const fTin=F_TIN.map(g=>({g:g.g,itens:g.itens.map(linhaRev)}));
+  if(faltaI.length) avisos.push(`<b>Não achei em Insumos</b> (código): ${[...new Set(faltaI)].map(esc).join(', ')} — a linha sai com "-".`);
+  if(faltaF.length) avisos.push(`<b>Não achei na Felisbina:</b> ${[...new Set(faltaF)].map(esc).join(', ')} — a linha sai com "-".`);
+  const fFora=x.fItens.filter(i=>!fUsados.has(i.id)&&i.status!=='inativo'&&Math.abs(fSaldo[i.id]||0)>0.0001);
+
+  return {D,grupos,insFab,fPA,fTD,fIns,fPrep,fTin,fFora,fSaldo,avisos};
+}
+
+/* ══════════════ DESENHO DAS FOLHAS ══════════════ */
+// o título vai como <caption> da tabela: na impressão não fica sozinho no pé da página
+function cab(id,quebra){ return `<div class="fd-folha${quebra?' quebra':''}" id="${id}"><div class="fd-wrap">`; }
+const tituloFolha=()=>`<caption><p class="fd-tit">FECHAMENTO DIÁRIO DA FÁBRICA</p><p class="fd-data">${dBR(_R.D)}</p></caption>`;
+const fim='</div></div>';
+// corpo com a célula do grupo mesclada (rowspan) e colorida
+function corpo(grupos,linha,nGrpCol){
+  let h='';
+  grupos.forEach((g,gi)=>{
+    const cor=g.cor||CORES[gi%CORES.length];
+    g.itens.forEach((it,ii)=>{
+      const cel=ii===0?`<td class="grp" rowspan="${g.itens.length}" style="background:var(${cor});">${esc(g.g)}</td>`:'';
+      h+=`<tr${ii===0?' class="ini"':''}>${linha(it,cel)}</tr>`;
+    });
   });
-  _FX={ prods, insumos:fx.insumos||[] };
-  renderTiles(); renderPA(); renderIns(); renderAvisos();
+  return h;
+}
+const td=(v,dec,cls)=>`<td class="n${cls?' '+cls:''}">${fmt(v,dec)}</td>`;
+
+function folhaPAFab(){
+  const G=_R.grupos, all=G.flatMap(g=>g.itens);
+  const s=f=>all.reduce((a,i)=>a+(i[f]||0),0);
+  const tit=it=>it.det?`Estoque inicial ${it.det.ei==null?'—':fmt(it.det.ei)}${it.det.de?' ('+dBR(it.det.de)+')':''} + produzido ${fmt(it.det.produzido)} − em análise ${fmt(it.det.emAnalise)} − reprovado ${fmt(it.det.reprovado)} − diferença ${fmt(it.det.dif)} − carregado ${fmt(it.det.carr)}`:'';
+  return cab('f-pa',false)+`<table class="fd">${tituloFolha()}<thead>
+    <tr><th class="sec" colspan="6">ESTOQUE DE PRODUTO ACABADO</th></tr>
+    <tr><th style="width:44%;">PRODUTO</th><th style="width:11%;">LINHA</th><th>PRODUÇÃO</th><th>EM ANÁLISE</th><th>CARREGAMENTO</th><th>ESTOQUE<br>LIBERADO</th></tr></thead><tbody>`+
+    corpo(G,(it,cel)=>`<td class="nm">${esc(it.rot)}</td>${cel}${td(it.prod)}${td(it.anal)}${td(it.carr)}<td class="lib" title="${esc(tit(it))}">${fmt(it.lib)}</td>`)+
+    `<tr class="tot"><td>TOTAL</td><td></td>${td(s('prod'))}${td(s('anal'))}${td(s('carr'))}${td(s('lib'))}</tr></tbody></table>`+fim;
+}
+function folhaInsFab(){
+  return cab('f-ins',true)+`<table class="fd">${tituloFolha()}<thead>
+    <tr><th class="sec" colspan="4">ESTOQUE DE INSUMOS</th></tr>
+    <tr><th style="width:52%;">PRODUTO</th><th style="width:13%;">GRUPO</th><th style="width:14%;">UNIDADE</th><th>ESTOQUE ATUAL</th></tr></thead><tbody>`+
+    corpo(_R.insFab,(it,cel)=>`<td class="nm">${esc(it.rot)}</td>${cel}<td class="un">${esc(it.un)}</td><td class="n est">${fmt(it.v,it.dec)}</td>`)+
+    `</tbody></table>`+fim;
+}
+function folhaFPA(){
+  const all=_R.fPA.flatMap(g=>g.itens), s=f=>all.reduce((a,i)=>a+(i[f]||0),0);
+  return cab('f-fpa',true)+`<table class="fd">${tituloFolha()}<thead>
+    <tr><th class="sec" colspan="6">ESTOQUE DE PRODUTO ACABADO</th></tr>
+    <tr><th style="width:44%;">PRODUTO</th><th style="width:11%;">LINHA</th><th>PRODUÇÃO</th><th>EM ANÁLISE</th><th>CARREGAMENTO</th><th>ESTOQUE<br>LIBERADO</th></tr></thead><tbody>`+
+    corpo(_R.fPA,(it,cel)=>`<td class="nm">${esc(it.rot)}</td>${cel}${td(it.prod)}<td class="n"></td>${td(it.carr)}<td class="lib">${fmt(it.lib)}</td>`)+
+    `<tr class="tot"><td>TOTAL</td><td></td>${td(s('prod'))}<td></td>${td(s('carr'))}${td(s('lib'))}</tr></tbody></table>`+fim;
+}
+function folhaInsMin(id,titulo,grupos){
+  return cab(id,true)+`<table class="fd">${tituloFolha()}<thead>
+    <tr><th class="sec" colspan="6">${titulo}</th></tr>
+    <tr><th style="width:42%;">PRODUTO</th><th style="width:13%;">GRUPO</th><th style="width:11%;">UNIDADE</th><th>ESTOQUE ATUAL</th><th>MINIMO</th><th>STATUS</th></tr></thead><tbody>`+
+    corpo(grupos,(it,cel)=>`<td class="nm">${esc(it.rot)}</td>${cel}<td class="un">${esc(it.un)}</td><td class="n est">${fmt(it.v)}</td>${td(it.min)}${it.comprar?'<td class="comprar">Comprar</td>':'<td class="ok">OK</td>'}`)+
+    `</tbody></table>`+fim;
+}
+function folhaRev(id,grupos){
+  const all=grupos.flatMap(g=>g.itens), s=f=>all.reduce((a,i)=>a+(i[f]||0),0);
+  return cab(id,true)+`<table class="fd">${tituloFolha()}<thead>
+    <tr><th class="sec" colspan="6">ESTOQUE DE PRODUTO ACABADO</th></tr>
+    <tr><th style="width:44%;">PRODUTO</th><th style="width:11%;">LINHA</th><th>ENTRADA</th><th>EM ANÁLISE</th><th>CARREGAMENTO</th><th>ESTOQUE<br>LIBERADO</th></tr></thead><tbody>`+
+    corpo(grupos,(it,cel)=>`<td class="nm">${esc(it.rot)}</td>${cel}${td(it.ent)}<td class="n"></td>${td(it.carr)}<td class="lib">${fmt(it.lib)}</td>`)+
+    `<tr class="tot"><td>TOTAL</td><td></td>${td(s('ent'))}<td></td>${td(s('carr'))}${td(s('lib'))}</tr></tbody></table>`+fim;
+}
+function render(){
+  let h=folhaPAFab()+folhaInsFab()+folhaFPA()+folhaInsMin('f-td','ESTOQUE DE INSUMOS',_R.fTD)+
+        folhaInsMin('f-fins','ESTOQUE DE INSUMOS',_R.fIns)+folhaRev('f-prep',_R.fPrep)+folhaRev('f-tin',_R.fTin);
+  if(_R.fFora.length) h+=`<div class="fd-folha no-print"><b style="color:var(--primary);">Itens da Felisbina fora do modelo do fechamento</b>
+    <div class="fd-outros">${_R.fFora.map(i=>`${esc(i.nome)} (${esc(i.grupo)}): <b>${fmt(_R.fSaldo[i.id]||0,'a')}</b>`).join(' · ')}</div></div>`;
+  document.getElementById('fd-folhas').innerHTML=h;
+  const av=_R.avisos.slice();
+  if(_R.D===_hoje()) av.unshift('<b>Dia ainda aberto.</b> A madrugada de amanhã e os lançamentos que faltam ainda vão mudar os números.');
+  document.getElementById('fx-avisos').innerHTML=[...new Set(av)].map(t=>`<div class="fx-av"><span class="ic">⚠️</span><span>${t}</span></div>`).join('');
 }
 
-/* ── tiles ── */
-function _somaPor(campo){ const o={sc:0,bags:0,t:0}; (_FX.prods||[]).forEach(p=>{ o[p.k]+=p[campo]; }); return o; }
-function _fQ(o,sep){ const p=GRUPOS.filter(([k])=>Math.abs(o[k])>0.0001).map(([k,,u,d])=>fN(o[k],d)+'<small>'+u+'</small>'); return p.length?p.join(sep||'<br>'):'0'; }
-function renderTiles(){
-  const prod=_somaPor('prod'), carr=_somaPor('carr'), lib=_somaPor('lib'), tot=_somaPor('tot');
-  const comprar=(_FX.insumos||[]).filter(i=>i.status==='Comprar');
-  const zerados=comprar.filter(i=>(Number(i.saldo)||0)<=0).length;
-  const tile=(l,v,s,cls)=>`<div class="tile ${cls||''}"><div class="tile-l">${l}</div><div class="tile-v">${v}</div><div class="tile-s">${s||''}</div></div>`;
-  document.getElementById('fx-tiles').innerHTML=
-    tile('Produção do dia',_fQ(prod),`${_FX.prods.filter(p=>p.prod>0).length} produto(s)`,'hero')+
-    tile('Carregado no dia',_fQ(carr),_ultCarga?`último carregamento registrado: ${new Date(_ultCarga+'T12:00:00').toLocaleDateString('pt-BR')}`:'nenhum carregamento registrado')+
-    tile('Estoque liberado',_fQ(lib),'pelo laboratório, no fim do dia')+
-    tile('Insumos para comprar',`${comprar.length}<small>de ${(_FX.insumos||[]).length}</small>`,zerados?`${zerados} zerado(s)`:'abaixo do mínimo',comprar.length?'alerta':'');
+/* ══════════════ LANÇAMENTOS (carregamento, diferença, estoque inicial, contagens) ══════════════ */
+const PODE_EDITAR=()=>typeof checkPerm==='function'&&(checkPerm('fechamento','edit')||checkPerm('fechamento','create'));
+function produtosLanc(){ return (_R?_R.grupos:PA_FAB.map(g=>({g:g.g,itens:g.itens.map(([rot,erp])=>({rot,k:norm(erp)}))}))); }
+// nome do produto no ERP para gravar (o do modelo; nos OUTROS, o nome que veio do lançamento)
+const _erpNome={}; PA_FAB.forEach(g=>g.itens.forEach(([,erp])=>{ _erpNome[norm(erp)]=erp; }));
+const nomeERP=it=>_erpNome[it.k]||it.rot;
+function confirmar(msg,fn){ document.getElementById('conf-msg').innerHTML=msg; const b=document.getElementById('conf-ok');
+  b.onclick=async()=>{ closeModal('m-conf'); await fn(); }; document.getElementById('m-conf').classList.remove('hidden'); }
+const valInp=el=>{ const t=String(el.value||'').trim(); if(t==='') return 0; const v=Number(t.replace(/\./g,'').replace(',','.')); return isFinite(v)?v:NaN; };
+const vIni=v=>v?String(v).replace('.',','):'';
+function marcarMud(el){ el.classList.toggle('mud',el.value!==el.dataset.ini); }
+
+function abrirCarregamento(){
+  if(!PODE_EDITAR()){ toast('Sem permissão para lançar no fechamento.','warning'); return; }
+  const D=_dia;
+  const doDia=m=>{ const o={}; _PA.filter(r=>r.motivo===m&&r.data===D).forEach(r=>{ const k=norm(r.produto); o[k]=(o[k]||0)+num(r.sacos); }); return o; };
+  const car=doDia('carregamento'), dif=doDia('diferenca');
+  document.getElementById('mc-tit').textContent='🚚 Carregamento e diferença — '+dBR(D);
+  let h='<thead><tr><th>Produto</th><th style="text-align:right;">Carregado</th><th style="text-align:right;">Diferença</th></tr></thead><tbody>';
+  produtosLanc().forEach(g=>{ h+=`<tr class="g"><td colspan="3">${esc(g.g)}${g.g==='TON'?' — em kg':g.g==='BAG'?' — em bags':''}</td></tr>`;
+    g.itens.forEach(it=>{ h+=`<tr><td>${esc(it.rot)}</td>
+      <td style="text-align:right;"><input inputmode="decimal" data-k="${esc(it.k)}" data-n="${esc(nomeERP(it))}" data-m="carregamento" value="${vIni(car[it.k])}" data-ini="${vIni(car[it.k])}" oninput="marcarMud(this)"></td>
+      <td style="text-align:right;"><input inputmode="decimal" data-k="${esc(it.k)}" data-n="${esc(nomeERP(it))}" data-m="diferenca" value="${vIni(dif[it.k])}" data-ini="${vIni(dif[it.k])}" oninput="marcarMud(this)"></td></tr>`; }); });
+  document.getElementById('mc-tab').innerHTML=h+'</tbody>';
+  document.getElementById('m-carreg').classList.remove('hidden');
+}
+async function salvarCarregamento(){
+  const D=_dia, mud=[...document.querySelectorAll('#mc-tab input')].filter(i=>i.value!==i.dataset.ini);
+  if(!mud.length){ closeModal('m-carreg'); return; }
+  for(const i of mud){ if(isNaN(valInp(i))){ i.focus(); toast('Número inválido em '+i.dataset.n,'warning'); return; } }
+  const btn=document.getElementById('mc-btn'); btn.disabled=true;
+  try{
+    for(const i of mud){
+      const r=await db(_supabase.from('pa_ajustes').delete().eq('data',D).eq('motivo',i.dataset.m).eq('produto',i.dataset.n),'apagar lançamento');
+      if(r.error) return;
+      // apaga também um nome antigo com outra grafia do mesmo produto
+      for(const x of _PA.filter(x=>x.data===D&&x.motivo===i.dataset.m&&norm(x.produto)===i.dataset.k&&x.produto!==i.dataset.n)){ const r2=await db(_supabase.from('pa_ajustes').delete().eq('id',x.id),'apagar lançamento'); if(r2.error) return; }
+      const v=valInp(i);
+      if(v){ const w=await db(_supabase.from('pa_ajustes').insert({data:D,produto:i.dataset.n,sacos:v,motivo:i.dataset.m,responsavel:usuario()}),'gravar lançamento'); if(w.error) return; }
+    }
+    if(typeof addLog==='function') addLog('EDITAR','FECHAMENTO',D,`Carregamento/diferença de ${dBR(D)}: ${mud.length} valor(es)`).catch(()=>{});
+    toast('Lançamentos de '+dBR(D)+' gravados.');
+    closeModal('m-carreg'); gerar();
+  }finally{ btn.disabled=false; }
 }
 
-/* ── produto acabado, agrupado por unidade com subtotal ── */
-function setFiltroPA(v){ _filtroPA=v; document.querySelectorAll('#seg-pa button').forEach(b=>b.classList.toggle('on',b.dataset.v===v)); renderPA(); }
-function renderPA(){
-  const el=document.getElementById('fx-pa');
-  const mov=p=>p.prod>0||p.carr>0;
-  const cel=(v,d,cls)=>{ if(Math.abs(v)<0.0001) return `<td class="num zero">—</td>`; return `<td class="num ${cls||''}${v<0?' neg':''}">${fN(v,d)}</td>`; };
-  let corpo='';
-  GRUPOS.forEach(([k,rot,u,d])=>{
-    const todos=_FX.prods.filter(p=>p.k===k);
-    const lista=(_filtroPA==='mov'?todos.filter(mov):todos).sort((a,b)=>(mov(b)-mov(a))||a.nome.localeCompare(b.nome));
-    if(!lista.length) return;
-    const s=f=>todos.reduce((a,p)=>a+p[f],0);
-    corpo+=`<tr class="grp"><td colspan="6">${rot} <span class="un">em ${u==='t'?'toneladas':u}</span></td></tr>`+
-      lista.map(p=>`<tr class="${mov(p)?'':'parado'}"><td class="nome">${esc(p.nome)}</td>${cel(p.prod,d,'mov')}${cel(p.carr,d,'mov')}${cel(p.anal,d)}${cel(p.lib,d)}${cel(p.tot,d)}</tr>`).join('')+
-      `<tr class="sub"><td>Total ${rot.toLowerCase()}${_filtroPA==='mov'&&lista.length<todos.length?' <span class="un">(todos os produtos)</span>':''}</td>${cel(s('prod'),d)}${cel(s('carr'),d)}${cel(s('anal'),d)}${cel(s('lib'),d)}${cel(s('tot'),d)}</tr>`;
+function abrirEstoque(){
+  if(!PODE_EDITAR()){ toast('Sem permissão para lançar no fechamento.','warning'); return; }
+  const inp=document.getElementById('me-data');
+  // padrão: último dia do mês anterior ao dia aberto
+  const d=new Date(_dia+'T12:00:00'); d.setDate(0); inp.value=_iso(d); inp.max=_hoje();
+  renderEstoque(); document.getElementById('m-estoque').classList.remove('hidden');
+}
+async function renderEstoque(){
+  const dt=document.getElementById('me-data').value; if(!dt) return;
+  // lê os lançamentos até a data escolhida (pode ser depois do dia aberto)
+  const {data,error}=await db(_supabase.from('pa_ajustes').select('id,data,produto,sacos,motivo,criado_em').in('motivo',['estoque_inicial','contagem']).lte('data',dt),'ler estoque inicial');
+  if(error) return;
+  const exato={}, ult={};
+  (data||[]).forEach(r=>{ const k=r.motivo+'|'+norm(r.produto);
+    if(r.data===dt) exato[k]=num(r.sacos);
+    if(!ult[k]||r.data>ult[k].data) ult[k]=r; });
+  let h='<thead><tr><th>Produto</th><th style="text-align:right;">Estoque</th><th>Vale hoje</th></tr></thead><tbody>';
+  produtosLanc().forEach(g=>{ h+=`<tr class="g"><td colspan="3">${esc(g.g)}${g.g==='TON'?' — em kg':''}</td></tr>`;
+    g.itens.forEach(it=>{ const k='estoque_inicial|'+it.k, v=exato[k], u=ult[k];
+      h+=`<tr><td>${esc(it.rot)}</td><td style="text-align:right;"><input inputmode="decimal" data-n="${esc(nomeERP(it))}" data-m="estoque_inicial" value="${v!=null?vIni(v)||'0':''}" data-ini="${v!=null?vIni(v)||'0':''}" oninput="marcarMud(this)" placeholder="—"></td>
+        <td style="font-size:11.5px;color:var(--ink-3);">${u?fmt(num(u.sacos))+' em '+dBR(u.data):'—'}</td></tr>`; }); });
+  h+='<tr class="g"><td colspan="3">CONTAGENS (valem até a próxima)</td></tr>';
+  CONTAGENS.forEach(([key,rot,un])=>{ const k='contagem|'+norm(key), v=exato[k], u=ult[k];
+    h+=`<tr><td>${esc(rot)} <span style="color:var(--ink-3);font-size:11px;">${un}</span></td><td style="text-align:right;"><input inputmode="decimal" data-n="${esc(key)}" data-m="contagem" value="${v!=null?vIni(v)||'0':''}" data-ini="${v!=null?vIni(v)||'0':''}" oninput="marcarMud(this)" placeholder="—"></td>
+      <td style="font-size:11.5px;color:var(--ink-3);">${u?fmt(num(u.sacos),'a')+' em '+dBR(u.data):'—'}</td></tr>`; });
+  document.getElementById('me-tab').innerHTML=h+'</tbody>';
+}
+async function salvarEstoque(){
+  const dt=document.getElementById('me-data').value;
+  const mud=[...document.querySelectorAll('#me-tab input')].filter(i=>i.value!==i.dataset.ini);
+  if(!dt||!mud.length){ closeModal('m-estoque'); return; }
+  for(const i of mud){ if(isNaN(valInp(i))){ i.focus(); toast('Número inválido em '+i.dataset.n,'warning'); return; } }
+  confirmar(`Gravar <b>${mud.length}</b> valor(es) valendo no fim de <b>${dBR(dt)}</b>? O estoque liberado dos dias seguintes passa a partir deles.`,async()=>{
+    const btn=document.getElementById('me-btn'); btn.disabled=true;
+    try{
+      for(const i of mud){
+        const r=await db(_supabase.from('pa_ajustes').delete().eq('data',dt).eq('motivo',i.dataset.m).eq('produto',i.dataset.n),'apagar estoque');
+        if(r.error) return;
+        if(String(i.value).trim()!==''){ const w=await db(_supabase.from('pa_ajustes').insert({data:dt,produto:i.dataset.n,sacos:valInp(i),motivo:i.dataset.m,responsavel:usuario()}),'gravar estoque'); if(w.error) return; }
+      }
+      if(typeof addLog==='function') addLog('EDITAR','FECHAMENTO',dt,`Estoque inicial/contagens em ${dBR(dt)}: ${mud.length} valor(es)`).catch(()=>{});
+      toast('Estoque de '+dBR(dt)+' gravado.');
+      closeModal('m-estoque'); gerar();
+    }finally{ btn.disabled=false; }
   });
-  el.innerHTML=`<thead><tr><th>Produto</th><th class="num">Produção do dia</th><th class="num">Carregado no dia</th><th class="num">Em análise</th><th class="num">Estoque liberado</th><th class="num">Estoque total</th></tr></thead>
-    <tbody>${corpo||`<tr><td colspan="6" class="fx-vazio">${_filtroPA==='mov'?'Nenhum produto produzido ou carregado neste dia. Toque em "Todos" para ver o estoque.':'Sem produção, carga ou ajuste até esta data.'}</td></tr>`}</tbody>`;
 }
 
-/* ── insumos, agrupados, com barra saldo × mínimo ── */
-function setFiltroIns(v){ _filtroIns=v; document.querySelectorAll('#seg-ins button').forEach(b=>b.classList.toggle('on',b.dataset.v===v)); renderIns(); }
-function renderIns(){
-  const lista=(_FX.insumos||[]).filter(i=>_filtroIns==='todos'||i.status==='Comprar');
-  const porGrupo={}; lista.forEach(i=>{ (porGrupo[i.grupo||'Outros']=porGrupo[i.grupo||'Outros']||[]).push(i); });
-  const dec=v=>Math.abs(v%1)>0.0001?2:0;
-  const barra=(s,m)=>{ s=Number(s)||0; m=Number(m)||0; if(m<=0) return ''; const esc2=Math.max(s,m*1.6,1);
-    const c=s<=0?'var(--bad-line)':s<=m?'var(--warn-line)':'var(--ok-line)';
-    return `<div class="sb" title="mínimo ${fN(m,dec(m))}"><span style="width:${Math.max(0,Math.min(100,s/esc2*100)).toFixed(1)}%;background:${c};"></span><i style="left:${(m/esc2*100).toFixed(1)}%;"></i></div>`; };
-  document.getElementById('fx-ins').innerHTML=`<thead><tr><th>Insumo</th><th class="num">Saldo</th><th class="num">Mínimo</th><th>Saldo × mínimo</th><th>Situação</th></tr></thead><tbody>`+
-    (Object.keys(porGrupo).length?Object.keys(porGrupo).map(g=>
-      `<tr class="grp"><td colspan="5">${esc(g)}</td></tr>`+
-      porGrupo[g].map(i=>{ const s=Number(i.saldo)||0, m=Number(i.minimo)||0;
-        return `<tr><td class="nome">${esc(i.nome)}</td>
-          <td class="num ${s<0?'neg':''}"><b style="color:${s<=0?'var(--bad)':'var(--primary)'};">${fN(s,dec(s))}</b><span class="un">${esc(i.unidade||'')}</span></td>
-          <td class="num">${m?fN(m,dec(m)):'—'}<span class="un">${m?esc(i.unidade||''):''}</span></td>
-          <td><div class="sb-cell">${barra(s,m)}</div></td>
-          <td><span class="pill ${i.status==='Comprar'?'comprar':'ok'}">${i.status==='Comprar'?'Comprar':'OK'}</span></td></tr>`; }).join('')
-    ).join(''):`<tr><td colspan="5" class="fx-vazio">${_filtroIns==='comprar'?'Nenhum insumo abaixo do mínimo. ✅':'Nenhum insumo cadastrado.'}</td></tr>`)+'</tbody>';
-}
-
-/* ── avisos sobre os dados (não imprimem) ── */
-function renderAvisos(){
-  const av=[];
-  const tot=_somaPor('tot'), anal=_somaPor('anal');
-  const pct=k=>tot[k]>0?anal[k]/tot[k]*100:0;
-  const altos=GRUPOS.filter(([k])=>tot[k]>0&&pct(k)>=80).map(([,r])=>r.toLowerCase());
-  if(altos.length) av.push(`<b>Quase todo o estoque está "em análise"</b> (${altos.join(', ')}). A OP só sai de análise quando o laboratório aprova todos os pallets dela — enquanto isso, o estoque liberado fica perto de zero.`);
-  const dias=_ultCarga?Math.round((new Date(_dia+'T12:00:00')-new Date(_ultCarga+'T12:00:00'))/86400000):null;
-  if(!_ultCarga) av.push('<b>Nenhum carregamento registrado no sistema.</b> O estoque total só desconta o que sai pela tela de Carregamento.');
-  else if(dias>3) av.push(`<b>Último carregamento registrado há ${dias} dias</b> (${new Date(_ultCarga+'T12:00:00').toLocaleDateString('pt-BR')}). Se houve carga depois disso fora do sistema, o estoque total está acima do real.`);
-  document.getElementById('fx-avisos').innerHTML=av.map(t=>`<div class="fx-av"><span class="ic">⚠️</span><span>${t}</span></div>`).join('');
-}
-
-(async()=>{ syncDia(); await carregarBase(); gerar(); })();
+(async()=>{
+  syncDia();
+  if(PODE_EDITAR()){ document.getElementById('bt-carreg').style.display=''; document.getElementById('bt-estoque').style.display=''; }
+  gerar();
+})();
 </script>
 </body>
 </html>
