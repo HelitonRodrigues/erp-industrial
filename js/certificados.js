@@ -36,7 +36,9 @@
     (data||[]).forEach(p=>m[N(p.nome)]=Number(p.peso_unidade_kg)||null);
     return m;
   }
-  const COLS='id,numero,status,produto,lote,op_numero,producao_id,unidade_qtd,emitido_em,assinado_em';
+  const COLS='id,numero,status,produto,lote,op_numero,producao_id,unidade_qtd,emitido_em,assinado_em,dados_snapshot';
+  // laudo é do LOTE (lote + linha): cobre todas as OPs de dados_snapshot.ops_lote, não só a OP "dona"
+  const cobreOp=(l,opId)=>l.producao_id===opId||((l.dados_snapshot&&l.dados_snapshot.ops_lote)||[]).some(o=>o&&o.id===opId);
 
   /* itens = snapshot da carga (carregamentos.itens). Devolve {links, semLaudo, rascunho} */
   window.certVincularCarga=async function({cargaId,romaneioId,ordemNumero,placa,data,itens}){
@@ -61,8 +63,11 @@
     if(opIds.length){const {data:l}=await _supabase.from('lab_laudos').select(COLS).in('producao_id',opIds);(l||[]).forEach(x=>laudos.set(x.id,x));}
     if(lotes.length){const vs=[...new Set(lotes.flatMap(x=>[String(x).trim(),L(x),String(x).trim().toLowerCase()]))];
       const {data:l}=await _supabase.from('lab_laudos').select(COLS).in('lote',vs);(l||[]).forEach(x=>laudos.set(x.id,x));}
+    const {data:ops}=opIds.length?await _supabase.from('producao').select('id,op_numero,produtos_op').in('id',opIds):{data:[]};
+    // laudo do lote cuja OP "dona" é outra OP do mesmo lote: busca também pelos lotes das OPs dos pallets
+    const lotesOp=[...new Set((ops||[]).flatMap(o=>(Array.isArray(o.produtos_op)?o.produtos_op:[]).map(it=>it&&it.lote).filter(Boolean)))];
+    if(lotesOp.length){const {data:l}=await _supabase.from('lab_laudos').select(COLS).in('lote',lotesOp);(l||[]).forEach(x=>laudos.set(x.id,x));}
     const LS=[...laudos.values()];
-    const {data:ops}=opIds.length?await _supabase.from('producao').select('id,op_numero').in('id',opIds):{data:[]};
     const opNum={}; (ops||[]).forEach(o=>opNum[o.id]=o.op_numero);
     const ultimoDoProduto={};
     for(const pn of [...new Set(its.filter(i=>tipoProduto(i.produto)==='granel').map(i=>i.produto))]){
@@ -74,8 +79,10 @@
     const grupos={}, pend=(arr,x)=>arr.push(x);
     its.forEach(i=>{
       const tipo=tipoProduto(i.produto), opId=i.pallet_id&&pal[i.pallet_id]?pal[i.pallet_id].lancamento_id:null, lt=L(i.lote);
-      const doOp=opId?LS.filter(l=>l.producao_id===opId):[];
-      const doLote=lt?LS.filter(l=>L(l.lote)===lt):[];
+      const doOp=opId?LS.filter(l=>cobreOp(l,opId)):[];
+      let doLote=lt?LS.filter(l=>L(l.lote)===lt):[];
+      // mesmo lote em duas linhas (Big Bag Cinza na L2 + Granel Cinza na Longa Vida): o do mesmo tipo de produto
+      if(doLote.length>1){ const mesmo=doLote.filter(l=>tipoProduto(l.produto)===tipo); if(mesmo.length) doLote=mesmo; }
       // se a OP tem mais de um laudo, fica o do lote bipado
       let cand=doOp.length>1&&lt?doOp.filter(l=>L(l.lote)===lt):doOp;
       if(!cand.length)cand=doLote;
