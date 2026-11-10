@@ -211,7 +211,8 @@
     const css=`<style>
       .rlu-pg{width:210mm;height:297mm;padding:11mm 12mm 9mm;box-sizing:border-box;page-break-before:always;break-before:page;font-family:Arial,Helvetica,sans-serif;color:#032036;display:flex;flex-direction:column;overflow:hidden;background:#fff;}
       .rlu-top{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:3px solid #042D4D;padding-bottom:4px;}
-      .rlu-top .m{font-size:17px;font-weight:800;color:#042D4D;} .rlu-top h1{font-size:14px;margin:0;color:#042D4D;text-align:right;} .rlu-top .s{font-size:8.5px;color:#64748b;text-align:right;}
+      .rlu-pg,.rlu-pg *{letter-spacing:normal;line-height:1.2;white-space:normal;} .rlu-pg{font-size:10px;}
+      .rlu-top .m{font-size:17px;font-weight:800;color:#042D4D;} .rlu-top .rlu-h{font-size:14px;font-weight:800;margin:0;color:#042D4D;text-align:right;} .rlu-top .s{font-size:8.5px;color:#64748b;text-align:right;}
       .rlu-lime{height:3.5px;background:#C9FF64;margin-bottom:6px;}
       .rlu-cab{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;font-size:9.5px;margin-bottom:5px;} .rlu-cab div{border:1px solid #cbd5e1;border-radius:5px;padding:4px 6px;} .rlu-cab small,.rlu-d small{display:block;font-size:7px;color:#64748b;font-weight:700;text-transform:uppercase;}
       .rlu-sec{font-size:9.5px;font-weight:800;color:#042D4D;text-transform:uppercase;margin:4px 0 5px;border-left:4px solid #C9FF64;padding-left:6px;}
@@ -225,7 +226,7 @@
       @media print{.rlu-pg{margin:0;}} @media screen{.rlu-pg{margin:10px auto;box-shadow:0 1px 4px #0003;}}
     </style>`;
     return css+pags.map((pg,pi)=>`<div class="rlu-pg">
-      <div class="rlu-top"><div class="m">${E(nomeEmp||'')}</div><div><h1>RELAÇÃO DAS UNIDADES CARREGADAS</h1><div class="s">anexo do certificado de análise ${E(laudo.numero||'')}</div></div></div><div class="rlu-lime"></div>
+      <div class="rlu-top"><div class="m">${E(nomeEmp||'')}</div><div><div class="rlu-h">RELAÇÃO DAS UNIDADES CARREGADAS</div><div class="s">anexo do certificado de análise ${E(laudo.numero||'')}</div></div></div><div class="rlu-lime"></div>
       ${pi===0?`<div class="rlu-cab"><div><small>Certificado</small><b>${E(laudo.numero||'')}</b></div><div><small>Produto</small>${E(link.produto||laudo.produto||'')}</div><div><small>Lote</small><b>${E(laudo.lote||'')}</b></div><div><small>Quantidade deste lote</small><b>${E(q)}</b></div>
         <div><small>Cliente</small>${E(link.cliente||'—')}</div><div><small>Ordem · pedido</small>${E(link.ordem_numero||'—')}${link.pedido_numero?' · '+E(link.pedido_numero):''}</div><div><small>Placa</small>${E(link.placa||'—')}</div><div><small>Expedição</small>${dBR(link.data)}</div></div>
         <div class="rlu-sec">${us[0].tipo==='bag'?'Bags':'Pallets'} carregados — um por linha, com os dados do rótulo</div>`:''}
@@ -269,7 +270,9 @@
         try{
           const [us,emp]=await Promise.all([certUnidades(lk.data),typeof carregarEmpresaPDF==='function'?carregarEmpresaPDF().catch(()=>({})):Promise.resolve({})]);
           const rel=certRelacaoHtml(lk.data,l,us,emp);
-          if(rel)html=html.includes('</body>')?html.replace('</body>',rel+'</body>'):html+rel;
+          // contain:strict na folha do certificado: com mais páginas depois, o Chrome quebrava o desenho (montado 4× e reduzido)
+          // e imprimia só o topo do certificado
+          if(rel){ const add='<style>.folha{break-inside:avoid;contain:strict;}</style>'+rel; html=html.includes('</body>')?html.replace('</body>',()=>add+'</body>'):html+add; }
         }catch(e){console.warn('[certificados] relação das unidades:',e);}
       }
       w.document.open(); w.document.write(html); w.document.close();
