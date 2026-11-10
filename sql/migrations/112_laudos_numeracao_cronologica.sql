@@ -17,10 +17,10 @@ begin
   drop table if exists _lau_num;
   create temp table _lau_num on commit drop as
   select id, numero antigo,
-         'LAU-'||extract(year from coalesce(data_fabricacao,created_at::date))::int||'-'||
-         lpad(row_number() over (partition by extract(year from coalesce(data_fabricacao,created_at::date))
-              order by coalesce(data_fabricacao,created_at::date), coalesce(dados_snapshot->>'linha',''),
-                       coalesce(produto,''), coalesce(lote,''), created_at, id)::text, 4, '0') novo
+         'LAU-'||extract(year from coalesce(data_fabricacao,emitido_em::date,current_date))::int||'-'||
+         lpad(row_number() over (partition by extract(year from coalesce(data_fabricacao,emitido_em::date,current_date))
+              order by coalesce(data_fabricacao,emitido_em::date,current_date), coalesce(dados_snapshot->>'linha',''),
+                       coalesce(produto,''), coalesce(lote,''), emitido_em, id)::text, 4, '0') novo
   from lab_laudos;
 
   select count(*) into v_mud from _lau_num where antigo is distinct from novo;
