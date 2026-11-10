@@ -484,12 +484,17 @@ function produtosComPallets(op) {
 }
 /* VALIDADE — regra da fábrica: linha 25kg, bags e granel → 3 anos;
    demais produtos → 1 ano. O cadastro (validade_dias) vence a regra. */
+// igual à producao.html (_ehFichaLote): caulim 20 kg conta como 25 kg; GeoPlus/Liga 20 kg = concentrado
+function ehFichaLoteAf(linhaProduto, nome) {
+  const lp = (String(linhaProduto || '') + ' ' + String(nome || '')).toLowerCase().replace(/\s/g, '');
+  if (lp.includes('25kg') || lp.includes('bag') || lp.includes('bigbag') || lp.includes('granel') || lp.includes('granl')) return true;
+  return lp.includes('20kg') && /caulim/i.test(String(nome || ''));
+}
 function diasValidade(nomeProduto, linhaProduto) {
   const prod = (_produtos || []).find(p => p.nome === nomeProduto);
   const cad = parseInt(prod && prod.validade_dias);
   if (cad > 0) return { dias: cad, fonte: 'cadastro' };
-  const lp = String(linhaProduto || '').toLowerCase().replace(/\s/g, '');
-  const longa = lp.includes('25kg') || lp.includes('bag') || lp.includes('bigbag') || lp.includes('granel') || lp.includes('granl');
+  const longa = ehFichaLoteAf(linhaProduto, nomeProduto);
   // em ANOS (mesmo dia e mês) — contar 1095 dias errava 1 dia em ano bissexto
   return longa ? { anos: 3, fonte: '3 anos' } : { anos: 1, fonte: '1 ano' };
 }
@@ -506,23 +511,24 @@ function validadeDoProduto(op, pp) {
    (AAAAMMDD + código da cor), e não se usa o lote da matéria-prima. */
 /* Mesma função da producao.html — o código do lote tem que ser idêntico nos
    dois módulos, senão o mesmo pallet teria dois lotes diferentes. */
-function corCodigoCaulimAf(produtoNome){
+function corCodigoCaulimAf(produtoNome){  // cópia da producao.html (corCodigoCaulim)
   const semPrefixo=String(produtoNome||'')
-    .replace(/\bcaulim\b/gi,'').replace(/\b25\s*kg\b/gi,'')
+    .replace(/\bcaulim\b/gi,'').replace(/\b(20|25)\s*kg\b/gi,'')
     .replace(/\bbig\s*bag\b/gi,'').replace(/\bbigbag\b/gi,'')
     .replace(/\bbag\b/gi,'').replace(/\bgranel\b/gi,'')
     .replace(/[-–—:|/,]+/g,' ')
     .trim().replace(/\s+/g,' ');
-  // Caulim Brasil Minas → "A" (regra da fábrica — igual à producao.html)
+  // Caulim Brasil Minas → "A" (regra da fábrica)
   if(/^brasil\s*minas$/i.test(semPrefixo)) return 'A';
   const m=/^([A-Za-zÀ-ÿ]+)\s*(\d+)?$/.exec(semPrefixo);
   if(!m) return null;
-  return m[1].charAt(0).toUpperCase()+(m[2]||'');
+  // Creme vira "CR" para não colidir com Cinza ("C").
+  const letra=/^creme$/i.test(m[1])?'CR':m[1].charAt(0).toUpperCase();
+  return letra+(m[2]||'');
 }
 function loteDoProdutoOP(op, pp) {
   if (pp && pp.lote) return pp.lote;
-  const lp = String((pp && pp.linhaProduto) || '').toLowerCase().replace(/\s/g, '');
-  const isFicha = lp.includes('25kg') || lp.includes('bag') || lp.includes('granel') || lp.includes('granl') || lp.includes('bigbag');
+  const isFicha = ehFichaLoteAf(pp && pp.linhaProduto, pp && pp.produto);
   const cor = corCodigoCaulimAf(pp && pp.produto) || '';
   if (isFicha && cor && op.data) {
     const d = new Date(op.data + 'T12:00');
