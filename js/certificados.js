@@ -83,8 +83,10 @@
       let doLote=lt?LS.filter(l=>L(l.lote)===lt):[];
       // mesmo lote em duas linhas (Big Bag Cinza na L2 + Granel Cinza na Longa Vida): o do mesmo tipo de produto
       if(doLote.length>1){ const mesmo=doLote.filter(l=>tipoProduto(l.produto)===tipo); if(mesmo.length) doLote=mesmo; }
-      // se a OP tem mais de um laudo, fica o do lote bipado
-      let cand=doOp.length>1&&lt?doOp.filter(l=>L(l.lote)===lt):doOp;
+      // OP com mais de um laudo (ex.: Bag B01 + Bag B02 na mesma OP): fica o do MESMO produto e, se ainda sobrar, o do lote bipado
+      let cand=doOp;
+      if(cand.length>1){ const mp=cand.filter(l=>N(l.produto)===N(i.produto)); if(mp.length) cand=mp; }
+      if(cand.length>1&&lt){ const ml=cand.filter(l=>L(l.lote)===lt); if(ml.length) cand=ml; }
       if(!cand.length)cand=doLote;
       let laudo=cand.find(l=>l.status==='finalizado')||null, sugerido=false;
       if(!laudo&&cand.length){pend(out.rascunho,{op:opNum[opId]||cand[0].op_numero||'?',lote:i.lote||cand[0].lote||'',produto:i.produto});return;}
