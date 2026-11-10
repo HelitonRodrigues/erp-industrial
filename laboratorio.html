@@ -1120,6 +1120,12 @@ async function carregarOpsDash(forcar){          // nome mantido: é o 🔄 do q
   renderDashLinhas(); if(forcar){ renderAnalises(); toast('Status das linhas atualizado.','success'); }
 }
 function _tsAnalise(a){ return String(a.data||'')+' '+String(a.hora||'00:00').slice(0,8); }
+// análise com data/hora no futuro (ex.: lançada à noite com a data de amanhã) não pode valer como "a mais nova"
+function _analiseNoFuturo(data,hora){
+  if(!data) return false;
+  const dt=new Date(String(data)+'T'+String(hora||'00:00').slice(0,5)+':00');
+  return !isNaN(dt)&&dt.getTime()>Date.now()+30*60000;   // 30 min de folga para relógio
+}
 function _idadeLab(a){
   if(!a||!a.data) return '';
   const dt=new Date(a.data+'T'+String(a.hora||'00:00').slice(0,5)+':00');
@@ -1154,7 +1160,7 @@ function renderDashLinhas(){
     // O card é do DIA: só vale análise de hoje. Sem análise hoje → "Aguardando análise"
     // (a de ontem continua na lista "📋 todas", mas não diz como a linha está agora).
     const hj=hoje();
-    const doLinha=(_analises||[]).filter(a=>a.linha===linha.nome&&String(a.data||'')===hj).sort((x,y)=>_tsAnalise(y).localeCompare(_tsAnalise(x)));
+    const doLinha=(_analises||[]).filter(a=>a.linha===linha.nome&&String(a.data||'')===hj&&!_analiseNoFuturo(a.data,a.hora)).sort((x,y)=>_tsAnalise(y).localeCompare(_tsAnalise(x)));
     const ult=doLinha[0];
     const st=(ult&&ult.status)||'Aguardando análise';
     const stCls={OK:'ok',Ajuste:'ajuste','Manutenção':'manutencao','Parada':'parada','Aguardando análise':''}[st]||'';
@@ -1801,6 +1807,7 @@ async function salvarAnalise(){
   const erro=m=>{errEl.textContent=m; errEl.classList.remove('hidden'); errEl.scrollIntoView({block:'center',behavior:'smooth'});};
   if(!linha||!data){erro('Linha e Data são obrigatórios.'); return;}
   if(!status){erro('Informe o status da linha.'); return;}
+  if(_analiseNoFuturo(data,gv('an-hora'))){erro('Data/hora no futuro ('+dataBR(data)+' '+String(gv('an-hora')||'').slice(0,5)+'). Confira a data da análise.'); return;}
   const soma=['an-p20','an-p50','an-p100','an-p200'].reduce((t,k)=>t+(numOrNull(gv(k))||0),0);
   if(soma>100.5){erro('A soma do peneiramento passou de 100% ('+soma.toFixed(1)+'%). Confira os valores.'); return;}
   // numOrNull no lugar de parseFloat()||null: umidade 0,0% e densidade 0 não
@@ -3984,6 +3991,7 @@ async function salvarAfProducao(amostraPaiId){
   const linha=document.getElementById('afp-linha').value, produto_id=document.getElementById('afp-produto').value, respColeta=document.getElementById('afp-resp-coleta').value;
   const err=document.getElementById('afp-error');
   if(!linha||!produto_id||!respColeta){ err.textContent='Linha, Produto e Responsável pela Coleta são obrigatórios.'; err.classList.remove('hidden'); return; }
+  if(_analiseNoFuturo(document.getElementById('afp-data').value,document.getElementById('afp-hora').value)){ err.textContent='Data/hora no futuro. Confira a data da coleta.'; err.classList.remove('hidden'); return; }
   const aditivoId=document.getElementById('afp-aditivo').value;
   const loteAditivo = aditivoId ? sugerirLoteFEFOReal(aditivoId) : null;
   const d={
