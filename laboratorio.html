@@ -4338,26 +4338,40 @@ async function carregarLaudos(mesForcado){
         <div style="font-size:11px;margin-top:4px;">${_todasFalhas.map(f=>'• '+(f.tabela?f.tabela+': ':'')+f.erro).join('<br>')}</div>
         <div style="font-size:11px;margin-top:5px;">Rode <code>lab_002_laudo.sql</code> no Supabase.</div></div>`
     : '';
-  renderLaudoTab();
-  // abriu o mês na aba: lote já todo aprovado e ainda sem laudo → gera o rascunho agora
-  if(typeof mesForcado!=='string'&&!_todasFalhas.length) _lauGerarFaltantes();
+  const forcado=typeof mesForcado==='string'&&mesForcado;
+  if(forcado&&mesEl&&mesEl.value!==mesForcado) _lauMontarGrupos();   // mês de trabalho do automático: não mexe na tela
+  else renderLaudoTab();
+  // abriu o mês na aba: lote já todo aprovado e ainda sem laudo → gera agora (na fila, um de cada vez)
+  if(!forcado&&!_todasFalhas.length) _lauEnfileirar(()=>_lauGerarMes(mes));
 }
 let _lauGerando=false;
+// FILA do laudo automático: uma geração por vez. Antes, a varredura de outubro trocava os
+// dados da aba no meio da geração de novembro e os lotes que faltavam eram pulados.
+let _lauFila=Promise.resolve();
+function _lauEnfileirar(fn){ _lauFila=_lauFila.then(fn).catch(e=>console.warn('[laudo auto]',e)); return _lauFila; }
+// carrega o mês (sem mexer na tela), gera o que falta e depois redesenha o mês que está na tela
+async function _lauGerarMes(mes){
+  if(typeof checkPerm==='function'&&!checkPerm('laboratorio','edit')) return 0;
+  await carregarLaudos(mes);
+  const n=await _lauGerarFaltantes(_lauGrupos.slice());
+  const ui=(document.getElementById('lau-mes')||{}).value;
+  await carregarLaudos(ui||mes);
+  if(n&&(!ui||ui===mes)) renderLaudoTab();
+  return n;
+}
 // ao abrir o Laboratório: lotes do mês atual e do anterior que já fecharam o dia saem finalizados
 async function _lauVarreduraInicial(){
   try{
     if(typeof checkPerm==='function'&&!checkPerm('laboratorio','edit')) return;
     const d=new Date(), atual=hoje().slice(0,7), ant=new Date(d.getFullYear(),d.getMonth()-1,15).toISOString().slice(0,7);
-    for(const mes of [ant,atual]){ await carregarLaudos(mes); await _lauGerarFaltantes(); }
-    await carregarLaudos();
+    for(const mes of [ant,atual]) await _lauEnfileirar(()=>_lauGerarMes(mes));
   }catch(e){ console.warn('[laudo] varredura inicial',e); }
 }
-async function _lauGerarFaltantes(){
-  if(_lauGerando) return;
-  if(typeof checkPerm==='function'&&!checkPerm('laboratorio','edit')) return;
-  const sem=_lauGrupos.filter(g=>!g.laudo||(g.laudo.status!=='finalizado'&&g.laudo.dados_snapshot&&g.laudo.dados_snapshot.auto
+async function _lauGerarFaltantes(grupos){
+  if(typeof checkPerm==='function'&&!checkPerm('laboratorio','edit')) return 0;
+  const sem=(grupos||_lauGrupos).filter(g=>!g.laudo||(g.laudo.status!=='finalizado'&&g.laudo.dados_snapshot&&g.laudo.dados_snapshot.auto
     &&_lauDiaFechado(g)));
-  if(!sem.length) return;
+  if(!sem.length) return 0;
   _lauGerando=true;
   const prev={e:_lauEdit,c:_cert,g:_lauGrupoAtual}, feitos=[], erros=[];
   try{
@@ -4377,15 +4391,17 @@ async function _lauGerarFaltantes(){
         // rascunho automático que continua travado pelo MESMO motivo (ex.: Cinza sem análise externa): não regrava
         if(g.laudo){ const mt=_lauMotivosAuto(_cert,vereditoCert(_cert),dono).join('; ');
           if(mt&&mt===(g.laudo.dados_snapshot.auto_motivo||'')) continue; }
-        _lauEdit={opId:dono.id,gk:g.k,laudoId:g.laudo?g.laudo.id:null,produto:_cert.produto,unidade:_cert.unidade};
+        _lauEdit={opId:dono.id,op:dono,gk:g.k,laudoId:g.laudo?g.laudo.id:null,produto:_cert.produto,unidade:_cert.unidade};
         const salvo=await salvarLaudo(_lauDiaFechado(g),{auto:true});
         if(salvo) feitos.push((salvo.numero||'laudo')+(salvo.status==='finalizado'?' ✅':' ⚠️'));
+        else erros.push('lote '+(g.lote||'—')+' · '+(g.linha||'')+': não gravou');
       }catch(e){ erros.push('lote '+(g.lote||'—')+' · '+(g.linha||'')+': '+((e&&e.message)||e)); }
     }
     if(erros.length) toast('Laudo automático não gravou '+erros.length+' lote(s): '+erros.join(' | '),'warning');
   }catch(e){ toast('Não consegui gerar os laudos dos lotes já aprovados: '+((e&&e.message)||e),'warning'); }
   finally{ _lauEdit=prev.e; _cert=prev.c; _lauGrupoAtual=prev.g; _lauGerando=false; }
-  if(feitos.length){ renderLaudoTab(); toast('📜 '+feitos.length+' laudo(s) automático(s) dos lotes já aprovados: '+feitos.join(', ')+' (⚠️ = ficou em rascunho, veja o motivo na lista).','success'); }
+  if(feitos.length){ toast('📜 '+feitos.length+' laudo(s) automático(s) dos lotes já aprovados: '+feitos.join(', ')+' (⚠️ = ficou em rascunho, veja o motivo na lista).','success'); }
+  return feitos.length;
 }
 
 // Lê as três análises externas do fluxo do caulim (POP-17) e diz o que está
@@ -5586,7 +5602,8 @@ async function _lauPendentesDoGrupo(g){
   const nps=g.prods.map(_lauNorm);
   return (r.data||[]).filter(p=>nps.includes(_lauNorm(p.produto))&&p.status!=='aprovado'&&p.status!=='reprovado').length;
 }
-async function _lauAutoGerar(opIds,produto){
+function _lauAutoGerar(opIds,produto){ return _lauEnfileirar(()=>_lauAutoGerarAgora(opIds,produto)); }
+async function _lauAutoGerarAgora(opIds,produto){
   const prev={e:_lauEdit,c:_cert,g:_lauGrupoAtual}, feitos=[], pend=[];
   try{
     if(!_lauEhProdutoLaudo(produto)) return;
@@ -5605,7 +5622,7 @@ async function _lauAutoGerar(opIds,produto){
         const dono=_lauOpDono(g);
         _lauGrupoAtual=g;
         _cert=await montarCertificado(dono,g.laudo);
-        _lauEdit={opId:dono.id,gk:g.k,laudoId:g.laudo?g.laudo.id:null,produto:_cert.produto,unidade:_cert.unidade};
+        _lauEdit={opId:dono.id,op:dono,gk:g.k,laudoId:g.laudo?g.laudo.id:null,produto:_cert.produto,unidade:_cert.unidade};
         let salvo=null;
         try{ salvo=await salvarLaudo(_lauDiaFechado(g),{auto:true}); }
         catch(e){ pend.push('lote '+(g.lote||'—')+': '+((e&&e.message)||e)); continue; }
@@ -5619,7 +5636,7 @@ async function _lauAutoGerar(opIds,produto){
     toast('Pallet aprovado, mas o laudo automático não foi gerado: '+((e&&e.message)||e)+'. Crie pela aba Laudo.','warning');
   }finally{
     _lauEdit=prev.e; _cert=prev.c; _lauGrupoAtual=prev.g;
-    try{ await carregarLaudos(); }catch(e){ console.warn('[laudo] recarregar aba',e); }
+    try{ const ui=(document.getElementById('lau-mes')||{}).value; await carregarLaudos(ui); renderLaudoTab(); }catch(e){ console.warn('[laudo] recarregar aba',e); }
   }
 }
 // o que impede o laudo automático de sair finalizado (vazio = pode finalizar)
@@ -5638,7 +5655,7 @@ async function salvarLaudo(finalizar,opts){
   const auto=!!(opts&&opts.auto);          // laudo automático (aprovação do lote) — sem clique
   if(!_lauEdit||!_cert) return;
   if(!auto&&!guardAction('laboratorio','edit')) return;
-  const op=_lauOps.find(o=>o.id===_lauEdit.opId); if(!op) return;
+  const op=_lauEdit.op||_lauOps.find(o=>o.id===_lauEdit.opId); if(!op) return;
   const grp=(_lauGrupoAtual&&_lauGrupoAtual.k===_lauEdit.gk)?_lauGrupoAtual:null;
   const opsLote=grp?grp.ops:[op];
   if(!auto) _lauLerCampos();
