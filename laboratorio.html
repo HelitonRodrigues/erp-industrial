@@ -879,9 +879,7 @@ async function init(){
     _supabase.from('funcionarios').select('id,nome,funcao').eq('status','ativo').order('nome'),
     _supabase.from('produtos').select('id,nome,centro_custo,linhas,unidade,unidade_custom,emb_tipo,emb_qtd,capacidades,status,criado_em,atualizado_em,peso_saco,chilincado,peso_unidade_kg,laudo_composicao,laudo_modo_usar,laudo_precaucoes,laudo_registro,laudo_classificacao').eq('status','ativo').order('nome'), /* sem foto (3 MB) */
     _supabase.from('laboratorio').select('*').order('data',{ascending:false}).order('hora',{ascending:false}).limit(400),
-    (async()=>{const r=await selectTodos(_supabase.from('producao_pallets')
-        .select('*,producao(id,data,linha,turno,encarregado,op_numero,produtos_op)')
-        .order('created_at',{ascending:false}), {max:_palLimite});
+    (async()=>{const r=await _carregarTodosPallets();
       if(r.error){_falhasCarga.push({tabela:'producao_pallets (Análise de Pallets)',erro:r.error.message});return[];}
       return r.data||[];})(),
     _supabase.from('empresa_config').select('*').limit(1),
@@ -975,7 +973,9 @@ async function init(){
   // Fora do Promise.all porque precisam da tentativa sem ordenação.
   [_aferidor,_palletAnalises,_palCorrecoes]=await Promise.all([
     buscaResiliente('aferidor_aditivacao',{ordem:'data',limite:400,rotulo:'aferidor_aditivacao (aba Aferições)'}),
-    buscaResiliente('lab_pallet_analises',{ordem:'data',limite:600,rotulo:'lab_pallet_analises (Análise de Pallets)'}),
+    (async()=>{const r=await _carregarTodasAnalisesPallet();
+      if(r.error){_falhasCarga.push({tabela:'lab_pallet_analises (Análise de Pallets)',erro:r.error.message});return[];}
+      return r.data||[];})(),
     safe(_supabase.from('lab_pallet_correcoes').select('*').order('solicitado_em',{ascending:false}).limit(500),'palletCorrecoes'),
   ]);
   pintarBadgeCorrecoes();
@@ -2065,7 +2065,23 @@ function limparFiltrosPallet(){
 
 let _palSel=new Set();          // ids selecionados
 let _palGrupos=[];              // grupos renderizados — a seleção usa ÍNDICE, não string
-let _palLimite=1000;            // teto atual da consulta (com aviso de truncamento)
+let _palLimite=500000;          // sem teto: a Análise de Pallets traz TODOS os registros (nov/2026)
+// Todos os pallets + o produtos_op de cada OP buscado UMA vez por OP (antes vinha repetido em
+// cada pallet do join e pesava muitas vezes mais).
+async function _carregarTodosPallets(){
+  const r=await selectTodos(_supabase.from('producao_pallets')
+    .select('*,producao(id,data,linha,turno,encarregado,op_numero)').order('created_at',{ascending:false}));
+  if(r.error) return r;
+  const ids=[...new Set((r.data||[]).map(p=>p.lancamento_id||(p.producao&&p.producao.id)).filter(Boolean))], ops={};
+  for(let k=0;k<ids.length;k+=200){
+    const q=await _supabase.from('producao').select('id,produtos_op').in('id',ids.slice(k,k+200));
+    if(q.error) return {data:null,error:q.error};
+    (q.data||[]).forEach(o=>{ ops[o.id]=o.produtos_op||[]; });
+  }
+  (r.data||[]).forEach(p=>{ if(p.producao) p.producao.produtos_op=ops[p.producao.id]||[]; });
+  return r;
+}
+const _carregarTodasAnalisesPallet=()=>selectTodos(_supabase.from('lab_pallet_analises').select('*').order('data',{ascending:false}));
 
 // ── FONTE ÚNICA da análise de cada pallet ──────────────────────────────────
 // _palletAnalises era carregado e nunca consultado. Agora indexa por pallet.
@@ -2241,9 +2257,6 @@ function renderPallets(){
     let html='';
     if(falha) html+=`<div style="padding:11px 14px;border-radius:10px;background:#fef2f2;border-left:4px solid var(--danger);font-size:12.5px;color:#991b1b;margin-bottom:12px;">
       <strong>Não consegui ler as análises de pallet.</strong><div style="font-size:11.5px;margin-top:4px;">${esc(falha.erro)}</div></div>`;
-    if((_pallets||[]).length>=_palLimite) html+=`<div style="padding:11px 14px;border-radius:10px;background:#fffbeb;border-left:4px solid var(--warning);font-size:12.5px;color:#92400e;margin-bottom:12px;">
-      <strong>Mostrando os ${_palLimite} pallets mais recentes.</strong> Pallets mais antigos não estão nesta lista — filtrar por uma data anterior devolve vazio.
-      <button class="btn btn-ghost btn-sm" style="color:#92400e;" onclick="carregarMaisPallets()">Carregar mais ${_palLimite}</button></div>`;
     avisoEl.innerHTML=html;
   }
 
@@ -2364,11 +2377,8 @@ function cartaoPallet(p,gi){
   </div>`;
 }
 
-async function carregarMaisPallets(){
-  _palLimite+=1000;
-  const{data:pal}=await db(selectTodos(_supabase.from('producao_pallets')
-    .select('*,producao(id,data,linha,turno,encarregado,op_numero,produtos_op)')
-    .order('created_at',{ascending:false}), {max:_palLimite}),'carregar pallets');
+async function carregarMaisPallets(){   // mantido por compatibilidade: a lista já vem completa
+  const{data:pal}=await db(_carregarTodosPallets(),'carregar pallets');
   _pallets=pal||_pallets; renderPallets();
 }
 
@@ -2838,8 +2848,8 @@ async function refletirStatusNaOP(palletIds,status,resp,hora){
 }
 async function recarregarPallets(){
   const[a,b]=await Promise.all([
-    selectTodos(_supabase.from('producao_pallets').select('*,producao(id,data,linha,turno,encarregado,op_numero,produtos_op)').order('created_at',{ascending:false}), {max:_palLimite}),
-    _supabase.from('lab_pallet_analises').select('*').order('data',{ascending:false}).limit(600),
+    _carregarTodosPallets(),
+    _carregarTodasAnalisesPallet(),
   ]);
   if(a.error) toast('Falha ao recarregar os pallets: '+a.error.message,'danger'); else _pallets=a.data||[];
   if(!b.error) _palletAnalises=b.data||[];
@@ -4363,8 +4373,9 @@ async function _lauGerarMes(mes){
 async function _lauVarreduraInicial(){
   try{
     if(typeof checkPerm==='function'&&!checkPerm('laboratorio','edit')) return;
-    const d=new Date(), atual=hoje().slice(0,7), ant=new Date(d.getFullYear(),d.getMonth()-1,15).toISOString().slice(0,7);
-    for(const mes of [ant,atual]) await _lauEnfileirar(()=>_lauGerarMes(mes));
+    const d=new Date(), meses=[];
+    for(let k=3;k>=0;k--){ const m=new Date(d.getFullYear(),d.getMonth()-k,15).toISOString().slice(0,7); if(m>='2026-09') meses.push(m); }
+    for(const mes of meses) await _lauEnfileirar(()=>_lauGerarMes(mes));
   }catch(e){ console.warn('[laudo] varredura inicial',e); }
 }
 async function _lauGerarFaltantes(grupos){
@@ -5207,10 +5218,11 @@ function vereditoCert(c){
   // só com o resultado, não entra em "fora de especificação" e não reprova o lote.
   const um=c.demais.find(d=>d.k==='umidade');
   const faltam=[];
-  if(c.peneiras.length&&!temGran) faltam.push('granulometria');
-  if(um&&um.res==null) faltam.push('umidade');
+  const hist=typeof _lauEhHistorico==='function'&&_lauEhHistorico(c);   // histórico (antes de out/2026): não cobra ensaio
+  if(!hist&&c.peneiras.length&&!temGran) faltam.push('granulometria');
+  if(!hist&&um&&um.res==null) faltam.push('umidade');
   const algum=temGran||c.demais.some(d=>d.res!=null);
-  const completo=algum&&!faltam.length;
+  const completo=hist||(algum&&!faltam.length);
   const status=fora.length?'REPROVADO':(completo?'APROVADO':'PENDENTE');
   return {status,fora,faltam,temGran,totalGran,completo};
 }
@@ -5594,6 +5606,11 @@ function _lauAprovadorPallets(op){ return _lauAprovadoresPallets(op).map(x=>x.no
 // sem química externa assinada, análise externa vencida, RT não configurado ou RT = quem aprovou.
 // Não mexe em laudo finalizado nem em rascunho que alguém editou à mão.
 const _lauDiaFechado=g=>String(g.dataFim||'')<hoje();
+// (nov/2026, pedido do dono) lotes ANTES de 01/10/2026 = histórico em papel: o laudo sai finalizado só
+// para fechar as pendências — sem exigir umidade, granulometria, química ou análise externa.
+// Os laudos que valem são de outubro/2026 em diante.
+const LAUDO_HISTORICO_ATE='2026-10-01';
+const _lauEhHistorico=c=>!!(c&&c.data_fab&&String(c.data_fab).slice(0,10)<LAUDO_HISTORICO_ATE);
 const _lauOpDono=g=>g.laudo?g.rep:(g.ops.find(o=>!_lauLaudos.some(l=>l.producao_id===o.id))||g.rep);
 // pallets/bags/cargas do lote (OPs do grupo × produtos do grupo) ainda sem julgamento
 async function _lauPendentesDoGrupo(g){
@@ -5642,6 +5659,12 @@ async function _lauAutoGerarAgora(opIds,produto){
 // o que impede o laudo automático de sair finalizado (vazio = pode finalizar)
 function _lauMotivosAuto(c,vd,op){
   const mt=[], hjA=hoje(), extA=asArray(c.externas);
+  if(_lauEhHistorico(c)){   // histórico: só o que impediria a assinatura em si
+    if(!c.rt.nome) mt.push('RT não configurado');
+    const ap=_lauAprovadoresPallets(op);
+    if(ap.some(x=>(x.id&&c.rt.id&&x.id===c.rt.id)||_lauNorm(x.nome)===_lauNorm(c.rt.nome))) mt.push('RT aprovou os pallets');
+    return mt;
+  }
   if(String(vd.status||'').toUpperCase()!=='APROVADO') mt.push('veredito '+(vd.status||'—'));
   if(!vd.completo) mt.push('falta '+(vd.faltam.join(' e ')||'resultado'));
   if(!c.temQuimica) mt.push('sem química externa assinada');
@@ -5702,6 +5725,8 @@ async function salvarLaudo(finalizar,opts){
   // rascunho automático: o RT só entra na finalização (evita bater na trava RT ≠ quem aprovou)
   if(auto&&!finalizar){ row.responsavel_id=null; }
   if(auto){ row.emitido_por='Automático (aprovação do lote)'+(u.nome?' · '+u.nome:''); }
+  if(_lauEhHistorico(c)){ row.dados_snapshot.historico=true;
+    row.observacao=row.observacao||'Lote do histórico em papel (jul–set/2026): laudo emitido para encerrar pendências; resultados da planilha consolidada do laboratório.'; }
   if(finalizar&&auto){
     row.assinado_em=new Date().toISOString();
     try{ row.assinatura_hash=await assinarEletronicamente((c.rt.nome||'')+(op.op_numero||'')+vd.status); }
@@ -9057,7 +9082,7 @@ function botoesEditarEnsaioCorrecao(c){
   if(!alvo.length) return '<span style="font-size:11.5px;color:#94a3b8;">Nenhum pallet desta OP na lista carregada.</span>';
   return alvo.map(id=>{const p=(_pallets||[]).find(x=>x.id===id);
     return p?`<button class="btn btn-secondary btn-sm" onclick="abrirPalletLab('${p.id}')">🔬 Editar ensaio ${ehGranel(p)?'':'#'+esc(p.numero??'—')}</button>`
-            :`<span class="badge badge-gray" title="Pallet fora da lista carregada — use 'Carregar mais' na Análise de Pallets">pallet não carregado</span>`;}).join(' ');
+            :`<span class="badge badge-gray" title="Pallet não encontrado na lista da Análise de Pallets (recarregue a página)">pallet não carregado</span>`;}).join(' ');
 }
 function blocoResumoCorrecao(c){
   const cel=(l,v)=>`<div><div style="font-size:10px;font-weight:800;color:#94a3b8;text-transform:uppercase;">${esc(l)}</div>
