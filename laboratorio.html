@@ -4364,12 +4364,20 @@ async function _lauGerarMes(mes){
   if(typeof checkPerm==='function'&&!checkPerm('laboratorio','edit')) return 0;
   await carregarLaudos(mes);
   const n=await _lauGerarFaltantes(_lauGrupos.slice());
+  if(n) await _lauRenumerar();
   const ui=(document.getElementById('lau-mes')||{}).value;
   await carregarLaudos(ui||mes);
   if(n&&(!ui||ui===mes)) renderLaudoTab();
   return n;
 }
 // ao abrir o Laboratório: lotes do mês atual e do anterior que já fecharam o dia saem finalizados
+// numeração cronológica do lote (LAU-AAAA-0001 = lote mais antigo) — migração 112.
+// O banco só renumera enquanto nenhum certificado saiu em carga; depois os números ficam fixos.
+async function _lauRenumerar(){
+  const r=await _supabase.rpc('lab_renumerar_laudos');
+  if(r.error){ toast('Laudos gerados, mas não consegui pôr a numeração em ordem de data: '+r.error.message,'warning'); return 0; }
+  return r.data||0;
+}
 async function _lauVarreduraInicial(){
   try{
     if(typeof checkPerm==='function'&&!checkPerm('laboratorio','edit')) return;
@@ -5748,6 +5756,7 @@ async function salvarLaudo(finalizar,opts){
   }
   try{
     let salvo;
+    _lauEdit.laudoIdAntes=_lauEdit.laudoId||null;
     if(_lauEdit.laudoId){
       const{data,error}=await _supabase.from('lab_laudos').update(row).eq('id',_lauEdit.laudoId).select().single();
       if(error) throw error; salvo=data;
@@ -5767,6 +5776,11 @@ async function salvarLaudo(finalizar,opts){
     }
     await addLog(finalizar?'UPDATE':'CREATE','LABORATORIO',salvo.id,`Laudo ${salvo.numero||''} ${finalizar?(auto?'FINALIZADO AUTOMÁTICO':'FINALIZADO'):(auto?'automático em rascunho ('+(row.dados_snapshot.auto_motivo||'')+')':'salvo em rascunho')} — lote ${row.lote||''} · ${(grp&&grp.linha)||op.linha||''} · OP ${row.op_numero||''} · ${vd.status}`);
     if(auto) return salvo;
+    if(!_lauEdit.laudoIdAntes&&(await _lauRenumerar())>0){   // laudo novo de lote antigo: entra na ordem de data
+      const rn=await _supabase.from('lab_laudos').select('*').in('id',[salvo.id]);
+      if(!rn.error&&rn.data&&rn.data[0]){ salvo=rn.data[0]; c.numero=salvo.numero; }
+      await carregarLaudos((document.getElementById('lau-mes')||{}).value);
+    }
     renderLaudoTab();
     toast(finalizar?`✅ Certificado ${salvo.numero||''} finalizado (${vd.status}).`:'Rascunho salvo.','success');
     if(finalizar) closeModal('m-laudo');
