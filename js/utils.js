@@ -186,11 +186,13 @@ const MODULO_FUNCIONALIDADES = {
     { id:'barracoes', label:'⚙️ Barracões' },
   ],
   compras: [
-    { id:'fila', label:'🗂️ Fila' },
-    { id:'pedidos', label:'📦 Pedidos' },
-    { id:'fornecedores', label:'🏭 Fornecedores' },
+    { id:'fila', label:'🗂️ Fila de compras' },
     { id:'aprovacao', label:'✅ Aprovação (gerente)' },
-    { id:'mais', label:'➕ Mais (histórico de preços, NC)' },
+    { id:'pedidos', label:'📦 Compras feitas' },
+    { id:'gastos', label:'📊 Gastos por centro de custo' },
+    { id:'fornecedores', label:'🏭 Fornecedores' },
+    { id:'precos', label:'📈 Histórico de preços' },
+    { id:'regras', label:'⚙️ Regras da compra' },
   ],
   custo_precificacao: [
     { id:'resumo', label:'📊 Resumo' },
@@ -602,6 +604,9 @@ function enforceTabs(moduloId, containerEl){
 function applyActionGuards(moduloId, containerEl) {
   if (!moduloId || !containerEl) return;
   if (isAdmin()) return; // admin vê tudo
+  // Módulo que controla as próprias permissões (ex.: compras.html) marca <main data-guard-manual>:
+  // o adivinhador por texto ("aprov", "novo"…) escondia botões que não eram ação (ex.: "necessidade aprovada").
+  if (containerEl.hasAttribute && containerEl.hasAttribute('data-guard-manual')) return;
 
   const mp = (getUser()?.permissoes || {})[moduloId] || {};
 
