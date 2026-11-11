@@ -130,11 +130,12 @@
   <div class="page-header">
     <div class="page-header-left">
       <h1>Programação de Cargas</h1>
-      <p>Planilha de carregamentos + Salescode num calendário só · capacidade do dia vinda do Custo e Precificação</p>
+      <p>Pedidos do Salescode com a data da fábrica por cima · capacidade do dia vinda do Custo e Precificação</p>
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;">
       <button class="btn btn-secondary btn-sm" onclick="abrirHistorico()">📦 Carregadas</button>
-      <label class="btn btn-secondary btn-sm" id="btn-imp" style="cursor:pointer;">⬆️ Importar planilha (.xlsx)<input type="file" accept=".xlsx,.xls" style="display:none" onchange="importarXlsx(this.files[0]);this.value=''"></label>
+      <button class="btn btn-secondary btn-sm" onclick="abrirRelatorio()">📄 Relatório por representante</button>
+      <button class="btn btn-secondary btn-sm" id="btn-nova" onclick="abrirNova()">＋ Carga manual</button>
       <button class="btn btn-primary btn-sm" onclick="carregar()">🔄 Atualizar</button>
     </div>
   </div>
@@ -150,6 +151,7 @@
     <div class="pc-seg" id="seg-vis"><button data-v="semana" class="on">Semana</button><button data-v="mes">Mês</button></div>
     <div class="pc-seg" id="seg-grp"><button data-g="todos" class="on">Todos</button><button data-g="caulim">Caulim</button><button data-g="ligas">Ligas</button><button data-g="original">Linha Original</button></div>
     <label class="pc-chk"><input type="checkbox" id="chk-fin" checked onchange="render()"> Mostrar no financeiro</label>
+    <select id="sel-rep" class="form-input" style="width:auto;padding:6px 10px;font-size:13px" onchange="_rep=this.value;render()"><option value="">Todos os representantes</option></select>
     <div class="pc-sync" id="pc-sync"></div>
   </div>
 
@@ -181,6 +183,40 @@
   </div>
 </div>
 
+<!-- Relatório por representante -->
+<div id="m-rel" class="modal-overlay hidden">
+  <div class="modal" style="max-width:560px;">
+    <div class="modal-header"><div class="modal-title">Relatório por representante</div><button class="modal-close" onclick="closeModal('m-rel')">✕</button></div>
+    <div class="form-group"><label class="form-label">Representante</label><select id="rel-rep" class="form-input"></select></div>
+    <div style="display:flex;gap:10px">
+      <div class="form-group" style="flex:1"><label class="form-label">De</label><input type="date" id="rel-ini" class="form-input"></div>
+      <div class="form-group" style="flex:1"><label class="form-label">Até</label><input type="date" id="rel-fim" class="form-input"></div>
+    </div>
+    <label style="display:flex;gap:8px;align-items:center;font-size:13px;margin:6px 0"><input type="checkbox" id="rel-atr" checked> Incluir atrasadas (data já passou e não carregou)</label>
+    <label style="display:flex;gap:8px;align-items:center;font-size:13px;margin:6px 0"><input type="checkbox" id="rel-sem" checked> Incluir pedidos sem data</label>
+    <label style="display:flex;gap:8px;align-items:center;font-size:13px;margin:6px 0"><input type="checkbox" id="rel-fin" checked> Incluir pedidos no financeiro</label>
+    <div class="pc-help" style="padding:6px 0">A data que vai no relatório é a <b>data da fábrica</b> (a que você definiu). Ao lado sai a data do Salescode para o representante comparar.</div>
+    <div class="modal-footer"><button class="btn btn-secondary btn-sm" onclick="closeModal('m-rel')">Cancelar</button><button class="btn btn-primary btn-sm" onclick="gerarRelatorio()">📄 Gerar PDF</button></div>
+  </div>
+</div>
+<!-- Carga manual -->
+<div id="m-nova" class="modal-overlay hidden">
+  <div class="modal" style="max-width:560px;">
+    <div class="modal-header"><div class="modal-title">Carga manual</div><button class="modal-close" onclick="closeModal('m-nova')">✕</button></div>
+    <div class="pc-help" style="padding:0 0 10px">Para pedido que não está no Salescode. Se depois ele aparecer lá com o mesmo código, junta sozinho.</div>
+    <div style="display:flex;gap:10px"><div class="form-group" style="flex:1"><label class="form-label">Pedido / código *</label><input id="nv-ped" class="form-input" placeholder="ex.: A01MQG"></div>
+      <div class="form-group" style="flex:1"><label class="form-label">Data da fábrica *</label><input type="date" id="nv-data" class="form-input"></div></div>
+    <div class="form-group"><label class="form-label">Cliente *</label><input id="nv-cli" class="form-input" placeholder="ex.: AGROCERES (Rondonópolis/RO)"></div>
+    <div class="form-group"><label class="form-label">Representante</label><input id="nv-rep" class="form-input" list="dl-rep"><datalist id="dl-rep"></datalist></div>
+    <div style="display:flex;gap:10px"><div class="form-group" style="flex:2"><label class="form-label">Produto *</label><select id="nv-pro" class="form-input">
+      <option>CAULIM BIG BAG – BRANCO</option><option>CAULIM BIG BAG – BRANCO 2</option><option>CAULIM BIG BAG - CREME 2</option><option>CAULIM ENSACADO 25 Kg – BRANCO</option><option>CAULIM ENSACADO 25KG - BRANCO 2</option><option>CAULIM GRANEL – BRANCO</option><option>LIGA ORIGINAL CONCENTRADO</option></select></div>
+      <div class="form-group" style="flex:1"><label class="form-label">Quantidade *</label><input type="number" step="0.01" id="nv-qtd" class="form-input"></div>
+      <div class="form-group" style="flex:1"><label class="form-label">Unidade</label><select id="nv-un" class="form-input"><option value="TL">t</option><option value="SC">sacos</option></select></div></div>
+    <div class="form-group"><label class="form-label">Observações / transportadora</label><input id="nv-obs" class="form-input"></div>
+    <div class="modal-footer"><button class="btn btn-secondary btn-sm" onclick="closeModal('m-nova')">Cancelar</button><button class="btn btn-primary btn-sm" onclick="salvarNova()">Salvar</button></div>
+  </div>
+</div>
+
 <script>
 /* ═══════════════════════════════════════════════════════════
    PROGRAMAÇÃO DE CARGAS
@@ -206,7 +242,7 @@ const FAM = {
 };
 
 let _cargas = [], _planos = [], _turnos = [], _podeEditar = false;
-let _vis = 'semana', _grp = 'todos', _ref = hojeISO(), _drag = null, _fitCache = {};
+let _rep = '', _vis = 'semana', _grp = 'todos', _ref = hojeISO(), _drag = null, _fitCache = {};
 
 /* ── utilidades ─────────────────────────────────────────── */
 function hojeISO(){ const d=new Date(); d.setMinutes(d.getMinutes()-d.getTimezoneOffset()); return d.toISOString().slice(0,10); }
@@ -270,7 +306,9 @@ function montar(c){
   const nomeProd=(p.material&&c.em_planilha)?`${princ.fam&&FAM[princ.fam]?FAM[princ.fam].rot:''} ${p.material}`.trim():princ.produto;
   const st=norm(c.status_salescode);
   return Object.assign(c,{
-    _data: c.data_manual || c.data_planilha || c.data_salescode || null,
+    _data: c.data_manual || c.data_salescode || c.data_planilha || null,
+    _dataSC: c.data_salescode || c.data_planilha || null,
+    _rep: c.representante || 'Sem representante',
     _cliente: p.cliente || c.cliente_salescode || '—',
     _cidade: c.cidade || '',
     _itens: itens,
@@ -345,13 +383,16 @@ async function carregar(){
   _cargas=(cg.data||[]).map(montar);
   _planos=pl.data||[]; _turnos=tu.data||[];
   Object.keys(_capCache).forEach(k=>delete _capCache[k]);
+  const reps=[...new Set(_cargas.filter(c=>!c.carregado).map(c=>c._rep))].sort((a,b)=>a.localeCompare(b,'pt-BR'));
+  if(_rep && !reps.includes(_rep)) _rep='';
+  document.getElementById('sel-rep').innerHTML='<option value="">Todos os representantes</option>'+reps.map(x=>`<option${x===_rep?' selected':''}>${esc(x)}</option>`).join('');
   render();
 }
 
 /* ── FILTROS ────────────────────────────────────────────── */
 function visiveis(){
   const fin=document.getElementById('chk-fin').checked;
-  return _cargas.filter(c=>!c.carregado && (_grp==='todos'||c._grupo===_grp) && (fin||!c._fin));
+  return _cargas.filter(c=>!c.carregado && (_grp==='todos'||c._grupo===_grp) && (fin||!c._fin) && (!_rep||c._rep===_rep));
 }
 function ordenar(a,b){ return (a.ordem_dia??9999)-(b.ordem_dia??9999) || (a.em_planilha===b.em_planilha?0:(a.em_planilha?-1:1)) || String(a.pedido).localeCompare(String(b.pedido)); }
 function doDia(lista, iso){ return lista.filter(c=>c._data===iso).sort(ordenar); }
@@ -371,7 +412,7 @@ function renderSync(){
   const f=v=>v?new Date(v).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'nunca';
   const cor=v=>!v?'#E5484D':((Date.now()-new Date(v))>3*3600e3?'#D98E04':'#22C55E');
   const a=ult('atualizado_planilha'), b=ult('atualizado_salescode');
-  document.getElementById('pc-sync').innerHTML=`<span><span class="pc-dot" style="background:${cor(a)}"></span>Planilha ${f(a)}</span><span><span class="pc-dot" style="background:${cor(b)}"></span>Salescode ${f(b)}</span>`;
+  document.getElementById('pc-sync').innerHTML=`<span><span class="pc-dot" style="background:${cor(b)}"></span>Salescode ${f(b)}</span>`;
 }
 function renderAlerta(lista){
   const at=atrasadas(lista); const el=document.getElementById('pc-alert');
@@ -428,10 +469,8 @@ function qtdTxt(c){
 }
 function tagsHtml(c){
   const t=[];
-  if(c.em_planilha && c.em_salescode) t.push('<span class="pc-t grn">planilha + Salescode</span>');
-  else if(c.em_planilha) t.push('<span class="pc-t">só planilha</span>');
-  else t.push('<span class="pc-t pur">fora da planilha</span>');
-  if(c.data_manual) t.push(`<span class="pc-t blu">movida${c.data_planilha||c.data_salescode?' (era '+fmtD(c.data_planilha||c.data_salescode)+')':''}</span>`);
+  if(!c.em_salescode) t.push('<span class="pc-t">fora do Salescode</span>');
+  if(c.data_manual) t.push(`<span class="pc-t blu">Salescode ${c._dataSC?fmtD(c._dataSC):'sem data'} → Fábrica ${fmtD(c.data_manual)}</span>`);
   if(c.status_salescode) t.push(`<span class="pc-t ${c._fin?'yel':''}">${esc(c.status_salescode)}</span>`);
   const h=hojeISO(); if(c._data && c._data<h && !c._fin) t.push(`<span class="pc-t red">desde ${fmtD(c._data)}</span>`);
   return `<div class="pc-tags">${t.join('')}</div>`;
@@ -442,7 +481,7 @@ function cardHtml(c, fit, opts={}){
   const h=hojeISO(); if(c._data && c._data<h && !c._fin) cls.push('late');
   return `<div class="${cls.join(' ')}" ${drag} data-id="${c.id}" style="border-left-color:${c._fin?'':COR[c._mat]}" onclick="abrirCarga('${c.id}',event)">
     <div class="c">${esc(c._cliente)}</div>
-    <div class="p">${esc(c._produto)} · ${esc(c.pedido)}</div>
+    <div class="p">${esc(c._produto)} · ${esc(c.pedido)}${c.representante?`<br>👤 ${esc(c.representante)}`:''}</div>
     <div class="pc-qrow"><div class="q">${qtdTxt(c)}</div>${fitTag(fit)}</div>
     ${opts.semTags?'':tagsHtml(c)}
     ${opts.botao&&_podeEditar&&!c._fin?`<div class="pc-cb"><button onclick="event.stopPropagation();marcarCarregado('${c.id}')">✓ Carregado</button></div>`:''}
@@ -495,9 +534,9 @@ function renderLateral(lista){
       <div class="pc-help">Data passou e não foi carregada. ${_podeEditar?'Arraste para um dia do calendário.':''}</div>
       <div class="pc-sb" id="sb-atr">${at.length?grupoLista(at):'<div class="pc-help">Nenhuma 👍</div>'}</div></div>
     <div class="card"><div class="pc-sh"><b>Sem data</b><span class="pc-pill">${sd.length}</span></div>
-      <div class="pc-help">No Salescode sem data programada.${_podeEditar?' Arraste para um dia. Soltar aqui tira a data que você deu.':''}</div>
+      <div class="pc-help">Pedidos sem data de entrega no Salescode.${_podeEditar?' Arraste para um dia. Soltar aqui tira a data que você deu.':''}</div>
       <div class="pc-sb" id="sb-sem" data-dia="">${sd.length?grupoLista(sd):'<div class="pc-help">Nenhuma</div>'}</div></div>
-    <div class="card"><div class="pc-help"><b>Como funciona:</b> o pedido é a chave (ex.: A01MRV) — se estiver na planilha e no Salescode aparece uma vez só. A data vem da planilha; sem planilha, do Salescode. Se você arrastar, vale a sua data. <b>Consigo / não consigo</b> enche as horas de cada linha do planejamento ativo na ordem das cargas do dia. Pedido <span style="color:#7C3AED;font-weight:700">tracejado roxo</span> está no financeiro: aparece, mas não conta capacidade nem atraso.${_podeEditar?'':' <br><b>Você só pode ver</b> — arrastar e marcar carregado é de quem tem permissão de editar.'}</div></div>`;
+    <div class="card"><div class="pc-help"><b>Como funciona:</b> cada pedido do Salescode aparece uma vez só (ex.: A01MRV). A data do Salescode é a do representante; quando você arrasta, a <b>data da fábrica</b> fica por cima e é a que vale aqui e no relatório. <b>Consigo / não consigo</b> enche as horas de cada linha do planejamento ativo na ordem das cargas do dia. Pedido <span style="color:#7C3AED;font-weight:700">tracejado roxo</span> está no financeiro: aparece, mas não conta capacidade nem atraso.${_podeEditar?'':' <br><b>Você só pode ver</b> — arrastar e marcar carregado é de quem tem permissão de editar.'}</div></div>`;
   ligarDrag();
 }
 
@@ -523,7 +562,7 @@ async function moverCarga(id, dia, ev, zona){
     const novos=cards.map(x=>x.dataset.id); novos.splice(ordem,0,id);
     await Promise.all(novos.map((cid,i)=>{ const cc=_cargas.find(x=>x.id===cid); if(cc&&cc.ordem_dia!==i&&cid!==id){ cc.ordem_dia=i; return _supabase.from('programacao_cargas').update({ordem_dia:i}).eq('id',cid); } return null; }).filter(Boolean));
   }
-  const original=c.data_planilha||c.data_salescode||null;
+  const original=c.data_salescode||c.data_planilha||null;
   const nova=(dia && dia===original)?null:dia;   // voltou para a data original = limpa a manual
   const {error}=await db(_supabase.from('programacao_cargas').update({data_manual:nova, ordem_dia:ordem, updated_at:new Date().toISOString()}).eq('id',id),'mover carga');
   if(error) return;
@@ -565,24 +604,29 @@ function abrirDia(iso){
 function abrirCarga(id, ev){
   if(ev && ev.defaultPrevented) return;
   const c=_cargas.find(x=>x.id===id); if(!c) return;
-  const p=c.planilha||{};
+  const p=c.planilha||{}; const dt=c.detalhes||{};
   const linha=(r,v)=>v?`<div class="campo" style="background:#f8fafc;border-left:3px solid #cbd5e1;padding:6px 10px;border-radius:0 5px 5px 0;margin-bottom:6px"><div style="font-size:9px;color:#94a3b8;text-transform:uppercase;font-weight:700">${r}</div><div style="font-size:13px;font-weight:600">${v}</div></div>`:'';
   document.getElementById('m-carga-tit').textContent=`${c.pedido} · ${c._cliente}`;
   document.getElementById('m-carga-body').innerHTML=`
-    ${linha('Data que vale',fmtDL(c._data)+(c.data_manual?' (movida por você)':''))}
-    ${linha('Data na planilha',c.data_planilha?fmtDL(c.data_planilha):'')}
-    ${linha('Data no Salescode',c.data_salescode?fmtDL(c.data_salescode):'')}
+    ${linha('Data da fábrica',c.data_manual?fmtDL(c.data_manual):'')}
+    ${linha('Data no Salescode (representante)',c._dataSC?fmtDL(c._dataSC):'sem data')}
+    ${linha('Representante',esc(c.representante||''))}
+    ${linha('Comprador',esc(c.comprador||''))}
     ${linha('Itens',c._itens.map(i=>`${esc(i.produto)} — <b>${i.un==='t'?n1(i.q):n0(i.q)} ${esc(i.un)}</b>${i.fam?'':' <span class="pc-t">sem linha</span>'}`).join('<br>'))}
     ${linha('Cidade / frete',[c._cidade,c.frete].filter(Boolean).join(' · '))}
     ${linha('Situação no Salescode',esc(c.status_salescode||''))}
-    ${linha('Transportadora',esc(p.transp||''))}
-    ${linha('Observações',esc(p.obs||''))}
+    ${linha('Transportadora',esc(dt.transportadora||p.transp||''))}
+    ${linha('Placa / motorista',esc(dt.placa_motorista||''))}
+    ${linha('Observações',esc(dt.obs||p.obs||''))}
+    ${linha('Pagamento',esc(dt.pagamento||''))}
+    ${linha('Condições',Object.entries(dt.condicoes||{}).map(([k,v])=>esc(k)+': <b>'+esc(v)+'</b>').join(' · '))}
+    ${linha('Entrega',esc(dt.entrega_cidade||''))}
     ${linha('Preço (t)',p.preco?('R$ '+Number(p.preco).toLocaleString('pt-BR',{minimumFractionDigits:2})):'')}
     ${c.carregado?linha('Carregado',`${c.carregado_em?new Date(c.carregado_em).toLocaleString('pt-BR'):''} · ${esc(c.carregado_por||c.carregado_origem||'')}`):''}
     ${c.salescode_view?`<a class="btn btn-ghost btn-sm" target="_blank" href="https://salescode.com.br/ret/pedido/view/${encodeURIComponent(c.salescode_view)}">Abrir no Salescode ↗</a>`:''}
     ${_podeEditar?`<div class="modal-footer" style="flex-wrap:wrap">
       <label style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;margin-right:auto">Mudar para <input type="date" class="form-input" style="padding:6px 8px" value="${c._data||''}" onchange="closeModal('m-carga');moverCarga('${c.id}',this.value||null)"></label>
-      ${c.data_manual?`<button class="btn btn-secondary btn-sm" onclick="closeModal('m-carga');moverCarga('${c.id}',${c.data_planilha||c.data_salescode?`'${c.data_planilha||c.data_salescode}'`:'null'})">↩ Voltar à data original</button>`:''}
+      ${c.data_manual?`<button class="btn btn-secondary btn-sm" onclick="closeModal('m-carga');moverCarga('${c.id}',${c._dataSC?`'${c._dataSC}'`:'null'})">↩ Voltar à data do Salescode</button>`:''}
       ${c.carregado?`<button class="btn btn-secondary btn-sm" onclick="marcarCarregado('${c.id}',true)">↩ Desfazer carregado</button>`:(c._fin?'<span class="pc-t yel" style="align-self:center">No financeiro — não pode marcar carregado</span>':`<button class="btn btn-primary btn-sm" onclick="marcarCarregado('${c.id}')">✓ Carregado</button>`)}
     </div>`:''}`;
   document.getElementById('m-carga').classList.remove('hidden');
@@ -604,44 +648,71 @@ function abrirHistorico(){
   document.getElementById('m-hist').classList.remove('hidden');
 }
 
-/* ── IMPORTAR PLANILHA (.xlsx) — mesma regra do Apps Script ─ */
-async function importarXlsx(f){
-  if(!f) return; if(!guardAction(MOD,'edit')) return;
-  try{
-    await carregarScript('https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js');
-    const wb=XLSX.read(await f.arrayBuffer(),{type:'array',cellDates:true,cellStyles:true});
-    const nome=wb.SheetNames.find(n=>/CARREG/i.test(n))||wb.SheetNames[0];
-    const linhas=lerPlanilha(wb.Sheets[nome]);
-    if(linhas.length<3){ toast('Não achei as linhas da planilha (cabeçalho "Cod. Pedido").','danger'); return; }
-    const {data,error}=await db(_supabase.rpc('sync_planilha',{p_token:null,p_linhas:linhas}),'importar planilha');
-    if(error) return;
-    toast(`Planilha importada: ${data?.linhas||0} pedido(s)`);
-    addLog('IMPORTAR', MOD, null, `planilha ${f.name}: ${data?.linhas||0} pedidos`);
-    carregar();
-  }catch(e){ toast('Erro ao ler a planilha: '+e.message,'danger'); console.error(e); }
+/* ── RELATÓRIO POR REPRESENTANTE (PDF) ──────────────────── */
+function abrirRelatorio(){
+  const reps=[...new Set(_cargas.filter(c=>!c.carregado).map(c=>c._rep))].sort((a,b)=>a.localeCompare(b,'pt-BR'));
+  document.getElementById('rel-rep').innerHTML='<option value="*">Todos (uma página por representante)</option>'+reps.map(x=>`<option${x===_rep?' selected':''}>${esc(x)}</option>`).join('');
+  const h=hojeISO(); document.getElementById('rel-ini').value=h; document.getElementById('rel-fim').value=addDias(h,30);
+  document.getElementById('m-rel').classList.remove('hidden');
 }
-function lerPlanilha(ws){
-  const R=XLSX.utils.decode_range(ws['!ref']);
-  const val=(r,c)=>{ const cell=ws[XLSX.utils.encode_cell({r,c})]; return cell?cell.v:null; };
-  const cor=(r,c)=>{ const cell=ws[XLSX.utils.encode_cell({r,c})]; return (cell&&cell.s&&cell.s.fgColor&&cell.s.fgColor.rgb)||''; };
-  let hr=-1, col={};
-  for(let r=R.s.r;r<=Math.min(R.e.r,40)&&hr<0;r++) for(let c=R.s.c;c<=R.e.c;c++){ if(norm(val(r,c))==='COD. PEDIDO'){ hr=r; break; } }
-  if(hr<0) return [];
-  for(let c=R.s.c;c<=R.e.c;c++){ const h=norm(val(hr,c)); if(h) col[h]=c; }
-  const C=k=>col[Object.keys(col).find(h=>h.startsWith(k))];
-  const cD=C('DATA COLETA'), cP=C('COD. PEDIDO');
-  const iso=v=>{ if(v instanceof Date){ const d=new Date(v.getTime()-v.getTimezoneOffset()*6e4); return d.toISOString().slice(0,10);} const s=String(v||''); const m=s.match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/); if(m) return `${m[3].length===2?'20'+m[3]:m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`; return /^\d{4}-\d{2}-\d{2}/.test(s)?s.slice(0,10):null; };
-  const lim=addDias(hojeISO(),-60), out=[];
-  for(let r=hr+1;r<=R.e.r;r++){
-    const ped=String(val(r,cP)||'').trim(); const d=iso(val(r,cD));
-    if(!ped||!d||d<lim) continue;
-    const nota=String(val(r,C('NOTA'))||'').trim();
-    const verde=/C5E0B3|B6D7A8|D9EAD3|93C47D|A9D08E|C6EFCE/i.test(cor(r,cD));
-    out.push({ pedido:ped, data:d, cliente:val(r,C('CLIENTE')), cnpj:val(r,C('CNPJ')), peso_t:Number(val(r,C('PESO')))||null,
-      nota: /^\d+(\.0)?$/.test(nota)?nota.replace('.0',''):null, preco:Number(val(r,C('PRECO')))||null, material:val(r,C('MATERIAL')),
-      embalagem:val(r,C('EMBALAGEM')), transp:val(r,C('TRANSP')), obs:val(r,C('OBSERVA')), carregado: verde || /^\d+(\.0)?$/.test(nota) });
-  }
-  return out;
+async function gerarRelatorio(){
+  const rep=document.getElementById('rel-rep').value, ini=document.getElementById('rel-ini').value, fim=document.getElementById('rel-fim').value;
+  const atr=document.getElementById('rel-atr').checked, sem=document.getElementById('rel-sem').checked, fin=document.getElementById('rel-fin').checked, h=hojeISO();
+  const sel=_cargas.filter(c=>!c.carregado && (rep==='*'||c._rep===rep) && (fin||!c._fin) && (
+    (c._data && c._data>=ini && c._data<=fim) || (atr && c._data && c._data<h) || (sem && !c._data)));
+  if(!sel.length){ toast('Nenhum pedido para esse filtro.','warning'); return; }
+  const w=window.open('','_blank'); if(!w){ toast('Permita pop-ups para gerar o PDF.','warning'); return; }
+  const emp=await carregarEmpresaPDF();
+  const grupos={}; sel.forEach(c=>(grupos[c._rep]=grupos[c._rep]||[]).push(c));
+  const sit=c=>{ if(c._fin) return `<span class="s fin">Financeiro · ${esc(c.status_salescode||'')}</span>`; if(!c._data) return '<span class="s sd">Sem data</span>'; if(c._data<h) return '<span class="s at">Atrasada</span>'; if(c._data===h) return '<span class="s hj">Hoje</span>'; return '<span class="s ok">Programada</span>'; };
+  const paginas=Object.keys(grupos).sort((a,b)=>a.localeCompare(b,'pt-BR')).map(nome=>{
+    const l=grupos[nome].sort((a,b)=>String(a._data||'9999').localeCompare(String(b._data||'9999')));
+    const t=l.reduce((s,c)=>s+c._t,0);
+    return `<section>${cabecalhoEmpresaHTML(emp)}
+      <h2>Programação de entregas</h2>
+      <div class="meta"><b>Representante:</b> ${esc(nome)} &nbsp;·&nbsp; <b>Período:</b> ${fmtD(ini)} a ${fmtD(fim)}${atr?' + atrasadas':''} &nbsp;·&nbsp; ${l.length} pedido(s) · ${n1(t)} t &nbsp;·&nbsp; Emitido em ${new Date().toLocaleString('pt-BR')}</div>
+      <table><thead><tr><th>Pedido</th><th>Cliente</th><th>Cidade</th><th>Produto</th><th style="text-align:right">Qtd</th><th>Data Salescode</th><th>Data fábrica</th><th>Situação</th><th>Transportadora</th></tr></thead><tbody>
+      ${l.map(c=>{ const mud=c.data_manual && c.data_manual!==c._dataSC; return `<tr><td><b>${esc(c.pedido)}</b></td><td>${esc(c._cliente)}</td><td>${esc((c.detalhes||{}).entrega_cidade||c._cidade||'')}</td><td>${esc(c._produto)}</td><td style="text-align:right;white-space:nowrap">${qtdTxt(c).replace(/<[^>]+>/g,'')}</td><td>${c._dataSC?fmtDL(c._dataSC):'—'}</td><td class="${mud?'mud':''}">${c._data?fmtDL(c._data):'—'}${mud?' ⚠':''}</td><td>${sit(c)}</td><td>${esc(((c.detalhes||{}).transportadora||(c.planilha||{}).transp||'').replace(/^[\d./-]+\s*—\s*/,''))}</td></tr>`; }).join('')}
+      </tbody></table>
+      <p class="nota">⚠ = a data da fábrica é diferente da data programada no Salescode. Datas sujeitas à capacidade de produção e à liberação do financeiro.</p></section>`;
+  }).join('');
+  w.document.write(`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>Programação de entregas${rep!=='*'?' — '+esc(rep):''}</title><style>
+    body{font-family:Arial,Helvetica,sans-serif;color:#1e293b;margin:0;padding:20px}
+    section{page-break-after:always}section:last-child{page-break-after:auto}
+    h2{color:#042D4D;margin:0 0 4px;font-size:16px;text-transform:uppercase}
+    .meta{font-size:11px;color:#475569;margin:0 0 12px}
+    table{width:100%;border-collapse:collapse}th{background:#042D4D;color:#C9FF64;padding:7px 8px;text-align:left;font-size:9.5px;text-transform:uppercase;letter-spacing:.3px}
+    td{padding:6px 8px;border-bottom:1px solid #e2e8f0;font-size:10.5px;vertical-align:top}tr:nth-child(even) td{background:#f8fafc}
+    td.mud{font-weight:700;color:#9a3412}.s{font-weight:700;font-size:9.5px;padding:2px 6px;border-radius:4px;white-space:nowrap}
+    .ok{background:#dcfce7;color:#166534}.hj{background:#fef3c7;color:#92400e}.at{background:#fee2e2;color:#b91c1c}.sd{background:#e2e8f0;color:#334155}.fin{background:#ede9fe;color:#5b21b6}
+    .nota{font-size:9.5px;color:#64748b;margin-top:10px}
+    @page{size:A4 landscape;margin:10mm}@media print{body{padding:0}}*{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  </style></head><body>${paginas}<script>window.onload=()=>setTimeout(()=>window.print(),300);<\/script></body></html>`);
+  w.document.close();
+  addLog('RELATORIO', MOD, null, `representante ${rep==='*'?'todos':rep}: ${sel.length} pedidos`);
+  closeModal('m-rel');
+}
+
+/* ── CARGA MANUAL ───────────────────────────────────────── */
+function abrirNova(){
+  if(!guardAction(MOD,'edit')) return;
+  ['nv-ped','nv-cli','nv-rep','nv-qtd','nv-obs'].forEach(i=>document.getElementById(i).value='');
+  document.getElementById('nv-data').value=hojeISO();
+  document.getElementById('dl-rep').innerHTML=[...new Set(_cargas.map(c=>c.representante).filter(Boolean))].map(x=>`<option value="${esc(x)}">`).join('');
+  document.getElementById('m-nova').classList.remove('hidden');
+}
+async function salvarNova(){
+  if(!guardAction(MOD,'edit')) return;
+  const v=i=>document.getElementById(i).value.trim();
+  const ped=v('nv-ped').toUpperCase(), data=v('nv-data'), cli=v('nv-cli'), qtd=Number(v('nv-qtd'));
+  if(!ped||!data||!cli||!(qtd>0)){ toast('Preencha pedido, data, cliente e quantidade.','warning'); return; }
+  if(_cargas.some(c=>c.pedido===ped)){ toast(`O pedido ${ped} já está na programação.`,'warning'); return; }
+  const reg={ pedido:ped, data_manual:data, cliente_salescode:cli, representante:v('nv-rep')||null,
+    itens:[{produto:v('nv-pro'), qtd, unidade:v('nv-un')}], detalhes:{obs:v('nv-obs')||null, _manual:true} };
+  const {error}=await db(_supabase.from('programacao_cargas').insert(reg),'salvar carga manual');
+  if(error) return;
+  addLog('CRIAR', MOD, ped, `carga manual ${ped} ${cli}`);
+  toast(`Carga ${ped} incluída`); closeModal('m-nova'); carregar();
 }
 
 /* ── NAVEGAÇÃO ──────────────────────────────────────────── */
@@ -657,7 +728,7 @@ async function init(){
     if(typeof initSidebar==='function') initSidebar('programacao-cargas.html');
   });
   _podeEditar = checkPerm(MOD,'edit');
-  if(!_podeEditar) document.getElementById('btn-imp').style.display='none';
+  if(!_podeEditar) document.getElementById('btn-nova').style.display='none';
   try{ const v=localStorage.getItem('pc_vis'); if(v==='mes'||v==='semana'){ _vis=v; document.querySelectorAll('#seg-vis button').forEach(x=>x.classList.toggle('on',x.dataset.v===v)); } }catch(_){}
   await carregar();
   setInterval(()=>{ if(!_drag && document.querySelectorAll('.modal-overlay:not(.hidden)').length===0) carregar(); }, 5*60*1000);

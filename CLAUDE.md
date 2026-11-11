@@ -630,3 +630,19 @@ fábrica específica. Não generalizar.
   Planilha: `docs/integracoes/planilha-carregamentos.gs` (Apps Script, a cada 10 min, sem PC). Salescode não tem API: lê os cartões da
   tela (`docs/integracoes/salescode-coletor.js`) — roda no navegador do PC do dono (tarefa agendada) ou como favorito.
   Botão "Importar planilha (.xlsx)" na tela faz o mesmo que o Apps Script.
+
+### Programação de Cargas v2 — só Salescode + representante (migração 119/120)
+- Planilha saiu do fluxo (dono decidiu): tela sem "Importar planilha"; os pedidos que vieram dela ficam como "fora do Salescode".
+  Data que vale: `data_manual` (data da FÁBRICA, arrastada) > `data_salescode` (data do representante) > `data_planilha` (legado).
+- 119: pedido normalizado no servidor (`^[A-Za-z0-9]+`, maiúsculo) — o Salescode mostra "A01MRV" e "A01MRV prog." em lanes
+  diferentes e isso duplicava. 120 (inclui a 119): colunas `representante`, `comprador`, `detalhes` jsonb, `detalhes_em`;
+  `sync_salescode` devolve `precisa_detalhe` (novos, status mudou ou >20 h) e `sync_salescode_detalhes(p_token,p_det)` grava.
+- Extensão v1.1 (`docs/integracoes/salescode-extensao`): depois da lista, abre `/ret/pedido/view/<id>` (4 em paralelo, mesma
+  sessão do Chrome) e lê pelos RÓTULOS (TreeWalker de nós de texto: REPRESENTANTE, COMPRADOR, ENTREGA PROGRAMADA, OBSERVAÇÕES E
+  INFORMAÇÕES, TRANSPORTADORA, PLACA / MOTORISTA, CPF / CNPJ, NOME FANTASIA, CIDADE/UF da ENTREGA, condições, pagamento DDL).
+  Guarda `detalhes._bruto` (até 400 textos da página) para ajustar a leitura sem precisar do PC. Parser testado só com página
+  simulada a partir do PDF do pedido — conferir `_bruto` na 1ª leitura real.
+- Tela: filtro por representante, 👤 no cartão, tag "Salescode dd/mm → Fábrica dd/mm", modal da carga com os detalhes,
+  "＋ Carga manual" (pedido fora do Salescode; junta sozinho se o código aparecer depois) e
+  "📄 Relatório por representante" (A4 paisagem, cabeçalho da empresa, uma página por representante: pedido, cliente, cidade,
+  produto, qtd, data Salescode, data fábrica (⚠ quando diferente), situação, transportadora; período + atrasadas/sem data/financeiro).
