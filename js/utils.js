@@ -62,6 +62,7 @@ const MODULO_MAP = [
   { id:'portaria',       page:'portaria.html',        label:'Portaria',             group:'logistica',    icon:'🚪' },
   { id:'expedicao',      page:'expedicao.html',       label:'Expedição',            group:'logistica',    icon:'🚛' },
   { id:'carregamento',   page:'carregamento.html',    label:'Carregamento',         group:'logistica',    icon:'📦' },
+  { id:'programacao_cargas', page:'programacao-cargas.html', label:'Programação de Cargas', group:'logistica', icon:'🗓️' },
   // SEGURANÇA
   { id:'epi',            page:'epi.html',             label:'EPI',                  group:'seguranca',    icon:'🦺' },
   // RH
