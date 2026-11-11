@@ -613,3 +613,20 @@ fábrica específica. Não generalizar.
 - **custo-precificacao**: CP-0012 "Novembro/2026 — Escala 5x2 (42h)" = cópia do CP-0011 (out) com os turnos trocados
   (Manhã→M 5x2, Noite→T 5x2, Madrugada→N 5x2), calendário de nov (feriados 2, 15, 20; domingos folga) e 2 produtos novos no mapa.
   Equipes iguais às de outubro (as 13 contratações do plano ainda não existem no cadastro).
+
+## Programação de Cargas (sessão 2026-11-11, migração 118)
+- Tela `programacao-cargas.html` (módulo `programacao_cargas`, grupo Logística). Calendário Semana/Mês + lateral Atrasadas/Sem data.
+- Tabela `programacao_cargas` = 1 linha por **pedido** (chave única, ex.: A01MRV): planilha CARREGAMENTOS + Salescode juntos, nunca duplica.
+  Data que vale: `data_manual` (arrastada na tela) > `data_planilha` > `data_salescode`. Soltar na data original limpa a manual.
+- Capacidade do dia: planejamento ATIVO do mês em `planejamentos_custo` (mais recente) × `turnos.calendario` × eficiência da seção
+  (mesma conta do `calcHorasSecao`); folga/feriado = 0. Produto → família pelo nome (Big Bag→Bag, 25 kg→Linha 25kg, 20 kg→Linha 20kg,
+  concentrado/Liga/Sikal/Geoplus 10 kg→Concentrado 10kg, impermeabilizante, granel). Linha Original/revenda = "sem linha" (não conta).
+  As cargas enchem as horas das linhas na ordem do dia; Linha 2 divide horas entre Bag e 25 kg. Financeiro (aval/aprovação/em aberto)
+  aparece tracejado roxo e não conta capacidade nem atraso.
+- Carregado: botão na tela (só `programacao_cargas:edit`), planilha (célula da Data Coleta verde ou Nota preenchida) ou pedido que
+  SAIU da lista do Salescode (= faturado). Mexeu na mão → `carregado_manual=true` e os syncs não sobrescrevem.
+- Sync: RPCs `sync_planilha(p_token,p_linhas)` e `sync_salescode(p_token,p_itens)` (SECURITY DEFINER; token em `integracao_tokens`
+  sem policy; usuário logado não precisa de token). Lista curta (<5 / <3) não altera nada (proteção contra página que não carregou).
+  Planilha: `docs/integracoes/planilha-carregamentos.gs` (Apps Script, a cada 10 min, sem PC). Salescode não tem API: lê os cartões da
+  tela (`docs/integracoes/salescode-coletor.js`) — roda no navegador do PC do dono (tarefa agendada) ou como favorito.
+  Botão "Importar planilha (.xlsx)" na tela faz o mesmo que o Apps Script.
