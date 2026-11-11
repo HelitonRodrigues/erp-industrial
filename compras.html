@@ -676,7 +676,7 @@ function renderFila(cols){
         <td>${itensCel(c.itens)}</td><td>${ccCell(c.itens,s)}</td><td>${E(nomeCurto(c.comprador))}</td>
         <td>${ag?`<b style="color:var(--primary)">${brl(c.total)}</b><span class="ref">${c.tipo==='direta'?E((MOTIVOS[c.motivo_direto]||'').replace(/^\S+\s/,'')):props.length+' fornecedor'+(props.length===1?'':'es')}</span>`:props.length?`<b>${ok} de ${props.length}</b><span class="ref">com preço</span>`:'<span class="ref">sem fornecedor ainda</span>'}</td>
         <td><span class="dias ${horasDesde(ag?c.enviada_em:c.created_at)>=72?'o':''}">${tempo(horasDesde(ag?c.enviada_em:c.created_at))}</span></td>
-        <td class="ac" onclick="event.stopPropagation()">${btnSol(c.solicitacao_id)} ${ag?(podeAprovar()?`<button class="bx ok" onclick="abrirAprovar('${c.id}')">✓ Decidir</button>`:`<button class="bx" onclick="abrirMapa('${c.id}')">👁️ Ver mapa</button>`):orf?`<button class="bx red" onclick="abrirCot('${c.id}')">Encerrar</button>`:c.tipo==='direta'?`<button class="bx em" onclick="abrirDireto('${c.solicitacao_id}','${c.id}')">⚡ Continuar</button>`:`<button class="bx pr" onclick="abrirMapa('${c.id}')">📊 Abrir mapa</button>`}</td>${goCel}</tr>`;}).join('')||'<tr><td colspan="9" class="vazio">Nenhuma compra nesta etapa.</td></tr>'}</tbody></table>`;
+        <td class="ac" onclick="event.stopPropagation()">${btnSol(c.solicitacao_id)} ${ag?(podeAprovar()?`<button class="bx ok" onclick="abrirAprovar('${c.id}')">✓ Decidir</button>`:`<button class="bx" onclick="abrirMapa('${c.id}')">👁️ Ver mapa</button>`):orf?`<button class="bx red" onclick="abrirCot('${c.id}')">Encerrar</button>`:(podeComprar()?`<button class="bx org ic" title="Voltar para A comprar (desfaz a cotação)" onclick="desistirCotacao('${c.id}')">↩</button> `:'')+(c.tipo==='direta'?`<button class="bx em" onclick="abrirDireto('${c.solicitacao_id}','${c.id}')">⚡ Continuar</button>`:`<button class="bx pr" onclick="abrirMapa('${c.id}')">📊 Abrir mapa</button>`)}</td>${goCel}</tr>`;}).join('')||'<tr><td colspan="9" class="vazio">Nenhuma compra nesta etapa.</td></tr>'}</tbody></table>`;
   }else{
     el.innerHTML=tabelaPedidos(L,_etapa==='entregue');
   }
@@ -791,7 +791,7 @@ function abrirCot(id){
   pagina(phead({crumb:[crumbFila(etapa),...(s?[['Solicitação #'+pad4(s.numero),`abrirSol('${s.id}')`]]:[]),[c.tipo==='direta'?'Compra direta':'Cotação #'+pad4(c.numero)]],
       titulo:c.tipo==='direta'?'⚡ Compra direta':'Cotação #'+pad4(c.numero),tags:' '+(orf?'<span class="pri p-urg">⚠ ENCERRAR</span>':c.status==='devolvida'?'<span class="pri p-alta">DEVOLVIDA</span>':ag?'<span class="pri p-azul">COM O GERENTE</span>':'<span class="pri p-azul">COTANDO</span>'),
       sub:`${s?'Solicitação #'+pad4(s.numero)+' · '+E(s.solicitante||'')+' · ':''}comprador ${E(c.comprador||'—')} · aberta em ${dBR(c.data||c.created_at)}`,
-      acts:`${s?`<button class="bx" onclick="verSolicitacao('${s.id}')">📄 Ver solicitação</button>`:''}<button class="bx" onclick="imprimirMapa('${c.id}')">🖨️ Mapa (PDF)</button>${pc&&(!ag||orf)?`<button class="bx red" onclick="desistirCotacao('${c.id}')">✕ Encerrar</button>`:''}${btn}`})+
+      acts:`${s?`<button class="bx" onclick="verSolicitacao('${s.id}')">📄 Ver solicitação</button>`:''}<button class="bx" onclick="imprimirMapa('${c.id}')">🖨️ Mapa (PDF)</button>${pc&&orf?`<button class="bx red" onclick="desistirCotacao('${c.id}')">✕ Encerrar</button>`:pc&&!ag?`<button class="bx org" title="Desfazer a cotação: a solicitação volta para A comprar" onclick="desistirCotacao('${c.id}')">↩ Voltar para A comprar</button>`:''}${btn}`})+
     stepper(E6)+
     `<div class="g2"><div>
       ${orf?`<div class="av av-r">⚠ ${E(orf)} Esta cotação não vale mais — encerre.</div>`:''}
@@ -958,11 +958,11 @@ async function iniciarCotacao(solId){
 }
 async function desistirCotacao(id){
   const c=S.cots.find(x=>x.id===id);if(!c)return;
-  confirmar(`Desistir da ${c.tipo==='direta'?'compra direta':'cotação #'+pad4(c.numero)}? A solicitação volta para <b>A comprar</b>.`,async()=>{
+  confirmar(`Voltar a solicitação${solDe(c.solicitacao_id)?' #'+pad4(solDe(c.solicitacao_id).numero):''} para <b>A comprar</b>?<br><br>A ${c.tipo==='direta'?'compra direta':'cotação #'+pad4(c.numero)} é desfeita${(c.propostas||[]).length?' (os preços lançados ficam guardados no histórico)':''}. Depois é só clicar em Cotar ou Comprar direto de novo.`,async()=>{
     const r=await db(_supabase.from('compras_cotacoes').update({status:'cancelada',atualizado_em:new Date().toISOString(),historico:[...(c.historico||[]),{acao:'cancelada',por:quem(),em:new Date().toISOString()}]}).eq('id',id),'cancelar cotação'); if(r.error)return;
     c.status='cancelada'; const s=solDe(c.solicitacao_id);
     if(s&&s.status==='em_cotacao'){await db(_supabase.from('compras_solicitacoes').update({status:'aprovada',atualizado_em:new Date().toISOString()}).eq('id',s.id),'voltar solicitação');s.status='aprovada';}
-    mostrarLista(); toast('Cotação cancelada.');
+    _mpBase=null; _etapa='comprar'; mostrarLista(); toast('Voltou para A comprar.');
   });
 }
 let _mp=null;   // cotação aberta no mapa (cópia de trabalho)
@@ -1054,7 +1054,7 @@ function renderMapa(){
   pagina(phead({crumb:[crumbFila(['aberta','devolvida'].includes(c.status)?'cotando':'gerente'),...(s?[['Solicitação #'+pad4(s.numero),`sairMapaPara('${s.id}')`]]:[]),['Cotação #'+pad4(c.numero)]],volta:'sairMapa()',
       titulo:'Cotação #'+pad4(c.numero),tags:` <span class="pri ${ST[1]}">${ST[0]}</span>`,
       sub:`${s?'Solicitação #'+pad4(s.numero)+' · '+E(s.solicitante||'')+' · ':''}${c.itens.length} ${c.itens.length===1?'item':'itens'} · comprador ${E(c.comprador||'')} · aberta em ${dBR(c.data||c.created_at)}`,
-      acts:`${s?`<button class="bx" onclick="verSolicitacao('${s.id}')">📄 Solicitação</button>`:''}${ed?`<button class="bx" onclick="pedidoDeCotacao()">📤 Pedir cotação</button><button class="bx" onclick="addFornecedorMapa()">＋ Fornecedores</button>`:''}<button class="bx" onclick="imprimirMapa()">🖨️ Mapa (PDF)</button>${ed?`<button class="bx" onclick="salvarMapa()">💾 Salvar</button>`:''}`})+
+      acts:`${s?`<button class="bx" onclick="verSolicitacao('${s.id}')">📄 Solicitação</button>`:''}${ed?`<button class="bx" onclick="pedidoDeCotacao()">📤 Pedir cotação</button><button class="bx" onclick="addFornecedorMapa()">＋ Fornecedores</button><button class="bx org" title="Desfazer a cotação: a solicitação volta para A comprar" onclick="desistirCotacao('${c.id}')">↩ A comprar</button>`:''}<button class="bx" onclick="imprimirMapa()">🖨️ Mapa (PDF)</button>${ed?`<button class="bx" onclick="salvarMapa()">💾 Salvar</button>`:''}`})+
     `${c.status==='devolvida'&&c.decisao_obs?`<div class="av av-w">↩ <b>O gerente devolveu:</b> ${E(c.decisao_obs)}</div>`:''}
     <div class="g2"><div>
       ${_fp&&_fp.modo==='multi'?fpHTML():''}${c.propostas.length?cartoesForn(c,ed)+legenda()+`<div class="mpx">${tabelaMapa(c,ed)}</div>`:`<div class="cx" style="text-align:center;padding:36px;color:var(--c3);">Adicione os fornecedores que vão cotar (botão <b>＋ Fornecedor</b>).<br>Depois lance os preços ou use <b>📎 Ler proposta</b> com o PDF, foto, planilha ou texto que ele mandou.
@@ -1298,7 +1298,7 @@ function renderDireto(){
   const d=_dir, s=d.s, f=S.forn.find(x=>x.id===d.fid), t=totalDir(), lim=cfg('limite'), sai=d.motivo==='urgencia'&&t>0&&t<=lim, faltaCC=semCcNat(d.itens);
   const lin=d.itens.filter(i=>num(d.precos[i.k])>0).map(i=>({cc:i.centro_custo||'',nat:i.natureza||'',v:num(d.precos[i.k])*num(i.qtd)}));
   pagina(phead({crumb:[crumbFila(d.c?'cotando':'comprar'),['Solicitação #'+pad4(s.numero),`abrirSol('${s.id}')`],['Compra direta']],volta:d.c?`abrirCot('${d.c.id}')`:`abrirSol('${s.id}')`,
-      titulo:'⚡ Comprar direto, sem cotação',tags:' '+priTag(s),sub:`Solicitação #${pad4(s.numero)} · ${E(s.solicitante||'')} · ${d.itens.length} ${d.itens.length===1?'item':'itens'}`})+
+      titulo:'⚡ Comprar direto, sem cotação',tags:' '+priTag(s),acts:d.c?`<button class="bx org" title="Desfazer: a solicitação volta para A comprar" onclick="desistirCotacao('${d.c.id}')">↩ Voltar para A comprar</button>`:'',sub:`Solicitação #${pad4(s.numero)} · ${E(s.solicitante||'')} · ${d.itens.length} ${d.itens.length===1?'item':'itens'}`})+
     `<div class="g2"><div>
       <div class="cx"><h3>Por que sem cotação?</h3><div class="mot">${Object.entries(MOTIVOS).map(([k,v])=>`<button class="${d.motivo===k?'on':''}" onclick="_dir.motivo='${k}';renderDireto()">${v}</button>`).join('')}</div></div>
       ${f&&!_fp?`<div class="cx"><h3>Fornecedor</h3><div class="fsel"><div style="flex:1;min-width:0;"><b>${E(f.nome_fantasia||f.razao_social)}</b><span class="ref">${E([f.categoria,f.fone,f.prazo_entrega?'entrega em '+f.prazo_entrega+' dias':''].filter(Boolean).join(' · '))}</span></div><button class="bx" onclick="_fp={modo:'um',sel:new Set(),q:''};renderDireto();">↺ Trocar fornecedor</button></div></div>`
