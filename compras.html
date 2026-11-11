@@ -57,6 +57,13 @@
 .st .b{width:22px;height:22px;border-radius:50%;margin:0 auto 4px;background:#e2e8f0;color:#fff;font-size:11px;line-height:22px;font-weight:900;position:relative;z-index:1;}
 .st.ok .b{background:var(--grn);} .st.ok{color:#166534;} .st.at .b{background:var(--primary);box-shadow:0 0 0 4px #c7d7e6;} .st.at{color:var(--primary);}
 .st:after{content:'';position:absolute;top:11px;left:calc(50% + 12px);right:calc(-50% + 12px);height:2px;background:#e2e8f0;} .st:last-child:after{display:none;} .st.ok:after{background:var(--grn);}
+.st.sk .b{background:#cbd5e1;} .st.sk{color:var(--c4);} .st.no .b{background:#f59e0b;} .st.no{color:var(--org);}
+#apv-corpo{max-height:64vh;overflow:auto;} #apv-corpo .mp-x{overflow-x:auto;}
+table.mp th.f{white-space:normal;} #apv-corpo table.mp th.f{min-width:150px;font-size:12px;}
+.cb{display:flex;flex-direction:column;gap:7px;} .cb-l{display:flex;gap:8px;font-size:12.5px;line-height:1.35;} .cb-l b{color:var(--primary);}
+.cb-i{width:18px;height:18px;border-radius:50%;flex:0 0 18px;text-align:center;font-size:10px;line-height:18px;font-weight:900;background:#e2e8f0;color:#94a3b8;}
+.cb-l.ok .cb-i{background:var(--grn);color:#fff;} .cb-l.at .cb-i{background:var(--primary);color:var(--accent);} .cb-l.no .cb-i{background:#f59e0b;color:#fff;} .cb-l.skip .cb-i{background:#cbd5e1;color:#fff;}
+.cb-l.pend b,.cb-l.skip b{color:var(--c4);} .cb-q{color:var(--c2);font-weight:600;} .cb-o{font-size:11.5px;color:var(--c3);}
 .dw-b{padding:10px 18px;flex:1;overflow:auto;}
 .box{border:1px solid var(--cl);border-radius:10px;padding:9px 11px;margin-bottom:9px;font-size:12.5px;}
 .box h4{margin:0 0 6px;font-size:10.5px;color:var(--c3);text-transform:uppercase;letter-spacing:.3px;}
@@ -292,13 +299,35 @@ async function carregar(){
   // preços pagos por item, do mais recente para o mais antigo (a referência ignora a própria compra)
   S.precos={};(r[8].data||[]).forEach(p=>(p.itens||[]).forEach(i=>{const pu=num(i.preco_unit);if(!(pu>0))return;const reg={preco:pu,fornecedor:p.fornecedor,data:p.data,cot:p.cotacao_id||null};
     [i.insumo_id,'n:'+N(i.nome)].filter(Boolean).forEach(k=>(S.precos[k]=S.precos[k]||[]).push(reg));}));
+  // solicitações já atendidas/canceladas que ainda têm pedido ou cotação na tela (para os carimbos) + recebimentos dos pedidos
+  const temSol=new Set(S.sols.map(x=>x.id));
+  const faltam=[...new Set([...S.peds.map(p=>p.solicitacao_id),...S.cots.map(c=>c.solicitacao_id)].filter(id=>id&&!temSol.has(id)))];
+  const pedIds=S.peds.map(p=>p.id);
+  const r2=await Promise.all([
+    faltam.length?db(_supabase.from('compras_solicitacoes').select(SOLC).in('id',faltam),'carregar solicitações dos pedidos'):{data:[]},
+    pedIds.length?db(_supabase.from('compras_recebimentos').select('id,pedido_id,numero,data,recebido_por,nota_fiscal,created_at').in('pedido_id',pedIds),'carregar recebimentos'):{data:[]},
+  ]);
+  S.solsX=r2[0].data||[]; S.recs=r2[1].data||[];
   return true;
 }
 const cfg=k=>({limite:num(S.cfg.compras_limite_emergencial)||5000,horas:num(S.cfg.compras_prazo_ratificacao_h)||24,meta:num(S.cfg.compras_meta_emergencial_pct)||30,alerta:num(S.cfg.compras_alerta_preco_pct)||10}[k]);
 const ultimo=(it,cotId)=>{const l=(it.insumo_id&&S.precos[it.insumo_id])||S.precos['n:'+N(it.nome)]||[];return l.find(x=>!cotId||x.cot!==cotId)||null;};
 const fNome=id=>{const f=S.forn.find(x=>x.id===id);return f?(f.nome_fantasia||f.razao_social||'—'):'';};
 const fornAtivos=()=>S.forn.filter(f=>!['bloqueado','inativo'].includes(f.status_homologacao));
-const solDe=id=>S.sols.find(s=>s.id===id)||null;
+const solDe=id=>S.sols.find(s=>s.id===id)||(S.solsX||[]).find(s=>s.id===id)||null;
+const SOL_ABERTA=['aprovada','aguardando_cotacao','em_cotacao'];
+// pedido que o almoxarifado lançou no recebimento (solicitacoes.html → "Receber" sem pedido): não passou pelo Compras
+const viaReceb=p=>!!p&&!p.cotacao_id&&(/^Gerado no recebimento/i.test(p.obs||'')||/no recebimento/i.test(((p.historico||[])[0]||{}).obs||''));
+const compradorDe=p=>viaReceb(p)?'':(p.comprador||'');
+const recsDe=id=>(S.recs||[]).filter(r=>r.pedido_id===id).sort((a,b)=>String(a.data||a.created_at).localeCompare(String(b.data||b.created_at)));
+const perguntou=p=>{if(!p||!p.emergencial||p.ratificado_em)return null;const h=(p.historico||[]).filter(x=>['questionado','resposta'].includes(x.acao));const u=h[h.length-1];return u&&u.acao==='questionado'?u:null;};
+// cotação que perdeu o sentido: a solicitação já foi recebida/cancelada por outro caminho
+function cotOrfa(c){if(!c||!NAO_FECHADA.includes(c.status))return null;const s=solDe(c.solicitacao_id);
+  const outro=S.peds.find(p=>p.solicitacao_id===c.solicitacao_id&&p.status!=='cancelado'&&p.cotacao_id!==c.id);
+  if(outro)return `A solicitação já tem o pedido #${pad4(outro.numero)}${viaReceb(outro)?' (o almoxarifado recebeu sem pedido)':''}.`;
+  if(s&&s.status==='cancelada')return 'A solicitação foi cancelada'+(s.cancelado_motivo?': '+s.cancelado_motivo:'')+'.';
+  if(s&&s.status==='atendida')return 'A solicitação já foi atendida.';
+  return null;}
 const cotDaSol=id=>S.cots.filter(c=>c.solicitacao_id===id&&NAO_FECHADA.includes(c.status)).sort((a,b)=>String(b.created_at).localeCompare(String(a.created_at)))[0]||null;
 const pedsDaSol=id=>S.peds.filter(p=>p.solicitacao_id===id&&p.status!=='cancelado');
 const ccDe=s=>{const it=(s.itens||[])[0]||{};return s.centro_custo||it.centro_custo||'';};
@@ -312,7 +341,7 @@ function linhasFila(){
   const cols={comprar:[],cotando:[],gerente:[],pedido:[],entregue:[]};
   const passa=(txt,comp,forns)=>(!fc||comp===fc)&&(!ff||(forns||[]).includes(ff))&&(!fb||N(txt).includes(fb));
   S.sols.forEach(s=>{
-    if(!['aprovada','aguardando_cotacao','em_cotacao'].includes(s.status))return;
+    if(!SOL_ABERTA.includes(s.status))return;
     if(cotDaSol(s.id)||pedsDaSol(s.id).length)return;
     const txt=['#'+pad4(s.numero),s.codigo,s.solicitante,ccDe(s),(s.itens||[]).map(i=>i.nome).join(' ')].join(' ');
     if(passa(txt,'',[]))cols.comprar.push({k:'sol',o:s});
@@ -325,8 +354,8 @@ function linhasFila(){
     else if(c.status==='aguardando_aprovacao')cols.gerente.push({k:'cot',o:c});
   });
   S.peds.forEach(p=>{
-    const txt=['#'+pad4(p.numero),p.fornecedor,p.comprador,(p.itens||[]).map(i=>i.nome).join(' ')].join(' ');
-    if(!passa(txt,p.comprador||'',[p.fornecedor_id]))return;
+    const txt=['#'+pad4(p.numero),p.fornecedor,compradorDe(p),viaReceb(p)?'almoxarifado recebimento':'',(p.itens||[]).map(i=>i.nome).join(' ')].join(' ');
+    if(!passa(txt,compradorDe(p),[p.fornecedor_id]))return;
     if(['emitido','aguardando_entrega','recebido_parcial'].includes(p.status))cols.pedido.push({k:'ped',o:p});
     else if(p.status==='recebido_total'&&noMes(p.atualizado_em||p.data))cols.entregue.push({k:'ped',o:p});
   });
@@ -347,12 +376,13 @@ function renderKpis(cols){
     `<button class="kpi" onclick="aba('fila')"><b>${cols.comprar.length}</b><span>A comprar</span></button>`+
     `<button class="kpi" onclick="${podeAprovar()?"aba('aprovacao')":"aba('fila')"}"><b>${cols.gerente.length+conf}</b><span>Aguardando gerente</span></button>`+
     `<button class="kpi ${atr?'al':''}" onclick="_pedFiltro='atrasados';aba('pedidos')"><b>${atr}</b><span>Pedidos atrasados</span></button>`+
+    `<button class="kpi" title="Pedidos do mês que o almoxarifado lançou direto no recebimento, sem cotação e sem aprovação de compra" onclick="_pedFiltro='semcompras';aba('pedidos')"><b>${S.peds.filter(p=>viaReceb(p)&&String(p.data||'')>=ini&&String(p.data||'')<fim).length}</b><span>📥 Sem Compras no mês</span></button>`+
     `<button class="kpi em" title="Compras emergenciais (⚡ máquina parada) sobre os pedidos do mês feitos pelo Compras — meta: até ${cfg('meta')}%"><b>${pct==null?'—':pct+'%'}</b><span>⚡ Emergenciais no mês</span></button>`;
   const b=document.getElementById('bd-aprov'); const n=cols.gerente.length+conf;
   b.style.display=n?'':'none'; b.textContent=n;
 }
 function popularFiltros(){
-  const comp=[...new Set([...S.cots.map(c=>c.comprador),...S.peds.map(p=>p.comprador)].filter(Boolean))].sort();
+  const comp=[...new Set([...S.cots.map(c=>c.comprador),...S.peds.map(compradorDe),podeComprar()?quem():''].filter(x=>x&&x!=='—'))].sort();
   const sc=document.getElementById('f-comprador'), v=sc.value;
   sc.innerHTML='<option value="">Comprador: todos</option>'+comp.map(c=>`<option ${c===v?'selected':''}>${E(c)}</option>`).join('');
   const sf=document.getElementById('f-forn'), vf=sf.value;
@@ -376,89 +406,154 @@ function renderTudo(){
 function cardSol(s){
   const pr=prior(s), d=diasDesde(s.aprovado_em||s.created_at);
   return `<div class="cd ${pr.c}" onclick="abrirSol('${s.id}')"><div class="l1"><span>Sol #${pad4(s.numero)}</span>${pr.t?`<span class="tag t-${pr.c}">${pr.t}</span>`:''}</div>
-    <div class="it">${itensTxt(s.itens)}</div><div class="l3"><span>${E(String(s.solicitante||'').split(' ').slice(0,2).join(' '))}${ccDe(s)?' · '+E(ccCurto(ccDe(s))):''}</span><span class="dias ${d>=7?'r':d>=3?'o':''}">${d?d+(d===1?' dia':' dias'):'hoje'}</span></div></div>`;
+    <div class="it">${itensTxt(s.itens)}</div><div class="l3"><span>${E(nomeCurto(s.solicitante))}${ccDe(s)?' · '+E(ccCurto(ccDe(s))):''}</span><span class="dias ${d>=7?'r':d>=3?'o':''}" title="Desde que a necessidade foi aprovada">${d?d+(d===1?' dia':' dias'):'hoje'}</span></div></div>`;
 }
 function cardCot(c){
   const s=solDe(c.solicitacao_id), pr=prior(s), props=(c.propostas||[]), ok=props.filter(p=>Object.values(p.precos||{}).some(v=>v!=null&&v!=='')).length;
-  const ag=c.status==='aguardando_aprovacao', h=horasDesde(ag?c.enviada_em:c.created_at);
-  return `<div class="cd ${pr.c}" onclick="abrirCot('${c.id}')"><div class="l1"><span>${c.tipo==='direta'?'⚡ Direta':'Cot #'+pad4(c.numero)}${s?' · Sol #'+pad4(s.numero):''}</span>${ag&&c.total?`<span class="val">${brl(c.total)}</span>`:c.status==='devolvida'?'<span class="tag t-alta">DEVOLVIDA</span>':''}</div>
+  const ag=c.status==='aguardando_aprovacao', h=horasDesde(ag?c.enviada_em:c.created_at), orf=cotOrfa(c);
+  return `<div class="cd ${pr.c}" onclick="abrirCot('${c.id}')"><div class="l1"><span>${c.tipo==='direta'?'⚡ Direta':'Cot #'+pad4(c.numero)}${s?' · Sol #'+pad4(s.numero):''}</span>${orf?'<span class="tag t-urg">⚠ ENCERRAR</span>':ag&&c.total?`<span class="val">${brl(c.total)}</span>`:c.status==='devolvida'?'<span class="tag t-alta">DEVOLVIDA</span>':''}</div>
     <div class="it">${itensTxt((c.itens||[]).map(i=>({nome:i.nome,qtd:i.qtd})))}</div>
-    <div class="l3"><span>${ag?(c.tipo==='direta'?E(MOTIVOS[c.motivo_direto]||'direta'):props.length+' fornecedor(es)'):ok+' de '+props.length+' com preço'}</span><span class="dias ${h>=72?'o':''}">${h<24?'há '+Math.round(h)+' h':Math.floor(h/24)+' dias'}</span></div></div>`;
+    <div class="l3"><span>${ag?(c.tipo==='direta'?E(MOTIVOS[c.motivo_direto]||'direta'):'cotação · '+props.length+' fornecedor'+(props.length===1?'':'es')):props.length?ok+' de '+props.length+' com preço':'sem fornecedor ainda'} · ${E(nomeCurto(c.comprador))}</span><span class="dias ${h>=72?'o':''}">${h<24?'há '+Math.max(1,Math.round(h))+' h':Math.floor(h/24)+' dias'}</span></div></div>`;
 }
 function cardPed(p){
-  const s=solDe(p.solicitacao_id), pr=prior(s), at=atrasado(p), conf=p.emergencial&&!p.ratificado_em;
-  const ent=p.status==='recebido_total';
+  const s=solDe(p.solicitacao_id), pr=prior(s), at=atrasado(p), conf=p.emergencial&&!p.ratificado_em, ent=p.status==='recebido_total', vr=viaReceb(p), rc=recsDe(p.id).pop();
+  const tags=(vr?'<span class="tag t-cin" title="O almoxarifado comprou e lançou no recebimento — não passou pelo Compras">📥 sem Compras</span> ':'')+(p.emergencial?`<span class="tag t-em">⚡${conf?' a confirmar':''}</span> `:'')+(perguntou(p)?'<span class="tag t-urg">❓ gerente perguntou</span> ':'');
   return `<div class="cd ${pr.c}" onclick="abrirPed('${p.id}')"><div class="l1"><span>Ped #${pad4(p.numero)} · ${E(String(p.fornecedor||'').slice(0,18))}</span><span class="val">${brl(p.valor_total)}</span></div>
     <div class="it">${itensTxt(p.itens)}</div>
-    <div class="l3"><span>${p.emergencial?`<span class="tag t-em">⚡${conf?' a confirmar':''}</span> `:''}${ent?'recebido pelo almoxarifado':at?`<b style="color:var(--red);">atrasado ${diasDesde(p.prazo_entrega)} dias</b>`:p.status==='recebido_parcial'?'entrega parcial':p.prazo_entrega?'entrega '+dBR(p.prazo_entrega):'sem prazo'}</span><span>${ent?dBR(p.atualizado_em):''}</span></div></div>`;
+    <div class="l3"><span>${tags}${ent?'recebido'+(rc&&rc.recebido_por?' por '+E(nomeCurto(rc.recebido_por)):''):at?`<b style="color:var(--red);">atrasado ${diasDesde(p.prazo_entrega)} dias</b>`:p.status==='recebido_parcial'?'entrega parcial':p.prazo_entrega?'entrega '+dBR(p.prazo_entrega):'sem prazo'}</span><span>${ent?dBR((rc&&rc.data)||p.atualizado_em):''}</span></div></div>`;
 }
 function renderFila(cols){
   document.getElementById('carregando').style.display='none';
-  const col=(t,arr,fn,extra)=>`<div class="col"><h3>${t} <i>${arr.length}</i></h3>${arr.map(x=>fn(x.o)).join('')||'<div class="vazio">—</div>'}${extra||''}</div>`;
-  const [y,m]=mesSel().split('-');
-  document.getElementById('board').innerHTML=col('A comprar',cols.comprar,cardSol)+col('Cotando',cols.cotando,cardCot)+col('Aguardando gerente',cols.gerente,cardCot)+
-    col('Pedido enviado',cols.pedido,cardPed)+col('Entregue · '+['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'][Number(m)-1],cols.entregue,cardPed);
+  const col=(t,dica,arr,fn)=>`<div class="col"><h3 title="${E(dica)}">${t} <i>${arr.length}</i></h3>${arr.map(x=>fn(x.o)).join('')||'<div class="vazio">—</div>'}</div>`;
+  const m=Number(mesSel().split('-')[1]);
+  document.getElementById('board').innerHTML=
+    col('A comprar','Necessidade aprovada em Solicitações, ainda sem cotação nem pedido',cols.comprar,cardSol)+
+    col('Cotando','Comprador montando a cotação (ou devolvida pelo gerente)',cols.cotando,cardCot)+
+    col('Aguardando gerente','Compra enviada para o gerente aprovar (aba Aprovação)',cols.gerente,cardCot)+
+    col('Pedido enviado','Pedido emitido, esperando o almoxarifado receber',cols.pedido,cardPed)+
+    col('Entregue · '+['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'][m-1],'Recebido pelo almoxarifado neste mês',cols.entregue,cardPed);
 }
 
 /* ═══════════════ PAINEL LATERAL ═══════════════ */
 function fecharDw(){document.getElementById('dw').classList.add('hidden');document.getElementById('dw-bg').classList.add('hidden');}
 function dw(html){const d=document.getElementById('dw');d.innerHTML=html;d.classList.remove('hidden');document.getElementById('dw-bg').classList.remove('hidden');}
-function stepper(at){const P=['Solicitação','Aprovação','Compra','Gerente','Pedido','Entrega'];
-  return `<div class="step">${P.map((t,i)=>`<div class="st ${i<at?'ok':i===at?'at':''}"><div class="b">${i<at?'✓':i+1}</div>${t}</div>`).join('')}</div>`;}
+const nomeCurto=n=>String(n||'').trim().split(/\s+/).slice(0,2).join(' ');
+/* ── CARIMBOS: quem fez cada etapa e quando ──────────────────────────────────
+   1 Solicitado (setor) · 2 Necessidade aprovada (Solicitações) · 3 Cotação (comprador)
+   4 Compra aprovada (gerente, aba Aprovação) · 5 Pedido · 6 Entregue (almoxarifado)  */
+const ETAPAS=['Solicitado','Necessidade aprovada','Cotação','Compra aprovada','Pedido','Entregue'];
+function etapas(s,c,peds){
+  peds=(peds||[]).filter(p=>p&&p.status!=='cancelado');
+  const p0=peds[0]||null, vr=peds.length&&peds.every(viaReceb), leg=peds.length&&!c&&!vr; // leg = pedido antigo, sem cotação
+  const E6=[];
+  E6.push(s?{st:'ok',quem:s.solicitante,quando:s.data,obs:[s.codigo?s.codigo+' em Solicitações':'',ccDe(s)?ccCurto(ccDe(s)):''].filter(Boolean).join(' · ')}:{st:'skip',obs:'pedido sem solicitação vinculada'});
+  E6.push(s&&s.aprovado_em?{st:'ok',quem:s.aprovador,quando:s.aprovado_em,obs:'gerente da área aprovou a necessidade (Solicitações)'}:s?{st:'at',obs:'aguardando aprovação em Solicitações'}:{st:'skip'});
+  // 3 cotação
+  if(vr)E6.push({st:'skip',obs:'sem Compras — '+nomeCurto(p0.comprador)+' (almoxarifado) comprou direto e lançou no recebimento'});
+  else if(leg)E6.push({st:'ok',quem:p0.comprador,quando:p0.data,obs:'pedido direto (sem cotação no sistema)'});
+  else if(c){const env=c.enviada_em||['aprovada','aprovada_auto','reprovada'].includes(c.status);
+    E6.push(env?{st:'ok',quem:c.comprador,quando:c.enviada_em||c.created_at,obs:c.tipo==='direta'?'⚡ compra direta · '+(MOTIVOS[c.motivo_direto]||'').replace(/^\S+\s/,''):'cotação #'+pad4(c.numero)+' · '+(c.propostas||[]).length+' fornecedor(es) · enviada ao gerente'}
+      :{st:'at',quem:c.comprador,quando:c.created_at,obs:(c.status==='devolvida'?'devolvida pelo gerente — corrigir e reenviar':(c.tipo==='direta'?'compra direta em preparo':'cotando'))+' desde '+dBR(c.created_at)});}
+  else E6.push({st:s&&s.aprovado_em?'at':'pend',obs:'aguardando o comprador cotar'});
+  // 4 aprovação da compra (gerente)
+  const em=peds.find(p=>p.emergencial);
+  if(vr)E6.push({st:'skip',obs:'não passou pelo gerente do Compras'});
+  else if(leg)E6.push(p0.aprovado_por?{st:'ok',quem:p0.aprovado_por,quando:p0.aprovado_em}:{st:'skip',obs:'pedido antigo, sem aprovação registrada'});
+  else if(em){E6.push(em.ratificado_em?{st:'ok',quem:em.ratificado_por,quando:em.ratificado_em,obs:'⚡ emergencial · gerente confirmou'}
+      :{st:'at',quem:'⚡ liberada automática',quando:(em.historico||[])[0]&&em.historico[0].em,obs:'gerente confirma até '+dhBR(em.ratificar_ate)+(perguntou(em)?' · ❓ pediu explicação':'')});}
+  else if(c&&c.status==='aprovada')E6.push({st:'ok',quem:c.aprovado_por,quando:c.aprovado_em,obs:c.decisao_obs||''});
+  else if(c&&c.status==='reprovada')E6.push({st:'no',quem:c.aprovado_por,quando:c.aprovado_em,obs:'reprovada — '+(c.decisao_obs||'')});
+  else if(c&&c.status==='aguardando_aprovacao')E6.push({st:'at',obs:'com o gerente desde '+dhBR(c.enviada_em)});
+  else if(c&&c.status==='devolvida'){const h=(c.historico||[]).filter(x=>x.acao==='devolvida').pop();E6.push({st:'no',quem:h&&h.por,quando:h&&h.em,obs:'devolvida — '+(c.decisao_obs||'')});}
+  else E6.push({st:'pend'});
+  // 5 pedido
+  E6.push(peds.length?{st:'ok',quem:vr?nomeCurto(p0.comprador)+' (almoxarifado)':nomeCurto(p0.comprador),quando:p0.data,obs:peds.map(p=>'#'+pad4(p.numero)+' '+(p.fornecedor||'')+' · '+brl(p.valor_total)).join(' + ')+(vr?' · criado no recebimento':p0.emergencial?' · saiu na hora (emergencial)':p0.cotacao_id?' · gerado quando o gerente aprovou':'')}:{st:'pend'});
+  // 6 entrega
+  if(peds.length){const recs=peds.flatMap(p=>recsDe(p.id)), ult=recs[recs.length-1], tudo=peds.every(p=>p.status==='recebido_total'), alg=peds.some(p=>['recebido_total','recebido_parcial'].includes(p.status));
+    const nfs=[...new Set(recs.map(r=>r.nota_fiscal).filter(Boolean))].join(', ');
+    E6.push(tudo?{st:'ok',quem:ult&&ult.recebido_por,quando:ult?(ult.data||ult.created_at):null,obs:nfs?'NF '+nfs:''}
+      :alg?{st:'at',quem:ult&&ult.recebido_por,quando:ult&&(ult.data||ult.created_at),obs:'entrega parcial'+(nfs?' · NF '+nfs:'')}
+      :{st:'at',obs:atrasado(p0)?'atrasado — entrega era '+dBR(p0.prazo_entrega):p0.prazo_entrega?'previsto '+dBR(p0.prazo_entrega):'aguardando o fornecedor'});}
+  else E6.push({st:'pend'});
+  return E6;
+}
+function stepper(E6){
+  const at=E6.findIndex(e=>!['ok','skip'].includes(e.st));
+  return `<div class="step">${ETAPAS.map((t,i)=>{const e=E6[i];const cls=e.st==='ok'?'ok':e.st==='skip'?'sk':e.st==='no'?'no':i===at?'at':'';
+    return `<div class="st ${cls}"><div class="b">${e.st==='ok'?'✓':e.st==='skip'?'–':e.st==='no'?'!':i+1}</div>${t}</div>`;}).join('')}</div>`;
+}
+function carimbos(E6){
+  const quando=d=>!d?'':String(d).length<=10?dBR(d):dhBR(d);
+  return `<div class="box"><h4>Carimbos — quem fez cada etapa</h4><div class="cb">${ETAPAS.map((t,i)=>{const e=E6[i];
+    return `<div class="cb-l ${e.st}"><span class="cb-i">${e.st==='ok'?'✓':e.st==='skip'?'–':e.st==='no'?'!':e.st==='at'?'●':'○'}</span><div><b>${t}</b>${e.quem||e.quando?` <span class="cb-q">${E(e.quem||'')}${e.quem&&e.quando?' · ':''}${quando(e.quando)}</span>`:''}${e.obs?`<div class="cb-o">${E(e.obs)}</div>`:''}</div></div>`;}).join('')}</div></div>`;
+}
 function itensComPreco(itens,cotId){
   return `<table class="tb"><tr><th>Item</th><th class="n">Qtd</th><th class="n">Último preço</th></tr>${(itens||[]).map(i=>{const u=ultimo(i,cotId);const q=i.quantidade!=null?i.quantidade:i.qtd;
     return `<tr><td><b>${E(i.nome)}</b></td><td class="n">${fq(q)} ${E(i.unidade||'')}</td><td class="n">${u?brl(u.preco)+`<span class="ref">${E(u.fornecedor||'')} · ${dBR(u.data).slice(3)}</span>`:'—'}</td></tr>`;}).join('')}</table>`;
 }
-function estimativa(itens){let t=0,falta=0;(itens||[]).forEach(i=>{const u=ultimo(i);const q=num(i.quantidade!=null?i.quantidade:i.qtd);if(u)t+=u.preco*q;else if(num(i.custo_estimado))t+=num(i.custo_estimado)*q;else falta++;});return {t,falta};}
-function histSol(s){const l=[];l.push(`${dBR(s.data||s.created_at)} · ${E(s.solicitante||'')} pediu`);if(s.aprovado_em)l.push(`${dBR(s.aprovado_em)} · ${E(s.aprovador||'')} aprovou`);l.push(`${dBR(s.created_at)} · chegou no Compras`);return l.join('<br>');}
+function estimativa(itens){let t=0,falta=0;(itens||[]).forEach(i=>{const u=ultimo(i);const q=num(i.quantidade!=null?i.quantidade:i.qtd);if(u)t+=u.preco*q;else if(num(i.custo_estimado))t+=num(i.custo_estimado);else falta++;});return {t,falta};}
 function abrirSol(id){
-  const s=solDe(id);if(!s)return; const pr=prior(s), d=diasDesde(s.aprovado_em||s.created_at), est=estimativa(s.itens);
+  const s=solDe(id);if(!s)return; const pr=prior(s), d=diasDesde(s.aprovado_em||s.created_at), est=estimativa(s.itens), E6=etapas(s,null,[]);
   dw(`<div class="dw-h"><button class="dw-x" onclick="fecharDw()">✕</button><h2>Solicitação #${pad4(s.numero)}${pr.t?`<span class="tag t-${pr.c}">${pr.t}</span>`:''}</h2>
-      <div class="m">${E(s.solicitante||'')}${ccDe(s)?' · '+E(ccDe(s)):''}${s.aprovador?' · aprovada por '+E(s.aprovador)+' em '+dBR(s.aprovado_em):''} · ${d?'parada há '+d+(d===1?' dia':' dias'):'chegou hoje'}</div></div>
-    ${stepper(2)}
+      <div class="m">${E(s.solicitante||'')}${ccDe(s)?' · '+E(ccCurto(ccDe(s))):''}${s.codigo?' · '+E(s.codigo)+' em Solicitações':''} · ${d?'esperando há '+d+(d===1?' dia':' dias'):'chegou hoje'}</div></div>
+    ${stepper(E6)}
     <div class="dw-b">
       <div class="box"><h4>Itens</h4>${itensComPreco(s.itens)}</div>
       ${s.justificativa||s.equipamento?`<div class="box"><h4>Para que é</h4>${E([s.equipamento,s.justificativa].filter(Boolean).join(' — '))}</div>`:''}
-      <div class="box"><h4>Estimativa pelo último preço</h4><b style="font-size:19px;color:var(--primary);">${brl(est.t)}</b>${est.falta?` <span class="ref">${est.falta} item(ns) sem preço anterior</span>`:''}
+      <div class="box"><h4>Estimativa pelo último preço</h4><b style="font-size:19px;color:var(--primary);">${brl(est.t)}</b>${est.falta?` <span class="ref" style="display:inline;">· ${est.falta} item(ns) sem preço anterior</span>`:''}
         <div class="ref">${est.t<=cfg('limite')?'abaixo':'acima'} do limite de ${brl(cfg('limite'))} para compra emergencial</div></div>
-      <div class="box" style="background:#f8fafc;"><h4>Histórico</h4><div style="font-size:12px;color:var(--c2);line-height:1.7;">${histSol(s)}</div></div>
+      ${carimbos(E6)}
     </div>
-    <div class="dw-f">${podeComprar()?`<button class="bsec red" onclick="cancelarSol('${s.id}')" title="Já resolvida, substituída ou não é mais necessária">🚫</button>
+    <div class="dw-f">${podeComprar()?`<button class="bsec red" onclick="cancelarSol('${s.id}')" title="Tirar da fila: já resolvida, substituída ou não é mais necessária">🚫</button>
       <button class="bsec" onclick="iniciarCotacao('${s.id}')">💬 Cotar</button><button class="bbig em" onclick="abrirDireto('${s.id}')">⚡ Comprar direto</button>`:'<div class="ref">Você só acompanha (sem permissão de compra).</div>'}</div>`);
 }
 function abrirCot(id){
-  const c=S.cots.find(x=>x.id===id);if(!c)return; const s=solDe(c.solicitacao_id), ag=c.status==='aguardando_aprovacao';
-  const tots=totaisPorForn(c);
+  const c=S.cots.find(x=>x.id===id);if(!c)return; const s=solDe(c.solicitacao_id), ag=c.status==='aguardando_aprovacao', orf=cotOrfa(c);
+  const tots=totaisPorForn(c), E6=etapas(s,c,S.peds.filter(p=>p.cotacao_id===c.id));
   dw(`<div class="dw-h"><button class="dw-x" onclick="fecharDw()">✕</button><h2>${c.tipo==='direta'?'⚡ Compra direta':'Cotação #'+pad4(c.numero)}${c.status==='devolvida'?'<span class="tag t-alta">DEVOLVIDA</span>':ag?'<span class="tag t-azul">COM O GERENTE</span>':''}</h2>
-      <div class="m">${s?'Solicitação #'+pad4(s.numero)+' · '+E(s.solicitante||'')+' · ':''}comprador ${E(c.comprador||'—')}${ag?' · enviada '+dhBR(c.enviada_em):''}</div></div>
-    ${stepper(ag?3:2)}
+      <div class="m">${s?'Solicitação #'+pad4(s.numero)+' · '+E(s.solicitante||'')+' · ':''}comprador ${E(c.comprador||'—')}</div></div>
+    ${stepper(E6)}
     <div class="dw-b">
+      ${orf?`<div class="av av-r" style="margin-top:0;margin-bottom:9px;">⚠ ${E(orf)} Esta cotação não vale mais — encerre (✕).</div>`:''}
       ${c.status==='devolvida'&&c.decisao_obs?`<div class="av av-w" style="margin-top:0;margin-bottom:9px;">↩ <b>O gerente devolveu:</b> ${E(c.decisao_obs)}</div>`:''}
       <div class="box"><h4>Itens</h4>${itensComPreco(c.itens,c.id)}</div>
-      <div class="box"><h4>${c.tipo==='direta'?'Fornecedor':'Propostas'}</h4>${tots.length?`<table class="tb">${tots.map(t=>`<tr><td>${E(t.nome)}${t.completo?'':' <span class="ref">faltam '+t.faltam+' item(ns)</span>'}</td><td class="n"><b>${brl(t.total)}</b></td></tr>`).join('')}</table>`:'<span class="ref">Nenhum preço lançado ainda.</span>'}
+      <div class="box"><h4>${c.tipo==='direta'?'Fornecedor':'Propostas'}</h4>${tots.length?`<table class="tb">${tots.map(t=>`<tr><td>${E(t.nome)}${t.completo?'':' <span class="ref" style="display:inline;">· faltam '+t.faltam+' item(ns)</span>'}</td><td class="n"><b>${brl(t.total)}</b></td></tr>`).join('')}</table>`:'<span class="ref">Nenhum fornecedor ainda.</span>'}
         ${c.tipo==='direta'&&c.motivo_direto?`<div class="ref">Motivo: ${E(MOTIVOS[c.motivo_direto]||c.motivo_direto)}</div>`:''}</div>
       ${ag&&c.total?`<div class="box"><h4>Total enviado ao gerente</h4><b style="font-size:19px;color:var(--primary);">${brl(c.total)}</b></div>`:''}
+      ${carimbos(E6)}
     </div>
-    <div class="dw-f"><button class="bsec" onclick="imprimirMapa('${c.id}')">🖨️</button>${podeComprar()&&!ag?`<button class="bsec red" onclick="desistirCotacao('${c.id}')" title="Desistir desta cotação (volta para A comprar)">✕</button>`:''}
-      <button class="bbig" onclick="${c.tipo==='direta'&&!ag?`abrirDireto('${c.solicitacao_id}','${c.id}')`:`abrirMapa('${c.id}')`}">${ag?'👁️ Ver o mapa':c.tipo==='direta'?'⚡ Continuar':'📊 Abrir o mapa'}</button></div>`);
+    <div class="dw-f"><button class="bsec" onclick="imprimirMapa('${c.id}')" title="Imprimir o mapa comparativo">🖨️</button>${podeComprar()&&(!ag||orf)?`<button class="bsec red" onclick="desistirCotacao('${c.id}')" title="Encerrar esta cotação (a solicitação volta para A comprar, se ainda estiver aberta)">✕</button>`:''}
+      ${orf?'':`<button class="bbig" onclick="${c.tipo==='direta'&&!ag?`abrirDireto('${c.solicitacao_id}','${c.id}')`:`abrirMapa('${c.id}')`}">${ag?'👁️ Ver o mapa':c.tipo==='direta'?'⚡ Continuar':'📊 Abrir o mapa'}</button>`}</div>`);
 }
 function abrirPed(id){
-  const p=S.peds.find(x=>x.id===id);if(!p)return; const s=solDe(p.solicitacao_id);
-  const rec=p.status==='recebido_total', conf=p.emergencial&&!p.ratificado_em;
-  dw(`<div class="dw-h"><button class="dw-x" onclick="fecharDw()">✕</button><h2>Pedido #${pad4(p.numero)}${p.emergencial?'<span class="tag t-em">⚡ EMERGENCIAL</span>':''}${atrasado(p)?'<span class="tag t-urg">ATRASADO</span>':''}</h2>
-      <div class="m">${E(p.fornecedor||'')} · ${dBR(p.data)}${s?' · Sol #'+pad4(s.numero):''} · comprador ${E(p.comprador||'—')}</div></div>
-    ${stepper(rec?6:p.status==='recebido_parcial'?5:4)}
+  const p=S.peds.find(x=>x.id===id);if(!p)return; const s=solDe(p.solicitacao_id), c=p.cotacao_id?S.cots.find(x=>x.id===p.cotacao_id):null;
+  const conf=p.emergencial&&!p.ratificado_em, vr=viaReceb(p), pg=perguntou(p);
+  const irmaos=p.solicitacao_id?S.peds.filter(x=>x.solicitacao_id===p.solicitacao_id&&(c?x.cotacao_id===c.id:x.id===p.id)):[p];
+  const E6=etapas(s,c,irmaos.length?irmaos:[p]);
+  dw(`<div class="dw-h"><button class="dw-x" onclick="fecharDw()">✕</button><h2>Pedido #${pad4(p.numero)}${vr?'<span class="tag t-cin">📥 SEM COMPRAS</span>':''}${p.emergencial?'<span class="tag t-em">⚡ EMERGENCIAL</span>':''}${atrasado(p)?'<span class="tag t-urg">ATRASADO</span>':''}</h2>
+      <div class="m">${E(p.fornecedor||'')} · ${dBR(p.data)}${s?' · Sol #'+pad4(s.numero):''} · ${vr?'lançado pelo almoxarifado ('+E(nomeCurto(p.comprador))+') no recebimento':'comprador '+E(p.comprador||'—')}</div></div>
+    ${stepper(E6)}
     <div class="dw-b">
-      ${conf?`<div class="av av-w" style="margin-top:0;margin-bottom:9px;">⚡ Saiu como emergencial. O gerente ainda vai confirmar (até ${dhBR(p.ratificar_ate)}).</div>`:''}
+      ${pg?`<div class="av av-r" style="margin-top:0;margin-bottom:9px;">❓ <b>${E(nomeCurto(pg.por))} perguntou:</b> ${E(pg.obs||'')}</div>`:conf?`<div class="av av-w" style="margin-top:0;margin-bottom:9px;">⚡ Saiu como emergencial. O gerente confirma até ${dhBR(p.ratificar_ate)}.</div>`:''}
+      ${vr?`<div class="av av-w" style="margin-top:0;margin-bottom:9px;">📥 Este pedido nasceu no recebimento (Solicitações): o almoxarifado comprou direto, sem cotação e sem aprovação de compra.</div>`:''}
       <div class="box"><h4>Itens</h4><table class="tb"><tr><th>Item</th><th class="n">Pedido</th><th class="n">Recebido</th><th class="n">Preço un.</th></tr>
-        ${(p.itens||[]).map(i=>`<tr><td><b>${E(i.nome)}</b></td><td class="n">${fq(i.qtd)} ${E(i.unidade||'')}</td><td class="n">${fq(i.qtd_recebida||0)}</td><td class="n">${brl(i.preco_unit)}</td></tr>`).join('')}</table></div>
+        ${(p.itens||[]).map(i=>`<tr><td><b>${E(i.nome)}</b></td><td class="n">${fq(i.qtd)} ${E(i.unidade||'')}</td><td class="n" style="${num(i.qtd_recebida)>=num(i.qtd)?'color:var(--grn);font-weight:800;':''}">${fq(i.qtd_recebida||0)}</td><td class="n">${brl(i.preco_unit)}</td></tr>`).join('')}</table></div>
       <div class="box"><h4>Valores</h4><table class="tb"><tr><td>Total</td><td class="n"><b style="font-size:16px;">${brl(p.valor_total)}</b></td></tr>${p.frete?`<tr><td>Frete</td><td class="n">${brl(p.frete)}</td></tr>`:''}
-        <tr><td>Entrega</td><td class="n">${p.prazo_entrega?dBR(p.prazo_entrega):'—'}</td></tr><tr><td>Pagamento</td><td class="n">${E(p.condicao_pagamento||'—')}</td></tr>
-        <tr><td>Aprovado</td><td class="n">${p.aprovado_por?E(p.aprovado_por)+' · '+dhBR(p.aprovado_em):p.emergencial?'emergencial':'—'}</td></tr></table></div>
-      <div class="box" style="background:#f8fafc;"><h4>Histórico</h4><div style="font-size:12px;color:var(--c2);line-height:1.7;">${(p.historico||[]).map(h=>`${dhBR(h.em)} · ${E(h.acao||'')} · ${E(h.por||'')}${h.obs?' — '+E(h.obs):''}`).join('<br>')||'—'}</div></div>
+        <tr><td>Entrega</td><td class="n">${p.prazo_entrega?dBR(p.prazo_entrega):'—'}</td></tr><tr><td>Pagamento</td><td class="n">${E(p.condicao_pagamento||'—')}</td></tr></table></div>
+      ${carimbos(E6)}
+      <details class="box" style="background:#f8fafc;"><summary style="cursor:pointer;font-size:10.5px;color:var(--c3);font-weight:800;text-transform:uppercase;">Histórico completo do pedido</summary><div style="font-size:12px;color:var(--c2);line-height:1.7;margin-top:6px;">${(p.historico||[]).map(h=>`${dhBR(h.em)} · ${E(h.acao||'')} · ${E(h.por||'')}${h.obs?' — '+E(h.obs):''}`).join('<br>')||'—'}</div></details>
     </div>
-    <div class="dw-f"><button class="bsec" onclick="imprimirPedido('${p.id}')">🖨️ Pedido</button><button class="bsec" onclick="enviarPedidoForn('${p.id}')">📤 Enviar ao fornecedor</button>
-      ${podeComprar()&&['emitido','aguardando_entrega'].includes(p.status)&&!(p.itens||[]).some(i=>num(i.qtd_recebida)>0)?`<button class="bsec red" onclick="cancelarPedido('${p.id}')">Cancelar</button>`:''}</div>`);
+    <div class="dw-f"><button class="bsec" onclick="imprimirPedido('${p.id}')">🖨️ Pedido</button>${vr?'':`<button class="bsec" onclick="enviarPedidoForn('${p.id}')">📤 Enviar ao fornecedor</button>`}
+      ${pg&&podeComprar()?`<button class="bbig" onclick="responderGerente('${p.id}')">💬 Responder ao gerente</button>`:''}
+      ${podeComprar()&&!vr&&['emitido','aguardando_entrega'].includes(p.status)&&!(p.itens||[]).some(i=>num(i.qtd_recebida)>0)?`<button class="bsec red" onclick="cancelarPedido('${p.id}')">Cancelar</button>`:''}</div>`);
+}
+function responderGerente(id){
+  const p=S.peds.find(x=>x.id===id);if(!p)return; const pg=perguntou(p);
+  txtModal('💬 Responder ao gerente',`<div class="av av-w" style="margin-top:0;">❓ ${E(pg?pg.obs:'')}</div><div class="form-group" style="margin-top:10px;"><label class="form-label">Sua resposta</label><textarea class="form-input" id="rg-resp" rows="3"></textarea></div>`,
+    [['Enviar resposta',async()=>{const t=document.getElementById('rg-resp').value.trim();if(!t)return toast('Escreva a resposta.','warning');
+      const hist=[...(p.historico||[]),{acao:'resposta',por:quem(),em:new Date().toISOString(),obs:t}];
+      const r=await db(_supabase.from('compras_pedidos').update({historico:hist,atualizado_em:new Date().toISOString()}).eq('id',id),'responder ao gerente'); if(r.error)return;
+      p.historico=hist; closeModal('m-txt'); toast('Resposta registrada. O gerente vê ao confirmar.'); abrirPed(id); renderTudo();}]]);
 }
 
 /* ═══════════════ COTAÇÃO ═══════════════ */
@@ -517,8 +612,9 @@ function celPreco(p,i,best,ed,cotId){
   const cls=(best&&best.f===p.fornecedor_id&&v!=null&&v!=='')?'best':al?'alto':'';
   const tot=v!=null&&v!==''?brl(num(v)*num(i.qtd)):'';
   return `<td class="c">${ed?`<input class="pr ${cls}" inputmode="decimal" value="${v==null?'':fp(v)}" placeholder="—" onchange="setPreco('${A(p.fornecedor_id)}','${i.k}',this.value)">`:`<span class="ro ${cls}">${v==null||v===''?'—':brl(v)}</span>`}
-    <span class="ref">${al?'+'+Math.round((num(v)/u.preco-1)*100)+'% do último':tot}</span></td>`;
+    <span class="ref" style="${al?'color:#b91c1c;font-weight:700;':''}">${al?'+'+Math.round((num(v)/u.preco-1)*100)+'% do último':tot||(p.respondido_em?'não tem':'')}</span></td>`;
 }
+function semTxt(c,p){const f=(c.itens||[]).filter(i=>{const v=p.precos&&p.precos[i.k];return v==null||v==='';});return f.length<=2?'sem '+f.map(i=>String(i.nome).split(/\s+/).slice(0,2).join(' ').toLowerCase()).join(', '):'faltam '+f.length;}
 function tabelaMapa(c,ed){
   const best=melhorPorItem(c), tots=totaisPorForn(c), esc=c.escolha||{}, completos=tots.filter(t=>t.completo), menor=completos.length?Math.min(...completos.map(t=>t.total)):null;
   const win=id=>esc.modo==='item'?false:esc.fornecedor_id?esc.fornecedor_id===id:(menor!=null&&(tots.find(t=>t.id===id)||{}).total===menor&&(tots.find(t=>t.id===id)||{}).completo);
@@ -527,7 +623,7 @@ function tabelaMapa(c,ed){
   const rows=c.itens.map(i=>{const u=ultimo(i,c.id);return `<tr><td><b>${E(i.nome)}</b></td><td class="c">${fq(i.qtd)} ${E(i.unidade||'')}</td><td class="c">${u?brl(u.preco)+`<span class="ref">${E(u.fornecedor||'')} · ${dBR(u.data).slice(3)}</span>`:'—'}</td>
       ${c.propostas.map(p=>celPreco(p,i,best[i.k],ed,c.id)).join('')}${esc.modo==='item'?`<td class="c" style="font-size:11.5px;">${best[i.k]?'🥇 '+E(fNome(best[i.k].f)||((c.propostas.find(p=>p.fornecedor_id===best[i.k].f)||{}).fornecedor||'')):'<b style="color:var(--red);">sem preço</b>'}</td>`:''}</tr>`;}).join('');
   const rod=(rot,campo,tipo)=>`<tr class="rod"><td colspan="3" style="text-align:right;">${rot}</td>${c.propostas.map(p=>`<td class="c">${ed?`<input ${tipo==='n'?'inputmode="decimal"':''} value="${E(tipo==='n'?(p[campo]==null?'':fp(p[campo])):(p[campo]||''))}" placeholder="—" onchange="setCampo('${A(p.fornecedor_id)}','${campo}',this.value,'${tipo}')">`:E(tipo==='n'&&campo==='frete'?(p.frete?brl(p.frete):'grátis / —'):campo==='prazo_dias'?(p.prazo_dias!=null&&p.prazo_dias!==''?p.prazo_dias+' dias':'—'):(p[campo]||'—'))}</td>`).join('')}${esc.modo==='item'?'<td></td>':''}</tr>`;
-  const totRow=`<tr class="tot"><td colspan="3" style="text-align:right;">TOTAL</td>${c.propostas.map(p=>{const t=tots.find(x=>x.id===p.fornecedor_id)||{};return `<td class="c ${win(p.fornecedor_id)?'win':''}">${brl(t.total)}${t.completo?(t.total===menor?' ✓ menor':''):` <span style="font-size:11px;font-weight:600;">(faltam ${t.faltam})</span>`}</td>`;}).join('')}${esc.modo==='item'?`<td class="c win">${brl(totalEscolha(c).total)}</td>`:''}</tr>`;
+  const totRow=`<tr class="tot"><td colspan="3" style="text-align:right;">TOTAL</td>${c.propostas.map(p=>{const t=tots.find(x=>x.id===p.fornecedor_id)||{};return `<td class="c ${win(p.fornecedor_id)?'win':''}">${brl(t.total)}${t.completo?(t.total===menor&&completos.length>1?' ✓ menor':''):` <span style="font-size:11px;font-weight:600;">(${semTxt(c,p)})</span>`}</td>`;}).join('')}${esc.modo==='item'?`<td class="c win">${brl(totalEscolha(c).total)}</td>`:''}</tr>`;
   return `<table class="mp"><thead><tr><th style="text-align:left;min-width:240px;">Item</th><th>Qtd</th><th>Último preço pago</th>${hd}${esc.modo==='item'?'<th>Vencedor</th>':''}</tr></thead>
     <tbody>${rows}${rod('Frete (R$)','frete','n')}${rod('Prazo (dias)','prazo_dias','i')}${rod('Pagamento','pagamento','t')}${totRow}</tbody></table>`;
 }
@@ -535,14 +631,14 @@ function renderMapa(){
   const c=_mp, ed=mapaEditavel(), s=solDe(c.solicitacao_id);
   const tots=totaisPorForn(c), esc=c.escolha;
   const fOpts=tots.map(t=>`<option value="${E(t.id)}" ${esc.fornecedor_id===t.id?'selected':''}>${E(t.nome)} — ${brl(t.total)}${t.completo?'':' (incompleto)'}</option>`).join('');
-  document.getElementById('mp').innerHTML=`<div class="mp-h"><div><h2>Cotação #${pad4(c.numero)}${s?' — Solicitação #'+pad4(s.numero):''}</h2><div class="s">${s?E(s.solicitante||'')+' · '+E(ccCurto(ccDe(s)))+' · ':''}${c.itens.length} itens · comprador ${E(c.comprador||'')}${c.status==='aguardando_aprovacao'?' · <b style="color:#C9FF64;">com o gerente</b>':''}</div></div>
+  document.getElementById('mp').innerHTML=`<div class="mp-h"><div><h2>Cotação #${pad4(c.numero)}${s?' — Solicitação #'+pad4(s.numero):''}</h2><div class="s">${s?E(s.solicitante||'')+' · '+E(ccCurto(ccDe(s)))+' · ':''}${c.itens.length} itens · comprador ${E(c.comprador||'')}${c.status==='aguardando_aprovacao'?' · <b style="color:#C9FF64;">com o gerente — só leitura</b>':['aprovada','aprovada_auto','reprovada','cancelada'].includes(c.status)?' · <b style="color:#C9FF64;">'+({aprovada:'aprovada',aprovada_auto:'emergencial',reprovada:'reprovada',cancelada:'cancelada'}[c.status])+' — só leitura</b>':''}</div></div>
       <span class="sp"></span>${ed?`<button class="bt" onclick="pedidoDeCotacao()">📤 Pedido de cotação</button><button class="bt" onclick="addFornecedorMapa()">＋ Fornecedor</button>`:''}<button class="bt" onclick="imprimirMapa()">🖨️ Imprimir</button><button class="bt" onclick="fecharMapa()">✕ Fechar</button></div>
     ${c.status==='devolvida'&&c.decisao_obs?`<div class="av av-w mp-aviso">↩ <b>O gerente devolveu:</b> ${E(c.decisao_obs)}</div>`:''}
     <div class="mp-b">${c.propostas.length?tabelaMapa(c,ed):`<div class="card2" style="text-align:center;padding:30px;color:var(--c3);">Adicione os fornecedores que vão cotar (botão <b>＋ Fornecedor</b>). Depois lance os preços ou use <b>📎 Ler proposta</b> com o PDF, foto, planilha ou texto que ele mandou.</div>`}</div>
     ${ed?`<div class="mp-f"><div class="modo">Comprar:
         <label><input type="radio" name="mp-modo" ${esc.modo!=='item'?'checked':''} onchange="setModo('fornecedor')"> tudo no</label>
         <select class="form-input" style="width:auto;max-width:320px;height:34px;padding:4px 8px;" onchange="_mp.escolha.fornecedor_id=this.value;renderMapa();" ${esc.modo==='item'?'disabled':''}><option value="">escolha…</option>${fOpts}</select>
-        <label><input type="radio" name="mp-modo" ${esc.modo==='item'?'checked':''} onchange="setModo('item')"> o mais barato de cada item</label></div>
+        <label><input type="radio" name="mp-modo" ${esc.modo==='item'?'checked':''} onchange="setModo('item')"> o mais barato de cada item${(()=>{const n=new Set(Object.values(melhorPorItem(c)).filter(Boolean).map(b=>b.f)).size;return n?' ('+n+(n===1?' pedido)':' pedidos)'):'';})()}</label></div>
       <input class="form-input just" id="mp-just" placeholder="Justificativa (obrigatória se não for o menor total)…" value="${E(c.justificativa_escolha||'')}" onchange="_mp.justificativa_escolha=this.value">
       <button class="bsec" onclick="salvarMapa()">💾 Salvar</button><button class="bbig" style="flex:0 0 auto;padding:12px 20px;" onclick="enviarGerente()">Enviar ao gerente ▸</button></div>`:''}`;
 }
@@ -829,7 +925,7 @@ function renderAprovacao(cols){
     <div class="v">${brl(c.total||te.total)}</div><div style="font-size:12.5px;">${te.forns.map(f=>E(fNome(f)||((c.propostas.find(p=>p.fornecedor_id===f)||{}).fornecedor||''))).join(' + ')}${c.tipo==='direta'?' · '+E(MOTIVOS[c.motivo_direto]||''):' · '+(c.propostas||[]).length+' cotados'}</div>
     <div class="ref">${s?'Sol #'+pad4(s.numero)+' · '+E(s.solicitante||'')+' · ':''}${itensTxt((c.itens||[]).map(i=>({nome:i.nome,qtd:i.qtd})),2)} · comprador ${E(c.comprador||'')}</div></div>`;};
   const cardEm=p=>{const s=solDe(p.solicitacao_id);const vence=p.ratificar_ate&&new Date(p.ratificar_ate)<new Date();return `<div class="ap-c em" onclick="abrirConfirmar('${p.id}')"><div style="display:flex;justify-content:space-between;"><b style="color:var(--org);">⚡ Pedido #${pad4(p.numero)} · já enviado</b><span class="ref" style="${vence?'color:var(--red);font-weight:800;':''}">${vence?'prazo vencido':'confirmar até '+dhBR(p.ratificar_ate)}</span></div>
-    <div class="v">${brl(p.valor_total)}</div><div style="font-size:12.5px;">${E(p.fornecedor||'')} · ${E(MOTIVOS[p.motivo_direto]||'máquina parada')}</div><div class="ref">${s?'Sol #'+pad4(s.numero)+' · ':''}${itensTxt(p.itens,2)} · comprador ${E(p.comprador||'')}</div></div>`;};
+    <div class="v">${brl(p.valor_total)}</div><div style="font-size:12.5px;">${E(p.fornecedor||'')} · ${E(MOTIVOS[p.motivo_direto]||'máquina parada')}${perguntou(p)?' · <b style="color:var(--red);">❓ esperando resposta do comprador</b>':(p.historico||[]).some(h=>h.acao==='resposta')?' · <b style="color:var(--grn);">💬 comprador respondeu</b>':''}</div><div class="ref">${s?'Sol #'+pad4(s.numero)+' · ':''}${itensTxt(p.itens,2)} · comprador ${E(p.comprador||'')}</div></div>`;};
   const L=cfg;
   el.innerHTML=`<div class="sec-t" style="margin-top:0;">Aguardando sua aprovação (${ag.length})</div><div class="ap-l">${ag.map(cardAp).join('')||'<div class="vazio">Nenhuma compra esperando. ✅</div>'}</div>
     <div class="sec-t">⚡ Emergenciais para confirmar (${conf.length})</div><div class="ap-l">${conf.map(cardEm).join('')||'<div class="vazio">Nenhuma.</div>'}</div>
@@ -867,14 +963,16 @@ function heroAprov(c){
 }
 function abrirAprovar(id){
   const c=S.cots.find(x=>x.id===id);if(!c)return; const s=solDe(c.solicitacao_id);
-  const dono=N(c.comprador)===N(quem())&&getUser()&&getUser().perfil!=='SADM';
+  const dono=N(c.comprador)===N(quem())&&getUser()&&getUser().perfil!=='SADM', orf=cotOrfa(c);
   document.getElementById('apv-tit').textContent=(c.tipo==='direta'?'⚡ Compra direta':'Cotação #'+pad4(c.numero))+(s?' — Solicitação #'+pad4(s.numero)+' · '+(s.solicitante||''):'');
   document.getElementById('apv-corpo').innerHTML=`<div style="display:flex;flex-direction:column;gap:12px;" class="apv-g">${heroAprov({...c,escolha:c.escolha||{modo:'fornecedor'}})}
-    <div style="overflow:auto;">${tabelaMapa({...c,propostas:c.propostas||[],escolha:c.escolha||{modo:'fornecedor'}},false)}${(c.propostas||[]).some(p=>(p.anexos||[]).length)?`<div class="ref" style="margin-top:6px;">Propostas anexas: ${(c.propostas||[]).flatMap(p=>(p.anexos||[]).map(a=>`<a href="#" onclick="abrirAnexo('${A(a.path)}');return false;">📎 ${E(p.fornecedor)} — ${E(a.nome)}</a>`)).join(' · ')}</div>`:''}</div></div>
+    <div class="mp-x">${tabelaMapa({...c,propostas:c.propostas||[],escolha:c.escolha||{modo:'fornecedor'}},false)}${(c.propostas||[]).some(p=>(p.anexos||[]).length)?`<div class="ref" style="margin-top:6px;">Propostas anexas: ${(c.propostas||[]).flatMap(p=>(p.anexos||[]).map(a=>`<a href="#" onclick="abrirAnexo('${A(a.path)}');return false;">📎 ${E(p.fornecedor)} — ${E(a.nome)}</a>`)).join(' · ')}</div>`:''}</div></div>
     <div class="form-group" style="margin-top:10px;"><label class="form-label">Observação (obrigatória para devolver ou reprovar)</label><input class="form-input" id="apv-obs"></div>
-    ${dono?'<div class="av av-r">Você montou esta compra: outra pessoa com permissão precisa aprovar.</div>':''}`;
+    ${orf?`<div class="av av-r">⚠ ${E(orf)} Não aprove: devolva ou reprove esta compra.</div>`:''}
+    ${dono?'<div class="av av-r">Você montou esta compra: outra pessoa com permissão precisa aprovar.</div>':''}
+    ${s?`<details style="margin-top:10px;"><summary style="cursor:pointer;font-size:12px;font-weight:800;color:var(--primary);">🔖 Ver os carimbos (quem pediu, quem aprovou a necessidade, quem cotou)</summary><div style="margin-top:6px;">${carimbos(etapas(s,c,[]))}</div></details>`:''}`;
   document.getElementById('apv-pe').innerHTML=`<button class="bsec" onclick="imprimirMapa('${c.id}')">🖨️</button><button class="bsec org" onclick="decidir('${c.id}','devolver')">↩ Devolver</button><button class="bsec red" onclick="decidir('${c.id}','reprovar')">✕ Reprovar</button>
-    <button class="bbig ok" style="flex:0 0 auto;padding:12px 26px;" ${dono?'disabled':''} onclick="decidir('${c.id}','aprovar')">✓ APROVAR</button>`;
+    <button class="bbig ok" style="flex:0 0 auto;padding:12px 26px;" ${dono||orf?'disabled':''} onclick="decidir('${c.id}','aprovar')">✓ APROVAR</button>`;
   document.getElementById('m-apv').classList.remove('hidden');
 }
 async function decidir(id,dec){
@@ -896,7 +994,8 @@ function abrirConfirmar(id){
       ${dif!=null?`<div style="font-size:12.5px;font-weight:800;color:${dif>cfg('alerta')?'var(--org)':'#166534'};">${dif>0?'⚠ '+dif+'% acima':'✓ '+Math.abs(dif)+'% abaixo'} do último preço pago (${brl(tot)})</div>`:''}
       <div class="mini3"><div>Motivo<b>${E((MOTIVOS[p.motivo_direto]||'Máq. parada').replace(/^\S+\s/,''))}</b></div><div>Entrega<b>${p.prazo_entrega?dBR(p.prazo_entrega):'—'}</b></div><div>Confirmar até<b>${dhBR(p.ratificar_ate)}</b></div></div></div>
     <div class="box" style="margin-top:10px;"><h4>Itens</h4><table class="tb">${(p.itens||[]).map(i=>`<tr><td>${E(i.nome)} · ${fq(i.qtd)} ${E(i.unidade||'')}</td><td class="n">${brl(num(i.preco_unit)*num(i.qtd))}</td></tr>`).join('')}</table></div>
-    <div class="form-group"><label class="form-label">Pergunta ao comprador (para "Pedir explicação")</label><input class="form-input" id="apv-obs"></div>`;
+    ${(p.historico||[]).filter(h=>['questionado','resposta'].includes(h.acao)).map(h=>`<div class="av ${h.acao==='resposta'?'av-ok':'av-w'}">${h.acao==='resposta'?'💬 Resposta de ':'❓ Pergunta de '}<b>${E(nomeCurto(h.por))}</b> (${dhBR(h.em)}): ${E(h.obs||'')}</div>`).join('')}
+    <div class="form-group" style="margin-top:10px;"><label class="form-label">Pergunta ao comprador (para "Pedir explicação")</label><input class="form-input" id="apv-obs"></div>`;
   document.getElementById('apv-pe').innerHTML=`<button class="bsec org" onclick="ratificar('${p.id}','questionar')">💬 Pedir explicação</button><button class="bbig ok" style="flex:0 0 auto;padding:12px 26px;" onclick="ratificar('${p.id}','confirmar')">✓ CIENTE / CONFIRMO</button>`;
   document.getElementById('m-apv').classList.remove('hidden');
 }
@@ -911,16 +1010,16 @@ async function abrirAnexo(path){const {data,error}=await _supabase.storage.from(
 function renderPedidos(){
   const {ini,fim}=faixaMes(); const noMes=p=>String(p.data||'')>=ini&&String(p.data||'')<fim;
   const F={abertos:['Em aberto',p=>['emitido','aguardando_entrega','recebido_parcial'].includes(p.status)],atrasados:['Atrasados',atrasado],emerg:['⚡ Emergenciais do mês',p=>p.emergencial&&noMes(p)],
-    entregues:['Entregues do mês',p=>p.status==='recebido_total'&&String(p.atualizado_em||p.data)>=ini&&String(p.atualizado_em||p.data)<fim],cancel:['Cancelados do mês',p=>p.status==='cancelado'&&noMes(p)],todos:['Todos do mês',noMes]};
+    semcompras:['📥 Sem Compras (recebimento)',p=>viaReceb(p)&&noMes(p)],entregues:['Entregues do mês',p=>p.status==='recebido_total'&&String(p.atualizado_em||p.data)>=ini&&String(p.atualizado_em||p.data)<fim],cancel:['Cancelados do mês',p=>p.status==='cancelado'&&noMes(p)],todos:['Todos do mês',noMes]};
   if(!F[_pedFiltro])_pedFiltro='abertos';
   document.getElementById('ped-chips').innerHTML=Object.entries(F).map(([k,[t,f]])=>`<span class="chip ${k===_pedFiltro?'on':''}" onclick="_pedFiltro='${k}';renderPedidos()">${t} (${S.peds.filter(f).length})</span>`).join('');
   const fc=document.getElementById('f-comprador').value, ff=document.getElementById('f-forn').value, fb=N(document.getElementById('f-busca').value);
-  const l=S.peds.filter(F[_pedFiltro][1]).filter(p=>(!fc||p.comprador===fc)&&(!ff||p.fornecedor_id===ff)&&(!fb||N(['#'+pad4(p.numero),p.fornecedor,(p.itens||[]).map(i=>i.nome).join(' ')].join(' ')).includes(fb)))
+  const l=S.peds.filter(F[_pedFiltro][1]).filter(p=>(!fc||compradorDe(p)===fc)&&(!ff||p.fornecedor_id===ff)&&(!fb||N(['#'+pad4(p.numero),p.fornecedor,(p.itens||[]).map(i=>i.nome).join(' ')].join(' ')).includes(fb)))
     .sort((a,b)=>(b.numero||0)-(a.numero||0));
   const ST={emitido:['Enviado','t-azul'],aguardando_entrega:['Aguardando entrega','t-azul'],recebido_parcial:['Parcial','t-alta'],recebido_total:['Entregue','t-ok'],cancelado:['Cancelado','t-cin']};
-  document.getElementById('ped-tab').innerHTML=`<tr><th>Nº</th><th>Data</th><th>Fornecedor</th><th>Itens</th><th class="n">Valor</th><th>Entrega</th><th>Situação</th></tr>`+
-    (l.map(p=>`<tr class="clk" onclick="abrirPed('${p.id}')"><td><b>#${pad4(p.numero)}</b>${p.emergencial?' <span class="tag t-em">⚡</span>':''}</td><td>${dBR(p.data)}</td><td>${E(p.fornecedor||'')}</td><td style="font-size:12px;">${itensTxt(p.itens,2)}</td><td class="n"><b>${brl(p.valor_total)}</b></td>
-      <td style="${atrasado(p)?'color:var(--red);font-weight:800;':''}">${p.prazo_entrega?dBR(p.prazo_entrega):'—'}</td><td><span class="tag ${(ST[p.status]||['',''])[1]}">${(ST[p.status]||[p.status])[0]}</span></td></tr>`).join('')||'<tr><td colspan="7" class="vazio">Nenhum pedido.</td></tr>');
+  document.getElementById('ped-tab').innerHTML=`<tr><th>Nº</th><th>Data</th><th>Fornecedor</th><th>Itens</th><th>Comprado por</th><th class="n">Valor</th><th>Entrega</th><th>Situação</th></tr>`+
+    (l.map(p=>`<tr class="clk" onclick="abrirPed('${p.id}')"><td><b>#${pad4(p.numero)}</b>${p.emergencial?' <span class="tag t-em">⚡</span>':''}</td><td>${dBR(p.data)}</td><td>${E(p.fornecedor||'')}</td><td style="font-size:12px;">${itensTxt(p.itens,2)}</td><td style="font-size:12px;">${viaReceb(p)?'<span class="tag t-cin">📥 sem Compras</span><div class="ref">'+E(nomeCurto(p.comprador))+' (almox.)</div>':E(nomeCurto(p.comprador))}</td><td class="n"><b>${brl(p.valor_total)}</b></td>
+      <td style="${atrasado(p)?'color:var(--red);font-weight:800;':''}">${p.prazo_entrega?dBR(p.prazo_entrega):'—'}</td><td><span class="tag ${(ST[p.status]||['',''])[1]}">${(ST[p.status]||[p.status])[0]}</span></td></tr>`).join('')||'<tr><td colspan="8" class="vazio">Nenhum pedido.</td></tr>');
 }
 async function cancelarPedido(id){
   const p=S.peds.find(x=>x.id===id);if(!p)return;

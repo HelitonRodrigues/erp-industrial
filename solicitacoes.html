@@ -505,6 +505,7 @@
 <script>
 'use strict';
 /* ═══ ESTADO ════════════════════════════════════════════ */
+let _comprasCots=[]; // cotações abertas do Compras (cotando / com o gerente) — só para mostrar a situação
 let _fornecedores=[],_solicitacoes=[],_comprasSols=[],_comprasPeds=[],_comprasRecs=[],_itens=[],_centrosCusto=[],_naturezas=[],_funcionarios=[],_empresa={},_user=null;
 /* ═══ CÓDIGO ALM PARA OS ITENS DE INSUMOS ════════════════════════════════
    Decisão de 09/2026: o item que vem do cadastro de Insumos entra nas
@@ -654,6 +655,7 @@ async function init(){
     /* fornecedores: recebimento de solicitação aprovada SEM pedido gera o pedido aqui mesmo */
     safe(_supabase.from('almoxarifado_fornecedores').select('id,razao_social,nome_fantasia').order('nome_fantasia')),
   ]);
+  _comprasCots=await safe(_supabase.from('compras_cotacoes').select('id,numero,solicitacao_id,status,tipo,comprador,enviada_em,historico').in('status',['aberta','aguardando_aprovacao','devolvida']));
   // EPIs do cadastro entram na lista de "+ Adicionar Produto" das solicitações
   const episItens=(epis||[]).map(e=>({
     id:e.id,
@@ -755,15 +757,15 @@ function renderRecebimentosSol(){
       <td style="color:#94a3b8;">informar no recebimento${c.solicitante?`<div style="font-size:11px;">Solic.: ${c.solicitante}</div>`:''}</td>
       <td style="white-space:nowrap;">${c.data||'—'}</td>
       <td style="font-size:12px;">${p.itens.map(i=>`${i.nome} (${qShow(i.qtd)})`).join(', ')||'—'}</td>
-      <td><span class="sb sb-pend">✅ Aprovada · sem pedido</span></td>
+      <td>${(()=>{const ct=(_comprasCots||[]).find(x=>x.solicitacao_id===c.id);return ct?`<span class="sb sb-cot" title="Receber agora encerra a cotação do Compras">${ct.status==='aguardando_aprovacao'?'⏳ Compra com o gerente':'💬 Compras cotando'}${ct.comprador?' · '+String(ct.comprador).split(' ')[0]:''}</span>`:'<span class="sb sb-pend">✅ Aprovada · sem pedido</span>';})()}</td>
       <td><button class="btn btn-primary btn-sm" style="background:#16a34a;" onclick="abrirRecebimentoSemPedido('${c.id}')">📥 Receber</button></td>
     </tr>`;}).join('');
   const pendRows=pend.length?pend.map(p=>{
     const sb=statusBadgeCompras(p.status);
     return `<tr>
       <td style="font-weight:800;color:var(--primary);white-space:nowrap;">#${String(p.numero||0).padStart(4,'0')}${_pedSolNumero(p)?`<div style="font-size:11px;color:#94a3b8;font-weight:600;">Sol ${_pedSolNumero(p)}</div>`:''}</td>
-      <td>${p.fornecedor||'—'}</td>
-      <td style="white-space:nowrap;">${p.prazo_entrega||'—'}</td>
+      <td>${p.fornecedor||'—'}${p.emergencial?' <span class="sb sb-pend" title="Compra emergencial (máquina parada)">⚡</span>':''}</td>
+      <td style="white-space:nowrap;">${p.prazo_entrega?p.prazo_entrega.split('-').reverse().join('/'):'—'}</td>
       <td style="font-size:12px;">${(p.itens||[]).map(i=>`${i.nome} (${qShow(i.qtd)})`).join(', ')||'—'}</td>
       <td><span class="sb ${sb.cls}">${sb.txt}</span></td>
       <td><button class="btn btn-primary btn-sm" style="background:#16a34a;" onclick="abrirRecebimentoSol('${p.id}')">📥 Receber</button></td>
@@ -1098,7 +1100,7 @@ function abrirRecebimentoSemPedido(csId){
   const fi=document.getElementById('rs-forn');if(fi){fi.value='';fi.style.borderColor='';}
   const dl=document.getElementById('rs-forn-lista');if(dl)dl.innerHTML=_fornecedores.map(f=>`<option value="${f.nome.replace(/"/g,'&quot;')}">`).join('');
   // valor sugerido: custo estimado da solicitação, se o cadastro não tiver custo
-  document.querySelectorAll('#rs-itens .rs-vu').forEach(inp=>{const it=itens[Number(inp.dataset.idx)];if(it&&!Number(inp.value)&&it.custo_estimado)inp.value=it.custo_estimado;});
+  document.querySelectorAll('#rs-itens .rs-vu').forEach(inp=>{const it=itens[Number(inp.dataset.idx)];if(it&&!Number(inp.value)&&it.custo_estimado&&it.qtd)inp.value=Math.round(it.custo_estimado/it.qtd*10000)/10000;});
   recalcRecebTotais();
 }
 function abrirRecebimentoSol(pedId,pedObj){
@@ -1118,8 +1120,9 @@ function abrirRecebimentoSol(pedId,pedObj){
   document.getElementById('rs-itens').innerHTML=(p.itens||[]).map((i,idx)=>{
     const rest=Math.max(0,(Number(i.qtd)||0)-(Number(i.qtd_recebida)||0));
     const it=_itens.find(x=>x.id===i.insumo_id)||{};
-    const vu=Number(it.custo_unitario)||0;
-    return _recebItemRow(i.insumo_id,i.nome,idx,rest,rest,vu,`Pedido: ${qShow(i.qtd)} · recebido: ${qShow(i.qtd_recebida||0)} · restante: ${qShow(rest)}`);
+    const pp=Number(i.preco_unit)||0;
+    const vu=pp||Number(it.custo_unitario)||0;
+    return _recebItemRow(i.insumo_id,i.nome,idx,rest,rest,vu,`Pedido: ${qShow(i.qtd)} · recebido: ${qShow(i.qtd_recebida||0)} · restante: ${qShow(rest)}${pp?' · preço do pedido R$ '+pp.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:4}):''}`);
   }).join('');
   recalcRecebTotais();
   document.getElementById('m-receb-sol').classList.remove('hidden');
@@ -1182,6 +1185,8 @@ function concluirRecebimentoSol(recId){
   renderConcluirItens();
   document.getElementById('m-receb-sol').classList.remove('hidden');
 }
+// a solicitação só fica "atendida" quando todos os pedidos dela (não cancelados) foram recebidos por completo
+function _solTodaRecebida(p){const outros=(_comprasPeds||[]).filter(x=>x.solicitacao_id===p.solicitacao_id&&x.status!=='cancelado'&&x.id!==p.id);return p.status==='recebido_total'&&outros.every(x=>x.status==='recebido_total');}
 async function salvarRecebimentoSol(){
   if(typeof guardAction==='function'&&!guardAction('solicitacoes','edit'))return;
   const modo=_recebModo;
@@ -1282,7 +1287,7 @@ async function salvarRecebimentoSol(){
       });
       const nfExibicao=notasHistorico.map(n=>n.numero).filter(Boolean).join(', ')||null;
       try{await resilientSave('compras_recebimentos',{data:novasEntradas[0]?.data||dataR,itens:merged,nota_fiscal:nfExibicao,notas:notasHistorico,obs,nao_conforme:naoConf,desconto:descontoCum,frete:freteCum,valor_total_geral:geralCum,valor_final:finalCum},_editRecId);}catch(e){}
-      if(p.solicitacao_id){const novoSt=tudo?'atendida':'em_pedido';try{await _supabase.from('compras_solicitacoes').update({status:novoSt,atualizado_em:new Date().toISOString()}).eq('id',p.solicitacao_id);}catch(e){}const c=_comprasSols.find(x=>x.id===p.solicitacao_id);if(c)c.status=novoSt;}
+      if(p.solicitacao_id){const novoSt=_solTodaRecebida(p)?'atendida':'em_pedido';try{await _supabase.from('compras_solicitacoes').update({status:novoSt,atualizado_em:new Date().toISOString()}).eq('id',p.solicitacao_id);}catch(e){}const c=_comprasSols.find(x=>x.id===p.solicitacao_id);if(c)c.status=novoSt;}
       try{await addLog('UPDATE','SOLICITACOES','rec-'+((rec&&rec.numero)||''),'Conclusao do recebimento #'+((rec&&rec.numero)||'')+' ('+novoStatus+')');}catch(e){}
       toast(tudo?'\u2705 Recebimento concluído e estoque atualizado!':'\u2705 Parcial recebido. Estoque atualizado; ainda falta receber.','success');
       closeModal('m-receb-sol');
@@ -1374,6 +1379,10 @@ async function salvarRecebimentoSol(){
         if(ePed||!pedNovo)throw new Error('Não consegui criar o pedido: '+((ePed&&ePed.message)||'sem retorno'));
         _comprasPeds=(_comprasPeds||[]);_comprasPeds.unshift(pedNovo);
         try{await addLog('CREATE','SOLICITACOES','ped-'+numPed,'Pedido #'+numPed+' gerado no recebimento da solicitação de compra (sem passar pelo Compras) — '+pedIns.fornecedor);}catch(e){}
+        for(const ct of (_comprasCots||[]).filter(x=>x.solicitacao_id===p.solicitacao_id)){
+          const h=[...(ct.historico||[]),{acao:'cancelada',por:(_user&&_user.nome)||'',em:agora,obs:'Encerrada: o almoxarifado recebeu sem pedido (pedido #'+numPed+')'}];
+          await db(_supabase.from('compras_cotacoes').update({status:'cancelada',historico:h,atualizado_em:agora}).eq('id',ct.id),'encerrar cotação do Compras');
+        }
         p=pedNovo;_pedReceb=pedNovo;
       }
       const final=geral-desconto+frete;
@@ -1397,7 +1406,7 @@ async function salvarRecebimentoSol(){
           valorUnitario:r.valor_unitario,pedidoId:p.id,
           obs:'Entrada recebimento pedido #'+String(p.numero).padStart(4,'0')+(nf?' NF '+nf:'')});
       }
-      if(p.solicitacao_id){const novoSt=tudo?'atendida':'em_pedido';try{await _supabase.from('compras_solicitacoes').update({status:novoSt,atualizado_em:new Date().toISOString()}).eq('id',p.solicitacao_id);}catch(e){}const c=_comprasSols.find(x=>x.id===p.solicitacao_id);if(c)c.status=novoSt;}
+      if(p.solicitacao_id){const novoSt=_solTodaRecebida(p)?'atendida':'em_pedido';try{await _supabase.from('compras_solicitacoes').update({status:novoSt,atualizado_em:new Date().toISOString()}).eq('id',p.solicitacao_id);}catch(e){}const c=_comprasSols.find(x=>x.id===p.solicitacao_id);if(c)c.status=novoSt;}
       if(naoConf){const desc=obs||'Nao conformidade no recebimento';try{await _supabase.from('compras_nc').insert({pedido_id:p.id,fornecedor_id:p.fornecedor_id||null,fornecedor:p.fornecedor||null,data:dataR,descricao:desc,gravidade:'media',status:'aberta'});}catch(e){}}
       try{await addLog('CREATE','SOLICITACOES','rec-'+numero,'Recebimento do pedido #'+p.numero+' ('+novoStatus+')'+(naoConf?' [NC]':''));}catch(e){}
       toast(tudo?'\u2705 Recebimento confirmado e estoque atualizado!':'\u2705 Recebimento parcial registrado. Use "Concluir" quando o restante chegar.','success');
@@ -1446,6 +1455,9 @@ function monComprasInfo(sol){
   if((sol.status||'pendente')!=='aprovada')return{cls:'',txt:'—'};
   const c=comprasVinculada(sol);
   const map={aprovada:{cls:'sb-pend',txt:'🆕 Aberto p/ Compras'},aguardando_cotacao:{cls:'sb-cot',txt:'✅ Aguardando Cotação'},em_cotacao:{cls:'sb-cot',txt:'💬 Em Cotação'},em_pedido:{cls:'sb-receb',txt:'📦 Em Pedido'},emitido:{cls:'sb-receb',txt:'📦 Pedido Emitido'},aguardando_entrega:{cls:'sb-receb',txt:'🚚 Aguard. Entrega'},recebido_parcial:{cls:'sb-receb',txt:'📥 Receb. Parcial'},recebido_total:{cls:'sb-concl',txt:'🎉 Recebido'},atendida:{cls:'sb-concl',txt:'🎉 Atendida'},reprovada:{cls:'sb-canc',txt:'❌ Reprovada'},cancelada:{cls:'sb-canc',txt:'🚫 Cancelada'},devolvida:{cls:'sb-pend',txt:'↩️ Devolvida'}};
+  const ct=cotAbertaDe(sol);
+  if(ct&&ct.status==='aguardando_aprovacao')return{cls:'sb-cot',txt:'⏳ Compra com o gerente'};
+  if(ct)return{cls:'sb-cot',txt:'💬 Em Cotação'};
   if(c&&map[c.status])return map[c.status];
   return{cls:'sb-pend',txt:'🆕 Aberto p/ Compras'};
 }
@@ -1590,6 +1602,9 @@ function comprasVinculada(sol){
     (c.origem_ref&&(c.origem_ref===sol.id||String(c.origem_ref)===String(sol.numero)))
   )||null;
 }
+function cotAbertaDe(sol){const c=comprasVinculada(sol);if(!c)return null;return (_comprasCots||[]).find(x=>x.solicitacao_id===c.id)||null;}
+// todos os pedidos (não cancelados) da solicitação — o Compras pode dividir em 1 pedido por fornecedor
+function comprasPedidosDe(sol){const c=comprasVinculada(sol);if(!c)return [];return (_comprasPeds||[]).filter(p=>p.solicitacao_id===c.id&&p.status!=='cancelado');}
 function comprasPedidoDe(sol){
   const c=comprasVinculada(sol);if(!c)return null;
   const peds=(_comprasPeds||[]).filter(p=>p.solicitacao_id===c.id);
@@ -1610,12 +1625,13 @@ const KANBAN_LABEL={
 function kanbanColDe(sol){
   const c=comprasVinculada(sol);
   const cStatus=c?c.status:'aprovada';
-  const ped=comprasPedidoDe(sol);
-  if(ped&&ped.status!=='cancelado'){
-    if(ped.status==='recebido_total')return 'concluido';
-    if(ped.status==='recebido_parcial')return 'parcial';
+  const peds=comprasPedidosDe(sol);
+  if(peds.length){
+    if(peds.every(p=>p.status==='recebido_total'))return 'concluido';
+    if(peds.some(p=>['recebido_total','recebido_parcial'].includes(p.status)))return 'parcial';
     return 'pedido'; // emitido / aguardando_entrega
   }
+  if(cotAbertaDe(sol))return 'em_cotacao';
   if(['aprovada','pendente','devolvida','aguardando_cotacao'].includes(cStatus))return 'aberto';
   if(cStatus==='em_cotacao')return 'em_cotacao';
   if(cStatus==='em_pedido')return 'pedido';
@@ -1629,8 +1645,12 @@ function statusDisplay(sol){
   if(sol.status==='reprovada')return{cls:'sb-canc',txt:'❌ Reprovada'};
   if(sol.status==='cancelada')return{cls:'sb-canc',txt:'🚫 Cancelada'};
   if(sol.status!=='aprovada')return{cls:'sb-pend',txt:'⏳ Aguardando Aprovação'};
-  // Aprovadas: exibe exatamente o status (coluna) do Kanban de Compras
-  return KANBAN_LABEL[kanbanColDe(sol)]||KANBAN_LABEL.aberto;
+  // Aprovadas: exibe a etapa no Compras
+  const k=kanbanColDe(sol), ct=cotAbertaDe(sol);
+  if(k==='em_cotacao'&&ct&&ct.status==='aguardando_aprovacao')return{cls:'sb-cot',txt:'⏳ Compra com o gerente'};
+  if(k==='em_cotacao'&&ct&&ct.status==='devolvida')return{cls:'sb-cot',txt:'↩️ Cotação devolvida'};
+  if(k==='pedido'&&comprasPedidosDe(sol).some(p=>p.emergencial))return{cls:'sb-receb',txt:'⚡ Pedido emergencial'};
+  return KANBAN_LABEL[k]||KANBAN_LABEL.aberto;
 }
 
 /* Escreve a contagem de cada status nas opções dos filtros (Solicitação e Monitor).
