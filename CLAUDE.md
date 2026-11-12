@@ -715,3 +715,9 @@ fábrica específica. Não generalizar.
   mudada (data antiga riscada). Computador (> 900 px): tabela de pedidos agrupada por dia com filtros (Todos/Mudou/Atrasados/
   Financeiro/Sem data) + calendário de dias livres (seg–sáb, 4 semanas, botões por família, contorno = já tem pedido). Celular:
   abas "Meus pedidos | Dias livres" e cartões. Representante vê só os itens de Big Bag e Caulim 25 kg (pedido sem esses some).
+
+### Programação de Cargas v4 (tela nova)
+- Topo: busca, sync (Salescode + última leitura da balança), ↶, 🆕 novos, 📦 Carregadas, ＋ Carga manual, ⋯ Mais (links / PDF), 🔄 Atualizar. KPIs em 6 blocos, abas de linha com horas da semana, filtros (representante em lista própria agrupada CAULIM/DEMAIS, coluna, 💜 financeiro, 🆕).
+- Card do quadro: pedido + qtd · cliente/cidade · produto curto · 👤 nº — nome do representante · chips (✓ cabe / ½ / ✗, coluna do Salescode, 💜 status, linha manual, atrasado) · faixa azul "Salescode dd/mm → Fábrica dd/mm" quando a data foi mudada. Dia passado sem pedido fica estreito.
+- Modais com classe `.pcm`: Pedido (passos Financeiro→…→Carregado, data/linha/carregado no topo, cards Carga/Transporte/Comercial/Balança), Dia (abas por linha, "o que produzir", linhas arrastáveis para ordem), listas (Atrasados/Sem data/Financeiro/Novos) e Carregadas (período, busca, origem, KPIs com líquido 1× por ticket, imprimir, Excel CSV; período > 45 dias busca do banco).
+- `<header class="topbar" id="topbar">`: o id é obrigatório para o » (toggleSidebar) funcionar.
