@@ -117,6 +117,21 @@
     });
   }
   const ehFinanceiro = c => FINANCEIRO.includes(norm(c.status_salescode));
+  // coluna do quadro do Salescode que manda (a mais adiantada) e prioridade para programar
+  const COLUNAS = ['Ordem de Carga', 'A contratar', 'Ordem Cancelada', 'Programados', 'Financeiro'];
+  const coluna = c => {
+    const cs = c.colunas_salescode || c.col || [];
+    const k = COLUNAS.find(x => cs.some(y => norm(y) === norm(x)));
+    if (k) return k;
+    const st = norm(c.status_salescode);
+    if (st === 'ORDEM DE CARGA') return 'Ordem de Carga';
+    if (st === 'ORDEM CANCELADA') return 'Ordem Cancelada';
+    if (ehFinanceiro(c)) return 'Financeiro';
+    return null;
+  };
+  const prioridade = c => { const i = COLUNAS.indexOf(coluna(c)); return i < 0 ? 9 : i; };
+  // conta capacidade: tudo que não está no financeiro + financeiro que a fábrica já programou (tem data da fábrica)
+  const contaCapacidade = c => !ehFinanceiro(c) || !!(c.data_manual || c.man);
   const dataDe = c => c.data_manual || c.data_salescode || c.data_planilha || null;
 
   /* ── capacidade ── */
@@ -210,7 +225,7 @@
   G.ProgMotor = {
     FAM, DIAS, norm, addDias, dow, prodNorm,
     iniciar(o) { _planos = o.planos || []; _turnos = o.turnos || []; _produtos = o.produtos || []; _aliases = o.aliases || []; _cap = {}; _casa = {}; },
-    casarProduto, familia, grupo, material, itens, ehFinanceiro, dataDe,
+    casarProduto, familia, grupo, material, itens, ehFinanceiro, dataDe, COLUNAS, coluna, prioridade, contaCapacidade,
     capacidadeDia, linhasDaFamilia, linhaDoItem, capHora, encaixarDia, livre,
   };
 })(typeof window !== 'undefined' ? window : globalThis);
