@@ -701,3 +701,5 @@ fábrica específica. Não generalizar.
 - **↶ Desfazer** (botão no topo + Ctrl+Z, fora de campos de texto): pilha da sessão (60) com o estado anterior de data_manual,
   ordem_dia, linha_manual e carregado_*; grava só o que mudou. Vale para mover, trocar linha, carregado e desfazer carregado.
 - 12/11 09:26–09:38: o dono pediu para voltar 16 pedidos arrastados — data_manual zerada (A01M8H voltou a 11/11), registrado em auditoria.
+- **🔗 Links dos representantes** separado em 2 grupos: "Caulim — Big Bag e ensacado 25 kg" (rep com pedido aberto de família
+  Bag/Linha 25kg; mostra "N de Big Bag / 25 kg · M de outros") e "Demais representantes" (recolhido em `<details>`).
