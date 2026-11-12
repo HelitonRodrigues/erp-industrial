@@ -101,6 +101,8 @@
 .pc-warn{background:#FFF7E6;border:1px solid #FCD9A0;border-radius:9px;padding:9px 10px;font-size:11.5px;margin-bottom:6px}
 .pc-warn select{margin-top:5px;width:100%;padding:5px;border:1px solid #CBD5E1;border-radius:6px;font-size:11.5px;font-family:inherit}
 .pc-help{font-size:12px;color:var(--pc-mut);line-height:1.5}
+.pc-cb{font-size:10.5px;font-weight:800;padding:1px 7px;border-radius:20px;white-space:nowrap}
+.pc-cb.oc{background:#DCFCE7;color:#166534}.pc-cb.ac{background:#DBEAFE;color:#1E40AF}.pc-cb.ca{background:#FEE2E2;color:#991B1B}.pc-cb.pg{background:#F1F5F9;color:#475569}.pc-cb.fi{background:#F3E8FF;color:#6B21A8}
 .pc-busca{position:relative}
 .pc-busca input{width:280px;height:34px;border:1.5px solid #cbd5e1;border-radius:9px;padding:0 12px;font-size:13.5px;font-weight:600;outline:none;background:#fff}
 .pc-busca input:focus{border-color:#042D4D;box-shadow:0 0 0 3px rgba(4,45,77,.12)}
@@ -143,6 +145,7 @@
     <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;max-width:860px;align-items:center">
     <div class="pc-busca"><input id="pc-q" type="search" placeholder="🔎 Buscar pedido ou cliente" autocomplete="off" oninput="buscarDigitou()" onfocus="buscarDigitou()" onkeydown="if(event.key==='Escape'){this.value='';fecharBusca();}if(event.key==='Enter'){const b=document.querySelector('#pc-bres .pc-bit');if(b)b.click();}"><div class="pc-bres hidden" id="pc-bres"></div></div>
     <div class="pc-sync" id="pc-sync">—</div>
+    <button class="btn btn-secondary btn-sm" id="btn-desf" onclick="desfazerUltimo()" disabled title="Nada para desfazer">↶ Desfazer</button>
     <button class="btn btn-secondary btn-sm" onclick="abrirLinks()">🔗 Links dos representantes</button>
     <button class="btn btn-secondary btn-sm" onclick="abrirRelatorio()">📄 PDF por representante</button>
     <button class="btn btn-secondary btn-sm" onclick="abrirHistorico()">📦 Carregadas</button>
@@ -160,6 +163,7 @@
     <div class="pc-nav"><button onclick="moverSemana(-1)">‹ Semana anterior</button><button class="on" id="pc-sem-tit" onclick="irHoje()">—</button><button onclick="moverSemana(1)">Próxima ›</button></div></div>
   <div class="pc-flt">
     <select id="sel-rep" onchange="_rep=this.value;render()"><option value="">Todos os representantes</option></select>
+    <select id="sel-col" onchange="_colF=this.value;render()"><option value="">Todas as colunas do Salescode</option><option>Ordem de Carga</option><option>A contratar</option><option>Ordem Cancelada</option><option>Programados</option><option>Financeiro</option><option value="-">Sem coluna</option></select>
     <label class="pc-chk"><input type="checkbox" id="chk-fin" checked onchange="render()"> Mostrar pedidos no financeiro</label>
   </div>
 
@@ -226,7 +230,7 @@ const MOD='programacao_cargas', M=ProgMotor;
 const DC=['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
 const MESES=['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 const COR={branco:'#3B6FB6',branco2:'#2A9D8F',branco3:'#5B8DEF',creme:'#D9962B',cinza:'#7A8699',amarelo:'#CA8A04',liga:'#8B5CF6',outro:'#94A3B8'};
-let _cargas=[],_produtos=[],_aliases=[],_links=[],_pode=false,_rep='',_linha='Linha 2',_ref=hoje(),_mesRef=hoje(),_drag=null;
+let _colF='',_desf=[],_cargas=[],_produtos=[],_aliases=[],_links=[],_pode=false,_rep='',_linha='Linha 2',_ref=hoje(),_mesRef=hoje(),_drag=null;
 
 function hoje(){const d=new Date();d.setMinutes(d.getMinutes()-d.getTimezoneOffset());return d.toISOString().slice(0,10);}
 const add=M.addDias, dow=M.dow;
@@ -238,11 +242,13 @@ const jsq=s=>JSON.stringify(String(s)).replace(/"/g,'&quot;');
 const inicioSemana=i=>{const d=dow(i);return add(i,d===0?-6:1-d);};
 const qtdU=(q,un)=>`${un==='t'?n1(q):n0(q)} <small>${esc(un)}</small>`;
 const qtdTxt=(q,un)=>`${un==='t'?n1(q):n0(q)} ${un}`;
+const COLT={'Ordem de Carga':['🚚','oc','Ordem de Carga'],'A contratar':['📋','ac','A contratar'],'Ordem Cancelada':['✖','ca','Ordem cancelada'],'Programados':['🗓','pg','Programado'],'Financeiro':['💜','fi','Financeiro']};
+const colTag=(c,mini)=>{const t=COLT[c._col];return t?`<span class="pc-cb ${t[1]}" title="Coluna no Salescode: ${t[2]}">${t[0]}${mini?'':' '+t[2]}</span>`:'';};
 
 /* ── dados ── */
 function montar(c){
   const p=c.planilha||{}, its=M.itens(c);
-  return Object.assign(c,{_itens:its,_data:M.dataDe(c),_dataSC:c.data_salescode||c.data_planilha||null,_fin:M.ehFinanceiro(c),
+  return Object.assign(c,{_itens:its,_data:M.dataDe(c),_dataSC:c.data_salescode||c.data_planilha||null,_fin:M.ehFinanceiro(c),_col:M.coluna(c),_pri:M.prioridade(c),_conta:M.contaCapacidade(c),
     _cli:p.cliente||c.cliente_salescode||'—',_rep:c.representante||'Sem representante',_t:its.reduce((s,i)=>s+(i.t||0),0)});
 }
 async function carregar(){
@@ -265,10 +271,11 @@ async function carregar(){
 }
 
 /* ── filtros ── */
-function abertos(){const fin=document.getElementById('chk-fin').checked;return _cargas.filter(c=>!c.carregado&&(fin||!c._fin)&&(!_rep||c._rep===_rep));}
-const ordenar=(a,b)=>(a.ordem_dia??9999)-(b.ordem_dia??9999)||String(a.pedido).localeCompare(String(b.pedido));
+function abertos(){const fin=document.getElementById('chk-fin').checked;return _cargas.filter(c=>!c.carregado&&(fin||!c._fin||c._conta)&&(!_rep||c._rep===_rep)&&(!_colF||(_colF==='-'?!c._col:c._col===_colF)));}
+const ordenar=(a,b)=>(a.ordem_dia??9999)-(b.ordem_dia??9999)||a._pri-b._pri||String(a.pedido).localeCompare(String(b.pedido));
+const porPrioridade=(a,b)=>a._pri-b._pri||String(a._data||'9999').localeCompare(String(b._data||'9999'));
 // a conta de capacidade usa TODOS os pedidos do dia (não só o filtro), sem financeiro
-const paraConta=iso=>_cargas.filter(c=>!c.carregado&&!c._fin&&c._data===iso).sort(ordenar);
+const paraConta=iso=>_cargas.filter(c=>!c.carregado&&c._conta&&c._data===iso).sort(ordenar);
 function linhasDoPedido(c){const s=new Set();c._itens.forEach(i=>s.add(M.linhaDoItem(c._data||hoje(),i.fam,c.linha_manual)||'Revenda'));return [...s];}
 const naLinha=c=>_linha==='Todas'||linhasDoPedido(c).includes(_linha);
 function nomesLinhas(){const s=new Set(['Linha 2']);for(let i=0;i<7;i++)(M.capacidadeDia(add(inicioSemana(_ref),i)).linhas||[]).forEach(l=>s.add(l.nome));return [...s,'Revenda'];}
@@ -307,8 +314,8 @@ function renderMes(){
 function semVinculo(){const m={};abertos().forEach(c=>c._itens.forEach(i=>{if(!i.erp&&i.grupo!=='original')m[i.produto]=(m[i.produto]||0)+1;}));return Object.entries(m);}
 function renderKpis(){
   const L=abertos(),h=hoje(),ds=diasSemana();
-  const atr=L.filter(c=>c._data&&c._data<h&&!c._fin), hj=L.filter(c=>c._data===h&&!c._fin), sem=L.filter(c=>!c._data), fin=L.filter(c=>c._fin), sv=semVinculo();
-  const tot={};L.filter(c=>!c._fin&&ds.includes(c._data)).forEach(c=>c._itens.forEach(i=>{if(!i.fam)return;const l=M.linhaDoItem(c._data,i.fam,c.linha_manual)||'Revenda';if(_linha!=='Todas'&&l!==_linha)return;tot[i.un]=(tot[i.un]||0)+i.q;}));
+  const atr=L.filter(c=>c._data&&c._data<h&&c._conta), hj=L.filter(c=>c._data===h&&c._conta), sem=L.filter(c=>!c._data), fin=L.filter(c=>c._fin), sv=semVinculo();
+  const tot={};L.filter(c=>c._conta&&ds.includes(c._data)).forEach(c=>c._itens.forEach(i=>{if(!i.fam)return;const l=M.linhaDoItem(c._data,i.fam,c.linha_manual)||'Revenda';if(_linha!=='Todas'&&l!==_linha)return;tot[i.un]=(tot[i.un]||0)+i.q;}));
   const tt=Object.entries(tot).sort((a,b)=>(a[0]==='bags'?-1:b[0]==='bags'?1:b[1]-a[1]));
   const oh=ocup(h,_linha), falta=oh.pior&&oh.pior.f>0.01;
   const sum=l=>n1(l.reduce((s,c)=>s+c._t,0))+' t';
@@ -331,7 +338,7 @@ function renderTabs(){
   const ini=inicioSemana(_ref);document.getElementById('pc-sem-tit').textContent=`Semana ${fmtD(ini)} a ${fmtD(add(ini,5))}`;
 }
 function renderProduzir(){
-  const ds=diasSemana(), L=abertos().filter(c=>!c._fin&&ds.includes(c._data));
+  const ds=diasSemana(), L=abertos().filter(c=>c._conta&&ds.includes(c._data));
   let body='';
   (_linha==='Todas'?nomesLinhas():[_linha]).forEach(ln=>{
     const rows={};
@@ -358,15 +365,16 @@ function renderProduzir(){
 }
 function fitTag(f){if(!f)return '';if(f.st==='ok')return '<span class="pc-fit g">✓ cabe</span>';if(f.st==='par')return `<span class="pc-fit p">${n0(f.cabe)} de ${n0(f.tot)}</span>`;if(f.st==='no')return '<span class="pc-fit n">não cabe</span>';return '<span class="pc-fit s">revenda</span>';}
 function cardHtml(c,fit,o={}){
-  const h=hoje(), late=c._data&&c._data<h&&!c._fin, mud=c.data_manual&&c.data_manual!==c._dataSC;
-  const cls=['pc-c'];if(c._fin)cls.push('fin');if(fit&&fit.st==='no')cls.push('over');if(late)cls.push('late');
+  const h=hoje(), late=c._data&&c._data<h&&c._conta, mud=c.data_manual&&c.data_manual!==c._dataSC;
+  const cls=['pc-c'];if(c._fin&&!c._conta)cls.push('fin');if(fit&&fit.st==='no')cls.push('over');if(late)cls.push('late');
   const q={};c._itens.forEach(i=>{q[i.un]=(q[i.un]||0)+i.q;});
   const extra=[o.data?`<span>${fmtDL(c._data)}</span>`:'',mud?`<span class="pc-chg">Salescode ${fmtD(c._dataSC)} → Fábrica ${fmtD(c.data_manual)}</span>`:'',late?`<span class="no" style="font-weight:800">atrasado desde ${fmtD(c._data)}</span>`:'',c.linha_manual?`<span class="pc-chg" style="background:#F3E8FF;color:#6B21A8">na ${esc(c.linha_manual)}</span>`:''].join('');
   return `<div class="${cls.join(' ')}" ${_pode?'draggable="true"':''} data-id="${c.id}" onclick="abrirCarga('${c.id}')">
     <div class="r1"><span class="pc-ped">${esc(c.pedido)}</span><span class="pc-q">${Object.entries(q).map(([u,v])=>qtdU(v,u)).join(' + ')}</span></div>
     <div class="pc-cl">${esc(c._cli)}${c.cidade&&!c._cli.includes('(')?` <span style="color:#94A3B8;font-weight:600">· ${esc(c.cidade)}</span>`:''}</div>
     ${c._itens.map(i=>`<span class="pc-pr${i.erp?'':' sv'}" style="background:${COR[i.mat]||COR.outro}" title="${esc(i.produto)}">${i.erp?'':'⚠ '}${esc(i.nome)}</span>`).join('')}
-    <div class="pc-mt"><span>👤 ${esc(c._rep)}</span>${c._fin?`<span style="color:#7C3AED;font-weight:700">💜 ${esc(c.status_salescode)}</span>`:fitTag(fit)}</div>
+    <div class="pc-mt"><span>👤 ${esc(c._rep)}</span>${c._fin&&!c._conta?`<span style="color:#7C3AED;font-weight:700">💜 ${esc(c.status_salescode)}</span>`:fitTag(fit)}</div>
+    <div class="pc-mt">${c._fin?'':colTag(c)}${c._fin&&c._conta?`<span style="color:#7C3AED;font-weight:700">💜 ${esc(c.status_salescode)}</span>`:''}</div>
     ${extra?`<div class="pc-mt">${extra}</div>`:''}
     ${o.botao&&_pode&&!c._fin?`<div class="pc-mt" style="justify-content:flex-end"><button class="pc-ck" onclick="event.stopPropagation();marcarCarregado('${c.id}')">✓ Carregado</button></div>`:''}
   </div>`;
@@ -376,7 +384,7 @@ function renderSemana(){
   el.style.gridTemplateColumns=`repeat(${ds.length},minmax(0,1fr))`;
   el.innerHTML=ds.map(iso=>{
     const cs=L.filter(c=>c._data===iso&&naLinha(c)).sort(ordenar), e=M.encaixarDia(iso,paraConta(iso)), off=!e.cap.semPlano&&!e.cap.trabalha;
-    const q={};cs.filter(c=>!c._fin).forEach(c=>c._itens.forEach(i=>{const l=M.linhaDoItem(iso,i.fam,c.linha_manual)||'Revenda';if(_linha!=='Todas'&&l!==_linha)return;q[i.un]=(q[i.un]||0)+i.q;}));
+    const q={};cs.filter(c=>c._conta).forEach(c=>c._itens.forEach(i=>{const l=M.linhaDoItem(iso,i.fam,c.linha_manual)||'Revenda';if(_linha!=='Todas'&&l!==_linha)return;q[i.un]=(q[i.un]||0)+i.q;}));
     const o=ocup(iso,_linha), f=o.pior&&o.pior.f>0.01;
     let livre='';
     if(!off&&_linha!=='Todas'&&_linha!=='Revenda'){const l=e.cap.linhas.find(x=>x.nome===_linha);if(l&&l.horas>0){const resto=l.horas-(e.usoH[_linha]||0)-(e.faltaH[_linha]||0),fm=famLivre(l);if(fm&&resto>0.2)livre=`<div class="pc-livre">cabem mais ${n0(resto*l.cap[fm])} ${M.FAM[fm].un}${_pode?'<br>arraste um pedido para cá':''}</div>`;}}
@@ -388,9 +396,9 @@ function renderSemana(){
 }
 function renderLateral(){
   const L=abertos(), h=hoje();
-  const atr=L.filter(c=>c._data&&c._data<h&&!c._fin&&naLinha(c)).sort((a,b)=>a._data.localeCompare(b._data));
-  const sem=L.filter(c=>!c._data&&naLinha(c)), sv=semVinculo();
-  const mini=c=>{const q={};c._itens.forEach(i=>{q[i.un]=(q[i.un]||0)+i.q;});return `<div class="pc-mini" ${_pode?'draggable="true"':''} data-id="${c.id}" onclick="abrirCarga('${c.id}')"><span class="pc-ped" style="font-size:11px">${esc(c.pedido)}</span> <b>${Object.entries(q).map(([u,v])=>qtdTxt(v,u)).join(' + ')}</b> · ${esc(c._cli)}<br>${c._data?`<span class="no" style="font-weight:700">desde ${fmtD(c._data)}</span> · `:''}${esc(c._itens.map(i=>i.nome).join(', '))}</div>`;};
+  const atr=L.filter(c=>c._data&&c._data<h&&c._conta&&naLinha(c)).sort(porPrioridade);
+  const sem=L.filter(c=>!c._data&&naLinha(c)).sort(porPrioridade), sv=semVinculo();
+  const mini=c=>{const q={};c._itens.forEach(i=>{q[i.un]=(q[i.un]||0)+i.q;});return `<div class="pc-mini" ${_pode?'draggable="true"':''} data-id="${c.id}" onclick="abrirCarga('${c.id}')"><span class="pc-ped" style="font-size:11px">${esc(c.pedido)}</span> ${colTag(c,1)} <b>${Object.entries(q).map(([u,v])=>qtdTxt(v,u)).join(' + ')}</b> · ${esc(c._cli)}<br>${c._data?`<span class="no" style="font-weight:700">desde ${fmtD(c._data)}</span> · `:''}${esc(c._itens.map(i=>i.nome).join(', '))}</div>`;};
   const opts=_produtos.map(p=>`<option value="${p.id}">${esc(p.nome)}</option>`).join('');
   document.getElementById('pc-lat').innerHTML=`
     <div class="pc-card"><h4>Atrasados <span class="pc-pill r">${atr.length}</span></h4><div class="pc-sb">${atr.map(mini).join('')||'<div class="pc-help">Nenhum 👍</div>'}</div></div>
@@ -415,6 +423,7 @@ function ligarDrag(){
 async function moverCarga(id,dia,ev,zona){
   if(!guardAction(MOD,'edit'))return;
   const c=_cargas.find(x=>x.id===id);if(!c)return;
+  guardar(c,`mover ${c.pedido}`);
   let ordem=null;
   if(dia&&zona&&ev){const cards=[...zona.querySelectorAll('.pc-c[data-id]')].filter(x=>x.dataset.id!==id);const idx=cards.findIndex(x=>ev.clientY<x.getBoundingClientRect().top+x.offsetHeight/2);ordem=idx<0?cards.length:idx;
     const ids=cards.map(x=>x.dataset.id);ids.splice(ordem,0,id);
@@ -429,6 +438,7 @@ async function moverCarga(id,dia,ev,zona){
 async function mudarLinha(id,linha){
   if(!guardAction(MOD,'edit'))return;
   const c=_cargas.find(x=>x.id===id);if(!c)return;
+  guardar(c,`linha de ${c.pedido}`);
   const {error}=await db(_supabase.from('programacao_cargas').update({linha_manual:linha||null}).eq('id',id),'trocar linha');
   if(error)return;c.linha_manual=linha||null;addLog('LINHA',MOD,id,`${c.pedido} → ${linha||'linha padrão'}`);toast(`${c.pedido} → ${linha||'linha padrão'}`);render();abrirCarga(id);
 }
@@ -445,6 +455,7 @@ async function marcarCarregado(id,desfazer){
       .map(([d,t])=>`<button class="btn btn-ghost btn-sm" onclick="document.getElementById('ck-data').value='${d}'">${t}</button>`).join('');
     document.getElementById('m-ck').classList.remove('hidden');return;
   }
+  guardar(c,`desfazer carregado de ${c.pedido}`);
   const upd={carregado:false,carregado_em:null,carregado_por:null,carregado_origem:null,carregado_manual:true};
   const {error}=await db(_supabase.from('programacao_cargas').update(upd).eq('id',id),'desfazer carregado');if(error)return;
   Object.assign(c,upd);addLog('DESFAZER',MOD,id,`${c.pedido} ${c._cli}`);
@@ -456,6 +467,7 @@ function isoLocal(ts){const d=new Date(ts);d.setMinutes(d.getMinutes()-d.getTime
 async function salvarCarregado(){
   const c=_cargas.find(x=>x.id===_ckId);if(!c)return;
   const dia=document.getElementById('ck-data').value;
+  if(dia&&dia<=hoje())guardar(c,`carregado de ${c.pedido}`);
   if(!dia){toast('Escolha a data que carregou.','warning');return;}
   if(dia>hoje()){toast('A data não pode ser no futuro.','warning');return;}
   // hoje = hora de agora; outro dia = 12:00 daquele dia (a hora não importa, só o dia)
@@ -514,7 +526,7 @@ function abrirDia(iso){
 }
 function verLista(t){
   const L=abertos(),h=hoje();let arr=[],tit='';
-  if(t==='atr'){arr=L.filter(c=>c._data&&c._data<h&&!c._fin);tit='Atrasados';}
+  if(t==='atr'){arr=L.filter(c=>c._data&&c._data<h&&c._conta).sort(porPrioridade);tit='Atrasados';}
   if(t==='sem'){arr=L.filter(c=>!c._data);tit='Sem data';}
   if(t==='fin'){arr=L.filter(c=>c._fin);tit='No financeiro';}
   document.getElementById('m-dia-tit').textContent=`${tit} (${arr.length})`;
@@ -596,6 +608,27 @@ async function verPedido(id){
   w.document.close();
 }
 
+/* ── DESFAZER: volta a última mudança feita nesta tela (data, linha, carregado). Ctrl+Z também. ── */
+const CAMPOS_DESF=['data_manual','ordem_dia','linha_manual','carregado','carregado_em','carregado_por','carregado_origem','carregado_manual'];
+function guardar(c,rot){
+  const antes={};CAMPOS_DESF.forEach(k=>antes[k]=c[k]??null);
+  _desf.push({id:c.id,rot,antes});if(_desf.length>60)_desf.shift();botaoDesfazer();
+}
+function botaoDesfazer(){
+  const b=document.getElementById('btn-desf');if(!b)return;const u=_desf[_desf.length-1];
+  b.disabled=!u;b.textContent=u?`↶ Desfazer (${_desf.length})`:'↶ Desfazer';b.title=u?`Desfaz: ${u.rot}`:'Nada para desfazer';
+}
+async function desfazerUltimo(){
+  const u=_desf[_desf.length-1];if(!u){toast('Nada para desfazer','info');return;}
+  if(!guardAction(MOD,'edit'))return;
+  const c0=_cargas.find(x=>x.id===u.id)||{},mud={};CAMPOS_DESF.forEach(k=>{if((c0[k]??null)!==u.antes[k])mud[k]=u.antes[k];});
+  const {error}=await db(_supabase.from('programacao_cargas').update(Object.assign(mud,{updated_at:new Date().toISOString()})).eq('id',u.id),'desfazer');
+  if(error)return;_desf.pop();
+  const c=_cargas.find(x=>x.id===u.id);if(c){Object.assign(c,u.antes);montar(c);}
+  addLog('DESFAZER',MOD,u.id,`desfez: ${u.rot}`);toast(`↶ Desfeito: ${u.rot}`);botaoDesfazer();render();
+}
+document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&!e.shiftKey&&e.key.toLowerCase()==='z'&&!e.target.closest('input,textarea,select,[contenteditable]')){e.preventDefault();desfazerUltimo();}});
+
 /* ── BUSCA: onde está o pedido? (programado, carregado, atrasado, sem data, financeiro, só na balança) ── */
 let _bTimer=null,_bSeq=0;
 function fecharBusca(){document.getElementById('pc-bres').classList.add('hidden');}
@@ -613,7 +646,7 @@ function situacaoPedido(c){
   return {cls:'pr',tag:'📅 Programado',txt:`fábrica ${fmtDL(c._data)}${mud}${lin?' · '+lin:''}`};
 }
 function itemBusca(c){const s=situacaoPedido(c);
-  return `<button class="pc-bit" onclick="irParaPedido('${c.id}')"><div class="l1"><span class="pc-ped" style="font-size:12px">${esc(c.pedido)}</span><b style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px">${esc(c._cli)}</b><span class="pc-bst ${s.cls}">${s.tag}</span></div>
+  return `<button class="pc-bit" onclick="irParaPedido('${c.id}')"><div class="l1"><span class="pc-ped" style="font-size:12px">${esc(c.pedido)}</span><b style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px">${esc(c._cli)}</b>${colTag(c,1)}<span class="pc-bst ${s.cls}">${s.tag}</span></div>
     <div class="l2">${esc(s.txt)} · ${esc(c._itens.map(i=>qtdTxt(i.q,i.un)+' '+i.nome).join(' + ')||'—')}${c.representante?' · 👤 '+esc(c.representante):''}</div></button>`;}
 async function buscar(){
   const box=document.getElementById('pc-bres'),q=document.getElementById('pc-q').value.trim();

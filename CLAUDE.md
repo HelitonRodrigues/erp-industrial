@@ -685,3 +685,19 @@ fábrica específica. Não generalizar.
   (✅ Carregado + ticket · 📅 Programado com data da fábrica e linha · ⚠️ Atrasado · Sem data · 💜 Financeiro). Procura também no
   banco (carregados há mais de 45 dias, fora da tela) e em `prog_balanca_tickets` (pedido só pesado, fora da Programação = "⚖️ Só na
   balança"). Clicar vai para a semana do pedido e abre o pedido; Enter abre o 1º; Esc limpa.
+
+### Programação de Cargas — colunas do Salescode, prioridade, desfazer (migração 123, extensão v1.3)
+- Quadro do Salescode (`.kanban-column[data-stp]`): programados=Programados · financeiro=Financeiro · 10=A contratar ·
+  12=Ordem de Carga · 13=Ordem Cancelada. Um pedido aparece em mais de uma coluna (ex.: Programados + Financeiro).
+  Extensão v1.3 manda `coluna` por cartão (uma linha por coluna) e **não envia nada se houver coluna escondida** (senão os
+  pedidos dela "sairiam" = carregados). 123: `programacao_cargas.colunas_salescode text[]` (extensão antiga não apaga).
+  Conferido em 12/11: 261 linhas · 163 pedidos, todos no ERP (backfill das colunas feito na mão nesse dia).
+- `ProgMotor.coluna(c)` = a mais adiantada (Ordem de Carga > A contratar > Ordem Cancelada > Programados > Financeiro; sem colunas
+  usa `status_salescode`), `prioridade(c)` = índice. Cartão e lateral mostram a etiqueta (🚚 📋 ✖ 🗓); Atrasados e Sem data
+  ordenados por prioridade; dentro do dia `ordem_dia` → prioridade; filtro "Todas as colunas do Salescode".
+- **Financeiro programado conta capacidade**: `contaCapacidade(c)` = não financeiro OU tem `data_manual` (o dono pôs o dia).
+  Antes o pedido "Em Aberto" arrastado para um dia não ocupava hora ("cabem mais 89" com 90 programados). `prog_publico` manda
+  `man`/`col` na carga para o link do representante fazer a mesma conta.
+- **↶ Desfazer** (botão no topo + Ctrl+Z, fora de campos de texto): pilha da sessão (60) com o estado anterior de data_manual,
+  ordem_dia, linha_manual e carregado_*; grava só o que mudou. Vale para mover, trocar linha, carregado e desfazer carregado.
+- 12/11 09:26–09:38: o dono pediu para voltar 16 pedidos arrastados — data_manual zerada (A01M8H voltou a 11/11), registrado em auditoria.
