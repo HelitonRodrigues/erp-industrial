@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover">
+<meta name="theme-color" content="#042D4D">
+<meta name="robots" content="noindex,nofollow">
+<title>Programação de carregamento</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/supabase.js"></script>
+<script src="js/programacao-motor.js"></script>
+<!-- Link público do representante (sem login). Dados só pela RPC prog_publico(codigo):
+     os pedidos DELE + a carga de todos sem identificação, para a conta dos dias livres. -->
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Plus Jakarta Sans',Segoe UI,Arial,sans-serif;background:#F1F4F8;color:#0B1B2B;font-size:14px;max-width:760px;margin:0 auto;min-height:100vh}
+.hd{background:#042D4D;color:#fff;padding:16px 16px 18px}
+.lg{display:flex;align-items:center;gap:8px;font-weight:800;font-size:14px;color:#C9FF64}
+.hd h1{font-size:21px;margin-top:10px;color:#fff}.hd .s{font-size:12.5px;color:#B8C7D6;margin-top:3px}
+.live{display:inline-flex;align-items:center;gap:6px;background:#0E3E63;border-radius:20px;padding:4px 11px;font-size:11.5px;margin-top:10px;color:#DCE7F2}.live i{width:8px;height:8px;border-radius:50%;background:#22C55E}
+.al{background:#E0ECFF;border:1px solid #BFD4FF;border-radius:12px;padding:10px 12px;font-size:13px;color:#1E3A8A;margin:12px 14px 0}
+.sec{padding:16px 14px 4px}.sec h2{font-size:15px;color:#042D4D;margin-bottom:9px;display:flex;justify-content:space-between;align-items:baseline;gap:8px}.sec h2 span{font-size:12px;color:#64748B;font-weight:600}
+.p{background:#fff;border:1px solid #E2E8F0;border-radius:12px;padding:11px 12px;margin-bottom:8px}
+.p .r1{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.ped{font-weight:800;font-size:13px;background:#042D4D;color:#C9FF64;padding:2px 8px;border-radius:6px}
+.dt{font-weight:800;font-size:16px;color:#042D4D;text-align:right}
+.cl{font-weight:700;margin-top:6px}.pr{font-size:12.5px;color:#475569;margin-top:2px}
+.st{display:inline-block;margin-top:7px;font-size:11px;font-weight:800;padding:3px 8px;border-radius:6px}
+.ok{background:#DCFCE7;color:#166534}.mv{background:#FEF3C7;color:#92400E}.fn{background:#EDE9FE;color:#5B21B6}.at{background:#FEE2E2;color:#B91C1C}.sd{background:#E2E8F0;color:#334155}
+.rep{font-size:11.5px;color:#64748B;margin-top:3px}
+.cal{background:#fff;border:1px solid #E2E8F0;border-radius:12px;overflow:hidden}
+.wh{background:#F1F5F9;font-size:11px;font-weight:800;color:#475569;text-transform:uppercase;padding:7px 10px;letter-spacing:.4px}
+.dr{display:grid;border-bottom:1px solid #F1F5F9;align-items:center}
+.dr.h{background:#F8FAFC;font-size:10px;font-weight:800;color:#64748B;text-transform:uppercase}
+.dr>div{padding:7px 6px}
+.dd b{display:block;font-size:13px;color:#042D4D}.dd span{font-size:10.5px;color:#64748B}
+.cell{font-size:12.5px;font-weight:800;border-radius:8px;text-align:center;padding:6px 3px}
+.cell small{display:block;font-size:10px;font-weight:600}
+.free{background:#DCFCE7;color:#15803D}.mid{background:#FEF3C7;color:#92400E}.full{background:#FEE2E2;color:#B91C1C}.off{background:#F1F5F9;color:#94A3B8}
+.mine{outline:2px solid #042D4D;outline-offset:-2px}
+.ft{font-size:11.5px;color:#64748B;padding:14px 16px 28px;line-height:1.55}
+.vazio{background:#fff;border:1px dashed #CBD5E1;border-radius:12px;padding:16px;text-align:center;color:#64748B}
+.erro{margin:40px 16px;background:#fff;border-radius:14px;padding:22px;text-align:center}
+.erro b{display:block;font-size:17px;color:#042D4D;margin-bottom:6px}
+.dia{font-size:12px;font-weight:800;color:#042D4D;margin:12px 2px 6px}
+</style>
+</head>
+<body>
+<div id="app"><div class="erro"><b>Carregando…</b></div></div>
+<script>
+const M=ProgMotor, DC=['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const n0=v=>(Math.round(v)||0).toLocaleString('pt-BR'), n1=v=>(Number(v)||0).toLocaleString('pt-BR',{maximumFractionDigits:1});
+const fmtD=i=>i?`${i.slice(8,10)}/${i.slice(5,7)}`:'—', fmtDL=i=>i?`${DC[M.dow(i)]} ${fmtD(i)}`:'Sem data';
+function hoje(){const d=new Date();d.setMinutes(d.getMinutes()-d.getTimezoneOffset());return d.toISOString().slice(0,10);}
+const codigo=(new URLSearchParams(location.search).get('c')||'').trim();
+
+async function carregar(){
+  const app=document.getElementById('app');
+  if(!codigo){app.innerHTML='<div class="erro"><b>Link incompleto</b>Peça o seu link para a programação da fábrica.</div>';return;}
+  const {data,error}=await _supabase.rpc('prog_publico',{p_codigo:codigo});
+  if(error||!data||!data.ok){app.innerHTML=`<div class="erro"><b>Link inválido</b>${esc((data&&data.motivo)||'Este link foi trocado ou desativado. Peça o novo para a programação da fábrica.')}</div>`;return;}
+  M.iniciar({planos:data.planos,turnos:data.turnos,produtos:data.produtos,aliases:data.aliases});
+  render(data);
+}
+
+function render(d){
+  const h=hoje(), geral=d.geral;
+  // carga de todos (sem identificação) → conta dos dias livres
+  const carga=(d.carga||[]).map((c,i)=>{const o={id:'c'+i,itens:c.itens,planilha:c.planilha,linha_manual:c.lm,status_salescode:c.st};o._itens=M.itens(o);o._data=c.d;o._fin=M.ehFinanceiro(o);return o;}).filter(c=>!c._fin);
+  const doDia=iso=>carga.filter(c=>c._data===iso);
+  // meus pedidos
+  const meus=(d.meus||[]).map(c=>{c._itens=M.itens(c);c._data=M.dataDe(c);c._sc=c.data_salescode||c.data_planilha||null;c._fin=M.ehFinanceiro(c);return c;})
+    .sort((a,b)=>String(a._data||'9999').localeCompare(String(b._data||'9999')));
+  const mudou=meus.filter(c=>c.data_manual&&c.data_manual!==c._sc);
+  const att=d.atualizado?new Date(d.atualizado).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'—';
+  const nome=geral?'Programação geral':(d.representante||'').replace(/^\d+\s*[—-]\s*/,'');
+  const tTot=meus.reduce((s,c)=>s+c._itens.reduce((a,i)=>a+(i.t||0),0),0);
+
+  const st=c=>{
+    if(c._fin)return `<span class="st fn">FINANCEIRO · ${esc(c.status_salescode)}</span>`;
+    if(!c._data)return '<span class="st sd">SEM DATA · fale com a fábrica</span>';
+    if(c.data_manual&&c.data_manual!==c._sc)return `<span class="st mv">MUDOU · ${c._sc?'você programou '+fmtD(c._sc):'a fábrica definiu a data'}</span>`;
+    if(c._data<h)return '<span class="st at">ATRASADO · ainda não carregou</span>';
+    return '<span class="st ok">CONFIRMADO PARA ESSE DIA</span>';
+  };
+  const cardP=c=>`<div class="p"><div class="r1"><span class="ped">${esc(c.pedido)}</span><span class="dt">${fmtDL(c._data)}</span></div>
+    <div class="cl">${esc(c.cliente||'—')}${c.cidade&&!String(c.cliente||'').includes('(')?` · <span style="font-weight:600;color:#64748B">${esc(c.cidade)}</span>`:''}</div>
+    <div class="pr">${c._itens.map(i=>`${i.un==='t'?n1(i.q):n0(i.q)} ${esc(i.un)} · ${esc(i.nome)}`).join('<br>')}</div>
+    ${geral&&c.representante?`<div class="rep">👤 ${esc(c.representante)}</div>`:''}${st(c)}</div>`;
+
+  let lista;
+  if(!meus.length) lista='<div class="vazio">Nenhum pedido em aberto agora.</div>';
+  else if(geral){const g={};meus.forEach(c=>(g[c._data||'']=g[c._data||'']||[]).push(c));lista=Object.keys(g).sort((a,b)=>(a||'9').localeCompare(b||'9')).map(k=>`<div class="dia">${k?fmtDL(k)+(k<h?' · atrasados':''):'Sem data'} · ${g[k].length}</div>${g[k].map(cardP).join('')}`).join('');}
+  else lista=meus.map(cardP).join('');
+
+  // dias livres: 4 semanas (seg–sáb)
+  const fams=geral?['Bag','Linha 25kg','Linha 20kg','Concentrado 10kg','Impermeabilizante 10kg','Caulim Granel']:['Bag','Linha 25kg'];
+  const meusDias=new Set(meus.filter(c=>!c._fin).map(c=>c._data));
+  let cal='', ini=h;
+  const fim=M.addDias(h,28);
+  const cols=`grid-template-columns:${geral?'64px':'86px'} repeat(${fams.length},1fr)`;
+  let semAtual=null;
+  for(let iso=M.addDias(h,1); iso<=fim; iso=M.addDias(iso,1)){
+    if(M.dow(iso)===0)continue;
+    const segunda=M.addDias(iso,M.dow(iso)===0?-6:1-M.dow(iso));
+    if(segunda!==semAtual){semAtual=segunda;cal+=`<div class="wh">Semana de ${fmtD(segunda)}</div>`;}
+    const cargas=doDia(iso);
+    const cells=fams.map(f=>{const l=M.livre(iso,cargas,f);const un=M.FAM[f].un;
+      if(l.semPlano)return '<div class="cell off">a definir</div>';if(l.fechado)return '<div class="cell off">fechado</div>';
+      const r=l.total?l.livre/l.total:0, cls=l.livre<0.5?'full':r<0.25?'mid':'free';
+      const mine=!geral&&meusDias.has(iso)&&cargas.length?' mine':'';
+      return `<div class="cell ${cls}${mine}">${l.livre<0.5?'cheio':'cabem '+(un==='t'?n1(l.livre):n0(l.livre))}<small>${l.livre<0.5?'&nbsp;':esc(un)}</small></div>`;}).join('');
+    const cap=M.capacidadeDia(iso);
+    cal+=`<div class="dr" style="${cols}"><div class="dd"><b>${fmtDL(iso)}</b>${cap.estado==='feriado'?'<span>feriado</span>':iso===M.addDias(h,1)?'<span>amanhã</span>':''}</div>${cells}</div>`;
+  }
+  const head=`<div class="dr h" style="${cols}"><div>Dia</div>${fams.map(f=>`<div style="text-align:center">${esc(M.FAM[f].rot)}</div>`).join('')}</div>`;
+
+  document.getElementById('app').innerHTML=`
+    <div class="hd"><div class="lg">◆ ${esc(d.empresa||'Silicate')} · Programação de carregamento</div>
+      <h1>${esc(nome)}</h1><div class="s">${geral?'todos os representantes e todos os produtos':esc(d.representante)+' · seus pedidos e os dias livres da fábrica'}</div>
+      <div class="live"><i></i>Pedidos atualizados ${att} · esta tela atualiza sozinha</div></div>
+    ${mudou.length?`<div class="al">📅 <b>${mudou.length} pedido${mudou.length>1?'s':''} ${geral?'com':'seu'+(mudou.length>1?'s':'')} data mudada pela fábrica</b> para caber na produção.${geral?'':' Avise o cliente.'}</div>`:''}
+    <div class="sec"><h2>${geral?'Pedidos em aberto':'Seus pedidos'} <span>${meus.length} · ${n1(tTot)} t</span></h2>${lista}</div>
+    <div class="sec"><h2>Dias livres para programar <span>próximas 4 semanas</span></h2><div class="cal">${head}${cal}</div></div>
+    <div class="ft">${fams.includes('Linha 25kg')?'Big Bag e Ensacado 25 kg saem da mesma linha: o espaço livre é <b>um ou outro</b>, não os dois juntos.<br>':''}Os dias livres contam os pedidos de <b>todos</b> os representantes, sem mostrar de quem são. Quando alguém ocupa um dia, ele fica cheio aqui também. Para mudar uma data já programada, fale com a programação da fábrica.${cal.includes('a definir')?'<br>“A definir” = a fábrica ainda não fechou a programação daquele mês.':''}</div>`;
+}
+carregar();
+setInterval(carregar,2*60*1000);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)carregar();});
+</script>
+</body>
+</html>

@@ -646,3 +646,19 @@ fábrica específica. Não generalizar.
   "＋ Carga manual" (pedido fora do Salescode; junta sozinho se o código aparecer depois) e
   "📄 Relatório por representante" (A4 paisagem, cabeçalho da empresa, uma página por representante: pedido, cliente, cidade,
   produto, qtd, data Salescode, data fábrica (⚠ quando diferente), situação, transportadora; período + atrasadas/sem data/financeiro).
+
+### Programação de Cargas v3 — programação por linha + link do representante (migração 121)
+- `js/programacao-motor.js` (`ProgMotor`): conta única usada pelo ERP e pelo link público — produto do Salescode → produto do
+  produtos.html (apelido `produto_aliases` → nome igual → parecido, regra do `casarProduto` da portaria; "BRANCO 2" = "02"),
+  família por `produtos.linhas[0]`, linha (Big Bag/25 kg = Linha 2; se a Linha 2 está parada no plano, vão para onde o plano ativou;
+  resto = linhas com o produto ativo; `linha_manual` do pedido manda), capacidade do dia (plano ativo × turnos × eficiência),
+  `encaixarDia` e `livre(iso,cargas,fam)`.
+- Tela: mini-mês com ocupação por dia (clique na semana / no dia), abas por linha (Todas, Linha 2, Linha 3, Emitec, Longa Vida,
+  Revenda), "O que produzir" (produto do ERP × dia, total da semana, ocupação/“faltam”/“cabem”), colunas da semana com cartões
+  (pedido em destaque, produto do ERP colorido, ⚠ sem vínculo), lateral Atrasados / Sem data / Produtos sem vínculo (liga e grava
+  em `produto_aliases`, vale também na Portaria). Modal do pedido troca data da fábrica e linha. PDF por representante continua.
+- Link público `programacao-rep.html?c=CODIGO` (sem login): RPC `prog_publico(p_codigo)` (anon, SECURITY DEFINER) devolve os
+  pedidos do representante + a carga de TODOS sem cliente/representante (só data, itens, linha, status) + planos (sem equipe) +
+  turnos + produtos + apelidos; a página faz a mesma conta e mostra dias livres de Big Bag e 25 kg em 4 semanas (seg–sáb).
+  Atualiza a cada 2 min. `prog_links` (1 código por representante; '*' = link geral do dono, todos os produtos e pedidos);
+  `prog_link_gerar(p_rep,p_trocar)` (logado) gera/troca. Tela "🔗 Links dos representantes": gerar, copiar, WhatsApp, trocar.
