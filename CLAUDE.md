@@ -667,3 +667,17 @@ fábrica específica. Não generalizar.
   Conferido com o texto real de A01MNN e A01MP7 ("Sem itens de frete."). Só aparece depois que a extensão leu a página do pedido.
 - **✓ Carregado pede a data** (`#m-ck`, `salvarCarregado`): padrão hoje, atalhos Ontem/Anteontem/data programada; não aceita futuro.
   Hoje grava a hora de agora; outro dia grava 12:00 daquele dia. Já carregado: "✏️ Data do carregamento" no pedido e ✏️ em 📦 Carregadas.
+
+### Programação de Cargas — baixa pela BALANÇA (migração 122, extensão v1.2)
+- Portal de Relatórios da balança (`http://45.184.42.85:8007`, login do dono no Chrome): Consulta Ticket (POST com `inicio/fim/_csrf`)
+  lista os tickets; a impressão `/relatorio/ticket/impressao/<ticket>` tem STATUS, placa, motorista, tabela de itens
+  (Pedido · Cliente · Quantidade · Peso · Produto), Pesagem Final (Data/Hora, peso), PESO LÍQUIDO e ANOTAÇÃO (NF, lotes).
+  Ticket de granel (CERAL/EMBRAMACO/INTERCEMENT) vem sem itens.
+- Extensão v1.2: depois do Salescode, `coletor.js` manda `salescode_fim` → `fundo.js` abre a consulta com `#erp` → `balanca.js`
+  (só roda com `#erp`) busca 7 dias, pergunta `balanca_novos(p_token, ids)` e só abre a impressão dos novos (portal é lento,
+  ~1 s por ticket), manda `sync_balanca(p_token, p_tickets)` em lotes de 30.
+- 122: `prog_balanca_tickets` (ticket pk, pesagem_final, liquido_kg, anotacao, pedidos jsonb) + `programacao_cargas.balanca` jsonb.
+  Ticket sem pesagem final ou CANCELADO não grava (volta na próxima). Pedido do ticket: não carregado → carregado com
+  `carregado_em` = pesagem final, origem `balanca`, por "Balança · ticket N"; carregado automático (salescode/planilha) → data
+  corrigida para a pesagem; mexido na mão (`carregado_manual`) → só guarda o ticket. Pedido que não existe no ERP é ignorado.
+- Tela: modal do pedido mostra "⚖️ Ticket da balança" (nº, hora da pesagem, placa, líquido, anotação); 📦 Carregadas: "⚖️ Balança (pesou)".
