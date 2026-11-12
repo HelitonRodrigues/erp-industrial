@@ -681,3 +681,7 @@ fábrica específica. Não generalizar.
   `carregado_em` = pesagem final, origem `balanca`, por "Balança · ticket N"; carregado automático (salescode/planilha) → data
   corrigida para a pesagem; mexido na mão (`carregado_manual`) → só guarda o ticket. Pedido que não existe no ERP é ignorado.
 - Tela: modal do pedido mostra "⚖️ Ticket da balança" (nº, hora da pesagem, placa, líquido, anotação); 📦 Carregadas: "⚖️ Balança (pesou)".
+- **🔎 Busca de pedido** (topo da Programação, `buscar`/`situacaoPedido`/`irParaPedido`): pedido ou cliente → situação de cada um
+  (✅ Carregado + ticket · 📅 Programado com data da fábrica e linha · ⚠️ Atrasado · Sem data · 💜 Financeiro). Procura também no
+  banco (carregados há mais de 45 dias, fora da tela) e em `prog_balanca_tickets` (pedido só pesado, fora da Programação = "⚖️ Só na
+  balança"). Clicar vai para a semana do pedido e abre o pedido; Enter abre o 1º; Esc limpa.

@@ -101,6 +101,16 @@
 .pc-warn{background:#FFF7E6;border:1px solid #FCD9A0;border-radius:9px;padding:9px 10px;font-size:11.5px;margin-bottom:6px}
 .pc-warn select{margin-top:5px;width:100%;padding:5px;border:1px solid #CBD5E1;border-radius:6px;font-size:11.5px;font-family:inherit}
 .pc-help{font-size:12px;color:var(--pc-mut);line-height:1.5}
+.pc-busca{position:relative}
+.pc-busca input{width:280px;height:34px;border:1.5px solid #cbd5e1;border-radius:9px;padding:0 12px;font-size:13.5px;font-weight:600;outline:none;background:#fff}
+.pc-busca input:focus{border-color:#042D4D;box-shadow:0 0 0 3px rgba(4,45,77,.12)}
+.pc-bres{position:absolute;right:0;top:40px;width:440px;max-height:460px;overflow:auto;background:#fff;border:1px solid #e2e8f0;border-radius:12px;box-shadow:0 14px 34px rgba(15,23,42,.18);z-index:60;padding:6px}
+.pc-bit{display:block;width:100%;text-align:left;border:0;background:none;padding:9px 10px;border-radius:9px;cursor:pointer;font:inherit}
+.pc-bit:hover{background:#f1f5f9}
+.pc-bit .l1{display:flex;gap:8px;align-items:center;font-size:13px}.pc-bit .l2{font-size:11.5px;color:#64748b;margin-top:2px}
+.pc-bst{font-size:11px;font-weight:800;padding:2px 8px;border-radius:20px;white-space:nowrap;margin-left:auto}
+.pc-bst.ok{background:#DCFCE7;color:#166534}.pc-bst.pr{background:#DBEAFE;color:#1E40AF}.pc-bst.at{background:#FEE2E2;color:#991B1B}
+.pc-bst.sd{background:#F1F5F9;color:#475569}.pc-bst.fi{background:#F3E8FF;color:#6B21A8}.pc-bst.ba{background:#FEF3C7;color:#92400E}
 .pc-fd{background:#f8fafc;border-left:3px solid #cbd5e1;padding:6px 10px;border-radius:0 6px 6px 0;margin-bottom:6px}
 .pc-fd div:first-child{font-size:9.5px;color:#94a3b8;text-transform:uppercase;font-weight:800}.pc-fd div:last-child{font-size:13px;font-weight:600}
 .pc-hist td,.pc-hist th{padding:7px 10px;font-size:12.5px;border-bottom:1px solid var(--pc-line);text-align:left}
@@ -131,6 +141,7 @@
     <div><h1>Programação de Cargas</h1><p>Pedidos do Salescode · a data da fábrica fica por cima · capacidade do Custo e Precificação</p></div>
     <div class="pc-sp"></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;max-width:860px;align-items:center">
+    <div class="pc-busca"><input id="pc-q" type="search" placeholder="🔎 Buscar pedido ou cliente" autocomplete="off" oninput="buscarDigitou()" onfocus="buscarDigitou()" onkeydown="if(event.key==='Escape'){this.value='';fecharBusca();}if(event.key==='Enter'){const b=document.querySelector('#pc-bres .pc-bit');if(b)b.click();}"><div class="pc-bres hidden" id="pc-bres"></div></div>
     <div class="pc-sync" id="pc-sync">—</div>
     <button class="btn btn-secondary btn-sm" onclick="abrirLinks()">🔗 Links dos representantes</button>
     <button class="btn btn-secondary btn-sm" onclick="abrirRelatorio()">📄 PDF por representante</button>
@@ -583,6 +594,51 @@ async function verPedido(id){
   <div class="rod"><span>Espelho do pedido do Salescode · representação interna, sem validade fiscal · ${e(o.criado)}</span><span>${e(c.pedido)} · lido em ${c.detalhes_em?new Date(c.detalhes_em).toLocaleString('pt-BR'):'—'}</span></div>
   </body></html>`);
   w.document.close();
+}
+
+/* ── BUSCA: onde está o pedido? (programado, carregado, atrasado, sem data, financeiro, só na balança) ── */
+let _bTimer=null,_bSeq=0;
+function fecharBusca(){document.getElementById('pc-bres').classList.add('hidden');}
+document.addEventListener('click',e=>{if(!e.target.closest('.pc-busca'))fecharBusca();});
+function buscarDigitou(){clearTimeout(_bTimer);_bTimer=setTimeout(buscar,250);}
+function situacaoPedido(c){
+  const h=hoje();
+  if(c.carregado){const b=(c.balanca||[]).slice(-1)[0];
+    return {cls:'ok',tag:'✅ Carregado',txt:`carregado ${c.carregado_em?new Date(c.carregado_em).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'}):''}`+(b?` · ⚖️ ticket ${String(b.ticket).replace(/^0+/,'')}${b.placa?' · '+b.placa:''}`:'')};}
+  if(c._fin)return {cls:'fi',tag:'💜 Financeiro',txt:`${c.status_salescode||'no financeiro'}${c._data?' · data '+fmtDL(c._data):''}`};
+  const it=c._itens.find(i=>i.fam),lin=it&&c._data?M.linhaDoItem(c._data,it.fam,c.linha_manual):(c.linha_manual||'');
+  if(!c._data)return {cls:'sd',tag:'Sem data',txt:'ainda sem data no Salescode'+(c.em_salescode===false?' · fora do Salescode':'')};
+  const mud=c.data_manual&&c.data_manual!==c._dataSC?` (Salescode ${fmtD(c._dataSC)})`:'';
+  if(c._data<h)return {cls:'at',tag:'⚠️ Atrasado',txt:`programado ${fmtDL(c._data)}${mud}${lin?' · '+lin:''}`};
+  return {cls:'pr',tag:'📅 Programado',txt:`fábrica ${fmtDL(c._data)}${mud}${lin?' · '+lin:''}`};
+}
+function itemBusca(c){const s=situacaoPedido(c);
+  return `<button class="pc-bit" onclick="irParaPedido('${c.id}')"><div class="l1"><span class="pc-ped" style="font-size:12px">${esc(c.pedido)}</span><b style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px">${esc(c._cli)}</b><span class="pc-bst ${s.cls}">${s.tag}</span></div>
+    <div class="l2">${esc(s.txt)} · ${esc(c._itens.map(i=>qtdTxt(i.q,i.un)+' '+i.nome).join(' + ')||'—')}${c.representante?' · 👤 '+esc(c.representante):''}</div></button>`;}
+async function buscar(){
+  const box=document.getElementById('pc-bres'),q=document.getElementById('pc-q').value.trim();
+  if(q.length<2){fecharBusca();return;}
+  const Q=q.toUpperCase(),N=M.norm(q),seq=++_bSeq;
+  const loc=_cargas.filter(c=>c.pedido.toUpperCase().includes(Q)||M.norm(c._cli).includes(N)||M.norm(c.cliente_salescode||'').includes(N));
+  const ordem=c=>c.pedido.toUpperCase()===Q?0:c.pedido.toUpperCase().startsWith(Q)?1:2;
+  const pinta=(lista,extra)=>{box.innerHTML=(lista.length?lista.sort((a,b)=>ordem(a)-ordem(b)||String(b._data||'').localeCompare(String(a._data||''))).slice(0,30).map(itemBusca).join(''):'')+(extra||'')||'<div class="pc-help" style="padding:10px">Nada encontrado.</div>';box.classList.remove('hidden');};
+  pinta(loc,'<div class="pc-help" style="padding:8px 10px">procurando também nos antigos…</div>');
+  // fora da tela (carregado há mais de 45 dias) e balança: busca no banco
+  const ehCod=/^[A-Za-z0-9]{3,}$/.test(q);
+  const [rp,rb]=await Promise.all([
+    db(_supabase.from('programacao_cargas').select('*').or(`pedido.ilike.*${Q.replace(/[,()*%]/g,'')}*,cliente_salescode.ilike.*${q.replace(/[,()*%]/g,'')}*`).limit(40),'buscar pedido'),
+    ehCod?db(_supabase.from('prog_balanca_tickets').select('ticket,placa,pesagem_final,liquido_kg,anotacao,pedidos').contains('pedidos',[{pedido:Q}]).limit(10),'buscar na balança'):Promise.resolve({data:[]})]);
+  if(seq!==_bSeq)return;
+  (rp.data||[]).forEach(c=>{if(!_cargas.some(x=>x.id===c.id)){montar(c);_cargas.push(c);loc.push(c);}});
+  const nossos=new Set(loc.map(c=>c.pedido));
+  const soBal=(rb.data||[]).filter(t=>!nossos.has(Q)).map(t=>`<div class="pc-bit" style="cursor:default"><div class="l1"><span class="pc-ped" style="font-size:12px">${esc(Q)}</span><b>${esc((t.pedidos.find(i=>String(i.pedido).toUpperCase()===Q)||{}).cliente||'')}</b><span class="pc-bst ba">⚖️ Só na balança</span></div>
+    <div class="l2">pesou ${t.pesagem_final?new Date(t.pesagem_final).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'}):'—'} · ticket ${esc(String(t.ticket).replace(/^0+/,''))} · ${esc(t.placa||'')}${t.liquido_kg?' · '+Number(t.liquido_kg).toLocaleString('pt-BR')+' kg':''} · não está na Programação</div></div>`).join('');
+  pinta(loc,soBal);
+}
+function irParaPedido(id){
+  const c=_cargas.find(x=>x.id===id);if(!c)return;fecharBusca();
+  if(!c.carregado&&c._data){_ref=c._data;_mesRef=c._data;render();}
+  abrirCarga(id);
 }
 
 /* ── links dos representantes ── */
