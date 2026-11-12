@@ -725,3 +725,22 @@ fábrica específica. Não generalizar.
 - Modais abrem com `abrirM(id)`: o último aberto fica sempre por cima (z-index crescente).
 - Bloco principal dos KPIs: só Linha 2, com bags e sacos de 25 kg um embaixo do outro. "Outros produtos" (`verOutros`) junta tudo o que não é Big Bag nem 25 kg: total em aberto por produto, e o clique no produto abre os pedidos (`abrirOutrosProd`). Esses pedidos não aparecem no quadro, em Atrasados nem em Sem data.
 - Linhas da tela: só `LINHAS=['Linha 2','Linha 3']` (abas, "O que produzir", janela do dia, escolha de linha no pedido). A Linha 3 fica disponível para mandar 25 kg para lá.
+
+### Representante com login (migração 125, função `prog-rep`, página `representante.html`) — 12/11/2026
+- O representante **não é usuário do ERP** (não recebe JWT do Supabase Auth): nenhuma tabela ou módulo abre para ele (anon não lê nada).
+  Conta própria em `prog_rep_contas` (senha bcrypt; 5 erradas = bloqueio de 15 min) → `rep_entrar` devolve um token (só o hash fica em
+  `prog_rep_sessoes`, vale 7 dias e renova com o uso). Sair, trocar senha, desativar ou redefinir a senha expiram as sessões.
+- Dados pela Edge Function **`prog-rep`** (verify_jwt=false, auth = token): `rep_sessao` (só service_role) → filtra **no servidor** por
+  `representante = conta.representante` (igualdade exata + trava que recusa a resposta se vier pedido de outro). Os **dias livres são calculados
+  no servidor** com o MESMO `js/programacao-motor.js`, lido do site (cache de 10 min); só o "cabem X" de cada dia vai para o celular (o link antigo
+  mandava a carga anônima de todos). "Cabem" arredondado para baixo, no ERP e no representante.
+- `representante.html`: login, pedidos (só Big Bag/25 kg), dias livres (4 semanas), carregados (30 dias, ticket/placa da balança), aviso de atraso,
+  📣 "Lancei pedido novo" (`rep_avisar`: 1 por minuto → `prog_rep_avisos` + `notificacoes` + WhatsApp), 🔑 trocar senha, Sair. Sem sidebar, noindex.
+- WhatsApp grátis via **CallMeBot** (`prog_whats_enviar` com pg_net; só service_role). Números em `prog_aviso_destinos` (só ADM/SADM).
+- ERP (`programacao-cargas.html` → ⋯ Mais): **👤 Acessos dos representantes** (`rep_contas_listar/rep_conta_salvar/rep_conta_desconectar`, só ADM/SADM;
+  criar acesso desativa o link sem senha), **📲 WhatsApp dos avisos** (número + apikey, teste com `prog_whats_testar`/`prog_whats_resposta`),
+  **🔔 Avisos** (botão no topo pisca com aviso não lido; confere a cada 60 s), **⚠️ Informar atraso** (`prog_aplicar_atraso`: pedidos da linha a partir
+  do dia andam N dias úteis do planejamento; `prog_desfazer_atraso` só volta quem continua na data que o atraso colocou). O representante vê o motivo.
+- Testado contra o banco real (12/11): login anon, senha errada, bloqueio na 5ª, token falso 401, conta desativada 401, aviso + limite 1/min,
+  anon sem acesso a tabelas/RPCs internas; A (308) recebeu 25 pedidos e B (275) 11, **0 de outro representante**; dias livres conferidos com a
+  soma dos pedidos (17/11 39 → cabem 50; 18/11 14 → 75; 19/11 72 → 17; 28/11 80 → 9). Contas de teste `teste.claude.a/.b` ficaram desativadas.
