@@ -723,3 +723,4 @@ fábrica específica. Não generalizar.
 - `<header class="topbar" id="topbar">`: o id é obrigatório para o » (toggleSidebar) funcionar.
 - Quadro da semana: card só para pedidos com Big Bag ou 25 kg (`ehCard`); os outros produtos aparecem somados por produto no dia (`outrosHtml`), e o clique abre os pedidos (`abrirOutros`). A navegação de semana fica grande, logo acima do quadro.
 - Modais abrem com `abrirM(id)`: o último aberto fica sempre por cima (z-index crescente).
+- Bloco principal dos KPIs: só Linha 2, com bags e sacos de 25 kg um embaixo do outro. "Outros produtos" (`verOutros`) junta tudo o que não é Big Bag nem 25 kg: total em aberto por produto, e o clique no produto abre os pedidos (`abrirOutrosProd`). Esses pedidos não aparecem no quadro, em Atrasados nem em Sem data.
