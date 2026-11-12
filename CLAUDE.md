@@ -665,3 +665,5 @@ fábrica específica. Não generalizar.
 - **📄 Ver pedido** (modal do pedido): espelho do pedido do Salescode montado de `detalhes._bruto` (`lerPedidoBruto` → cliente,
   condições, itens com valor, pagamento, endereços de cobrança/entrega, frete com itens), cabeçalho da empresa, imprimir/salvar PDF.
   Conferido com o texto real de A01MNN e A01MP7 ("Sem itens de frete."). Só aparece depois que a extensão leu a página do pedido.
+- **✓ Carregado pede a data** (`#m-ck`, `salvarCarregado`): padrão hoje, atalhos Ontem/Anteontem/data programada; não aceita futuro.
+  Hoje grava a hora de agora; outro dia grava 12:00 daquele dia. Já carregado: "✏️ Data do carregamento" no pedido e ✏️ em 📦 Carregadas.

@@ -168,6 +168,17 @@
 <div id="m-dia" class="modal-overlay hidden"><div class="modal" style="max-width:720px;">
   <div class="modal-header"><div class="modal-title" id="m-dia-tit">Dia</div><button class="modal-close" onclick="closeModal('m-dia')">✕</button></div>
   <div id="m-dia-body"></div></div></div>
+<div id="m-ck" class="modal-overlay hidden"><div class="modal" style="max-width:400px;">
+  <div class="modal-header"><div class="modal-title" id="m-ck-tit">Carregado</div><button class="modal-close" onclick="closeModal('m-ck')">✕</button></div>
+  <div>
+    <label class="form-label">Data que carregou</label>
+    <input type="date" id="ck-data" class="form-input" style="font-size:16px">
+    <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap" id="ck-atalhos"></div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px">
+      <button class="btn btn-secondary" onclick="closeModal('m-ck')">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarCarregado()">✓ Salvar</button>
+    </div>
+  </div></div></div>
 <div id="m-hist" class="modal-overlay hidden"><div class="modal" style="max-width:920px;">
   <div class="modal-header"><div class="modal-title">Pedidos carregados</div><button class="modal-close" onclick="closeModal('m-hist')">✕</button></div>
   <div id="m-hist-body"></div></div></div>
@@ -410,13 +421,40 @@ async function mudarLinha(id,linha){
   const {error}=await db(_supabase.from('programacao_cargas').update({linha_manual:linha||null}).eq('id',id),'trocar linha');
   if(error)return;c.linha_manual=linha||null;addLog('LINHA',MOD,id,`${c.pedido} → ${linha||'linha padrão'}`);toast(`${c.pedido} → ${linha||'linha padrão'}`);render();abrirCarga(id);
 }
+let _ckId=null;
 async function marcarCarregado(id,desfazer){
   if(!guardAction(MOD,'edit'))return;
-  const c=_cargas.find(x=>x.id===id);if(!c)return;const u=getUser();
-  const upd=desfazer?{carregado:false,carregado_em:null,carregado_por:null,carregado_origem:null,carregado_manual:true}:{carregado:true,carregado_em:new Date().toISOString(),carregado_por:u?.nome||null,carregado_origem:'manual',carregado_manual:true};
-  const {error}=await db(_supabase.from('programacao_cargas').update(upd).eq('id',id),'marcar carregado');if(error)return;
-  Object.assign(c,upd);addLog(desfazer?'DESFAZER':'CARREGADO',MOD,id,`${c.pedido} ${c._cli}`);
-  toast(desfazer?`${c.pedido} voltou para a programação`:`${c.pedido} carregado ✓`);closeModal('m-carga');render();
+  const c=_cargas.find(x=>x.id===id);if(!c)return;
+  if(!desfazer){ // pergunta a data (padrão hoje; editar = data já gravada)
+    _ckId=id;const h=hoje(),ont=addDiasISO(h,-1),ant=addDiasISO(h,-2);
+    document.getElementById('m-ck-tit').textContent=`${c.carregado?'Data do carregamento':'Carregado'} — ${c.pedido}`;
+    const atual=c.carregado&&c.carregado_em?isoLocal(c.carregado_em):h;
+    const inp=document.getElementById('ck-data');inp.value=atual;inp.max=h;
+    document.getElementById('ck-atalhos').innerHTML=[[h,'Hoje'],[ont,'Ontem'],[ant,'Anteontem']].concat(c._data&&c._data<h&&![h,ont,ant].includes(c._data)?[[c._data,'Data programada '+fmtDL(c._data)]]:[])
+      .map(([d,t])=>`<button class="btn btn-ghost btn-sm" onclick="document.getElementById('ck-data').value='${d}'">${t}</button>`).join('');
+    document.getElementById('m-ck').classList.remove('hidden');return;
+  }
+  const upd={carregado:false,carregado_em:null,carregado_por:null,carregado_origem:null,carregado_manual:true};
+  const {error}=await db(_supabase.from('programacao_cargas').update(upd).eq('id',id),'desfazer carregado');if(error)return;
+  Object.assign(c,upd);addLog('DESFAZER',MOD,id,`${c.pedido} ${c._cli}`);
+  toast(`${c.pedido} voltou para a programação`);closeModal('m-carga');render();
+  if(!document.getElementById('m-hist').classList.contains('hidden'))abrirHistorico();
+}
+function addDiasISO(iso,n){const d=new Date(iso+'T12:00:00');d.setDate(d.getDate()+n);return d.toISOString().slice(0,10);}
+function isoLocal(ts){const d=new Date(ts);d.setMinutes(d.getMinutes()-d.getTimezoneOffset());return d.toISOString().slice(0,10);}
+async function salvarCarregado(){
+  const c=_cargas.find(x=>x.id===_ckId);if(!c)return;
+  const dia=document.getElementById('ck-data').value;
+  if(!dia){toast('Escolha a data que carregou.','warning');return;}
+  if(dia>hoje()){toast('A data não pode ser no futuro.','warning');return;}
+  // hoje = hora de agora; outro dia = 12:00 daquele dia (a hora não importa, só o dia)
+  const em=dia===hoje()?new Date().toISOString():new Date(dia+'T12:00:00').toISOString();
+  const era=c.carregado,u=getUser();
+  const upd=era?{carregado_em:em,carregado_manual:true}:{carregado:true,carregado_em:em,carregado_por:u?.nome||null,carregado_origem:'manual',carregado_manual:true};
+  const {error}=await db(_supabase.from('programacao_cargas').update(upd).eq('id',c.id),'marcar carregado');if(error)return;
+  Object.assign(c,upd);addLog(era?'DATA_CARREGADO':'CARREGADO',MOD,c.id,`${c.pedido} ${c._cli} · ${fmtDL(dia)}`);
+  toast(era?`${c.pedido}: carregado em ${fmtDL(dia)}`:`${c.pedido} carregado ✓ (${fmtDL(dia)})`);
+  closeModal('m-ck');closeModal('m-carga');render();
   if(!document.getElementById('m-hist').classList.contains('hidden'))abrirHistorico();
 }
 async function vincular(texto,prodId){
@@ -443,7 +481,7 @@ function abrirCarga(id){
     ${fd('Transportadora',esc(dt.transportadora||p.transp||''))}${fd('Placa / motorista',esc(dt.placa_motorista||''))}
     ${fd('Observações',esc(dt.obs||p.obs||''))}${fd('Pagamento',esc(dt.pagamento||''))}
     ${fd('Condições',Object.entries(dt.condicoes||{}).map(([k,v])=>esc(k)+': <b>'+esc(v)+'</b>').join(' · '))}
-    ${c.carregado?fd('Carregado',`${c.carregado_em?new Date(c.carregado_em).toLocaleString('pt-BR'):''} · ${esc(c.carregado_por||c.carregado_origem||'')}`):''}
+    ${c.carregado?fd('Carregado',`${c.carregado_em?fmtDL(isoLocal(c.carregado_em))+'/'+isoLocal(c.carregado_em).slice(0,4):''} · ${esc(c.carregado_por||c.carregado_origem||'')}`):''}
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">${(dt._bruto||[]).length?`<button class="btn btn-primary btn-sm" onclick="verPedido('${c.id}')">📄 Ver pedido</button>`:'<span class="pc-help">“Ver pedido” aparece depois que a extensão ler a página deste pedido.</span>'}
     ${c.salescode_view?`<a class="btn btn-ghost btn-sm" target="_blank" href="https://salescode.com.br/ret/pedido/view/${encodeURIComponent(c.salescode_view)}">Abrir no Salescode ↗</a>`:''}</div>
     ${_pode?`<div class="modal-footer" style="flex-wrap:wrap;justify-content:flex-start;align-items:center">
@@ -451,7 +489,7 @@ function abrirCarga(id){
       <label style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600">Linha <select class="form-input" style="padding:6px 8px;width:auto" onchange="mudarLinha('${c.id}',this.value)"><option value="">padrão</option>${['Linha 2','Linha 3','Emitec','Longa Vida'].map(l=>`<option${c.linha_manual===l?' selected':''}>${l}</option>`).join('')}</select></label>
       <div class="pc-sp"></div>
       ${c.data_manual?`<button class="btn btn-secondary btn-sm" onclick="closeModal('m-carga');moverCarga('${c.id}',${c._dataSC?`'${c._dataSC}'`:'null'})">↩ Voltar à data do Salescode</button>`:''}
-      ${c.carregado?`<button class="btn btn-secondary btn-sm" onclick="marcarCarregado('${c.id}',true)">↩ Desfazer carregado</button>`:(c._fin?'<span class="pc-fit p">No financeiro — não pode marcar carregado</span>':`<button class="btn btn-primary btn-sm" onclick="marcarCarregado('${c.id}')">✓ Carregado</button>`)}
+      ${c.carregado?`<button class="btn btn-secondary btn-sm" onclick="marcarCarregado('${c.id}')">✏️ Data do carregamento</button><button class="btn btn-secondary btn-sm" onclick="marcarCarregado('${c.id}',true)">↩ Desfazer carregado</button>`:(c._fin?'<span class="pc-fit p">No financeiro — não pode marcar carregado</span>':`<button class="btn btn-primary btn-sm" onclick="marcarCarregado('${c.id}')">✓ Carregado</button>`)}
     </div>`:''}`;
   document.getElementById('m-carga').classList.remove('hidden');
 }
@@ -474,7 +512,7 @@ function verLista(t){
 function abrirHistorico(){
   const arr=_cargas.filter(c=>c.carregado).sort((a,b)=>String(b.carregado_em||'').localeCompare(String(a.carregado_em||'')));
   const orig={manual:'Marcado aqui',planilha:'Planilha',salescode:'Saiu do Salescode (faturado)'};
-  document.getElementById('m-hist-body').innerHTML=arr.length?`<table class="pc-hist" style="width:100%;border-collapse:collapse"><thead><tr><th>Quando</th><th>Pedido</th><th>Cliente</th><th>Produto</th><th>Como</th><th></th></tr></thead><tbody>${arr.map(c=>`<tr><td>${c.carregado_em?new Date(c.carregado_em).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'—'}</td><td><b>${esc(c.pedido)}</b></td><td>${esc(c._cli)}</td><td>${esc(c._itens.map(i=>i.nome).join(', '))}</td><td>${orig[c.carregado_origem]||esc(c.carregado_origem||'')}${c.carregado_por?' · '+esc(c.carregado_por):''}</td><td>${_pode?`<button class="btn btn-ghost btn-sm" onclick="marcarCarregado('${c.id}',true)">↩ Desfazer</button>`:''}</td></tr>`).join('')}</tbody></table>`:'<div class="pc-help">Nada carregado nos últimos 45 dias.</div>';
+  document.getElementById('m-hist-body').innerHTML=arr.length?`<table class="pc-hist" style="width:100%;border-collapse:collapse"><thead><tr><th>Quando</th><th>Pedido</th><th>Cliente</th><th>Produto</th><th>Como</th><th></th></tr></thead><tbody>${arr.map(c=>`<tr><td>${c.carregado_em?fmtDL(isoLocal(c.carregado_em)):'—'}${_pode?` <button class="btn btn-ghost btn-sm" title="Mudar a data" onclick="marcarCarregado('${c.id}')">✏️</button>`:''}</td><td><b>${esc(c.pedido)}</b></td><td>${esc(c._cli)}</td><td>${esc(c._itens.map(i=>i.nome).join(', '))}</td><td>${orig[c.carregado_origem]||esc(c.carregado_origem||'')}${c.carregado_por?' · '+esc(c.carregado_por):''}</td><td>${_pode?`<button class="btn btn-ghost btn-sm" onclick="marcarCarregado('${c.id}',true)">↩ Desfazer</button>`:''}</td></tr>`).join('')}</tbody></table>`:'<div class="pc-help">Nada carregado nos últimos 45 dias.</div>';
   document.getElementById('m-hist').classList.remove('hidden');
 }
 
