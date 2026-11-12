@@ -20,6 +20,17 @@
   let avisou = false;
   const fim = () => { if (avisou) return; avisou = true; try { chrome.runtime.sendMessage({ tipo: 'salescode_fim' }); } catch (e) {} };
 
+  // coluna do quadro (Programados · Financeiro · A contratar · Ordem de Carga · Ordem Cancelada)
+  const NOME_COL = { programados: 'Programados', financeiro: 'Financeiro', '10': 'A contratar', '12': 'Ordem de Carga', '13': 'Ordem Cancelada' };
+  const coluna = a => {
+    const col = a.closest('.kanban-column'); if (!col) return null;
+    if (NOME_COL[col.dataset.stp]) return NOME_COL[col.dataset.stp];
+    const h = t(col.querySelector('.kanban-column-header')?.textContent).replace(/\s*\d+\s*linha.*$/i, '');
+    return h.replace(/^(PROGRAMADOS|FINANCEIRO|LOG[IÍ]STICA)\s+/i, '') || null;
+  };
+  // coluna escondida no Salescode = os pedidos dela não aparecem → o ERP acharia que "saíram" (faturados)
+  const colunasEscondidas = () => [...document.querySelectorAll('.kanban-column')].filter(c => c.offsetParent === null)
+    .map(c => NOME_COL[c.dataset.stp] || c.dataset.stp);
   const ler = () => {
     const map = {};
     document.querySelectorAll('a[href*="/ret/pedido/view/"]').forEach(a => {
@@ -31,10 +42,12 @@
       const r = map[k] || { pedido: ped, produto: pro, cliente: t(a.querySelector('.card-cli')?.textContent), cidade: info[0], frete: info[1],
         qtd: t(a.querySelector('.qtd')?.textContent), data: t(a.querySelector('.kb-data')?.textContent), view: a.href.split('/').pop() };
       if (info[2] && !r.status) r.status = info[2];
+      const cl = coluna(a); if (cl) { r._cols = r._cols || new Set(); r._cols.add(cl); }
       if (!r.data) r.data = t(a.querySelector('.kb-data')?.textContent);
       map[k] = r;
     });
-    return Object.values(map);
+    // uma linha por coluna (o ERP junta as colunas do pedido)
+    return Object.values(map).flatMap(r => { const cs = [...(r._cols || [])]; delete r._cols; return cs.length ? cs.map(c => Object.assign({}, r, { coluna: c })) : [r]; });
   };
 
   const enviar = async (itens) => {
@@ -121,6 +134,8 @@
     if (/Entrar no sistema/i.test(document.body.innerText) && !document.querySelector('a[href*="/ret/pedido/view/"]'))
       { faixa('Faça login no Salescode e clique de novo no ícone do ERP.', '#D98E04'); return fim(); }
     const itens = ler();
+    const esc = colunasEscondidas();
+    if (itens.length >= 5 && esc.length) { faixa('⚠ Há coluna escondida no Salescode (' + esc.join(', ') + '). Mostre todas as colunas e clique de novo — senão o ERP acharia que esses pedidos saíram.', '#D98E04'); return fim(); }
     if (itens.length >= 5) return enviar(itens);
     if (++tentativas > 20) { faixa('⚠ Não achei os pedidos na tela — confira os filtros e clique de novo.', '#D98E04'); return fim(); }
     setTimeout(esperar, 1000);
