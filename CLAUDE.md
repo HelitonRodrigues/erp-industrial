@@ -709,3 +709,9 @@ fábrica específica. Não generalizar.
   começa por `_novo`): o que o dono já programou continua cabendo. O sync nunca mexe em `data_manual`.
 - Filtro de representante virou campo de digitar (`#sel-rep` + `datalist`): acha por parte do nome ou pelo nº, sem acento
   (`doRep` com `M.norm`); a lista mostra quantos pedidos em aberto cada um tem.
+- **Link do representante v2 (`programacao-rep.html`)**: cabeçalho com logo (`branding_publico().logo`, senão o símbolo SVG da
+  Silicate), nome = 1ª palavra da razão social (o nome fantasia cadastrado é "FÁBRICA") + resto da razão social + cidade/UF;
+  "Olá, <nome> 👋"; 4 números (em aberto, carregam esta semana, data mudada, atrasados ou financeiro); aviso amarelo de data
+  mudada (data antiga riscada). Computador (> 900 px): tabela de pedidos agrupada por dia com filtros (Todos/Mudou/Atrasados/
+  Financeiro/Sem data) + calendário de dias livres (seg–sáb, 4 semanas, botões por família, contorno = já tem pedido). Celular:
+  abas "Meus pedidos | Dias livres" e cartões. Representante vê só os itens de Big Bag e Caulim 25 kg (pedido sem esses some).
