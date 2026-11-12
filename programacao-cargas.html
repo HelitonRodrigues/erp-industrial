@@ -338,7 +338,7 @@
     <button class="pc4-b" onclick="abrirHistorico()">📦 Carregadas</button>
     <button class="pc4-b" id="btn-nova" onclick="abrirNova()">＋ Carga manual</button>
     <div class="pc4-menu"><button class="pc4-b" onclick="event.stopPropagation();document.getElementById('pc-mais').classList.toggle('hidden')">⋯ Mais</button>
-      <div class="pc4-dd hidden" id="pc-mais"><button onclick="abrirAtraso()">⚠️ Informar atraso (parada de linha)</button><button onclick="abrirAcessos()">👤 Acessos dos representantes</button><button onclick="abrirWhats()">📲 WhatsApp dos avisos</button><button onclick="verAvisos()">🔔 Avisos dos representantes</button><button onclick="abrirLinks()">🔗 Links dos representantes</button><button onclick="abrirRelatorio()">📄 PDF por representante</button></div></div>
+      <div class="pc4-dd hidden" id="pc-mais"><button onclick="abrirAtraso()">⚠️ Informar atraso (parada de linha)</button><button onclick="abrirAcessos()">👤 Acessos dos representantes</button><button onclick="abrirWhats()">📲 Avisos no celular (Telegram / WhatsApp)</button><button onclick="verAvisos()">🔔 Avisos dos representantes</button><button onclick="abrirLinks()">🔗 Links dos representantes</button><button onclick="abrirRelatorio()">📄 PDF por representante</button></div></div>
     <button class="pc4-b p" onclick="carregar()">🔄 Atualizar</button>
   </div>
 
@@ -1202,7 +1202,7 @@ function verAvisos(){
   const corpo=L.length?L.map(a=>{const w=(a.whatsapp||[]);return `<div class="pcm-row" style="grid-template-columns:110px minmax(0,1fr) 150px 120px;cursor:default;${a.lido_em?'opacity:.6':''}">
     <span class="pcm-ic">${dh(a.criado_em)}</span>
     <div class="cl"><b>🆕 ${esc(a.representante||'—')}</b><span>${a.pedido?'Pedido <b>'+esc(a.pedido)+'</b>':'sem número'}${a.mensagem?' · '+esc(a.mensagem):''}</span></div>
-    <span class="pcm-ic">${w.length?'📲 WhatsApp p/ '+w.map(x=>esc(x.nome)).join(', '):'sem WhatsApp configurado'}</span>
+    <span class="pcm-ic">${w.length?'📲 enviado p/ '+w.map(x=>esc(x.nome)).join(', '):'ninguém cadastrado p/ celular'}</span>
     <span style="text-align:right">${a.lido_em?`<span class="pcm-ic">lido ${esc(a.lido_por||'')}</span>`:`<button class="btn btn-secondary btn-sm" onclick="lerAviso('${a.id}')">✓ Lido</button>`}</span></div>`;}).join(''):'<div class="pc-help">Nenhum aviso ainda.</div>';
   shellM('m-avisos','🔔 Avisos dos representantes','Quando o representante toca em “Lancei pedido novo”, aparece aqui e vai para o WhatsApp cadastrado.',corpo,
     _avisos.some(x=>!x.lido_em)?`<button class="btn btn-secondary btn-sm" onclick="lerAviso('*')">✓ Marcar todos como lidos</button>`:'');
@@ -1259,37 +1259,80 @@ async function desconectarConta(id){
   toast('Desconectado de todos os aparelhos');const r=await _supabase.rpc('rep_contas_listar');_contas=r.data||[];desenharAcessos();
 }
 
-/* ── WhatsApp dos avisos (CallMeBot, grátis) ── */
-let _dest=[];
+/* ── Avisos no celular: Telegram (robô oficial, grátis) + WhatsApp (CallMeBot) ── */
+let _dest=[],_tg={configurado:false},_tgChats=null;
 async function abrirWhats(){
-  if(!ehAdmin()){toast('Só administrador configura o WhatsApp.','warning');return;}
-  const r=await db(_supabase.from('prog_aviso_destinos').select('*').order('criado_em'),'carregar WhatsApp');if(r.error)return;_dest=r.data||[];desenharWhats();
+  if(!ehAdmin()){toast('Só administrador configura os avisos.','warning');return;}
+  const [r,s]=await Promise.all([db(_supabase.from('prog_aviso_destinos').select('*').order('criado_em'),'carregar destinos'),_supabase.rpc('prog_tg_status')]);
+  if(r.error)return;_dest=r.data||[];_tg=s.data||{configurado:false};desenharWhats();
 }
+const esperarResp=async(ids,ms=4000)=>{await new Promise(ok=>setTimeout(ok,ms));const s=await _supabase.rpc('prog_http_resposta',{p_ids:ids});return s.data||[];};
 function desenharWhats(msg){
-  const lista=_dest.length?_dest.map(d=>`<div class="pcm-row" style="grid-template-columns:minmax(0,1fr) 160px 90px 70px;cursor:default"><div class="cl"><b>${esc(d.nome)}</b><span>${esc(d.telefone)}</span></div><span class="pcm-ic">chave ••••${esc(String(d.apikey).slice(-3))}</span>
-    <button class="btn btn-secondary btn-sm" onclick="ativarDest('${d.id}',${!d.ativo})">${d.ativo?'Pausar':'Ativar'}</button><button class="pcm-ib" title="Remover" onclick="removerDest('${d.id}')">🗑️</button></div>`).join(''):'<div class="pc-help">Nenhum número cadastrado.</div>';
-  shellM('m-whats','📲 WhatsApp dos avisos','Quando um representante avisa “lancei pedido novo”, cada número ativo recebe a mensagem (grátis, pelo CallMeBot).',
-    lista+`<div class="pcm-card" style="margin-top:14px"><h4>Cadastrar número</h4>
-    <ol style="font-size:12.5px;color:#334155;padding-left:18px;line-height:1.6;margin-bottom:10px"><li>No celular que vai receber, abra <a class="pcm-lk" target="_blank" href="https://www.callmebot.com/blog/free-api-whatsapp-messages/">callmebot.com (WhatsApp)</a> e salve o número do robô que está lá.</li>
-    <li>Mande para o robô, pelo WhatsApp, a frase: <b>I allow callmebot to send me messages</b></li><li>Ele responde com a sua <b>apikey</b> (um número). Cole aqui embaixo.</li></ol>
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px"><label class="pcm-f"><small>Nome</small><input id="wd-n" placeholder="ex.: Heliton"></label><label class="pcm-f"><small>WhatsApp (com DDD)</small><input id="wd-t" placeholder="15 99999-9999"></label><label class="pcm-f"><small>apikey do CallMeBot</small><input id="wd-k"></label></div>
-    ${msg||''}<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px"><button class="btn btn-secondary btn-sm" onclick="testarWhats()">📨 Enviar teste</button><button class="btn btn-primary btn-sm" onclick="salvarDest()">＋ Cadastrar</button></div></div>`);
+  const lista=_dest.length?_dest.map(d=>`<div class="pcm-row" style="grid-template-columns:minmax(0,1fr) 150px 90px 40px;cursor:default"><div class="cl"><b>${d.canal==='telegram'?'✈️':'🟢'} ${esc(d.nome)}</b><span>${d.canal==='telegram'?'Telegram':'WhatsApp '+esc(d.telefone||'')}${d.ativo?'':' · pausado'}</span></div><span class="pcm-ic">${d.canal==='telegram'?'chat '+esc(d.chat_id||''):'chave ••••'+esc(String(d.apikey||'').slice(-3))}</span>
+    <button class="btn btn-secondary btn-sm" onclick="ativarDest('${d.id}',${!d.ativo})">${d.ativo?'Pausar':'Ativar'}</button><button class="pcm-ib" title="Remover" onclick="removerDest('${d.id}')">🗑️</button></div>`).join(''):'<div class="pc-help">Ninguém cadastrado ainda.</div>';
+  const jaTem=new Set(_dest.filter(d=>d.canal==='telegram').map(d=>String(d.chat_id)));
+  const chats=_tgChats===null?'':_tgChats.length?`<div class="pcm-sec" style="margin-top:12px">QUEM MANDOU /start PARA O ROBÔ</div>${_tgChats.map(c=>`<div class="pcm-row" style="grid-template-columns:minmax(0,1fr) 140px;cursor:default"><div class="cl"><b>${esc(c.nome)}</b><span>${c.user?'@'+esc(c.user)+' · ':''}chat ${esc(c.id)}</span></div>${jaTem.has(String(c.id))?'<span class="pcm-t2 g">já recebe</span>':`<button class="btn btn-primary btn-sm" onclick='addTg(${JSON.stringify(String(c.id))},${JSON.stringify(c.nome).replace(/'/g,"&#39;")})'>＋ Receber avisos</button>`}</div>`).join('')}`
+    :'<div class="pcm-mini no" style="margin-top:10px">Ninguém mandou /start ainda (ou faz mais de 24 h). Abra o robô no Telegram, toque em INICIAR e clique de novo em “Procurar”.</div>';
+  const tg=`<div class="pcm-card" style="margin-top:14px"><h4>✈️ Telegram <span>${_tg.configurado?'robô configurado ✓':'falta configurar o robô'}</span></h4>
+    ${_tg.configurado?`<ol style="font-size:12.5px;color:#334155;padding-left:18px;line-height:1.6">
+      <li>Cada pessoa que vai receber abre o robô no Telegram (link abaixo) e toca em <b>INICIAR</b> (/start).</li><li>Clique em <b>🔎 Procurar quem mandou /start</b> e em <b>＋ Receber avisos</b> na pessoa.</li></ol>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"><button class="btn btn-secondary btn-sm" onclick="tgProcurar()">🔎 Procurar quem mandou /start</button><button class="btn btn-ghost btn-sm" onclick="tgLink()">🔗 Link do robô</button><button class="btn btn-ghost btn-sm" onclick="_tg.configurado=false;desenharWhats()">Trocar token</button></div>${chats}`
+    :`<ol style="font-size:12.5px;color:#334155;padding-left:18px;line-height:1.6;margin-bottom:10px">
+      <li>No Telegram, abra <a class="pcm-lk" target="_blank" href="https://t.me/BotFather">@BotFather</a> e mande <b>/newbot</b>.</li>
+      <li>Dê um nome (ex.: <i>Silicate Programação</i>) e um usuário terminado em <b>bot</b> (ex.: <i>silicate_programacao_bot</i>).</li>
+      <li>Ele responde com o <b>token</b> (algo como <code>123456789:AAH…</code>). Cole aqui — ele fica guardado só no servidor e não aparece mais na tela.</li></ol>
+      <div style="display:flex;gap:8px"><input id="tg-tk" class="form-input" style="flex:1" placeholder="token do @BotFather" autocomplete="off"><button class="btn btn-primary btn-sm" onclick="tgSalvar()">Salvar</button></div>`}</div>`;
+  const wa=`<details class="pcm-card" style="margin-top:12px"><summary style="cursor:pointer;font-weight:800;font-size:12px;color:var(--primary)">🟢 WhatsApp (CallMeBot) — robô lotado em 12/11, cadastre quando liberar</summary>
+    <ol style="font-size:12.5px;color:#334155;padding-left:18px;line-height:1.6;margin:10px 0"><li>No celular que vai receber, abra <a class="pcm-lk" target="_blank" href="https://www.callmebot.com/blog/free-api-whatsapp-messages/">callmebot.com (WhatsApp)</a> e salve o número do robô.</li>
+    <li>Mande para o robô: <b>I allow callmebot to send me messages</b></li><li>Ele responde com a <b>apikey</b>. Cole aqui.</li></ol>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px"><label class="pcm-f"><small>Nome</small><input id="wd-n"></label><label class="pcm-f"><small>WhatsApp (com DDD)</small><input id="wd-t" placeholder="15 99999-9999"></label><label class="pcm-f"><small>apikey</small><input id="wd-k"></label></div>
+    <div style="display:flex;justify-content:flex-end;margin-top:10px"><button class="btn btn-primary btn-sm" onclick="salvarDest()">＋ Cadastrar WhatsApp</button></div></details>`;
+  shellM('m-whats','📲 Avisos no celular','Quando um representante toca em “Lancei pedido novo”, cada pessoa ativa da lista recebe a mensagem (além do 🔔 no ERP).',
+    `<div class="pcm-sec">QUEM RECEBE</div>${lista}${msg||''}${tg}${wa}`,`<button class="btn btn-secondary btn-sm" onclick="testarWhats()">📨 Enviar teste para todos</button>`);
+}
+async function tgSalvar(){
+  const t=document.getElementById('tg-tk').value.trim();if(!t)return;
+  const {error}=await _supabase.rpc('prog_tg_salvar_token',{p_token:t});if(error){toast(error.message,'error');return;}
+  const id=(await _supabase.rpc('prog_tg_chamar',{p_metodo:'getMe'})).data;const r=(await esperarResp([id],2500))[0]||{};
+  let ok=false,nome='';try{const j=JSON.parse(r.corpo||'{}');ok=j.ok;nome=j.result&&j.result.username;}catch(e){}
+  addLog('UPDATE',MOD,null,'Telegram: token do robô dos avisos'+(nome?' @'+nome:''));
+  _tg={configurado:true,user:nome};desenharWhats(ok?`<div class="pcm-mini ok" style="margin-top:10px">✓ Robô @${esc(nome)} conectado.</div>`:'<div class="pcm-mini no" style="margin-top:10px">Token salvo, mas o Telegram não confirmou. Confira se copiou o token inteiro.</div>');
+}
+async function tgLink(){
+  const id=(await _supabase.rpc('prog_tg_chamar',{p_metodo:'getMe'})).data;const r=(await esperarResp([id],2000))[0]||{};
+  try{const u=JSON.parse(r.corpo).result.username;const link='https://t.me/'+u;
+    (navigator.clipboard?navigator.clipboard.writeText(link):Promise.reject()).then(()=>toast('Link copiado: '+link)).catch(()=>prompt('Link do robô:',link));}catch(e){toast('Não deu para ler o robô. Tente de novo.','warning');}
+}
+async function tgProcurar(){
+  const {data:id,error}=await _supabase.rpc('prog_tg_chamar',{p_metodo:'getUpdates'});if(error){toast(error.message,'error');return;}
+  desenharWhats('<div class="pcm-mini" style="margin-top:10px">Procurando…</div>');
+  const r=(await esperarResp([id],3000))[0]||{};const m={};
+  try{(JSON.parse(r.corpo||'{}').result||[]).forEach(u=>{const c=(u.message||u.my_chat_member||{}).chat;if(c&&c.type==='private')m[c.id]={id:c.id,nome:[c.first_name,c.last_name].filter(Boolean).join(' ')||c.username||String(c.id),user:c.username||''};});}catch(e){}
+  _tgChats=Object.values(m);desenharWhats();
+}
+async function addTg(chat,nome){
+  const {error}=await db(_supabase.from('prog_aviso_destinos').insert({nome,canal:'telegram',chat_id:String(chat)}),'cadastrar Telegram');if(error)return;
+  addLog('INSERT',MOD,null,`Avisos no Telegram: ${nome}`);const r=await _supabase.from('prog_aviso_destinos').select('*').order('criado_em');_dest=r.data||[];desenharWhats('<div class="pcm-mini ok" style="margin-top:10px">✓ '+esc(nome)+' vai receber os avisos. Use “Enviar teste”.</div>');
 }
 async function salvarDest(){
   const v=id=>document.getElementById(id).value.trim();let tel=v('wd-t').replace(/\D/g,'');
   if(!v('wd-n')||tel.length<10||!v('wd-k')){toast('Preencha nome, WhatsApp com DDD e apikey.','warning');return;}
   if(!tel.startsWith('55'))tel='55'+tel;
-  const {error}=await db(_supabase.from('prog_aviso_destinos').insert({nome:v('wd-n'),telefone:tel,apikey:v('wd-k')}),'cadastrar WhatsApp');if(error)return;
-  addLog('INSERT',MOD,null,`WhatsApp dos avisos: ${v('wd-n')}`);abrirWhats();
+  const {error}=await db(_supabase.from('prog_aviso_destinos').insert({nome:v('wd-n'),canal:'whatsapp',telefone:tel,apikey:v('wd-k')}),'cadastrar WhatsApp');if(error)return;
+  addLog('INSERT',MOD,null,`Avisos no WhatsApp: ${v('wd-n')}`);abrirWhats();
 }
-async function ativarDest(id,on){const {error}=await db(_supabase.from('prog_aviso_destinos').update({ativo:on}).eq('id',id),'WhatsApp');if(!error)abrirWhats();}
-async function removerDest(id){if(!confirm('Remover este número dos avisos?'))return;const {error}=await db(_supabase.from('prog_aviso_destinos').delete().eq('id',id),'remover WhatsApp');if(!error)abrirWhats();}
+async function ativarDest(id,on){const {error}=await db(_supabase.from('prog_aviso_destinos').update({ativo:on}).eq('id',id),'avisos');if(!error)abrirWhats();}
+async function removerDest(id){if(!confirm('Tirar esta pessoa dos avisos?'))return;const {error}=await db(_supabase.from('prog_aviso_destinos').delete().eq('id',id),'remover');if(!error)abrirWhats();}
 async function testarWhats(){
   const r=await _supabase.rpc('prog_whats_testar');if(r.error){toast(r.error.message,'error');return;}
-  const ids=(r.data||[]).map(x=>x.req).filter(Boolean);if(!ids.length){desenharWhats('<div class="pcm-mini no">Nenhum número ativo.</div>');return;}
-  desenharWhats('<div class="pcm-mini">Enviando…</div>');
-  setTimeout(async()=>{const s=await _supabase.rpc('prog_whats_resposta',{p_ids:ids});const L=s.data||[];
-    desenharWhats(`<div style="margin-top:10px">${(r.data||[]).map(x=>{const y=L.find(z=>z.req===x.req);const ok=y&&y.status===200&&!/error|invalid|not/i.test(y.corpo||'');return `<div class="pcm-mini ${ok?'ok':'no'}">${ok?'✓':'✗'} ${esc(x.nome)}: ${y?(ok?'enviado':esc((y.erro||y.corpo||'erro '+y.status).replace(/<[^>]+>/g,' ').slice(0,140))):'sem resposta ainda'}</div>`;}).join('')}</div>`);},5000);
+  const env=r.data||[],ids=env.map(x=>x.req).filter(Boolean);
+  if(!env.length){desenharWhats('<div class="pcm-mini no" style="margin-top:10px">Ninguém ativo na lista.</div>');return;}
+  desenharWhats('<div class="pcm-mini" style="margin-top:10px">Enviando…</div>');
+  const L=ids.length?await esperarResp(ids,4500):[];
+  desenharWhats(`<div style="margin-top:10px">${env.map(x=>{const y=L.find(z=>z.req===x.req);let ok=false;
+    if(y&&y.status===200){ok=x.canal==='telegram'?/"ok":true/.test(y.corpo||''):!/error|invalid|not|full/i.test(y.corpo||'');}
+    const det=x.erro||(!y?'sem resposta ainda':ok?'enviado':String(y.corpo||y.erro||'erro '+y.status).replace(/<[^>]+>/g,' ').slice(0,140));
+    return `<div class="pcm-mini ${ok?'ok':'no'}">${ok?'✓':'✗'} ${esc(x.nome)} (${x.canal==='telegram'?'Telegram':'WhatsApp'}): ${esc(det)}</div>`;}).join('')}</div>`);
 }
 
 /* ── informar atraso (ex.: quebrou a linha) ── */

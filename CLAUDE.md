@@ -744,3 +744,8 @@ fábrica específica. Não generalizar.
 - Testado contra o banco real (12/11): login anon, senha errada, bloqueio na 5ª, token falso 401, conta desativada 401, aviso + limite 1/min,
   anon sem acesso a tabelas/RPCs internas; A (308) recebeu 25 pedidos e B (275) 11, **0 de outro representante**; dias livres conferidos com a
   soma dos pedidos (17/11 39 → cabem 50; 18/11 14 → 75; 19/11 72 → 17; 28/11 80 → 9). Contas de teste `teste.claude.a/.b` ficaram desativadas.
+- **Telegram (migração 126)**: o robô do CallMeBot lotou em 12/11. `prog_whats_enviar` agora manda por canal (`prog_aviso_destinos.canal`
+  'whatsapp' | 'telegram' + `chat_id`). Token do robô (criado pelo dono no @BotFather) em `prog_aviso_config` (sem policy, nunca volta para a tela):
+  `prog_tg_salvar_token` / `prog_tg_status` / `prog_tg_chamar('getMe'|'getUpdates')` / `prog_http_resposta` (só ADM/SADM). Tela ⋯ Mais →
+  📲 Avisos no celular: salvar token → cada pessoa toca INICIAR no robô → "Procurar quem mandou /start" → "＋ Receber avisos" → "Enviar teste".
+
