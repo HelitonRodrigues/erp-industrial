@@ -662,3 +662,6 @@ fábrica específica. Não generalizar.
   turnos + produtos + apelidos; a página faz a mesma conta e mostra dias livres de Big Bag e 25 kg em 4 semanas (seg–sáb).
   Atualiza a cada 2 min. `prog_links` (1 código por representante; '*' = link geral do dono, todos os produtos e pedidos);
   `prog_link_gerar(p_rep,p_trocar)` (logado) gera/troca. Tela "🔗 Links dos representantes": gerar, copiar, WhatsApp, trocar.
+- **📄 Ver pedido** (modal do pedido): espelho do pedido do Salescode montado de `detalhes._bruto` (`lerPedidoBruto` → cliente,
+  condições, itens com valor, pagamento, endereços de cobrança/entrega, frete com itens), cabeçalho da empresa, imprimir/salvar PDF.
+  Conferido com o texto real de A01MNN e A01MP7 ("Sem itens de frete."). Só aparece depois que a extensão leu a página do pedido.
