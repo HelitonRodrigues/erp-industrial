@@ -707,3 +707,5 @@ fábrica específica. Não generalizar.
   Cartão cinza-escuro "🆕 NOVO no Salescode" + "✓ Visto"; botão "🆕 N novos" no topo abre a lista (marcar todos / mostrar só os
   novos; filtro "🆕 Só os novos"). Arrastar marca visto. **Na conta de capacidade os novos ficam por último no dia** (`ordenar`
   começa por `_novo`): o que o dono já programou continua cabendo. O sync nunca mexe em `data_manual`.
+- Filtro de representante virou campo de digitar (`#sel-rep` + `datalist`): acha por parte do nome ou pelo nº, sem acento
+  (`doRep` com `M.norm`); a lista mostra quantos pedidos em aberto cada um tem.

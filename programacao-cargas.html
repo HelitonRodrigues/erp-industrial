@@ -50,6 +50,8 @@
 .pc-nav button{border:1.5px solid var(--primary);background:#fff;border-radius:9px;padding:7px 12px;font-weight:700;color:var(--primary);font-family:inherit;cursor:pointer;font-size:12.5px}
 .pc-nav button.on{background:var(--primary);color:var(--accent)}
 .pc-flt{display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap}
+.pc-rep input{width:330px;padding:6px 10px;border:1px solid #CBD5E1;border-radius:8px;font-family:inherit;font-size:12.5px;background:#fff}
+.pc-rep input:focus{outline:none;border-color:#042D4D;box-shadow:0 0 0 3px rgba(4,45,77,.12)}
 .pc-flt select{padding:6px 10px;border:1px solid #CBD5E1;border-radius:8px;font-family:inherit;font-size:12.5px}
 .pc-chk{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;color:var(--pc-pur)}
 .pc-prod{overflow:hidden;margin-bottom:14px}
@@ -168,7 +170,7 @@
   <div class="pc-tabs"><div id="pc-tabs" style="display:flex;gap:8px;flex-wrap:wrap"></div><div class="pc-sp"></div>
     <div class="pc-nav"><button onclick="moverSemana(-1)">‹ Semana anterior</button><button class="on" id="pc-sem-tit" onclick="irHoje()">—</button><button onclick="moverSemana(1)">Próxima ›</button></div></div>
   <div class="pc-flt">
-    <select id="sel-rep" onchange="_rep=this.value;render()"><option value="">Todos os representantes</option></select>
+    <span class="pc-rep"><input id="sel-rep" type="search" list="dl-rep" placeholder="👤 Todos os representantes — digite nome ou nº" autocomplete="off" oninput="_rep=this.value.trim();clearTimeout(window._repT);window._repT=setTimeout(render,200)"><datalist id="dl-rep"></datalist></span>
     <select id="sel-col" onchange="_colF=this.value;render()"><option value="">Todas as colunas do Salescode</option><option>Ordem de Carga</option><option>A contratar</option><option>Ordem Cancelada</option><option>Programados</option><option>Financeiro</option><option value="-">Sem coluna</option><option value="novo">🆕 Só os novos</option></select>
     <label class="pc-chk"><input type="checkbox" id="chk-fin" checked onchange="render()"> Mostrar pedidos no financeiro</label>
   </div>
@@ -271,13 +273,14 @@ async function carregar(){
   M.iniciar({planos:pl.data||[],turnos:tu.data||[],produtos:_produtos,aliases:_aliases});
   _cargas=(cg.data||[]).map(montar);
   const reps=[...new Set(_cargas.filter(c=>!c.carregado).map(c=>c._rep))].sort((a,b)=>a.localeCompare(b,'pt-BR'));
-  if(_rep&&!reps.includes(_rep))_rep='';
-  document.getElementById('sel-rep').innerHTML='<option value="">Todos os representantes</option>'+reps.map(r=>`<option${r===_rep?' selected':''}>${esc(r)}</option>`).join('');
+  const nRep={};_cargas.filter(c=>!c.carregado).forEach(c=>nRep[c._rep]=(nRep[c._rep]||0)+1);
+  document.getElementById('dl-rep').innerHTML=reps.map(r=>`<option value="${esc(r)}">${nRep[r]} pedido(s)</option>`).join('');
   render();
 }
 
 /* ── filtros ── */
-function abertos(){const fin=document.getElementById('chk-fin').checked;return _cargas.filter(c=>!c.carregado&&(fin||!c._fin||c._conta)&&(!_rep||c._rep===_rep)&&(!_colF||(_colF==='novo'?c._novo:_colF==='-'?!c._col:c._col===_colF)));}
+const doRep=c=>!_rep||M.norm(c._rep).includes(M.norm(_rep));
+function abertos(){const fin=document.getElementById('chk-fin').checked;return _cargas.filter(c=>!c.carregado&&(fin||!c._fin||c._conta)&&doRep(c)&&(!_colF||(_colF==='novo'?c._novo:_colF==='-'?!c._col:c._col===_colF)));}
 const ordenar=(a,b)=>(a._novo-b._novo)||(a.ordem_dia??9999)-(b.ordem_dia??9999)||a._pri-b._pri||String(a.pedido).localeCompare(String(b.pedido));
 const porPrioridade=(a,b)=>a._pri-b._pri||String(a._data||'9999').localeCompare(String(b._data||'9999'));
 // a conta de capacidade usa TODOS os pedidos do dia (não só o filtro), sem financeiro
