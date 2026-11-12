@@ -703,3 +703,7 @@ fábrica específica. Não generalizar.
 - 12/11 09:26–09:38: o dono pediu para voltar 16 pedidos arrastados — data_manual zerada (A01M8H voltou a 11/11), registrado em auditoria.
 - **🔗 Links dos representantes** separado em 2 grupos: "Caulim — Big Bag e ensacado 25 kg" (rep com pedido aberto de família
   Bag/Linha 25kg; mostra "N de Big Bag / 25 kg · M de outros") e "Demais representantes" (recolhido em `<details>`).
+- **🆕 Pedidos novos (124)**: `visto_em` vazio = entrou no Salescode depois (todos os existentes em 12/11 marcados vistos).
+  Cartão cinza-escuro "🆕 NOVO no Salescode" + "✓ Visto"; botão "🆕 N novos" no topo abre a lista (marcar todos / mostrar só os
+  novos; filtro "🆕 Só os novos"). Arrastar marca visto. **Na conta de capacidade os novos ficam por último no dia** (`ordenar`
+  começa por `_novo`): o que o dono já programou continua cabendo. O sync nunca mexe em `data_manual`.

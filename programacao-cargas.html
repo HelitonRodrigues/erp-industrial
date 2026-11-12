@@ -103,6 +103,11 @@
 .pc-help{font-size:12px;color:var(--pc-mut);line-height:1.5}
 .pc-cb{font-size:10.5px;font-weight:800;padding:1px 7px;border-radius:20px;white-space:nowrap}
 .pc-cb.oc{background:#DCFCE7;color:#166534}.pc-cb.ac{background:#DBEAFE;color:#1E40AF}.pc-cb.ca{background:#FEE2E2;color:#991B1B}.pc-cb.pg{background:#F1F5F9;color:#475569}.pc-cb.fi{background:#F3E8FF;color:#6B21A8}
+.pc-c.novo{background:#2F3640;border-color:#111827;color:#F8FAFC;box-shadow:0 0 0 2px #111827}
+.pc-c.novo .pc-cl,.pc-c.novo .pc-mt,.pc-c.novo .pc-q small{color:#CBD5E1}.pc-c.novo .pc-q{color:#fff}
+.pc-nv{display:flex;justify-content:space-between;align-items:center;gap:6px;margin:-2px 0 6px;font-size:10.5px;font-weight:900;letter-spacing:.5px;color:#FDE68A}
+.pc-nv button{border:0;border-radius:6px;background:#FDE68A;color:#111827;font-weight:800;font-size:10.5px;padding:2px 8px;cursor:pointer}
+.pc-mini.novo{background:#2F3640;color:#F8FAFC;border-color:#111827}.pc-mini.novo b{color:#fff}
 .pc-busca{position:relative}
 .pc-busca input{width:280px;height:34px;border:1.5px solid #cbd5e1;border-radius:9px;padding:0 12px;font-size:13.5px;font-weight:600;outline:none;background:#fff}
 .pc-busca input:focus{border-color:#042D4D;box-shadow:0 0 0 3px rgba(4,45,77,.12)}
@@ -145,6 +150,7 @@
     <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;max-width:860px;align-items:center">
     <div class="pc-busca"><input id="pc-q" type="search" placeholder="🔎 Buscar pedido ou cliente" autocomplete="off" oninput="buscarDigitou()" onfocus="buscarDigitou()" onkeydown="if(event.key==='Escape'){this.value='';fecharBusca();}if(event.key==='Enter'){const b=document.querySelector('#pc-bres .pc-bit');if(b)b.click();}"><div class="pc-bres hidden" id="pc-bres"></div></div>
     <div class="pc-sync" id="pc-sync">—</div>
+    <button class="btn btn-sm hidden" id="btn-novos" style="background:#2F3640;color:#FDE68A;font-weight:800" onclick="verNovos()">🆕 0 novos</button>
     <button class="btn btn-secondary btn-sm" id="btn-desf" onclick="desfazerUltimo()" disabled title="Nada para desfazer">↶ Desfazer</button>
     <button class="btn btn-secondary btn-sm" onclick="abrirLinks()">🔗 Links dos representantes</button>
     <button class="btn btn-secondary btn-sm" onclick="abrirRelatorio()">📄 PDF por representante</button>
@@ -163,7 +169,7 @@
     <div class="pc-nav"><button onclick="moverSemana(-1)">‹ Semana anterior</button><button class="on" id="pc-sem-tit" onclick="irHoje()">—</button><button onclick="moverSemana(1)">Próxima ›</button></div></div>
   <div class="pc-flt">
     <select id="sel-rep" onchange="_rep=this.value;render()"><option value="">Todos os representantes</option></select>
-    <select id="sel-col" onchange="_colF=this.value;render()"><option value="">Todas as colunas do Salescode</option><option>Ordem de Carga</option><option>A contratar</option><option>Ordem Cancelada</option><option>Programados</option><option>Financeiro</option><option value="-">Sem coluna</option></select>
+    <select id="sel-col" onchange="_colF=this.value;render()"><option value="">Todas as colunas do Salescode</option><option>Ordem de Carga</option><option>A contratar</option><option>Ordem Cancelada</option><option>Programados</option><option>Financeiro</option><option value="-">Sem coluna</option><option value="novo">🆕 Só os novos</option></select>
     <label class="pc-chk"><input type="checkbox" id="chk-fin" checked onchange="render()"> Mostrar pedidos no financeiro</label>
   </div>
 
@@ -248,7 +254,7 @@ const colTag=(c,mini)=>{const t=COLT[c._col];return t?`<span class="pc-cb ${t[1]
 /* ── dados ── */
 function montar(c){
   const p=c.planilha||{}, its=M.itens(c);
-  return Object.assign(c,{_itens:its,_data:M.dataDe(c),_dataSC:c.data_salescode||c.data_planilha||null,_fin:M.ehFinanceiro(c),_col:M.coluna(c),_pri:M.prioridade(c),_conta:M.contaCapacidade(c),
+  return Object.assign(c,{_itens:its,_data:M.dataDe(c),_dataSC:c.data_salescode||c.data_planilha||null,_fin:M.ehFinanceiro(c),_col:M.coluna(c),_pri:M.prioridade(c),_conta:M.contaCapacidade(c),_novo:!c.visto_em&&!c.carregado,
     _cli:p.cliente||c.cliente_salescode||'—',_rep:c.representante||'Sem representante',_t:its.reduce((s,i)=>s+(i.t||0),0)});
 }
 async function carregar(){
@@ -271,8 +277,8 @@ async function carregar(){
 }
 
 /* ── filtros ── */
-function abertos(){const fin=document.getElementById('chk-fin').checked;return _cargas.filter(c=>!c.carregado&&(fin||!c._fin||c._conta)&&(!_rep||c._rep===_rep)&&(!_colF||(_colF==='-'?!c._col:c._col===_colF)));}
-const ordenar=(a,b)=>(a.ordem_dia??9999)-(b.ordem_dia??9999)||a._pri-b._pri||String(a.pedido).localeCompare(String(b.pedido));
+function abertos(){const fin=document.getElementById('chk-fin').checked;return _cargas.filter(c=>!c.carregado&&(fin||!c._fin||c._conta)&&(!_rep||c._rep===_rep)&&(!_colF||(_colF==='novo'?c._novo:_colF==='-'?!c._col:c._col===_colF)));}
+const ordenar=(a,b)=>(a._novo-b._novo)||(a.ordem_dia??9999)-(b.ordem_dia??9999)||a._pri-b._pri||String(a.pedido).localeCompare(String(b.pedido));
 const porPrioridade=(a,b)=>a._pri-b._pri||String(a._data||'9999').localeCompare(String(b._data||'9999'));
 // a conta de capacidade usa TODOS os pedidos do dia (não só o filtro), sem financeiro
 const paraConta=iso=>_cargas.filter(c=>!c.carregado&&c._conta&&c._data===iso).sort(ordenar);
@@ -289,7 +295,7 @@ function ocup(iso,linha){
 const famLivre=l=>Object.keys(l.cap).sort((a,b)=>(a==='Bag'?-1:b==='Bag'?1:0))[0];
 
 /* ── RENDER ── */
-function render(){renderSync();renderMes();renderKpis();renderTabs();renderProduzir();renderSemana();renderLateral();}
+function render(){botaoNovos();renderSync();renderMes();renderKpis();renderTabs();renderProduzir();renderSemana();renderLateral();}
 function renderSync(){
   const v=_cargas.map(c=>c.atualizado_salescode).filter(Boolean).sort().pop();
   const cor=!v?'#DC2626':(Date.now()-new Date(v))>20*3600e3?'#D97706':'#22C55E';
@@ -366,10 +372,11 @@ function renderProduzir(){
 function fitTag(f){if(!f)return '';if(f.st==='ok')return '<span class="pc-fit g">✓ cabe</span>';if(f.st==='par')return `<span class="pc-fit p">${n0(f.cabe)} de ${n0(f.tot)}</span>`;if(f.st==='no')return '<span class="pc-fit n">não cabe</span>';return '<span class="pc-fit s">revenda</span>';}
 function cardHtml(c,fit,o={}){
   const h=hoje(), late=c._data&&c._data<h&&c._conta, mud=c.data_manual&&c.data_manual!==c._dataSC;
-  const cls=['pc-c'];if(c._fin&&!c._conta)cls.push('fin');if(fit&&fit.st==='no')cls.push('over');if(late)cls.push('late');
+  const cls=['pc-c'];if(c._novo)cls.push('novo');if(c._fin&&!c._conta)cls.push('fin');if(fit&&fit.st==='no')cls.push('over');if(late)cls.push('late');
   const q={};c._itens.forEach(i=>{q[i.un]=(q[i.un]||0)+i.q;});
   const extra=[o.data?`<span>${fmtDL(c._data)}</span>`:'',mud?`<span class="pc-chg">Salescode ${fmtD(c._dataSC)} → Fábrica ${fmtD(c.data_manual)}</span>`:'',late?`<span class="no" style="font-weight:800">atrasado desde ${fmtD(c._data)}</span>`:'',c.linha_manual?`<span class="pc-chg" style="background:#F3E8FF;color:#6B21A8">na ${esc(c.linha_manual)}</span>`:''].join('');
   return `<div class="${cls.join(' ')}" ${_pode?'draggable="true"':''} data-id="${c.id}" onclick="abrirCarga('${c.id}')">
+    ${c._novo?`<div class="pc-nv"><span>🆕 NOVO no Salescode</span>${_pode?`<button onclick="event.stopPropagation();marcarVisto(['${c.id}'])">✓ Visto</button>`:''}</div>`:''}
     <div class="r1"><span class="pc-ped">${esc(c.pedido)}</span><span class="pc-q">${Object.entries(q).map(([u,v])=>qtdU(v,u)).join(' + ')}</span></div>
     <div class="pc-cl">${esc(c._cli)}${c.cidade&&!c._cli.includes('(')?` <span style="color:#94A3B8;font-weight:600">· ${esc(c.cidade)}</span>`:''}</div>
     ${c._itens.map(i=>`<span class="pc-pr${i.erp?'':' sv'}" style="background:${COR[i.mat]||COR.outro}" title="${esc(i.produto)}">${i.erp?'':'⚠ '}${esc(i.nome)}</span>`).join('')}
@@ -398,7 +405,7 @@ function renderLateral(){
   const L=abertos(), h=hoje();
   const atr=L.filter(c=>c._data&&c._data<h&&c._conta&&naLinha(c)).sort(porPrioridade);
   const sem=L.filter(c=>!c._data&&naLinha(c)).sort(porPrioridade), sv=semVinculo();
-  const mini=c=>{const q={};c._itens.forEach(i=>{q[i.un]=(q[i.un]||0)+i.q;});return `<div class="pc-mini" ${_pode?'draggable="true"':''} data-id="${c.id}" onclick="abrirCarga('${c.id}')"><span class="pc-ped" style="font-size:11px">${esc(c.pedido)}</span> ${colTag(c,1)} <b>${Object.entries(q).map(([u,v])=>qtdTxt(v,u)).join(' + ')}</b> · ${esc(c._cli)}<br>${c._data?`<span class="no" style="font-weight:700">desde ${fmtD(c._data)}</span> · `:''}${esc(c._itens.map(i=>i.nome).join(', '))}</div>`;};
+  const mini=c=>{const q={};c._itens.forEach(i=>{q[i.un]=(q[i.un]||0)+i.q;});return `<div class="pc-mini${c._novo?' novo':''}" ${_pode?'draggable="true"':''} data-id="${c.id}" onclick="abrirCarga('${c.id}')"><span class="pc-ped" style="font-size:11px">${esc(c.pedido)}</span> ${colTag(c,1)} <b>${Object.entries(q).map(([u,v])=>qtdTxt(v,u)).join(' + ')}</b> · ${esc(c._cli)}<br>${c._data?`<span class="no" style="font-weight:700">desde ${fmtD(c._data)}</span> · `:''}${esc(c._itens.map(i=>i.nome).join(', '))}</div>`;};
   const opts=_produtos.map(p=>`<option value="${p.id}">${esc(p.nome)}</option>`).join('');
   document.getElementById('pc-lat').innerHTML=`
     <div class="pc-card"><h4>Atrasados <span class="pc-pill r">${atr.length}</span></h4><div class="pc-sb">${atr.map(mini).join('')||'<div class="pc-help">Nenhum 👍</div>'}</div></div>
@@ -429,9 +436,9 @@ async function moverCarga(id,dia,ev,zona){
     const ids=cards.map(x=>x.dataset.id);ids.splice(ordem,0,id);
     await Promise.all(ids.map((cid,i)=>{const cc=_cargas.find(x=>x.id===cid);if(cc&&cid!==id&&cc.ordem_dia!==i){cc.ordem_dia=i;return _supabase.from('programacao_cargas').update({ordem_dia:i}).eq('id',cid);}return null;}).filter(Boolean));}
   const nova=(dia&&dia===c._dataSC)?null:dia;
-  const {error}=await db(_supabase.from('programacao_cargas').update({data_manual:nova,ordem_dia:ordem,updated_at:new Date().toISOString()}).eq('id',id),'mover pedido');
+  const {error}=await db(_supabase.from('programacao_cargas').update({data_manual:nova,ordem_dia:ordem,visto_em:c.visto_em||new Date().toISOString(),updated_at:new Date().toISOString()}).eq('id',id),'mover pedido');
   if(error)return;
-  c.data_manual=nova;c.ordem_dia=ordem;montar(c);
+  c.data_manual=nova;c.ordem_dia=ordem;c.visto_em=c.visto_em||new Date().toISOString();montar(c);
   addLog('MOVER',MOD,id,`${c.pedido} ${c._cli} → ${dia?fmtDL(dia):'sem data'}`);
   toast(`${c.pedido} → ${dia?fmtDL(dia):'sem data'}`);render();
 }
@@ -608,8 +615,32 @@ async function verPedido(id){
   w.document.close();
 }
 
+/* ── NOVOS: pedidos que entraram no Salescode depois da sua programação (visto_em vazio) ── */
+function botaoNovos(){
+  const b=document.getElementById('btn-novos');if(!b)return;const n=_cargas.filter(c=>c._novo).length;
+  b.classList.toggle('hidden',!n);b.textContent=`🆕 ${n} novo${n>1?'s':''}`;b.title='Pedidos que entraram no Salescode e você ainda não viu';
+}
+function verNovos(){
+  const L=_cargas.filter(c=>c._novo).sort(porPrioridade);
+  document.getElementById('m-dia-tit').textContent=`🆕 ${L.length} pedido(s) novo(s) no Salescode`;
+  document.getElementById('m-dia-body').innerHTML=`<div class="pc-help" style="margin-bottom:8px">Entraram depois da sua programação. Na conta de capacidade eles ficam <b>por último no dia</b> — os que você já programou continuam na frente. Arraste para o dia certo ou clique em “✓ Visto”.</div>`
+    +L.map(c=>cardHtml(c,null,{data:true})).join('')
+    +(_pode&&L.length?`<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px"><button class="btn btn-secondary btn-sm" onclick="closeModal('m-dia');_colF='novo';document.getElementById('sel-col').value='novo';render()">Mostrar só os novos na tela</button><button class="btn btn-primary btn-sm" onclick="marcarVisto(${jsq('*')})">✓ Marcar todos como vistos</button></div>`:'');
+  document.getElementById('m-dia').classList.remove('hidden');
+}
+async function marcarVisto(ids){
+  if(!guardAction(MOD,'edit'))return;
+  if(ids==='*')ids=_cargas.filter(c=>c._novo).map(c=>c.id);if(!ids.length)return;
+  const agora=new Date().toISOString();
+  const {error}=await db(_supabase.from('programacao_cargas').update({visto_em:agora}).in('id',ids),'marcar visto');if(error)return;
+  ids.forEach(id=>{const c=_cargas.find(x=>x.id===id);if(c){c.visto_em=agora;montar(c);}});
+  toast(ids.length>1?`${ids.length} pedidos marcados como vistos`:'Marcado como visto');
+  if(!document.getElementById('m-dia').classList.contains('hidden')){const r=_cargas.filter(c=>c._novo).length;if(r)verNovos();else closeModal('m-dia');}
+  render();
+}
+
 /* ── DESFAZER: volta a última mudança feita nesta tela (data, linha, carregado). Ctrl+Z também. ── */
-const CAMPOS_DESF=['data_manual','ordem_dia','linha_manual','carregado','carregado_em','carregado_por','carregado_origem','carregado_manual'];
+const CAMPOS_DESF=['visto_em','data_manual','ordem_dia','linha_manual','carregado','carregado_em','carregado_por','carregado_origem','carregado_manual'];
 function guardar(c,rot){
   const antes={};CAMPOS_DESF.forEach(k=>antes[k]=c[k]??null);
   _desf.push({id:c.id,rot,antes});if(_desf.length>60)_desf.shift();botaoDesfazer();
