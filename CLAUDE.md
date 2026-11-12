@@ -724,3 +724,4 @@ fábrica específica. Não generalizar.
 - Quadro da semana: card só para pedidos com Big Bag ou 25 kg (`ehCard`); os outros produtos aparecem somados por produto no dia (`outrosHtml`), e o clique abre os pedidos (`abrirOutros`). A navegação de semana fica grande, logo acima do quadro.
 - Modais abrem com `abrirM(id)`: o último aberto fica sempre por cima (z-index crescente).
 - Bloco principal dos KPIs: só Linha 2, com bags e sacos de 25 kg um embaixo do outro. "Outros produtos" (`verOutros`) junta tudo o que não é Big Bag nem 25 kg: total em aberto por produto, e o clique no produto abre os pedidos (`abrirOutrosProd`). Esses pedidos não aparecem no quadro, em Atrasados nem em Sem data.
+- Linhas da tela: só `LINHAS=['Linha 2','Linha 3']` (abas, "O que produzir", janela do dia, escolha de linha no pedido). A Linha 3 fica disponível para mandar 25 kg para lá.

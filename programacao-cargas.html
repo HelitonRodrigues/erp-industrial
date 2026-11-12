@@ -466,12 +466,13 @@ const porPrioridade=(a,b)=>a._pri-b._pri||String(a._data||'9999').localeCompare(
 const paraConta=iso=>_cargas.filter(c=>!c.carregado&&c._conta&&c._data===iso).sort(ordenar);
 function linhasDoPedido(c){const s=new Set();c._itens.forEach(i=>s.add(M.linhaDoItem(c._data||hoje(),i.fam,c.linha_manual)||'Revenda'));return [...s];}
 const naLinha=c=>_linha==='Todas'||linhasDoPedido(c).includes(_linha);
-function nomesLinhas(){const s=new Set(['Linha 2']);for(let i=0;i<7;i++)(M.capacidadeDia(add(inicioSemana(_ref),i)).linhas||[]).forEach(l=>s.add(l.nome));return [...s,'Revenda'];}
+const LINHAS=['Linha 2','Linha 3']; // só as linhas de Big Bag / 25 kg — o resto fica em "Outros produtos"
+function nomesLinhas(){return LINHAS.slice();}
 function diasSemana(){const ini=inicioSemana(_ref);return [...Array(7)].map((_,i)=>add(ini,i)).filter(i=>dow(i)!==0||abertos().some(c=>c._data===i));}
 function ocup(iso,linha){
   const e=M.encaixarDia(iso,paraConta(iso));
   if(!e.cap.trabalha)return {fechado:true,e};
-  let pior=null;(linha==='Todas'?e.cap.linhas:e.cap.linhas.filter(l=>l.nome===linha)).forEach(l=>{if(!(l.horas>0))return;const u=e.usoH[l.nome]||0,f=e.faltaH[l.nome]||0,r=(u+f)/l.horas;if(!pior||r>pior.r)pior={r,u,f,h:l.horas};});
+  let pior=null;(linha==='Todas'?e.cap.linhas.filter(l=>LINHAS.includes(l.nome)):e.cap.linhas.filter(l=>l.nome===linha)).forEach(l=>{if(!(l.horas>0))return;const u=e.usoH[l.nome]||0,f=e.faltaH[l.nome]||0,r=(u+f)/l.horas;if(!pior||r>pior.r)pior={r,u,f,h:l.horas};});
   return {fechado:false,e,pior};
 }
 const famLivre=l=>Object.keys(l.cap).sort((a,b)=>(a==='Bag'?-1:b==='Bag'?1:0))[0];
@@ -512,7 +513,7 @@ function renderMes(){
   document.getElementById('pc-mes').innerHTML=html;
 }
 function semVinculo(){const m={};abertos().forEach(c=>c._itens.forEach(i=>{if(!i.erp&&i.grupo!=='original')m[i.produto]=(m[i.produto]||0)+1;}));return Object.entries(m);}
-function horasSemana(l){let H=0,U=0;if(l==='Revenda')return {H,U};diasSemana().forEach(i=>{const e=M.encaixarDia(i,paraConta(i));e.cap.linhas.forEach(x=>{if(l==='Todas'||x.nome===l){H+=x.horas;U+=(e.usoH[x.nome]||0)+(e.faltaH[x.nome]||0);}});});return {H,U};}
+function horasSemana(l){let H=0,U=0;if(l==='Revenda')return {H,U};diasSemana().forEach(i=>{const e=M.encaixarDia(i,paraConta(i));e.cap.linhas.forEach(x=>{if((l==='Todas'&&LINHAS.includes(x.nome))||x.nome===l){H+=x.horas;U+=(e.usoH[x.nome]||0)+(e.faltaH[x.nome]||0);}});});return {H,U};}
 function renderKpis(){
   const L=abertos(),h=hoje(),ds=diasSemana();
   const atr=L.filter(c=>ehCard(c)&&c._data&&c._data<h&&c._conta), atrL=atr.filter(naLinha), hj=L.filter(c=>c._data===h&&c._conta), sem=L.filter(c=>ehCard(c)&&!c._data), semL=sem.filter(naLinha), fin=L.filter(c=>c._fin&&!c._conta), sv=semVinculo();
@@ -634,7 +635,7 @@ function capDia(iso,e,linha){
   if(e.cap.semPlano)return {txt:'sem plano',cls:'s',sub:'',g:0,r:0};
   if(!e.cap.trabalha)return {txt:e.cap.estado==='feriado'?'feriado':'parada',cls:'s',sub:'',g:0,r:0};
   if(linha==='Revenda')return {txt:'sem produção',cls:'s',sub:'',g:0,r:0};
-  const ls=linha==='Todas'?e.cap.linhas.filter(l=>l.horas>0):e.cap.linhas.filter(l=>l.nome===linha&&l.horas>0);
+  const ls=linha==='Todas'?e.cap.linhas.filter(l=>l.horas>0&&LINHAS.includes(l.nome)):e.cap.linhas.filter(l=>l.nome===linha&&l.horas>0);
   if(!ls.length)return {txt:'linha parada',cls:'s',sub:'',g:0,r:0};
   let H=0,u=0,f=0;ls.forEach(l=>{H+=l.horas;u+=e.usoH[l.nome]||0;f+=e.faltaH[l.nome]||0;});
   const mx=Math.max(H,u+f),g=Math.min(u,H)/mx*100,r=f/mx*100;
@@ -802,7 +803,7 @@ function abrirCarga(id){
   ${_pode&&!c.carregado?`<div class="pcm-acao">
     <div class="pcm-f"><small>Data da fábrica</small><input type="date" value="${c._data||''}" onchange="closeModal('m-carga');moverCarga('${c.id}',this.value||null)">${fitMsg}</div>
     <div class="pcm-f"><small>Data do Salescode</small><div class="pcm-ro">${c._dataSC?fmtDL(c._dataSC):'sem data'}</div>${c.data_manual&&c.data_manual!==c._dataSC?'<div class="pcm-mini" style="color:#1D4ED8;font-weight:700">↻ mudada pela fábrica</div>':''}</div>
-    <div class="pcm-f"><small>Linha</small><select onchange="mudarLinha('${c.id}',this.value)"><option value="">padrão${c._itens[0]?.fam?' ('+esc(M.linhaDoItem(c._data||hoje(),c._itens[0].fam,null)||'revenda')+')':''}</option>${['Linha 2','Linha 3','Emitec','Longa Vida'].map(l=>`<option${c.linha_manual===l?' selected':''}>${l}</option>`).join('')}</select></div>
+    <div class="pcm-f"><small>Linha</small><select onchange="mudarLinha('${c.id}',this.value)"><option value="">padrão${c._itens[0]?.fam?' ('+esc(M.linhaDoItem(c._data||hoje(),c._itens[0].fam,null)||'revenda')+')':''}</option>${LINHAS.map(l=>`<option${c.linha_manual===l?' selected':''}>${l}</option>`).join('')}</select></div>
     <div class="pcm-f"><small>&nbsp;</small>${c._fin&&!c._conta?'<div class="pcm-mini">No financeiro — não pode marcar carregado</div>':`<button class="btn btn-primary" style="width:100%" onclick="marcarCarregado('${c.id}')">✓ Marcar carregado</button>`}</div>
   </div>`:''}
   <div class="pcm-bd"><div>
@@ -841,9 +842,8 @@ function rowHtml(c,fit,o={}){
 }
 function abrirDia(iso,linha){
   _diaAberto=iso;if(linha!==undefined)_diaLinha=linha;else _diaLinha=_linha;
-  const e=M.encaixarDia(iso,paraConta(iso)), todos=abertos().filter(c=>c._data===iso).sort(ordenar);
-  const ls=e.cap.trabalha?e.cap.linhas.filter(l=>l.horas>0||todos.some(c=>linhasDoPedido(c).includes(l.nome))).map(l=>l.nome):[];
-  if(todos.some(c=>linhasDoPedido(c).includes('Revenda')))ls.push('Revenda');
+  const e=M.encaixarDia(iso,paraConta(iso)), todos=abertos().filter(c=>c._data===iso&&ehCard(c)).sort(ordenar);
+  const ls=e.cap.trabalha?LINHAS.filter(n=>e.cap.linhas.some(l=>l.nome===n)):[];
   const tabs=['Todas',...ls.filter((x,i,a)=>a.indexOf(x)===i)];if(!tabs.includes(_diaLinha))_diaLinha='Todas';
   const cs=_diaLinha==='Todas'?todos:todos.filter(c=>linhasDoPedido(c).includes(_diaLinha));
   const k=capDia(iso,e,_diaLinha), tot={};cs.forEach(c=>c._itens.forEach(i=>tot[i.un]=(tot[i.un]||0)+i.q));
