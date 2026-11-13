@@ -155,6 +155,8 @@
           if (p.ativo !== false) cap[p.nome] = Math.max(cap[p.nome] || 0, ch);
         });
         if (!trabalha || s.simuladoDesligado) return;
+        const pI = s.paradaProgInicio || s.simuladoParadaInicio, pF = s.paradaProgFim || s.simuladoParadaFim;
+        if (pI && pF && iso >= pI && iso <= pF) return;   // parada por período (reforma) — o Custo conta os mesmos dias em "Parado N dias"
         const t = _turnos.find(x => x.nome === s.turnoNome); if (!t) return;
         let m = 0;
         if (estado === 'domingo-especial') m = Math.round((Number(est.horasDomingoEspecial) || 0) * 60);
