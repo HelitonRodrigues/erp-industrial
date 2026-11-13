@@ -480,7 +480,7 @@ function abrirEntrada(id){
     <label class="dsm-lbl">Filito *</label><div class="f-prods" id="en-prods"></div>
     <div class="dsm-g2">
       <div><label class="dsm-lbl">Operador</label><input class="form-input" id="en-oper" list="dl-oper" value="${esc(v?v.operador||'':'')}" oninput="this.value=this.value.toUpperCase()" placeholder="quem vai carregar"></div>
-      <div><label class="dsm-lbl">Tara (kg) ${semTara?'<span style="font-weight:600;color:#0369a1;">— deixe em branco para pesar depois</span>':'*'}</label><input type="number" inputmode="numeric" class="form-input f-big" id="en-tara" value="${v&&v.tara_kg!=null?v.tara_kg:''}" oninput="enBotao()"></div>
+      <div><label class="dsm-lbl">Tara (kg) ${semTara?'<span style="font-weight:600;color:#0369a1;">— deixe em branco para pesar depois</span>':v&&v.status==='aguardando_bruto'?'<span style="font-weight:600;color:#0369a1;">— apague para voltar a esperar a tara</span>':'*'}</label><input type="number" inputmode="numeric" class="form-input f-big" id="en-tara" value="${v&&v.tara_kg!=null?v.tara_kg:''}" oninput="enBotao()"></div>
       ${v&&v.bruto_kg?`<div><label class="dsm-lbl">Bruto (kg) *</label><input type="number" inputmode="numeric" class="form-input f-big" id="en-bruto" value="${v.bruto_kg}"></div>
         <div><label class="dsm-lbl">Nº da nota</label><input class="form-input" id="en-nf" value="${esc(v.nf_numero||'')}"></div>`:''}</div>
     <div class="dsm-ft"><button class="btn btn-secondary" onclick="document.getElementById('ov-en').remove()">Cancelar</button>
@@ -523,7 +523,8 @@ async function salvarEntrada(){
   if(!nome){toast('Escolha o motorista.','warning');return;}
   if(!reg.placa){toast('Informe a placa.','warning');return;}
   if(!_prod.some(p=>p.codigo===reg.produto)){toast('Escolha o filito.','warning');return;}
-  if(reg.tara_kg==null&&!semTara){toast('Informe a tara (kg).','warning');return;}
+  const tirarTara=!!(ed&&ed.status==='aguardando_bruto'&&!ed.bruto_kg&&reg.tara_kg==null);   // correção: tara errada → volta a esperar a tara
+  if(reg.tara_kg==null&&!semTara&&!tirarTara){toast('Informe a tara (kg).','warning');return;}
   if(reg.tara_kg!=null&&!(reg.tara_kg>=1000)){toast('Tara em KG (ex.: 11.540). Confira.','warning');return;}
   if(reg.cacamba_kg!=null&&reg.cacamba_kg<1000){toast('Peso da caçamba em KG (ex.: 30.450). Confira.','warning');return;}
   if(ed&&ed.bruto_kg){reg.bruto_kg=Number(g('en-bruto'));reg.nf_numero=g('en-nf')||null;
@@ -535,8 +536,9 @@ async function salvarEntrada(){
     if(!(await gravarPedido(reg.pedido)))return;
     if(ed){
       if(ed.status==='aguardando_tara'&&reg.tara_kg!=null){reg.status='aguardando_bruto';reg.porteiro_tara=quem();}   // corrigiu e já pôs a tara
+      if(tirarTara){reg.status='aguardando_tara';reg.entrada_em=null;reg.porteiro_tara=null;}
       const {error}=await _supabase.from('filito_viagens').update(reg).eq('id',ed.id);if(error)throw error;
-      addLog('UPDATE','PORTARIA',ed.id,`Filito: viagem ${reg.placa} corrigida${ed.ticket?' (ticket '+tk(ed.ticket)+')':''}${reg.status==='aguardando_bruto'?' · tara '+nf(reg.tara_kg)+' kg':''}`);toast('Correção salva.','success');}
+      addLog('UPDATE','PORTARIA',ed.id,`Filito: viagem ${reg.placa} corrigida${ed.ticket?' (ticket '+tk(ed.ticket)+')':''}${reg.status==='aguardando_bruto'?' · tara '+nf(reg.tara_kg)+' kg':''}${tirarTara?' · tara '+nf(ed.tara_kg)+' kg retirada (volta a esperar a tara)':''}`);toast(tirarTara?'Tara retirada — o caminhão voltou para "Aguardando tara".':'Correção salva.','success');}
     else{reg.status=reg.tara_kg!=null?'aguardando_bruto':'aguardando_tara';reg.porteiro=quem();reg.origem='portaria';
       const {data,error}=await _supabase.from('filito_viagens').insert(reg).select('id,chegada_em').single();if(error)throw error;
       addLog('INSERT','PORTARIA',data.id,`Filito: chegada ${reg.placa} ${reg.motorista}${reg.tara_kg!=null?' tara '+nf(reg.tara_kg)+' kg':' (tara depois)'}${reg.pedido?' pedido '+reg.pedido:' (sem pedido)'}`);
