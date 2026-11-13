@@ -749,3 +749,7 @@ fábrica específica. Não generalizar.
   `prog_tg_salvar_token` / `prog_tg_status` / `prog_tg_chamar('getMe'|'getUpdates')` / `prog_http_resposta` (só ADM/SADM). Tela ⋯ Mais →
   📲 Avisos no celular: salvar token → cada pessoa toca INICIAR no robô → "Procurar quem mandou /start" → "＋ Receber avisos" → "Enviar teste".
 
+- **Celular (≤ 760 px)**: só CSS + `movel()`; computador não muda. Barra fixa embaixo (`.pc4-nav`: Resumo/Semana/Produzir/Pendentes/Buscar,
+  `contMovel()` conta pendentes e filtros ativos), mês atrás de "📅 Calendário do mês" (`body.pc-vermes`), filtros atrás de "⚙️ Filtros"
+  (`body.pc-verflt`), KPIs 3 colunas, "O que produzir" rola de lado, quadro mostra UM dia (`_diaMov`) com seletor de dias grudado no topo
+  (`.pc4-dsel`, top 58 px = barra do ERP), botões ✓ Carregado/📄 Abrir sempre visíveis, modal em tela cheia. No celular não arrasta.
