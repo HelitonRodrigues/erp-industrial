@@ -677,7 +677,7 @@ function renderFila(cols){
         <td>${itensCel(c.itens)}</td><td>${ccCell(c.itens,s)}</td><td>${E(nomeCurto(c.comprador))}</td>
         <td>${ag?`<b style="color:var(--primary)">${brl(c.total)}</b><span class="ref">${c.tipo==='direta'?E((MOTIVOS[c.motivo_direto]||'').replace(/^\S+\s/,'')):props.length+' fornecedor'+(props.length===1?'':'es')}</span>`:props.length?`<b>${ok} de ${props.length}</b><span class="ref">com preço</span>`:'<span class="ref">sem fornecedor ainda</span>'}</td>
         <td><span class="dias ${horasDesde(ag?c.enviada_em:c.created_at)>=72?'o':''}">${tempo(horasDesde(ag?c.enviada_em:c.created_at))}</span></td>
-        <td class="ac" onclick="event.stopPropagation()">${btnSol(c.solicitacao_id)} ${ag?(podeAprovar()?`<button class="bx ok" onclick="abrirAprovar('${c.id}')">✓ Decidir</button>`:`<button class="bx" onclick="abrirMapa('${c.id}')">👁️ Ver mapa</button>`):orf?`<button class="bx red" onclick="abrirCot('${c.id}')">Encerrar</button>`:(podeComprar()?`<button class="bx org ic" title="Voltar para A comprar (desfaz a cotação)" onclick="desistirCotacao('${c.id}')">↩</button> `:'')+(c.tipo==='direta'?`<button class="bx em" onclick="abrirDireto('${c.solicitacao_id}','${c.id}')">⚡ Continuar</button>`:`<button class="bx pr" onclick="abrirMapa('${c.id}')">📊 Abrir mapa</button>`)}</td>${goCel}</tr>`;}).join('')||'<tr><td colspan="9" class="vazio">Nenhuma compra nesta etapa.</td></tr>'}</tbody></table>`;
+        <td class="ac" onclick="event.stopPropagation()">${btnSol(c.solicitacao_id)} ${ag?`<button class="bx ic" title="Imprimir o mapa para o gerente" onclick="imprimirMapa('${c.id}')">🖨️</button> `+(podeAprovar()?`<button class="bx ok" onclick="abrirAprovar('${c.id}')">✓ Decidir</button>`:`<button class="bx" onclick="abrirMapa('${c.id}')">👁️ Ver mapa</button>`):orf?`<button class="bx red" onclick="abrirCot('${c.id}')">Encerrar</button>`:(podeComprar()?`<button class="bx org ic" title="Voltar para A comprar (desfaz a cotação)" onclick="desistirCotacao('${c.id}')">↩</button> `:'')+(c.tipo==='direta'?`<button class="bx em" onclick="abrirDireto('${c.solicitacao_id}','${c.id}')">⚡ Continuar</button>`:`<button class="bx pr" onclick="abrirMapa('${c.id}')">📊 Abrir mapa</button>`)}</td>${goCel}</tr>`;}).join('')||'<tr><td colspan="9" class="vazio">Nenhuma compra nesta etapa.</td></tr>'}</tbody></table>`;
   }else{
     el.innerHTML=tabelaPedidos(L,_etapa==='entregue');
   }
@@ -1104,7 +1104,8 @@ async function enviarGerente(){
   {
     const d=await gravarCot(_mp,{assinatura_comprador:ass,status:'aguardando_aprovacao',enviada_em:new Date().toISOString(),historico:[...(_mp.historico||[]),{acao:'enviada',por:quem(),em:new Date().toISOString(),obs:brl(te.total)}]});
     if(!d)return; addLog('UPDATE','COMPRAS','cot-'+d.numero,'Cotação enviada ao gerente — '+brl(te.total)).catch(()=>{});
-    toast('Assinada e enviada ao gerente.'); fecharMapa();
+    toast('Assinada e enviada ao gerente.'); const imp={..._mp,...d}; fecharMapa();
+    if(confirm('Enviada ao gerente.\n\nQuer imprimir o mapa da cotação para entregar em mãos ao gerente?'))imprimirMapa(imp);
   }
 }
 /* ═══════════════ LER PROPOSTA (sem IA) — página ═══════════════ */
@@ -1350,6 +1351,7 @@ async function salvarDireto(){
     }else{
       const g=await gravarCot(obj,{assinatura_comprador:ass,status:'aguardando_aprovacao',enviada_em:new Date().toISOString(),historico:[...(c.historico||[]),{acao:'enviada',por:quem(),em:new Date().toISOString(),obs:'Compra direta — '+(MOTIVOS[d.motivo]||d.motivo)+' — '+brl(t)}]});
       if(!g)return; toast('Enviada ao gerente.'); mostrarLista();
+      if(confirm('Enviada ao gerente.\n\nQuer imprimir a compra para entregar em mãos ao gerente?'))imprimirMapa({...obj,...g});
     }
   }finally{const b2=document.getElementById('dir-btn');if(b2)b2.disabled=false;}
 }
@@ -1643,7 +1645,7 @@ async function janela(titulo,corpo,paisagem){   // abre o documento direto no mo
 }
 function imprimirDoc(){const fr=document.getElementById('doc-fr');try{fr.contentWindow.focus();fr.contentWindow.print();}catch(e){toast('Não foi possível imprimir.','danger');}}
 async function imprimirMapa(id){
-  const c=id?S.cots.find(x=>x.id===id):_mp; if(!c)return; const cc={...c,propostas:c.propostas||[],escolha:c.escolha||{modo:'fornecedor'}};
+  const c=id&&typeof id==='object'?id:id?S.cots.find(x=>x.id===id):_mp; if(!c)return; const cc={...c,propostas:c.propostas||[],escolha:c.escolha||{modo:'fornecedor'}};
   const s=solDe(c.solicitacao_id), best=melhorPorItem(cc), tots=totaisPorForn(cc), te=totalEscolha(cc), esc=cc.escolha;
   const ST={aberta:['EM COTAÇÃO','#64748b'],devolvida:['DEVOLVIDA','#b45309'],aguardando_aprovacao:['AGUARDANDO APROVAÇÃO','#1d4ed8'],aprovada:['APROVADO','#166534'],aprovada_auto:['EMERGENCIAL — A CONFIRMAR','#b45309'],reprovada:['REPROVADO','#dc2626'],cancelada:['CANCELADA','#64748b']};
   const stt=ST[c.status]||[String(c.status||'').toUpperCase(),'#64748b'];

@@ -753,3 +753,9 @@ fábrica específica. Não generalizar.
   `contMovel()` conta pendentes e filtros ativos), mês atrás de "📅 Calendário do mês" (`body.pc-vermes`), filtros atrás de "⚙️ Filtros"
   (`body.pc-verflt`), KPIs 3 colunas, "O que produzir" rola de lado, quadro mostra UM dia (`_diaMov`) com seletor de dias grudado no topo
   (`.pc4-dsel`, top 58 px = barra do ERP), botões ✓ Carregado/📄 Abrir sempre visíveis, modal em tela cheia. No celular não arrasta.
+
+### Compras — 13/11/2026
+- Perfil **SGR (Supervisor Geral — João Paulo)**: ganhou as abas novas do compras (fila, aprovacao com `aprovar`, pedidos, gastos,
+  fornecedores, precos, regras). As permissões antigas tinham só ids velhos (nc, kanban, cotacoes…) → `podeAprovar()` dava falso.
+- Mapa da cotação para o gerente: depois de "Assinar e enviar ao gerente" (e na compra direta) a tela pergunta se quer imprimir
+  (`imprimirMapa` aceita o objeto da cotação); na Fila, linha "com o gerente" tem 🖨️.
