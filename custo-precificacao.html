@@ -717,18 +717,36 @@ function calcMinutos(ini, fim) {
 // ajusta h.dispH no lugar e diz se há simulação ativa. Motor e relatório usam esta mesma regra.
 function aplicarSimulacaoSecao(calendarioMes, secao, h) {
   let ativa = false;
-  if (secao.simuladoDesligado) { h.dispH = 0; return true; }
-  if (secao.simuladoReducaoPct > 0) { h.dispH = h.dispH * (1 - secao.simuladoReducaoPct / 100); ativa = true; }
-  // Parada por PERÍODO de datas: conta os dias úteis no intervalo e soma aos dias parados manuais.
-  const diasParadaPeriodo = contarDiasTrabalhoIntervalo(calendarioMes, secao.simuladoParadaInicio, secao.simuladoParadaFim);
-  const diasParadosTotal = (Number(secao.simuladoDiasParados) || 0) + diasParadaPeriodo;
+  const zerar = () => { h.minsBrutos = h.perdaMins = h.liquidoMins = h.dispMins = 0; h.horasBrutas = h.perdaH = h.liquidoH = h.dispH = 0; h.diasTrabalho = 0; };
+  if (secao.simuladoDesligado) { h.diasParados = h.diasTrabalho; zerar(); return true; }
+  // DIAS PARADOS (campo "Parado N dias" + período de datas): o dia parado SAI do mês desta seção —
+  // cai Dias, Brutas, Perda, Líquidas e Disponíveis na proporção (a perda de eficiência também
+  // deixa de existir no dia que a máquina nem ligou). Paradas em horas continuam descontando.
+  const diasParadosTotal = Math.min(h.diasTrabalho, diasParadosDaSecao(calendarioMes, secao));
+  h.diasParados = diasParadosTotal;
   if (diasParadosTotal > 0 && h.diasTrabalho > 0) {
-    const horasPorDia = h.horasBrutas / h.diasTrabalho;
-    h.dispH = Math.max(0, h.dispH - diasParadosTotal * horasPorDia);
+    const f = (h.diasTrabalho - diasParadosTotal) / h.diasTrabalho;
+    h.minsBrutos = Math.round(h.minsBrutos * f); h.perdaMins = Math.round(h.perdaMins * f);
+    h.liquidoMins = h.minsBrutos - h.perdaMins;
+    h.dispMins = Math.max(0, h.liquidoMins - (h.paradasMins || 0));
+    h.horasBrutas = h.minsBrutos / 60; h.perdaH = h.perdaMins / 60; h.liquidoH = h.liquidoMins / 60; h.dispH = h.dispMins / 60;
+    h.diasTrabalho -= diasParadosTotal;
     ativa = true;
   }
+  if (secao.simuladoReducaoPct > 0) { h.dispH = h.dispH * (1 - secao.simuladoReducaoPct / 100); ativa = true; }
   if (secao.simuladoHorasReduzidas > 0) { h.dispH = Math.max(0, h.dispH - secao.simuladoHorasReduzidas); ativa = true; }
   return ativa;
+}
+// Dias úteis em que a seção fica parada no mês: "Parado N dias" + período de datas (se houver).
+function diasParadosDaSecao(calendarioMes, secao) {
+  if (!secao) return 0;
+  return (Number(secao.simuladoDiasParados) || 0) + contarDiasTrabalhoIntervalo(calendarioMes, secao.simuladoParadaInicio, secao.simuladoParadaFim);
+}
+// Dias que a seção roda (lenha, etc.): dias úteis do mês − dias parados; desligada = 0.
+function diasRodandoSecao(calendarioMes, secao) {
+  if (secao && secao.simuladoDesligado) return 0;
+  const dias = contarDiasTrabalho(calendarioMes);
+  return Math.max(0, dias - diasParadosDaSecao(calendarioMes, secao));
 }
 
 function calcHorasSecao(calendarioMes, turno, eficienciaPct, extrasPorDia, paradasHoras, horasDomingoEspecial) {
@@ -1348,12 +1366,10 @@ function calcularAtribuicaoFolha(s, tonPorBloco) {
 // Lenha: m³ consumido por turno rodando (configurável por seção — pode variar de 1,5 a 3m³
 // dependendo do turno) x dias de trabalho no mês x preço do m³. Turno "desligado" não consome.
 function calcularAtribuicaoLenha(s, tonPorBloco) {
-  const diasTrabalho = contarDiasTrabalho(s.calendario);
   return calcularAtribuicaoPorBloco(s, tonPorBloco, (bloco) => {
     let m3Total = 0;
     (bloco.secoes || []).forEach((sec) => {
-      if (sec.simuladoDesligado) return;
-      m3Total += (Number(sec.lenhaM3PorTurno) || 0) * diasTrabalho;
+      m3Total += (Number(sec.lenhaM3PorTurno) || 0) * diasRodandoSecao(s.calendario, sec);   // dia parado não queima lenha
     });
     return m3Total * (Number(s.lenha.precoM3) || 0);
   });
@@ -4383,6 +4399,7 @@ function renderSecao(bloco, secao) {
   const turno = state.turnosReais.find((t) => t.nome === secao.turnoNome);
   const paradasHoras = (secao.paradas || []).reduce((a, p) => a + (Number(p.horas) || 0), 0);
   const h = calcHorasSecao(state.calendario, turno, secao.eficiencia, secao.extras, paradasHoras, state.horasDomingoEspecial);
+  aplicarSimulacaoSecao(state.calendario, secao, h);   // dias parados / desligado / % / horas: o cartão mostra o que a seção realmente tem
   const todos = secao.produtos || [];
   const ativos = todos.filter((p) => p.ativo !== false);
   const inativos = todos.filter((p) => p.ativo === false);
@@ -4968,9 +4985,8 @@ function _folhaModDaLinha(bloco, s) {
 }
 // Lenha DESTA linha: m³/turno × dias úteis, somado nos turnos da linha, × preço do m³.
 function _lenhaM3DaLinha(bloco, s) {
-  const dias = contarDiasTrabalho(s.calendario);
   let m3 = 0;
-  (bloco.secoes || []).forEach((sec) => { if (!sec.simuladoDesligado) m3 += (Number(sec.lenhaM3PorTurno) || 0) * dias; });
+  (bloco.secoes || []).forEach((sec) => { m3 += (Number(sec.lenhaM3PorTurno) || 0) * diasRodandoSecao(s.calendario, sec); });
   return m3;
 }
 function _lenhaDaLinha(bloco, s) {
@@ -6779,16 +6795,7 @@ function _impNarrativa(rPlan, rAj, P, A) {
   const avisos = [];
   const comDias = paradas.filter((p) => !p.secao.simuladoDesligado && p.diasParados > 0);
   if (comDias.length) {
-    const p = comDias[0];
-    const turno = (state.turnosReais || []).find((t) => t.nome === p.turnoNome);
-    const hh = calcHorasSecao(state.calendario, turno, p.secao.eficiencia, p.secao.extras, (p.secao.paradas || []).reduce((a, x) => a + (Number(x.horas) || 0), 0), state.horasDomingoEspecial);
-    if (hh.diasTrabalho > 0 && hh.liquidoH > 0) {
-      const brutoDia = hh.horasBrutas / hh.diasTrabalho, liqDia = hh.liquidoH / hh.diasTrabalho;
-      if (brutoDia - liqDia > 0.05) {
-        avisos.push(`Um detalhe de leitura: cada "dia parado" desconta ${fmtNum(brutoDia, 2)} h (a jornada cheia) de uma disponibilidade que já está líquida de eficiência, onde o dia vale ${fmtNum(liqDia, 2)} h. Na prática, 1 dia parado está pesando como <strong>${fmtNum(brutoDia / liqDia, 2)} dia</strong>. A perda mostrada aqui é, portanto, conservadora (pessimista).`);
-      }
-    }
-    avisos.push(`Parada por dias ou por percentual <strong>não reduz o consumo de lenha</strong> — hoje só "parar totalmente o mês" zera a lenha do turno. Em parada parcial, o custo de lenha aqui está integral.`);
+    avisos.push(`Dia parado sai do mês do turno: descontam dias, horas e lenha. Parada por <strong>percentual</strong> ou por <strong>horas</strong> não reduz a lenha.`);
   }
 
   return `<div style="font-size:13.5px;line-height:1.75;">
