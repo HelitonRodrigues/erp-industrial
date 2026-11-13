@@ -4559,13 +4559,11 @@ function _lauMontarGrupos(){
   const mapa=new Map(), espera=new Set();
   _lauOps.forEach(op=>_lauItensLaudoDaOp(op).forEach(it=>{
     // mesmo lote em linhas diferentes = laudos diferentes (nov/2026)
-    // mesmo lote, embalagens diferentes (Bag × Ensacado 25 kg) = um laudo para cada embalagem (nov/2026)
-    const emb=_lauEmbalagem(it.prod);
-    const k=it.lote?'lote:'+_lauNorm(it.lote)+'|'+_lauNorm(op.linha)+'|'+_lauNorm(emb):'op:'+op.id+'|'+_lauNorm(it.prod);
+    const k=it.lote?'lote:'+_lauNorm(it.lote)+'|'+_lauNorm(op.linha):'op:'+op.id+'|'+_lauNorm(it.prod);
     // ainda não aprovado na Análise de Pallet (e sem laudo começado): fica fora da aba
     const temLaudo=_lauLaudos.some(l=>l.producao_id===op.id);
     if(!temLaudo&&!_lauAprov.has(op.id+'|'+_lauNorm(it.prod))){ if(it.kg>0) espera.add(k); return; }
-    if(!mapa.has(k)) mapa.set(k,{k, lote:it.lote, linha:op.linha||'', emb, ops:[], kgPorOp:{}, porProd:{}});
+    if(!mapa.has(k)) mapa.set(k,{k, lote:it.lote, linha:op.linha||'', ops:[], kgPorOp:{}, porProd:{}});
     const g=mapa.get(k);
     if(!g.ops.includes(op)) g.ops.push(op);
     g.kgPorOp[op.id]=(g.kgPorOp[op.id]||0)+it.kg;
@@ -4593,11 +4591,8 @@ function _lauMontarGrupos(){
     const em={}; pps.forEach(p=>{ const e=_lauEmbalagem(p.prod); const x=em[e]=em[e]||{emb:e,un:p.un,q:0,kg:0}; x.q+=p.q; x.kg+=p.kg; });
     g.embs=Object.values(em);
     const ids=g.ops.map(o=>o.id), nl=_lauNorm(g.lote), nps=g.prods.map(_lauNorm);
-    // laudo da MESMA embalagem; laudo antigo que juntava Bag + Ensacado (antes de nov/2026) continua valendo para as duas
-    const daEmb=l=>{ if(!l.produto) return true; const embs=asArray(l.dados_snapshot&&l.dados_snapshot.embalagens);
-      return _lauEmbalagem(l.produto)===g.emb || (embs.length>1&&embs.includes(g.emb)); };
     const ls=_lauLaudos.filter(l=>ids.includes(l.producao_id)&&
-      (g.lote ? ((!l.lote||_lauNorm(l.lote)===nl)&&daEmb(l)) : (!l.produto||nps.includes(_lauNorm(l.produto)))));
+      (g.lote ? (!l.lote||_lauNorm(l.lote)===nl) : (!l.produto||nps.includes(_lauNorm(l.produto)))));
     g.laudo=ls.find(l=>l.status==='finalizado')||ls[0]||null;
     g.rep=(g.laudo&&g.ops.find(o=>o.id===g.laudo.producao_id))||g.ops[0];
     g.dataFim=g.ops[g.ops.length-1].data;
@@ -5387,7 +5382,7 @@ function htmlCertificado(c, editavel){
   </table>
   ${editavel?`<div class="nota"><strong>Observação:</strong> <input class="ed ed-obs" data-k="obs" value="${E(c.obs||'')}" placeholder="(opcional — só sai no documento se preenchida)"></div>`
             :(c.obs?`<div class="nota"><strong>Observação:</strong> ${E(c.obs)}</div>`:'')}
-  <div class="nota">Os dados técnicos deste certificado de análise são cópia fiel do original. Documento emitido eletronicamente, com registro do emissor, e dispensa assinatura manuscrita (POP-15, 6.1).${c.finalizado&&c.assinado_em?` Certificado nº ${E(c.numero||'—')} · assinado em ${new Date(c.assinado_em).toLocaleString('pt-BR')}${c.assinatura_hash?' · assinatura eletrônica '+E(c.assinatura_hash):''}.`:''}</div>
+  <div class="nota">Os dados técnicos deste certificado de análise são cópia fiel do original. Documento emitido eletronicamente, com registro do emissor, e dispensa assinatura manuscrita<br>(POP-15, 6.1)</div>
 
   <div class="rodape"><span>REG-POP15-02 · Rev. 00  ·  ${E(CERT_EMPRESA.rodape)}  ·  Sistema de Gestão da Qualidade</span><strong>Página 1 de 1</strong></div>`;
 }
