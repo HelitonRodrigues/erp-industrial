@@ -70,7 +70,7 @@
     const LS=[...laudos.values()];
     const opNum={}; (ops||[]).forEach(o=>opNum[o.id]=o.op_numero);
     const ultimoDoProduto={};
-    for(const pn of [...new Set(its.filter(i=>tipoProduto(i.produto)==='granel').map(i=>i.produto))]){
+    for(const pn of [...new Set(its.filter(i=>tipoProduto(i.produto)==='granel'||i.motivo_avulso==='rotulo_antigo').map(i=>i.produto))]){   // rótulo antigo (sem QR) também pode cair no último laudo
       const {data:l}=await _supabase.from('lab_laudos').select(COLS).eq('status','finalizado').ilike('produto',pn).order('assinado_em',{ascending:false}).limit(1);
       if(l&&l[0])ultimoDoProduto[N(pn)]=l[0];
     }
@@ -90,7 +90,7 @@
       if(!cand.length)cand=doLote;
       let laudo=cand.find(l=>l.status==='finalizado')||null, sugerido=false;
       if(!laudo&&cand.length){pend(out.rascunho,{op:opNum[opId]||cand[0].op_numero||'?',lote:i.lote||cand[0].lote||'',produto:i.produto});return;}
-      if(!laudo&&tipo==='granel'&&!lt){laudo=ultimoDoProduto[N(i.produto)]||null;sugerido=!!laudo;}
+      if(!laudo&&((tipo==='granel'&&!lt)||i.motivo_avulso==='rotulo_antigo')){laudo=ultimoDoProduto[N(i.produto)]||null;sugerido=!!laudo;}   // sem QR: lote digitado sem laudo → último laudo do produto
       if(!laudo){pend(out.semLaudo,{op:opNum[opId]||(tipo==='granel'?'granel':'?'),lote:i.lote||'',produto:i.produto});return;}
       const un=UN[tipo], pu=pesos[N(i.produto)]||(tipo==='bag'?1000:null);
       let qtd, kg;
