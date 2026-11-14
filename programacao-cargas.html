@@ -526,7 +526,8 @@ async function carregar(){
 
 /* ── filtros ── */
 const doRep=c=>!_rep||c._rep===_rep;
-function abertos(){const fin=document.getElementById('chk-fin').checked;return _cargas.filter(c=>!c.carregado&&(fin||!c._fin||c._conta)&&doRep(c)&&(!_colF||(_colF==='novo'?c._novo:_colF==='-'?!c._col:c._col===_colF)));}
+const aDefinir=()=>_cargas.filter(c=>!c.carregado&&c.a_definir&&doRep(c)).sort((a,b)=>String(a.a_definir_em||'').localeCompare(String(b.a_definir_em||'')));
+function abertos(){const fin=document.getElementById('chk-fin').checked;return _cargas.filter(c=>!c.carregado&&!c.a_definir&&(fin||!c._fin||c._conta)&&doRep(c)&&(!_colF||(_colF==='novo'?c._novo:_colF==='-'?!c._col:c._col===_colF)));}
 const ordenar=(a,b)=>(a._novo-b._novo)||(a.ordem_dia??9999)-(b.ordem_dia??9999)||a._pri-b._pri||String(a.pedido).localeCompare(String(b.pedido));
 const porPrioridade=(a,b)=>a._pri-b._pri||String(a._data||'9999').localeCompare(String(b._data||'9999'));
 // a conta de capacidade usa TODOS os pedidos do dia (não só o filtro), sem financeiro
@@ -763,13 +764,14 @@ function renderSemana(){
 function renderLateral(){
   const L=abertos(), h=hoje();
   const atr=L.filter(c=>ehCard(c)&&c._data&&c._data<h&&c._conta&&naLinha(c)).sort(porPrioridade);
-  const sem=L.filter(c=>ehCard(c)&&!c._data&&naLinha(c)).sort(porPrioridade), sv=semVinculo();
-  const mini=c=>{const q={};c._itens.forEach(i=>{q[i.un]=(q[i.un]||0)+i.q;});return `<div class="pc-mini${c._novo?' novo':''}" ${_pode?'draggable="true"':''} data-id="${c.id}" onclick="abrirCarga('${c.id}')"><span class="pc-ped" style="font-size:11px">${esc(c.pedido)}</span> ${colTag(c,1)} <b>${Object.entries(q).map(([u,v])=>qtdTxt(v,u)).join(' + ')}</b> · ${esc(c._cli)}<br>${c._data?`<span class="no" style="font-weight:700">desde ${fmtD(c._data)}</span> · `:''}${esc(c._itens.map(i=>curto(i.nome)).join(', '))} · <span style="color:#64748B">👤 ${esc(repCurto(c))}</span></div>`;};
+  const sem=L.filter(c=>ehCard(c)&&!c._data&&naLinha(c)).sort(porPrioridade), sv=semVinculo(), adf=aDefinir();
+  const mini=c=>{const q={};c._itens.forEach(i=>{q[i.un]=(q[i.un]||0)+i.q;});return `<div class="pc-mini${c._novo?' novo':''}" ${_pode?'draggable="true"':''} data-id="${c.id}" onclick="abrirCarga('${c.id}')"><span class="pc-ped" style="font-size:11px">${esc(c.pedido)}</span> ${colTag(c,1)} <b>${Object.entries(q).map(([u,v])=>qtdTxt(v,u)).join(' + ')}</b> · ${esc(c._cli)}<br>${c._data?(c.a_definir?`<span style="color:#64748B">data ${fmtD(c._data)}</span> · `:`<span class="no" style="font-weight:700">desde ${fmtD(c._data)}</span> · `):''}${esc(c._itens.map(i=>curto(i.nome)).join(', '))} · <span style="color:#64748B">👤 ${esc(repCurto(c))}</span></div>`;};
   const opts=_produtos.map(p=>`<option value="${p.id}">${esc(p.nome)}</option>`).join('');
   document.getElementById('pc-lat').innerHTML=`
     <div class="pc-card"><h4>Atrasados <span class="pc-pill ${atr.length?'r':''}">${atr.length}</span></h4><div class="pc-sb">${atr.map(mini).join('')||'<div class="pc-help">Nenhum 👍</div>'}</div></div>
     <div class="pc-card"><h4>Sem data <span class="pc-pill">${sem.length}</span></h4><div class="pc-sb" data-dia="">${sem.map(mini).join('')||'<div class="pc-help">Nenhum</div>'}</div>${_pode?'<div class="pc-help" style="margin-top:6px">Soltar aqui tira a data da fábrica.</div>':''}</div>
-    <div class="pc-card"><h4>Produtos sem vínculo <span class="pc-pill a">${sv.length}</span></h4>${sv.map(([nome,n])=>`<div class="pc-warn"><b>“${esc(nome)}”</b> (Salescode, ${n} pedido${n>1?'s':''}) não está ligado ao produtos.html.${_pode?`<select onchange="vincular(${jsq(nome)},this.value)"><option value="">Ligar a: escolha o produto do ERP…</option>${opts}</select><div style="margin-top:4px;color:#92400E">Uma vez ligado, vale para sempre (também na Portaria).</div>`:''}</div>`).join('')||'<div class="pc-help">Todos os produtos do Salescode estão ligados ✓</div>'}</div>`;
+    <div class="pc-card"><h4>Produtos sem vínculo <span class="pc-pill a">${sv.length}</span></h4>${sv.map(([nome,n])=>`<div class="pc-warn"><b>“${esc(nome)}”</b> (Salescode, ${n} pedido${n>1?'s':''}) não está ligado ao produtos.html.${_pode?`<select onchange="vincular(${jsq(nome)},this.value)"><option value="">Ligar a: escolha o produto do ERP…</option>${opts}</select><div style="margin-top:4px;color:#92400E">Uma vez ligado, vale para sempre (também na Portaria).</div>`:''}</div>`).join('')||'<div class="pc-help">Todos os produtos do Salescode estão ligados ✓</div>'}</div>
+    <div class="pc-card"><h4>📌 A Definir <span class="pc-pill ${adf.length?'a':''}">${adf.length}</span></h4><div class="pc-sb" data-dia="__def" style="min-height:44px">${adf.map(mini).join('')||'<div class="pc-help">Nenhum pedido aqui.</div>'}</div>${_pode?'<div class="pc-help" style="margin-top:6px">Arraste um pedido para cá para separar: sai do quadro e não ocupa a linha. Para voltar, arraste para um dia ou para Sem data.</div>':''}</div>`;
   ligarDrag();
 }
 
@@ -782,7 +784,7 @@ function ligarDrag(){
   document.querySelectorAll('[data-dia]').forEach(z=>{
     z.ondragover=e=>{if(!_drag)return;e.preventDefault();z.classList.add('drop');};
     z.ondragleave=()=>z.classList.remove('drop');
-    z.ondrop=e=>{e.preventDefault();z.classList.remove('drop');if(_drag)moverCarga(_drag,z.dataset.dia||null,e,z);};
+    z.ondrop=e=>{e.preventDefault();z.classList.remove('drop');if(!_drag)return;if(z.dataset.dia==='__def')marcarADefinir(_drag,true);else moverCarga(_drag,z.dataset.dia||null,e,z);};
   });
 }
 async function moverCarga(id,dia,ev,zona){
@@ -794,12 +796,24 @@ async function moverCarga(id,dia,ev,zona){
     const ids=cards.map(x=>x.dataset.id);ids.splice(ordem,0,id);
     await Promise.all(ids.map((cid,i)=>{const cc=_cargas.find(x=>x.id===cid);if(cc&&cid!==id&&cc.ordem_dia!==i){cc.ordem_dia=i;return _supabase.from('programacao_cargas').update({ordem_dia:i}).eq('id',cid);}return null;}).filter(Boolean));}
   const nova=(dia&&dia===c._dataSC)?null:dia;
-  const {error}=await db(_supabase.from('programacao_cargas').update({data_manual:nova,ordem_dia:ordem,visto_em:c.visto_em||new Date().toISOString(),updated_at:new Date().toISOString()}).eq('id',id),'mover pedido');
+  const {error}=await db(_supabase.from('programacao_cargas').update({data_manual:nova,ordem_dia:ordem,a_definir:false,a_definir_em:null,visto_em:c.visto_em||new Date().toISOString(),updated_at:new Date().toISOString()}).eq('id',id),'mover pedido');
   if(error)return;
-  c.data_manual=nova;c.ordem_dia=ordem;c.visto_em=c.visto_em||new Date().toISOString();montar(c);
+  c.a_definir=false;c.a_definir_em=null;c.data_manual=nova;c.ordem_dia=ordem;c.visto_em=c.visto_em||new Date().toISOString();montar(c);
   addLog('MOVER',MOD,id,`${c.pedido} ${c._cli} → ${dia?fmtDL(dia):'sem data'}`);
   toast(`${c.pedido} → ${dia?fmtDL(dia):'sem data'}`);render();
   if(_diaAberto&&!document.getElementById('m-dia').classList.contains('hidden'))abrirDia(_diaAberto,_diaLinha);
+}
+async function marcarADefinir(id,on){
+  if(!guardAction(MOD,'edit'))return;
+  const c=_cargas.find(x=>x.id===id);if(!c)return;
+  if(!!c.a_definir===!!on)return;
+  guardar(c,`${on?'A Definir':'tirar de A Definir'} ${c.pedido}`);
+  const em=on?new Date().toISOString():null;
+  const {error}=await db(_supabase.from('programacao_cargas').update({a_definir:!!on,a_definir_em:em,visto_em:c.visto_em||new Date().toISOString(),updated_at:new Date().toISOString()}).eq('id',id),'A Definir');
+  if(error)return;
+  c.a_definir=!!on;c.a_definir_em=em;c.visto_em=c.visto_em||new Date().toISOString();montar(c);
+  addLog('A_DEFINIR',MOD,id,`${c.pedido} ${c._cli} → ${on?'A Definir':'fora de A Definir'}`);
+  toast(`${c.pedido} ${on?'→ 📌 A Definir':'saiu de A Definir'}`);render();
 }
 async function mudarLinha(id,linha){
   if(!guardAction(MOD,'edit'))return;
@@ -886,6 +900,7 @@ function abrirCarga(id){
     <div class="pcm-f"><small>Data do Salescode</small><div class="pcm-ro">${c._dataSC?fmtDL(c._dataSC):'sem data'}</div>${c.data_manual&&c.data_manual!==c._dataSC?'<div class="pcm-mini" style="color:#1D4ED8;font-weight:700">↻ mudada pela fábrica</div>':''}</div>
     <div class="pcm-f"><small>Linha</small><select onchange="mudarLinha('${c.id}',this.value)"><option value="">padrão${c._itens[0]?.fam?' ('+esc(M.linhaDoItem(c._data||hoje(),c._itens[0].fam,null)||'revenda')+')':''}</option>${LINHAS.map(l=>`<option${c.linha_manual===l?' selected':''}>${l}</option>`).join('')}</select></div>
     <div class="pcm-f"><small>&nbsp;</small>${c._fin&&!c._conta?'<div class="pcm-mini">No financeiro — não pode marcar carregado</div>':`<button class="btn btn-primary" style="width:100%" onclick="marcarCarregado('${c.id}')">✓ Marcar carregado</button>`}</div>
+    <div class="pcm-f"><small>&nbsp;</small><button class="btn btn-secondary" style="width:100%" onclick="closeModal('m-carga');marcarADefinir('${c.id}',${!c.a_definir})">${c.a_definir?'↩ Tirar de A Definir':'📌 Mover para A Definir'}</button></div>
   </div>`:''}
   <div class="pcm-bd"><div>
     <div class="pcm-card"><h4>Carga <span>${n1(c._t)} t</span></h4>
@@ -1105,7 +1120,7 @@ async function marcarVisto(ids){
 }
 
 /* ── DESFAZER: volta a última mudança feita nesta tela (data, linha, carregado). Ctrl+Z também. ── */
-const CAMPOS_DESF=['visto_em','data_manual','ordem_dia','linha_manual','carregado','carregado_em','carregado_por','carregado_origem','carregado_manual'];
+const CAMPOS_DESF=['visto_em','data_manual','ordem_dia','linha_manual','a_definir','a_definir_em','carregado','carregado_em','carregado_por','carregado_origem','carregado_manual'];
 function guardar(c,rot){
   const antes={};CAMPOS_DESF.forEach(k=>antes[k]=c[k]??null);
   _desf.push({id:c.id,rot,antes});if(_desf.length>60)_desf.shift();botaoDesfazer();
@@ -1134,6 +1149,7 @@ function situacaoPedido(c){
   const h=hoje();
   if(c.carregado){const b=(c.balanca||[]).slice(-1)[0];
     return {cls:'ok',tag:'✅ Carregado',txt:`carregado ${c.carregado_em?new Date(c.carregado_em).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'}):''}`+(b?` · ⚖️ ticket ${String(b.ticket).replace(/^0+/,'')}${b.placa?' · '+b.placa:''}`:'')};}
+  if(c.a_definir)return {cls:'sd',tag:'📌 A Definir',txt:'separado em A Definir'+(c._data?' · data '+fmtDL(c._data):'')};
   if(c._fin)return {cls:'fi',tag:'💜 Financeiro',txt:`${c.status_salescode||'no financeiro'}${c._data?' · data '+fmtDL(c._data):''}`};
   const it=c._itens.find(i=>i.fam),lin=it&&c._data?M.linhaDoItem(c._data,it.fam,c.linha_manual):(c.linha_manual||'');
   if(!c._data)return {cls:'sd',tag:'Sem data',txt:'ainda sem data no Salescode'+(c.em_salescode===false?' · fora do Salescode':'')};
