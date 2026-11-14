@@ -1019,6 +1019,7 @@ let _carrPreIds=new Set();    // pallets que JÁ estavam salvos como carregados 
 let _linhasCarr=[], _alloc={}, _allocSet=new Set(), _extra={}, _linhaAtiva=null;
 let _qtdInf={}, _qtdUlt={};   // (out/2026) "pallet de quantos?" informado na leitura (por pallet) e a última resposta por produto
 let _doa={}, _doaPre={}, _modoDoa=false;  /* pallets abertos: {palletId:{qtd,produto,key}} — _doaPre = já gravado no banco nesta carga */
+let _semQrSaldo={};   /* view estoque_sem_qr_saldo: estoque SEM QR por produto (saldo inicial/ajustes − cargas sem QR) — migração 130 */
 let _semQr=true; const ROT_ANTIGO='rotulo_antigo', ROT_ANTIGO_TXT='🏷️ Rótulo antigo (sem QR)';   /* empresa_config.carga_sem_qr: aceita item "rótulo antigo (sem QR)" (migração 129) */
 let _avulsos={};   /* modo quantidade: itens SEM pallet por linha {key:[{id,sacos,motivo,obs}]} — granel, avulsos, contingência */
 
@@ -1103,8 +1104,8 @@ function granelCarregadoTon(nome,exceptoCarrId){
 // Saldo. `exceptoCarrId` = carga sendo editada agora: o que ela já tirou volta
 // para o saldo, senão editar uma carga salva parecia estouro de estoque.
 function granelSaldoTon(nome,exceptoCarrId){
-  const prod=granelProduzidoTon(nome), carr=granelCarregadoTon(nome,exceptoCarrId);
-  return {produzido:prod, carregado:carr, saldo:prod-carr};
+  const prod=granelProduzidoTon(nome), carr=granelCarregadoTon(nome,exceptoCarrId), aj=semQrSaldo(nome)/1000;   // acerto com a planilha (kg)
+  return {produzido:prod, carregado:carr, ajuste:aj, saldo:prod-carr+aj};
 }
 function granelProdutos(){
   const m={}; _granel.forEach(p=>{ if(p.produto)m[normNome(p.produto)]=p.produto; });
@@ -1179,6 +1180,10 @@ function capDoPallet(p){
     if(alvo&&alvo.cap)return alvo.cap;
   }
   const c=capCadastro(p.produto); if(c)return c;
+  /* pallet do totem (nº do rótulo ≠ ordem da OP) com o produto em mais de um tamanho na OP
+     (cheios + 1 parcial): vale o tamanho mais comum (o dos pallets cheios) */
+  if(map){const cont={};Object.keys(map).map(k=>map[k]).filter(m=>normNome(m.produto)===normNome(p.produto)&&m.cap>0).forEach(m=>cont[m.cap]=(cont[m.cap]||0)+1);
+    const moda=Object.keys(cont).sort((a,b)=>cont[b]-cont[a]||b-a)[0]; if(moda)return parseInt(moda);}
   const m=_sacosManual[normNome(p.produto)]; if(m>0)return m;
   return 0;
 }
@@ -1238,6 +1243,9 @@ async function setPendentes(v){
 }
 /* pallets fisicamente no barracão (inclui reprovado e aguardando decisão) */
 function fisicos(){return _pallets.filter(p=>situacaoPallet(p)!=='carregado');}
+/* estoque SEM QR (rótulo antigo + acerto com a planilha): entra no liberado e no total do produto */
+function semQrSaldo(nome){const x=_semQrSaldo[normNome(nome)];return x?x.saldo:0;}
+function semQrProdutos(){return Object.values(_semQrSaldo).filter(x=>!ehGranel(x.produto));}
 function podeCarregar(p){const s=situacaoPallet(p);return s==='disponivel'||(s==='analise'&&pendentesLiberados());}
 function disponiveis(){return fisicos().filter(podeCarregar);}
 function emEstoque(){return disponiveis();}   /* compat com o nome antigo */
@@ -1390,6 +1398,9 @@ async function recarregarTudo(showToast){
     { const ec=await _supabase.from('empresa_config').select('carga_sem_qr').limit(1);
       if(ec.error)toast('Não li a chave "carga sem QR": '+ec.error.message,'warning');
       else _semQr=!(ec.data&&ec.data[0]&&ec.data[0].carga_sem_qr===false); }
+    { const sq=await _supabase.from('estoque_sem_qr_saldo').select('produto,saldo');
+      if(sq.error)toast('Não li o estoque sem QR: '+sq.error.message,'danger');
+      _semQrSaldo={};(sq.data||[]).forEach(r=>{const v=Number(r.saldo)||0;if(v)_semQrSaldo[normNome(r.produto)]={produto:r.produto,saldo:v};}); }
     _prods=pr.data||[];_linhas=ln.data||[];_carregamentos=cg.data||[];
     const todosPallets=pl.data||[];
     _pallets=todosPallets.filter(p=>!ehGranel(p.produto));
@@ -1467,6 +1478,14 @@ function resumoEstoque(){
     if(p.linha)o.linhas.add(p.linha);
     const d=diasEstoque(p);if(o.maisAntigo==null||d>o.maisAntigo)o.maisAntigo=d;
   });
+  /* + estoque SEM QR (não tem barracão: só aparece em "Todas as unidades") */
+  if(_barFiltro===TODOS)semQrProdutos().forEach(x=>{
+    if(busca&&!String(x.produto).toLowerCase().includes(busca))return;
+    const k=Object.keys(g).find(n=>normNome(n)===normNome(x.produto))||x.produto;
+    const o=g[k]||(g[k]={produto:k,pallets:[],sacos:0,pal:0,semCap:0,disp:{s:0,p:0},analise:{s:0,p:0},reprovado:{s:0,p:0},decisao:{s:0,p:0},
+      barr:{},ops:new Set(),lotes:new Set(),linhas:new Set(),maisAntigo:null});
+    o.semqr=x.saldo;o.sacos+=x.saldo;o.disp.s+=x.saldo;
+  });
   const arr=Object.values(g);
   arr.forEach(o=>{
     /* liberado para carregamento = aprovado (+ pendente se o switch permitir) */
@@ -1484,7 +1503,7 @@ function renderKpisEstoque(){
   const carregadoHoje=carregadoNoDia(hojeISO());
   const el=document.getElementById('est-kpis');if(!el)return;
   el.innerHTML=
-    kpi(n0(r.liberado.s)+'<span style="font-size:13px;color:#94a3b8;"> sc</span>','Disponível p/ carregar',n0(r.liberado.p)+' pallet(s)','k-ok')+
+    kpi(n0(r.liberado.s)+'<span style="font-size:13px;color:#94a3b8;"> sc</span>','Disponível p/ carregar',n0(r.liberado.p)+' pallet(s)'+(r.semqr?` · ${n0(r.semqr)} sc sem QR`:''),'k-ok')+
     kpi(n0(r.sacos)+'<span style="font-size:13px;color:#94a3b8;"> sc</span>','Estoque físico total',n0(r.pal)+' pallet(s)'+(r.ton?' · '+n2(r.ton)+' t':''),'k-pri')+
     kpi(n0(r.analise.s)+'<span style="font-size:13px;color:#94a3b8;"> sc</span>','Em análise (laboratório)',n0(r.analise.p)+' pallet(s)','k-an')+
     kpi(n0(r.reprovado.s+r.decisao.s)+'<span style="font-size:13px;color:#94a3b8;"> sc</span>','Reprovado / bloqueado',n0(r.reprovado.p)+' reprov. · '+n0(r.decisao.p)+' aguard. decisão','k-rep')+
@@ -1498,6 +1517,7 @@ function renderKpisEstoque(){
 function renderSaldoGranel(){
   const el=document.getElementById('est-granel');if(!el)return;
   const prods=granelProdutos();
+  Object.values(_semQrSaldo).forEach(x=>{if(ehGranel(x.produto)&&!prods.some(n=>normNome(n)===normNome(x.produto)))prods.push(x.produto);});
   if(!prods.length){el.innerHTML='';return;}
   const linhas=prods.map(nome=>{
     const g=granelSaldoTon(nome);
@@ -1506,6 +1526,7 @@ function renderSaldoGranel(){
       <strong style="color:var(--primary);font-size:13px;min-width:150px;">${esc(nome)}</strong>
       <span style="font-size:12px;color:#64748b;">produzido <strong style="color:#334155;">${n2(g.produzido)} t</strong></span>
       <span style="font-size:12px;color:#64748b;">carregado <strong style="color:#334155;">${n2(g.carregado)} t</strong></span>
+      ${g.ajuste?`<span style="font-size:12px;color:#64748b;">acerto <strong style="color:#334155;">${g.ajuste>0?'+':''}${n2(g.ajuste)} t</strong></span>`:''}
       <span style="margin-left:auto;font-size:12px;color:#64748b;">saldo
         <strong style="color:${cor};font-size:17px;">${n2(g.saldo)} t</strong></span>
     </div>`;
@@ -1536,6 +1557,8 @@ function resumoEstoqueGlobal(){
     prods.add(p.produto||'—');barrs.add(barracaoDoPallet(p));
     const peso=pesoUnidade(p.produto);if(peso){temPeso=true;t.ton+=s*peso/1000;}
   });
+  semQrProdutos().forEach(x=>{t.sacos+=x.saldo;t.disp.s+=x.saldo;t.semqr=(t.semqr||0)+x.saldo;prods.add(x.produto);
+    const peso=pesoUnidade(x.produto);if(peso){temPeso=true;t.ton+=x.saldo*peso/1000;}});
   t.produtos=prods.size;t.barracoes=barrs.size;if(!temPeso)t.ton=0;
   t.liberado={s:t.disp.s+(pendentesLiberados()?t.analise.s:0),p:t.disp.p+(pendentesLiberados()?t.analise.p:0)};
   return t;
@@ -1585,7 +1608,7 @@ function renderEstoque(){
       <td style="text-align:center;"><span class="arw">▶</span></td>
       <td><div style="font-weight:800;color:var(--primary);font-size:13px;">${esc(o.produto)}</div>
         <span class="mini">${[...o.linhas].map(esc).join(' · ')||'—'}${o.semCap?` · <span style="color:var(--danger);">⚠ ${o.semCap} pallet(s) sem capacidade</span>`:''}</span></td>
-      <td style="text-align:right;"><span class="num ${o.liberado.s?'':'num-zero'}" style="${o.liberado.s?'color:#15803d;':''}">${n0(o.liberado.s)}</span><span class="mini">${n0(o.liberado.p)} pallet(s)</span></td>
+      <td style="text-align:right;"><span class="num ${o.liberado.s?'':'num-zero'}" style="${o.liberado.s?'color:#15803d;':''}">${n0(o.liberado.s)}</span><span class="mini">${n0(o.liberado.p)} pallet(s)${o.semqr?` <b style="color:#b45309;">${o.semqr>0?'+':''}${n0(o.semqr)} sem QR</b>`:''}</span></td>
       <td style="text-align:right;"><span class="num ${o.analise.s?'':'num-zero'}" style="${o.analise.s?'color:#a16207;':''}">${n0(o.analise.s)}</span><span class="mini">${n0(o.analise.p)} pallet(s)</span></td>
       <td style="text-align:right;"><span class="num ${o.bloqueado.s?'':'num-zero'}" style="${o.bloqueado.s?'color:#be123c;':''}">${n0(o.bloqueado.s)}</span><span class="mini">${o.decisao.p?n0(o.reprovado.p)+' rep · '+n0(o.decisao.p)+' dec':n0(o.reprovado.p)+' pallet(s)'}</span></td>
       <td style="text-align:right;"><span class="num">${n0(o.sacos)}</span><span class="mini">${n0(o.pal)} pallet(s)${o.ton?' · '+n2(o.ton)+' t':''}</span></td>
@@ -1765,6 +1788,7 @@ function movimentoDoDia(dia){
   const get=k=>g[k]||(g[k]={produto:k,atual:0,atualPal:0,prod:0,prodPal:0,analise:0,reprovado:0,
     carr:0,carrPal:0,avul:0,posProd:0,posCarr:0});
   fisicos().forEach(p=>{const o=get(p.produto||'(sem produto)');const s=sacosDoPallet(p);o.atual+=s;o.atualPal++;});
+  semQrProdutos().forEach(x=>{const k=Object.keys(g).find(n=>normNome(n)===normNome(x.produto))||x.produto;get(k).atual+=x.saldo;});   // estoque sem QR
   _pallets.forEach(p=>{
     const d=String(p.data||'').slice(0,10);if(!d)return;
     const o=get(p.produto||'(sem produto)');const s=capDoPallet(p);
