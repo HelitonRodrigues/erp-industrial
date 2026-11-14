@@ -754,8 +754,19 @@ fábrica específica. Não generalizar.
   (`body.pc-verflt`), KPIs 3 colunas, "O que produzir" rola de lado, quadro mostra UM dia (`_diaMov`) com seletor de dias grudado no topo
   (`.pc4-dsel`, top 58 px = barra do ERP), botões ✓ Carregado/📄 Abrir sempre visíveis, modal em tela cheia. No celular não arrasta.
 
+- **Capacidade travada no carregamento (13/11)**: `paraConta` inclui pedido JÁ CARREGADO no dia programado (`_data`) — carregar não devolve espaço ("cabem 9" continua 9); só arrastar/mudar a programação muda. Mesma regra na função `prog-rep` (carga = não carregados + carregados dos últimos 30 dias). Planejamento lido pela RPC `prog_planos()` (127; recorte sem custo).
+
+### Custo & Precificação — dias parados (13/11/2026)
+- `aplicarSimulacaoSecao` agora TIRA o dia parado do mês da seção ("Parado N dias" + período): Dias, Brutas, Perda, Líquidas e Disponíveis caem na proporção (antes só descontava de Disponíveis e o cartão do turno mostrava tudo cheio). `renderSecao` aplica a simulação no cartão. Lenha = m³/turno × `diasRodandoSecao` (dias − parados; desligado = 0).
+- Planos CP-0016 (jan/27: Linha 3 parada 21 d, Emitec 4 d + 3º turno) e CP-0017 (fev/27: Emitec parada 17 d, Linha 3 com 3º turno 17 d). `paradaProgInicio/Fim` nas seções = datas da parada só para a Programação de Cargas (motor).
+
+- **Pessoas do plano (aba Capacidade, 13/11)**: `renderPessoasPlano` substitui o cartão "Mão de obra". `state.grupos` [{id,nome,cor,regra:'tonelagem'|'fora'}] + `pessoaGrupo` {fid:gid} + `foraMotivo` (salvos no estado). Grupo "tonelagem" = antigo Administrativo (`equipeAdmin` continua sendo a lista do rateio — custo idêntico, testado antes/depois); "fora" não entra e sai de `naoAlocados`. `_pessoasNorm` sugere grupo pela função (operador/encarregado → Liderança; gerente/Felisbina → Estrutura; resto → Apoio). Turno ganhou `necessarias`/`necMin` (cobertura x/y). Férias de `rh_ferias` (`_feriasRH`, badge 🏖). `renderTotaisLinhas`: programado por linha (de `r.producao.detalhes`) + "e se parar X h" (só consulta, `_simParaH`).
+
+- **📌 A Definir (migração 128, 14/11)**: `programacao_cargas.a_definir/a_definir_em`. Caixa na lateral abaixo de Produtos sem vínculo (`data-dia="__def"`): arrastar para lá ou botão no pedido (`marcarADefinir`). Sai de `abertos()` (quadro, Atrasados, Sem data, KPIs) e `ProgMotor.contaCapacidade` = false (ERP e `prog-rep`). Arrastar para um dia/Sem data tira de A Definir. Entra no ↶ Desfazer.
+
 ### Compras — 13/11/2026
 - Perfil **SGR (Supervisor Geral — João Paulo)**: ganhou as abas novas do compras (fila, aprovacao com `aprovar`, pedidos, gastos,
   fornecedores, precos, regras). As permissões antigas tinham só ids velhos (nc, kanban, cotacoes…) → `podeAprovar()` dava falso.
 - Mapa da cotação para o gerente: depois de "Assinar e enviar ao gerente" (e na compra direta) a tela pergunta se quer imprimir
   (`imprimirMapa` aceita o objeto da cotação); na Fila, linha "com o gerente" tem 🖨️.
+- **Total do dia em "O que produzir" (14/11)**: linha `tr.tt` abaixo dos produtos de cada linha — soma por tipo (bag, 25kg, 20kg, conc. 10kg…; famílias diferentes não se somam), por dia e na coluna Semana.
