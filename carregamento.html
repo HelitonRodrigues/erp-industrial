@@ -695,6 +695,7 @@ body.patio-on #toast-container{top:10px;bottom:auto;left:10px;right:10px;z-index
 
   <!-- ══════════ ABA 3 · CARREGADOS ══════════ -->
   <div id="tab-carregados" style="display:none;">
+    <div id="semqr-painel"></div>
     <div class="filtros-linha">
       <div class="f-box"><span class="f-lbl">Período</span>
         <div class="seg">
@@ -1018,6 +1019,7 @@ let _carrPreIds=new Set();    // pallets que JÁ estavam salvos como carregados 
 let _linhasCarr=[], _alloc={}, _allocSet=new Set(), _extra={}, _linhaAtiva=null;
 let _qtdInf={}, _qtdUlt={};   // (out/2026) "pallet de quantos?" informado na leitura (por pallet) e a última resposta por produto
 let _doa={}, _doaPre={}, _modoDoa=false;  /* pallets abertos: {palletId:{qtd,produto,key}} — _doaPre = já gravado no banco nesta carga */
+let _semQr=true; const ROT_ANTIGO='rotulo_antigo', ROT_ANTIGO_TXT='🏷️ Rótulo antigo (sem QR)';   /* empresa_config.carga_sem_qr: aceita item "rótulo antigo (sem QR)" (migração 129) */
 let _avulsos={};   /* modo quantidade: itens SEM pallet por linha {key:[{id,sacos,motivo,obs}]} — granel, avulsos, contingência */
 
 /* ══════════ HELPERS BÁSICOS ══════════ */
@@ -1385,6 +1387,9 @@ async function recarregarTudo(showToast){
       safe(_supabase.from('turnos').select('nome,calendario,status')),   /* janelas de horário: resolve a equipe pelo relógio */
       carregarPoliticaPendentes(),   /* política central: pendente pode carregar? */
     ]);
+    { const ec=await _supabase.from('empresa_config').select('carga_sem_qr').limit(1);
+      if(ec.error)toast('Não li a chave "carga sem QR": '+ec.error.message,'warning');
+      else _semQr=!(ec.data&&ec.data[0]&&ec.data[0].carga_sem_qr===false); }
     _prods=pr.data||[];_linhas=ln.data||[];_carregamentos=cg.data||[];
     const todosPallets=pl.data||[];
     _pallets=todosPallets.filter(p=>!ehGranel(p.produto));
@@ -2781,7 +2786,8 @@ function iniciarCarregamento(opt){
         if(opt.manterCarregados){
           (_avulsos[l.key]=_avulsos[l.key]||[]).push({id:'av'+(++_keySeq),
             sacos:emTon?0:(Number(it.sacos)||0), ton:emTon?(Number(it.ton)||Number(it.sacos)||0):0,
-            unidade:emTon?'t':'sc', motivo:it.motivo_avulso||'avulso',obs:it.extra_obs||''});
+            unidade:emTon?'t':'sc', motivo:it.motivo_avulso||'avulso',obs:it.extra_obs||'',
+            pallets:Number(it.pallets_sem_qr)||0,soltos:Number(it.soltos_sem_qr)||0,lote:it.motivo_avulso===ROT_ANTIGO?(it.lote||''):''});
         }
         // carga sem ordem: o que foi carregado vira o "pedido" da linha
         if(!rom){ if(emTon)l.tonNeed+=(Number(it.ton)||Number(it.sacos)||0);
@@ -2867,16 +2873,17 @@ function granelTonNaCarga(nome,excetoId){
 function avulsosNaCarga(nome,excetoId){
   const alvo=normNome(nome);let s=0;
   _linhasCarr.forEach(l=>{if(normNome(l.produto)!==alvo)return;
-    avulsosDe(l.key).forEach(a=>{if(a.id!==excetoId)s+=Number(a.sacos)||0;});});
+    avulsosDe(l.key).forEach(a=>{if(a.id!==excetoId&&a.motivo!==ROT_ANTIGO)s+=Number(a.sacos)||0;});});   // sem QR não sai dos pallets com QR
   return s;
 }
 function allocSacks(key){return (_alloc[key]||[]).reduce((s,id)=>s+sacosItem(id),0)+avulsosSacks(key);}
 function totalCarga(){
-  let sc=0,pal=0,av=0,ton=0;
+  let sc=0,pal=0,av=0,ton=0,sq=0;
   Object.keys(_alloc).forEach(k=>{(_alloc[k]||[]).forEach(id=>{sc+=sacosItem(id);pal++;});});
   Object.keys(_avulsos).forEach(k=>{(_avulsos[k]||[]).forEach(a=>{
-    sc+=Number(a.sacos)||0; ton+=Number(a.ton)||0; av++;});});
-  return {sc,pal,av,ton};
+    sc+=Number(a.sacos)||0; ton+=Number(a.ton)||0;
+    if(a.motivo===ROT_ANTIGO){const n=Number(a.pallets)||0;pal+=n;sq+=n;} else av++;});});   // sem QR conta como pallet
+  return {sc,pal,av,ton,sq};
 }
 
 function renderCarr(){
@@ -2903,9 +2910,9 @@ function renderCarrHead(){
    da tonelada só polui. Cada unidade aparece quando existe. */
 function totalCargaTexto(t){
   const ps=[];
-  if(t.pal||t.sc)ps.push(n0(t.pal)+' pal · '+n0(t.sc)+' sc');
+  if(t.pal||t.sc)ps.push(n0(t.pal)+' pal · '+n0(t.sc)+' sc'+(t.sq?` (🏷️ ${n0(t.sq)} sem QR)`:''));
   if(t.ton)ps.push(n2(t.ton)+' t granel');
-  const semPallet=t.av-_linhasCarr.reduce((s,l)=>s+(l.granel?avulsosDe(l.key).length:0),0);
+  const semPallet=t.av-_linhasCarr.reduce((s,l)=>s+(l.granel?avulsosDe(l.key).filter(a=>a.motivo!==ROT_ANTIGO).length:0),0);
   if(semPallet>0)ps.push(n0(semPallet)+' s/ pallet');
   return ps.length?ps.join(' · '):'nada carregado';
 }
@@ -2929,7 +2936,7 @@ function renderCarrLinhas(){
       <div class="cli">${esc(l.cliente||'(sem cliente)')} ${l.manual?'<span class="badge badge-gray" style="font-size:8px;">manual</span>':''}</div>
       <div class="det">${esc(l.produto||'(sem produto)')}${l.pedido?' · ped. '+esc(l.pedido):''}${l.cidade?' · '+esc(l.cidade):''}</div>
       <div class="qt" style="color:${ok?'var(--success)':'var(--primary)'};">${nq(sc)}${alvo?' / '+nq(alvo):''} ${un}
-        <span style="font-weight:700;color:#94a3b8;font-size:10px;">· ${granel?'granel':(_alloc[l.key]||[]).length+' pal'}</span></div>
+        <span style="font-weight:700;color:#94a3b8;font-size:10px;">· ${granel?'granel':((_alloc[l.key]||[]).length+avulsosPallets(l.key))+' pal'}${avulsosPallets(l.key)?` <b style="color:#b45309;">🏷️ ${avulsosPallets(l.key)} sem QR</b>`:''}</span></div>
       <div class="prog-bar" style="height:6px;"><div style="width:${pct}%;background:${ok?'var(--success)':'var(--warning)'};"></div></div>
       ${semEstoque?`<div style="font-size:9.5px;font-weight:800;color:var(--danger);margin-top:3px;">⚠ estoque disponível só cobre ${n0(rEst.disponivel)} sc</div>`:''}
       ${semGranel?`<div style="font-size:9.5px;font-weight:800;color:var(--danger);margin-top:3px;">⚠ saldo de granel só cobre ${n2(Math.max(0,gLivre))} t</div>`:''}
@@ -2946,13 +2953,13 @@ function renderCarrFooter(){
     ? (l.tonNeed>0 && avulsosTon(l.key) < l.tonNeed-0.0005)
     : (l.sacksNeed>0 && allocSacks(l.key) < l.sacksNeed)).length;
   const partes=[];
-  if(t.pal>0||t.sc>0) partes.push(`${n0(t.pal)} pallet(s) · ${n0(t.sc)} sacos`);
+  if(t.pal>0||t.sc>0) partes.push(`${n0(t.pal)} pallet(s)${t.sq?` (🏷️ ${n0(t.sq)} sem QR)`:''} · ${n0(t.sc)} sacos`);
   if(t.ton>0) partes.push(`${n2(t.ton)} t granel`);
   if(!partes.length) partes.push('nada carregado');
   document.getElementById('carr-resumo').innerHTML=
     `<strong style="color:var(--primary);">${partes.join(' · ')}</strong>`+
     (incompletas?` <span style="color:var(--warning);">· ${incompletas} item(ns) incompleto(s)</span>`:' <span style="color:var(--success);">· todos os itens completos</span>');
-  document.getElementById('btn-salvar-carr').disabled=(t.pal===0&&t.av===0);
+  document.getElementById('btn-salvar-carr').disabled=(t.pal===0&&t.av===0&&!t.sc);
 }
 function renderCarrAtiva(){
   const box=document.getElementById('carr-ativa');if(!box)return;
@@ -3071,11 +3078,11 @@ ${granel?`<div class="scan-box">
     <div style="margin-top:12px;">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px;">
         <div style="font-size:11px;font-weight:800;color:var(--primary);">${granel?`PESAGENS LANÇADAS (${avulsosDe(l.key).length})`:`SEM PALLET — GRANEL / AVULSOS (${avulsosDe(l.key).length})`}</div>
-        ${granel?'':`<button class="ic-btn" onclick="abrirAvulso('${l.key}')" title="Lançar quantidade sem bipar pallet: granel, sacos avulsos, contingência">➕ Quantidade sem pallet</button>`}
+        ${granel?'':`<span style="display:flex;gap:6px;flex-wrap:wrap;">${_semQr?`<button class="ic-btn" style="background:#fef3c7;border-color:#f59e0b;color:#92400e;font-weight:800;" onclick="abrirSemQr('${l.key}')" title="Pallet/bag com rótulo antigo, sem QR para bipar">🏷️ Sem QR (rótulo antigo)</button>`:''}<button class="ic-btn" onclick="abrirAvulso('${l.key}')" title="Lançar quantidade sem bipar pallet: granel, sacos avulsos, contingência">➕ Quantidade sem pallet</button></span>`}
       </div>
       ${avulsosDe(l.key).map(a=>`<div class="pal-chip" style="border-left:3px solid #b45309;">
         <span style="flex:1;min-width:0;"><b style="color:var(--primary);">${esc(l.produto||'—')}</b>
-          <span class="cod">${esc(rotuloMotivoAvulso(a.motivo))}${a.obs?' · '+esc(a.obs):''}</span></span>
+          <span class="cod">${esc(rotuloMotivoAvulso(a.motivo))}${a.motivo===ROT_ANTIGO?' · '+semQrTxt(l,a)+(a.lote?' · lote '+esc(a.lote):''):''}${a.obs?' · '+esc(a.obs):''}</span></span>
         <span class="sc">${a.unidade==='t'?n2(a.ton)+' t':n0(a.sacos)+' sc'}</span>
         <button class="ic-btn del" onclick="retirarAvulso('${l.key}','${a.id}')" title="Retirar da carga">✕</button>
       </div>`).join('')||(granel?'<div style="font-size:11px;color:#94a3b8;">Nenhuma pesagem lançada ainda. Digite a tonelada da balança acima.</div>':'<div style="font-size:11px;color:#94a3b8;">Nenhum. Use para cebolão/granel ou quando não der para bipar.</div>')}
@@ -3146,7 +3153,7 @@ function lancarGranel(key){
   setTimeout(()=>document.getElementById('granel-ton')?.focus(),60);
 }
 const MOTIVOS_AVULSO={granel:'Granel / cebolão',avulso:'Sacos avulsos',sem_rotulo:'Pallet sem rótulo no sistema',contingencia:'Contingência (sem leitura)'};
-function rotuloMotivoAvulso(m){return MOTIVOS_AVULSO[m]||m||'—';}
+function rotuloMotivoAvulso(m){return m===ROT_ANTIGO?ROT_ANTIGO_TXT:(MOTIVOS_AVULSO[m]||m||'—');}
 function abrirAvulso(key){
   const l=linhaObj(key);if(!l)return;
   if(!l.produto){toast('Defina o produto do item antes (✏️ item).','warning');return;}
@@ -3199,6 +3206,81 @@ function salvarAvulso(key){
 function retirarAvulso(key,id){
   _avulsos[key]=(_avulsos[key]||[]).filter(a=>a.id!==id);
   renderCarr();
+}
+/* ── 🏷️ SEM QR (rótulo antigo) — até acabar os rótulos sem QR (migração 129) ──
+   Conta na carga, no romaneio e no total do dia; NÃO mexe nos pallets com QR do estoque.
+   Pallets × tamanho do pallet do produto + sacos soltos = sacos do item. */
+function avulsosPallets(key){return avulsosDe(key).reduce((s,a)=>s+(a.motivo===ROT_ANTIGO?(Number(a.pallets)||0):0),0);}
+function capSemQr(l){return ehBagNome(l.produto)?1:(Number(l.palPedido)||palletPadraoDoProduto(l.produto)||0);}
+function semQrTxt(l,a){const b=ehBagNome(l.produto),p=Number(a.pallets)||0,so=Number(a.soltos)||0;
+  return b?`${n0(p)} bag(s)`:`${n0(p)} pallet(s)${so?` + ${n0(so)} sc soltos`:''}`;}
+function avisoQrNoEstoque(l){const r=resumoDoProduto(l.produto);
+  return r.pal>0?`⚠️ Tem <b>${n0(r.pal)} ${ehBagNome(l.produto)?'bag(s)':'pallet(s)'} com QR</b> deste produto no estoque. Se o pallet tem QR, prefira bipar.`:'';}
+function semQrAdd(key,p,so,lote){
+  const l=linhaObj(key);if(!l)return false;
+  if(!_semQr){toast('Carga sem QR está desligada — bipe o QR.','warning');return false;}
+  const cap=capSemQr(l);p=Math.max(0,Math.floor(p||0));so=ehBagNome(l.produto)?0:Math.max(0,Math.floor(so||0));
+  if(!cap&&p){toast('Não sei quantos sacos tem o pallet deste produto — informe os sacos soltos.','warning');return false;}
+  const sc=p*cap+so;if(sc<=0){toast('Informe quantos pallets/bags.','warning');return false;}
+  (_avulsos[key]=_avulsos[key]||[]).push({id:'av'+(++_keySeq),sacos:sc,ton:0,unidade:'sc',motivo:ROT_ANTIGO,pallets:p,soltos:so,lote:(lote||'').trim(),obs:''});
+  try{salvarRascunho();}catch(e){}
+  return true;
+}
+function abrirSemQr(key){
+  const l=linhaObj(key);if(!l)return;
+  if(!l.produto){toast('Defina o produto do item antes (✏️ item).','warning');return;}
+  const b=ehBagNome(l.produto),cap=capSemQr(l),av=avisoQrNoEstoque(l);
+  document.getElementById('extra-body').innerHTML=`
+    <div style="font-size:12.5px;color:#334155;margin-bottom:10px;"><strong>${esc(l.produto)}</strong> — ${b?'bag':'pallet'} com rótulo antigo, sem QR.
+      ${b?'':`Pallet de <b>${cap?n0(cap):'?'} sacos</b>.`}</div>
+    ${av?`<div class="aviso" style="background:#fef9c3;border-color:#fde047;color:#854d0e;margin-bottom:8px;">${av}</div>`:''}
+    <div class="form-grid-2">
+      <div class="form-group"><label class="form-label">Quantos ${b?'bags':'pallets'}</label><input type="number" min="0" id="sq-pal" class="form-input" value="1"></div>
+      ${b?'':`<div class="form-group"><label class="form-label">Sacos soltos (opcional)</label><input type="number" min="0" id="sq-sol" class="form-input" value="0"></div>`}
+    </div>
+    <div class="form-group" style="margin-top:9px;"><label class="form-label">Lote do rótulo (se tiver)</label><input id="sq-lote" class="form-input" placeholder="ex.: 261002B"></div>`;
+  document.querySelector('#modal-extra .modal-title').textContent=ROT_ANTIGO_TXT;
+  document.querySelector('#modal-extra .modal-footer .btn-primary').setAttribute('onclick',`salvarSemQr('${key}')`);
+  document.getElementById('modal-extra').classList.remove('hidden');
+  setTimeout(()=>document.getElementById('sq-pal')?.select(),80);
+}
+function salvarSemQr(key){
+  const l=linhaObj(key);
+  const ok=semQrAdd(key,parseInt(document.getElementById('sq-pal').value)||0,parseInt((document.getElementById('sq-sol')||{}).value)||0,document.getElementById('sq-lote').value);
+  if(!ok)return;
+  closeModal('modal-extra');
+  document.querySelector('#modal-extra .modal-footer .btn-primary').setAttribute('onclick','salvarExtra()');
+  renderCarr();
+  const a=avulsosDe(key).slice(-1)[0];
+  fb(`🏷️ ${semQrTxt(l,a)} sem QR na carga (${n0(a.sacos)} ${ehBagNome(l.produto)?'bags':'sc'}).`,'ok');beep('ok');
+}
+/* pátio: tela grande, uma pergunta só */
+let _sqPal=1;
+function patioSemQr(){
+  const l=linhaObj(_linhaAtiva);if(!l)return;
+  const b=ehBagNome(l.produto),cap=capSemQr(l),av=avisoQrNoEstoque(l);_sqPal=1;
+  patioFlash('info','🏷️',`${b?'BAG':'PALLET'} SEM QR (RÓTULO ANTIGO)`,
+    `<div class="pt-lbl">${esc(l.produto)}${b?'':` · pallet de ${cap?n0(cap):'?'} sacos`}</div>
+     ${av?`<div class="pt-doa-av" style="cursor:default;background:#fef9c3;border-color:#fde047;color:#854d0e;">${av}</div>`:''}
+     <div class="pt-lbl" style="margin-top:10px;">QUANTOS ${b?'BAGS':'PALLETS'}?</div>
+     <div style="display:flex;align-items:center;justify-content:center;gap:14px;margin:6px 0;">
+       <button class="pt-op" style="min-width:70px;font-size:30px;" onclick="patioSqMais(-1)">−</button>
+       <b id="sq-n" style="font-size:44px;min-width:70px;text-align:center;">1</b>
+       <button class="pt-op" style="min-width:70px;font-size:30px;" onclick="patioSqMais(1)">+</button></div>
+     ${b?'':`<div class="pt-lbl" style="margin-top:8px;">SACOS SOLTOS (se tiver)</div><input id="sq-sol" inputmode="numeric" class="pt-input" placeholder="0">`}
+     <div class="pt-lbl" style="margin-top:8px;">LOTE DO RÓTULO (se tiver)</div><input id="sq-lote" class="pt-input" placeholder="ex.: 261002B" autocomplete="off">
+     <button class="pt-btn verde" style="margin-top:12px;" onclick="patioSqSalvar()">✅ COLOCAR NO CAMINHÃO</button>`,
+    {botao:'CANCELAR'});
+}
+function patioSqMais(d){_sqPal=Math.max(0,_sqPal+d);const e=document.getElementById('sq-n');if(e)e.textContent=_sqPal;}
+function patioSqSalvar(){
+  const l=linhaObj(_linhaAtiva);if(!l)return;
+  const so=parseInt(String((document.getElementById('sq-sol')||{}).value||'').replace(/\D/g,''))||0;
+  if(!semQrAdd(l.key,_sqPal,so,(document.getElementById('sq-lote')||{}).value||'')){beep('err');return;}
+  const a=avulsosDe(l.key).slice(-1)[0];
+  _patioLidos.unshift({ic:'🏷️',txt:`${semQrTxt(l,a)} sem QR · ${l.produto}`});
+  patioFlashFechar();beep('ok');renderCarr();
+  patioFlash('ok','🏷️','COLOCADO',esc(semQrTxt(l,a))+' sem QR');
 }
 function fb(msg,tipo){
   const el=document.getElementById('carr-fb');if(!el)return;
@@ -3678,8 +3760,9 @@ async function gravarCarregamento(opts){
         ton_diferenca:emTon&&l.tonNeed>0?Math.round((ton-l.tonNeed)*1000)/1000:0,
         sacos_base:0,sacos_extra:0,sacos:emTon?0:(Number(a.sacos)||0),
         motivo_avulso:a.motivo,extra_obs:a.obs||'',
+        pallets_sem_qr:a.motivo===ROT_ANTIGO?(Number(a.pallets)||0):0, soltos_sem_qr:a.motivo===ROT_ANTIGO?(Number(a.soltos)||0):0,
         cliente:l.cliente||'',pedido:l.pedido||'',cidade:l.cidade||'',
-        data_producao:null,lote:l.lote||'',barracao:'',
+        data_producao:null,lote:(a.motivo===ROT_ANTIGO&&a.lote)?a.lote:(l.lote||''),barracao:'',
         operador,encarregado:encarregado||null,
         escala_id:escalaRef?escalaRef.id:null,escala_nome:escalaRef?escalaRef.nome:null,escala_turno:escalaRef?escalaRef.turno:null,
         carregado_em:agora});
@@ -3754,17 +3837,19 @@ async function gravarCarregamento(opts){
   const nAvulsos=itensSnap.filter(i=>i.avulso).length;
   const nAbertos=itensSnap.filter(i=>i.doador).length;
   const nPallets=itensSnap.length-nAvulsos-nAbertos;
+  const nSemQr=itensSnap.reduce((s,i)=>s+(i.motivo_avulso===ROT_ANTIGO?(Number(i.pallets_sem_qr)||0):0),0);
   // granel entra em tonelada: somá-lo no total de sacos daria número sem sentido
   const totalTon=itensSnap.reduce((s,i)=>s+(i.unidade==='t'?(Number(i.ton)||0):0),0);
   const difTon=itensSnap.reduce((s,i)=>s+(i.unidade==='t'?(Number(i.ton_diferenca)||0):0),0);
   const trechoTon=totalTon?`, ${n2(totalTon)} t de granel`+(Math.abs(difTon)>0.0005?` (${difTon>0?'+':''}${n2(difTon)} t sobre o pedido)`:''):'';
   await addLog(_carrEditId?'UPDATE':'CREATE','CARREGAMENTO',_carrOrdem.numero,
-    `Carga ${_carrOrdem.numero}: ${nPallets} pallet(s)`+(nAvulsos?` + ${nAvulsos} item(ns) sem pallet`:'')+`, ${totalSacos} sc`+trechoTon+
+    `Carga ${_carrOrdem.numero}: ${nPallets} pallet(s)`+(nSemQr?` + ${nSemQr} sem QR (rótulo antigo)`:'')+(nAvulsos?` + ${nAvulsos} item(ns) sem pallet`:'')+`, ${totalSacos} sc`+trechoTon+
     (totalExtra?` (${totalExtra} sc a mais em pallet)`:'')+
     (nAbertos?` · ${nAbertos} pallet(s) aberto(s) para completar`:'')+
     ` por ${operador}`+(encarregado?` / encarregado ${encarregado}`:'')+(escalaRef?` (escala ${escalaRef.nome} · ${escalaRef.turno})`:''));
   const resumo=[];
   if(nPallets)resumo.push(`${nPallets} pallet(s)`);
+  if(nSemQr)resumo.push(`🏷️ ${nSemQr} sem QR`);
   if(nAvulsos&&!totalTon)resumo.push(`${nAvulsos} sem pallet`);
   if(totalSacos)resumo.push(`${n0(totalSacos)} sacos`);
   if(totalTon)resumo.push(`${n2(totalTon)} t de granel`);
@@ -4058,7 +4143,38 @@ function carregadosFiltrados(){
   else lista.sort((a,b)=>dt(a)<dt(b)?1:-1);
   return lista;
 }
+/* 🏷️ quanto ainda sai SEM QR (rótulo antigo), últimos 10 dias com carga — para ver cair até zero + chave liga/desliga */
+function renderSemQr(){
+  const el=document.getElementById('semqr-painel');if(!el)return;
+  const dias={};
+  (_carregamentos||[]).forEach(c=>itensDe(c).forEach(i=>{
+    const d=String(c.data||'').slice(0,10);if(!d)return;const x=dias[d]=dias[d]||{d,cargas:new Set(),semqr:0,qr:0,sc:0};
+    if(i.motivo_avulso===ROT_ANTIGO){x.semqr+=Number(i.pallets_sem_qr)||0;x.sc+=Number(i.sacos)||0;x.cargas.add(c.id);}
+    else if(i.pallet_id)x.qr++;}));
+  const ds=Object.values(dias).sort((a,b)=>b.d.localeCompare(a.d)).slice(0,10);
+  const u=(typeof getUser==='function')?getUser():null,adm=u&&['SADM','ADM'].includes(String(u.perfil||'').toUpperCase());
+  const tem=ds.some(x=>x.semqr||x.sc);
+  if(!tem&&!_semQr){el.innerHTML='';return;}
+  el.innerHTML=`<div class="card" style="padding:12px 14px;margin-bottom:12px;border-left:4px solid #f59e0b;">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
+      <div><b style="color:#92400e;">🏷️ Rótulo antigo (sem QR)</b> <span style="font-size:12px;color:#64748b;">— ${_semQr?'aceito no carregamento até acabar os rótulos antigos':'DESLIGADO: só carrega com QR'}</span></div>
+      ${adm?`<label style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:700;cursor:pointer;"><input type="checkbox" ${_semQr?'checked':''} onchange="setSemQr(this.checked,this)"> Aceitar carga sem QR</label>`:''}
+    </div>
+    ${tem?`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;">${ds.map(x=>`<div style="background:${x.semqr||x.sc?'#fffbeb':'#f0fdf4'};border:1px solid ${x.semqr||x.sc?'#fcd34d':'#bbf7d0'};border-radius:8px;padding:6px 9px;font-size:11.5px;min-width:96px;">
+      <b>${fmtData(x.d).slice(0,5)}</b><div>${x.semqr||x.sc?`🏷️ <b>${n0(x.semqr)}</b> sem QR`:'✔ só QR'}</div><div style="color:#64748b;">📷 ${n0(x.qr)} com QR</div></div>`).join('')}</div>`
+      :'<div style="font-size:12px;color:#64748b;margin-top:6px;">Nenhuma carga sem QR nos últimos dias.</div>'}
+  </div>`;
+}
+async function setSemQr(v,chk){
+  const {data:ec}=await _supabase.from('empresa_config').select('id').limit(1);
+  const id=ec&&ec[0]&&ec[0].id;
+  const r=id?await db(_supabase.from('empresa_config').update({carga_sem_qr:!!v}).eq('id',id),'chave carga sem QR'):{error:'sem empresa_config'};
+  if(r.error){if(chk)chk.checked=!v;return;}
+  _semQr=!!v;addLog('UPDATE','CARREGAMENTO','sem_qr',v?'Ligou carga sem QR (rótulo antigo)':'Desligou carga sem QR — só QR');
+  toast(v?'Carga sem QR ligada.':'Carga sem QR desligada: agora só com QR.','success');renderSemQr();
+}
 function renderCarregados(){
+  renderSemQr();
   const lista=carregadosFiltrados();
   const allItens=lista.flatMap(itensDe);
   const sacos=allItens.reduce((s,i)=>s+(Number(i.sacos)||0),0);
@@ -5089,7 +5205,7 @@ function patioLinhaInfo(l){
     const feito=avulsosTon(l.key),alvo=Number(l.tonNeed)||0;
     return {granel,feito,alvo,ok:alvo>0&&feito>=alvo-0.0005,falta:Math.max(0,alvo-feito)};
   }
-  const pal=(_alloc[l.key]||[]).length,sc=allocSacks(l.key),need=l.sacksNeed||0;
+  const pal=(_alloc[l.key]||[]).length+avulsosPallets(l.key),sc=allocSacks(l.key),need=l.sacksNeed||0;
   const pp=Number(l.palPedido)||palletPadraoDoProduto(l.produto)||0;
   const palNeed=pp?Math.ceil(need/pp):0;
   const faltaSc=Math.max(0,need-sc);
@@ -5177,6 +5293,8 @@ function renderPatio(){
       </div>
       ${fal.length&&!_modoDoa?`<div class="pt-doa-av" onclick="patioModoDoa(true)">📦 Faltam bipar <b>${n0(fal.reduce((s,x)=>s+x.falta,0))} sacos</b> tirados de outro pallet.<br><u>TOQUE AQUI e bipe o pallet que você abriu</u></div>`:''}
       ${_modoDoa?`<div class="pt-doa-on">📦 AGORA BIPE O PALLET DE ONDE TIROU OS SACOS <button class="pt-mini" onclick="patioModoDoa(false)">DEPOIS</button></div>`:''}
+      ${_semQr?`<button class="pt-btn" style="background:#fef3c7;border:2px solid #f59e0b;color:#92400e;margin:0 0 8px;" onclick="patioSemQr()">🏷️ ${ehBagNome(l.produto)?'BAG':'PALLET'} SEM QR <small>(rótulo antigo)</small></button>`:''}
+      ${avulsosDe(l.key).filter(a=>a.motivo===ROT_ANTIGO).map(a=>`<div class="pt-doa-av" style="cursor:default;background:#fffbeb;border-color:#fcd34d;color:#78350f;display:flex;align-items:center;gap:8px;">🏷️ <span style="flex:1;">${semQrTxt(l,a)} sem QR${a.lote?' · lote '+esc(a.lote):''}</span><button class="pt-x" onclick="retirarAvulso('${l.key}','${a.id}')">✕</button></div>`).join('')}
       <div class="pt-cam ${_modoDoa?'doa':''}">
         <div class="cam-area off" id="cam-area">
           <div id="qr-reader-cli"></div>
@@ -5482,7 +5600,7 @@ function patioTerminar(){
     return `<div class="pt-res ${i.ok?'ok':'inc'}">
       <div class="pt-res-p">${esc(l.produto||'—')}</div>
       <div class="pt-res-c">${esc(l.cliente||'')}</div>
-      <div class="pt-res-n">${i.granel?`${n2(i.feito)} de ${n2(i.alvo)} t`:`${n0(i.pal)} pallets · ${n0(i.sc)} de ${n0(i.need)} sacos`}
+      <div class="pt-res-n">${i.granel?`${n2(i.feito)} de ${n2(i.alvo)} t`:`${n0(i.pal)} pallets${avulsosPallets(l.key)?` (🏷️ ${n0(avulsosPallets(l.key))} sem QR)`:''} · ${n0(i.sc)} de ${n0(i.need)} sacos`}
         ${i.ok?'<span>✔</span>':`<span class="f">FALTA ${i.granel?n2(i.falta)+' t':(i.pp?n0(i.faltaPal)+' '+nomePallets(i.faltaPal).toLowerCase():n0(i.faltaSc)+' sc')}</span>`}</div>
     </div>`;}).join('');
   const abertos=Object.keys(_doa).map(id=>{const p=_pallets.find(x=>x.id===id);return p?`<div class="pt-li"><b>📦 ${esc(codCurto(p))} · ${esc(p.produto)}</b><span>−${n0(doaQtd(id))} · sobram ${n0(saldoAgora(p))}</span></div>`:'';}).join('');

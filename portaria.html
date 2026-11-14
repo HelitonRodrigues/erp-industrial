@@ -2089,10 +2089,12 @@ async function cargaDaOrdem(numero){
   let nPal=0, kg=0; const semPeso=new Set(), g={};
   itens.forEach(i=>{
     const t=tipo(i.produto), p=pp[normNome(i.produto)], pu=p&&Number(p.peso_unidade_kg)||null, lote=i.lote&&!/^_+$|^—$/.test(i.lote)?i.lote:'—';
-    const k=i.produto+'|'+lote, x=g[k]=g[k]||{produto:i.produto,lote,tipo:t,itens:0,qtd:0,un:t==='granel'?'t':t==='bag'?'bag':'sc',codigos:[],clientes:new Set()};
-    x.itens++; if(i.codigo&&i.codigo!=='—')x.codigos.push(i.codigo); if(i.cliente)x.clientes.add(i.cliente);
+    const k=i.produto+'|'+lote, x=g[k]=g[k]||{produto:i.produto,lote,tipo:t,itens:0,qtd:0,semQr:0,un:t==='granel'?'t':t==='bag'?'bag':'sc',codigos:[],clientes:new Set()};
+    const sq=i.motivo_avulso==='rotulo_antigo'?(Number(i.pallets_sem_qr)||0):0;   // 🏷️ rótulo antigo: N pallets/bags num item só
+    x.itens+=i.motivo_avulso==='rotulo_antigo'?sq:1; x.semQr+=sq; if(i.codigo&&i.codigo!=='—')x.codigos.push(i.codigo); if(i.cliente)x.clientes.add(i.cliente);
     if(t==='granel'||i.unidade==='t'){const ton=Number(i.ton)||0;x.qtd+=ton;kg+=ton*1000;return;}
     if(i.pallet_id&&!i.avulso&&t==='saco')nPal++;
+    if(sq&&t==='saco')nPal+=sq;
     const q=t==='bag'?(Number(i.sacos)||1):(Number(i.sacos)||0); x.qtd+=q;
     if(pu)kg+=q*pu; else if(q)semPeso.add(i.produto);
   });
@@ -2103,11 +2105,12 @@ async function cargaDaOrdem(numero){
 }
 /* romaneio: em vez da lista crua de códigos, "Bag 1 a 12, 15, 20 a 38" + 1º e último código (a lista completa com QR vai na relação anexa ao certificado) */
 function unidadesTxt(x,cert){
-  if(x.tipo==='granel'||!x.codigos.length)return '—';
+  const sq=x.semQr?`<div style="font-size:9px;font-weight:700;color:#92400e;">+ ${x.semQr} ${x.tipo==='bag'?'bag(s)':'pallet(s)'} sem QR (rótulo antigo)</div>`:'';
+  if(x.tipo==='granel'||!x.codigos.length)return sq||'—';
   const cods=[...x.codigos].sort((a,b)=>(numDoCodigo(a)??1e9)-(numDoCodigo(b)??1e9)), nums=cods.map(numDoCodigo);
   const U=x.tipo==='bag'?'Bag':'Pallet', fx=window.certFaixas?certFaixas(nums):'';
   const pre=c=>String(c).replace(/P\d+\s*$/i,''), ini=cods[0], fim=cods[cods.length-1];
-  return `<b>${U}${cods.length>1?'s':''} ${E2(fx||cods.length)}</b><div class="cod">${E2(ini)}${cods.length>1?' … '+E2(pre(ini)===pre(fim)?fim.slice(pre(fim).length):fim):''}</div>${cert?'<div style="font-size:8px;color:#64748b;">QR de cada um na relação anexa ao certificado</div>':''}`;
+  return `<b>${U}${cods.length>1?'s':''} ${E2(fx||cods.length)}</b><div class="cod">${E2(ini)}${cods.length>1?' … '+E2(pre(ini)===pre(fim)?fim.slice(pre(fim).length):fim):''}</div>${cert?'<div style="font-size:8px;color:#64748b;">QR de cada um na relação anexa ao certificado</div>':''}${sq}`;
 }
 const E2=x=>esc(String(x));
 const qtdTxt=(q,u)=>nf(q,u==='t'?2:0)+' '+(u==='t'?'t':u==='bag'?(q===1?'bag':'bags'):'sc');
@@ -2117,7 +2120,7 @@ function htmlCarga(c){
   return `<div style="display:flex;justify-content:flex-end;margin:-2px 0 6px;"><button class="btn btn-secondary btn-sm" onclick="abrirBipados('${num}')">🔎 Ver os ${c.itens.length} bipados, um por um</button></div>
     <div class="table-wrap"><table class="fe-tab"><thead><tr><th>Produto</th><th>Lote</th><th class="num">Pallets / bags</th><th class="num">Quantidade</th><th>QR bipados</th></tr></thead><tbody>
     ${c.grupos.map((x,gi)=>`<tr><td><b>${esc(x.produto)}</b></td><td>${esc(x.lote)}</td><td class="num">${x.tipo==='granel'?'—':x.itens}</td><td class="num"><b>${qtdTxt(x.qtd,x.un)}</b></td>
-      <td><button class="btn btn-ghost btn-sm" style="color:var(--primary);font-weight:800;" onclick="abrirBipados('${num}',${gi})">🔎 ${x.codigos.length||x.itens} ${x.tipo==='bag'?'bag(s)':x.tipo==='granel'?'lançamento(s)':'pallet(s)'}</button></td></tr>`).join('')}</tbody></table></div>`;
+      <td>${x.codigos.length||!x.semQr?`<button class="btn btn-ghost btn-sm" style="color:var(--primary);font-weight:800;" onclick="abrirBipados('${num}',${gi})">🔎 ${x.codigos.length||x.itens} ${x.tipo==='bag'?'bag(s)':x.tipo==='granel'?'lançamento(s)':'pallet(s)'}</button>`:''}${x.semQr?`<span style="font-size:11px;font-weight:800;color:#92400e;margin-left:6px;">🏷️ +${x.semQr} sem QR</span>`:''}</td></tr>`).join('')}</tbody></table></div>`;
 }
 /* ── QR BIPADOS: um cartão por pallet/bag, em ordem (Bag 1, 2, 3…) ── */
 function numDoCodigo(cod){const m=String(cod||'').match(/-P(\d+)\s*$/i); return m?parseInt(m[1],10):null;}
@@ -2138,10 +2141,11 @@ async function abrirBipados(numero,grupo){
     x.lista.sort((a,b)=>(a._n??1e9)-(b._n??1e9)||a._k-b._k);
     const U=x.tipo==='bag'?'BAG':x.tipo==='granel'?'':'PALLET';
     let sc=0,t=0; x.lista.forEach(i=>{if(x.tipo==='granel'||i.unidade==='t')t+=Number(i.ton)||0; else sc+=x.tipo==='bag'?(Number(i.sacos)||1):(Number(i.sacos)||0);});
-    if(x.tipo==='bag')tot.bag+=x.lista.length; else if(x.tipo==='granel')tot.t+=t; else{tot.pal+=x.lista.filter(i=>i.pallet_id&&!i.avulso).length;tot.sc+=sc;}
+    const sqN=i=>i.motivo_avulso==='rotulo_antigo'?(Number(i.pallets_sem_qr)||0):0;
+    if(x.tipo==='bag')tot.bag+=x.lista.reduce((s,i)=>s+(sqN(i)||1),0); else if(x.tipo==='granel')tot.t+=t; else{tot.pal+=x.lista.filter(i=>i.pallet_id&&!i.avulso).length+x.lista.reduce((s,i)=>s+sqN(i),0);tot.sc+=sc;}
     return `<div class="bq-grupo" id="bq-g${gi}"><div class="bq-h"><b>${esc(x.produto)}</b><span>Lote ${esc(x.lote)} · ${x.tipo==='granel'?nf(t,2)+' t':x.tipo==='bag'?x.lista.length+' bag(s)':x.lista.length+' pallet(s) · '+nf(sc)+' sc'}</span></div>
       <div class="bq-grid">${x.lista.map((i,k)=>`<div class="bq-it ${x.tipo==='bag'?'bag':''}">
-        <div class="n">${U?`<small>${U}</small>`:''}${i._n!=null?i._n:(k+1)}${i.avulso?' <small>avulso</small>':''}</div>
+        <div class="n">${U?`<small>${U}</small>`:''}${i._n!=null?i._n:(k+1)}${i.motivo_avulso==='rotulo_antigo'?` <small>🏷️ sem QR · ${Number(i.pallets_sem_qr)||0} ${x.tipo==='bag'?'bag(s)':'pallet(s)'}</small>`:i.avulso?' <small>avulso</small>':''}</div>
         <div class="q">${x.tipo==='granel'||i.unidade==='t'?nf(Number(i.ton)||0,2)+' t':x.tipo==='bag'?'1 bag':nf(Number(i.sacos)||0)+' sc'}${i.cliente?' · '+esc(i.cliente):''}</div>
         ${i.codigo&&i.codigo!=='—'?`<div class="c">${esc(i.codigo)}</div>`:''}</div>`).join('')}</div></div>`;}).join('');
   const numA=escA(String(numero));

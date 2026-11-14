@@ -770,3 +770,9 @@ fábrica específica. Não generalizar.
 - Mapa da cotação para o gerente: depois de "Assinar e enviar ao gerente" (e na compra direta) a tela pergunta se quer imprimir
   (`imprimirMapa` aceita o objeto da cotação); na Fila, linha "com o gerente" tem 🖨️.
 - **Total do dia em "O que produzir" (14/11)**: linha `tr.tt` abaixo dos produtos de cada linha — soma por tipo (bag, 25kg, 20kg, conc. 10kg…; famílias diferentes não se somam), por dia e na coluna Semana.
+
+### Carregamento — 🏷️ Rótulo antigo (sem QR) (migração 129, 14/11/2026)
+- Até acabarem os rótulos sem QR: item avulso `motivo_avulso='rotulo_antigo'` com `pallets_sem_qr`, `soltos_sem_qr`, `lote` (opcional); `sacos` = pallets × tamanho do pallet do produto (`palPedido`/`palletPadraoDoProduto`; bag = 1) + soltos.
+- Computador: botão "🏷️ Sem QR (rótulo antigo)" ao lado de "➕ Quantidade sem pallet" (`abrirSemQr/salvarSemQr`). Pátio: botão grande acima da câmera (`patioSemQr`, − / + pallets, sacos soltos, lote) e lista com ✕.
+- NÃO mexe nos pallets com QR (não tem teto de estoque; `avulsosNaCarga` ignora sem QR). Aviso amarelo se o produto tem pallet com QR no estoque ("prefira bipar"). Conta na carga, pátio (pallets), `total_pallets` (RPC soma `pallets_sem_qr`), portaria (nº de pallets para desconto, peso esperado, romaneio "+ N sem QR") e certificado (lote digitado → laudo do lote; sem laudo/sem lote → último laudo finalizado do produto, `sugerido`).
+- Chave `empresa_config.carga_sem_qr` (padrão true): aba Carregados → quadro "🏷️ Rótulo antigo (sem QR)" (últimos 10 dias: sem QR × com QR) + checkbox só ADM/SADM (`setSemQr`). Desligada: botões somem e o RPC recusa o item.
