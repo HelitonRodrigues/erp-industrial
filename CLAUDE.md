@@ -695,7 +695,7 @@ fábrica específica. Não generalizar.
 - `ProgMotor.coluna(c)` = a mais adiantada (Ordem de Carga > A contratar > Ordem Cancelada > Programados > Financeiro; sem colunas
   usa `status_salescode`), `prioridade(c)` = índice. Cartão e lateral mostram a etiqueta (🚚 📋 ✖ 🗓); Atrasados e Sem data
   ordenados por prioridade; dentro do dia `ordem_dia` → prioridade; filtro "Todas as colunas do Salescode".
-- **Financeiro programado conta capacidade**: `contaCapacidade(c)` = não financeiro OU tem `data_manual` (o dono pôs o dia).
+- **Financeiro programado conta capacidade** (14/11: agora TODO financeiro com data conta — `contaCapacidade = !a_definir`): `contaCapacidade(c)` = não financeiro OU tem `data_manual` (o dono pôs o dia).
   Antes o pedido "Em Aberto" arrastado para um dia não ocupava hora ("cabem mais 89" com 90 programados). `prog_publico` manda
   `man`/`col` na carga para o link do representante fazer a mesma conta.
 - **↶ Desfazer** (botão no topo + Ctrl+Z, fora de campos de texto): pilha da sessão (60) com o estado anterior de data_manual,
