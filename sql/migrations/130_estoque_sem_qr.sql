@@ -36,3 +36,10 @@ create or replace view granel_saidas_dsm with (security_invoker=true) as
    where status='saiu' and cancelado_em is null and peso_saida is not null and peso_entrada is not null;
 grant select on granel_saidas_dsm to authenticated;
 -- As cargas PLANILHA-* ficaram sem os itens de granel (a DSM já registra: 739.380 kg de 03 a 13/11, igual à planilha dia a dia).
+
+-- "Fora da contagem" (substitui o 'expedido' da implantação): pallet continua estoque_status='estoque' com fora_estoque_em preenchido.
+-- Não conta no estoque (carregamento/dashboard), mas o QR vale: bipado, carrega (estoque→carregado) e o estoque não cai de novo.
+--  * 8.289 pallets anteriores a 03/11 voltaram de 'expedido' para 'estoque' + fora_estoque_em.
+--  * Baixa do mais antigo (≥03/11) nos produtos com saldo sem QR negativo (Liga 531, Sikal 100, Big Bag B01 349, B02 291, 25kg B01 47…),
+--    com acerto em estoque_sem_qr (tipo 'acerto') para manter o total igual à planilha.
+-- pallet_guarda_estado: escape só por SQL de manutenção (set local app.pallet_guarda_off = 'on').
