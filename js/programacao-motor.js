@@ -131,7 +131,7 @@
   };
   const prioridade = c => { const i = COLUNAS.indexOf(coluna(c)); return i < 0 ? 9 : i; };
   // conta capacidade: tudo que não está no financeiro + financeiro que a fábrica já programou (tem data da fábrica)
-  const contaCapacidade = c => !c.a_definir && (!ehFinanceiro(c) || !!(c.data_manual || c.man));   // "A Definir" não ocupa linha
+  const contaCapacidade = c => !c.a_definir;   // com data conta, inclusive financeiro (14/11); só "A Definir" não ocupa linha
   const dataDe = c => c.data_manual || c.data_salescode || c.data_planilha || null;
 
   /* ── capacidade ── */
