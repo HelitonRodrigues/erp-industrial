@@ -43,3 +43,20 @@ grant select on granel_saidas_dsm to authenticated;
 --  * Baixa do mais antigo (≥03/11) nos produtos com saldo sem QR negativo (Liga 531, Sikal 100, Big Bag B01 349, B02 291, 25kg B01 47…),
 --    com acerto em estoque_sem_qr (tipo 'acerto') para manter o total igual à planilha.
 -- pallet_guarda_estado: escape só por SQL de manutenção (set local app.pallet_guarda_off = 'on').
+
+-- 14/11 (pedido do dono: toda carga baixa o estoque): a view também tira do saldo sem QR o pallet "fora da contagem"
+-- que for bipado (sacos_base do item; pallet aberto para completar = sacos_retirados).
+create or replace view estoque_sem_qr_saldo with (security_invoker=true) as
+  select produto, sum(sacos) saldo, sum(entrou) entrou, sum(saiu) saiu from (
+    select produto, sacos, sacos entrou, 0::numeric saiu from estoque_sem_qr
+    union all
+    select i->>'produto', -coalesce(nullif(i->>'sacos','')::numeric,0), 0, coalesce(nullif(i->>'sacos','')::numeric,0)
+      from carregamentos c, jsonb_array_elements(c.itens) i where i->>'motivo_avulso'='rotulo_antigo'
+    union all
+    select i->>'produto', -q, 0, q from (
+      select i, case when coalesce((i->>'doador')::boolean,false) then coalesce(nullif(i->>'sacos_retirados','')::numeric,0)
+                     else coalesce(nullif(i->>'sacos_base','')::numeric, nullif(i->>'sacos','')::numeric, 0) end q
+        from carregamentos c, jsonb_array_elements(c.itens) i
+        join producao_pallets p on p.id = nullif(i->>'pallet_id','')::uuid and p.fora_estoque_em is not null) z
+  ) x group by produto;
+grant select on estoque_sem_qr_saldo to authenticated;
