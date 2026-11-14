@@ -1359,7 +1359,7 @@ function calcularAtribuicaoFolha(s, tonPorBloco) {
   });
   let headcountAlocado = idsAlocados.size; // pessoas ÚNICAS, não alocações
   (s.equipeAdmin || []).forEach((fid) => { if (!idsAlocados.has(fid)) { idsAlocados.add(fid); headcountAlocado++; } });
-  const naoAlocados = (s.funcionariosReais || []).filter((f) => !idsAlocados.has(f.id));
+  const naoAlocados = (s.funcionariosReais || []).filter((f) => !idsAlocados.has(f.id) && !_ehFora(s, f.id));
   return { ...r, headcountAlocado, naoAlocados };
 }
 
@@ -4359,12 +4359,229 @@ function renderEquipeAdmin() {
   </div>`;
 }
 
+/* ══════════ PESSOAS DO PLANO — grupos (13/11/2026) ══════════
+   Organização: cada funcionário ativo fica num lugar só — turno de uma linha, um GRUPO
+   (Liderança, Abastecimento, Apoio, Estrutura… criados/renomeados pelo dono) ou "Fora deste custo".
+   CUSTO NÃO MUDA: grupo com regra "tonelagem" = o antigo Administrativo (state.equipeAdmin continua
+   sendo a lista que entra no rateio por tonelagem). "Fora deste custo" não entra, como hoje quem
+   não estava alocado. Grupos/pessoas/motivos ficam salvos no plano (estado). */
+let _feriasRH = [];
+const GRUPOS_PADRAO = [
+  { id: 'lideranca', nome: 'Liderança de turno', cor: '#0369A1', regra: 'tonelagem' },
+  { id: 'abastecimento', nome: 'Abastecimento e limpeza', cor: '#0F766E', regra: 'tonelagem' },
+  { id: 'apoio', nome: 'Apoio da fábrica', cor: '#6D28D9', regra: 'tonelagem' },
+  { id: 'estrutura', nome: 'Estrutura', cor: '#9333EA', regra: 'tonelagem' },
+  { id: 'fora', nome: 'Fora deste custo', cor: '#94A3B8', regra: 'fora' },
+];
+function _grupoDe(s, gid) { return ((s && s.grupos) || []).find((g) => g.id === gid) || null; }
+function _ehFora(s, fid) { const g = _grupoDe(s, ((s && s.pessoaGrupo) || {})[fid]); return !!(g && g.regra === 'fora'); }
+function _grupoSugerido(fid) {
+  const f = (state.funcionariosReais || []).find((x) => x.id === fid) || {};
+  const fn = String(f.funcao || '').toLowerCase(), st = String(f.setor || '').toLowerCase();
+  const tem = (id) => state.grupos.some((g) => g.id === id) ? id : null;
+  if (/operador de m|encarregad/.test(fn)) return tem('lideranca') || tem('apoio') || state.grupos.find((g) => g.regra === 'tonelagem').id;
+  if (/gerente|felisbina|s[ií]tio/.test(fn + ' ' + st)) return tem('estrutura') || tem('apoio') || state.grupos.find((g) => g.regra === 'tonelagem').id;
+  return tem('apoio') || state.grupos.find((g) => g.regra === 'tonelagem').id;
+}
+function _pessoasNorm() {
+  if (!Array.isArray(state.grupos) || !state.grupos.length) state.grupos = GRUPOS_PADRAO.map((g) => ({ ...g }));
+  if (!state.grupos.some((g) => g.regra === 'fora')) state.grupos.push({ ...GRUPOS_PADRAO[4] });
+  if (!state.grupos.some((g) => g.regra === 'tonelagem')) state.grupos.unshift({ ...GRUPOS_PADRAO[2] });
+  if (!state.pessoaGrupo || typeof state.pessoaGrupo !== 'object') state.pessoaGrupo = {};
+  if (!state.foraMotivo || typeof state.foraMotivo !== 'object') state.foraMotivo = {};
+  if (!Array.isArray(state.equipeAdmin)) state.equipeAdmin = [];
+  // quem está no rateio (antigo Administrativo) precisa estar num grupo de rateio
+  state.equipeAdmin.forEach((fid) => {
+    const g = _grupoDe(state, state.pessoaGrupo[fid]);
+    if (!g || g.regra !== 'tonelagem') state.pessoaGrupo[fid] = _grupoSugerido(fid);
+  });
+  // grupo de rateio sem estar na lista do rateio = sobra antiga: limpa
+  Object.keys(state.pessoaGrupo).forEach((fid) => {
+    const g = _grupoDe(state, state.pessoaGrupo[fid]);
+    if (!g || (g.regra === 'tonelagem' && !state.equipeAdmin.includes(fid))) delete state.pessoaGrupo[fid];
+  });
+}
+function _idsEmTurno() { const ids = new Set(); (state.blocos || []).forEach((b) => (b.secoes || []).forEach((sec) => (sec.equipe || []).forEach((fid) => ids.add(fid)))); return ids; }
+function _feriasNoMes(fid) {
+  const ini = `${state.ano}-${String(state.mes).padStart(2, '0')}-01`, fim = `${state.ano}-${String(state.mes).padStart(2, '0')}-${String(diasDoMes(state.ano, state.mes)).padStart(2, '0')}`;
+  return (_feriasRH || []).filter((f) => String(f.funcionario_id) === String(fid) && !/cancel/i.test(f.status || '') && f.data_inicio && f.data_fim && f.data_inicio <= fim && f.data_fim >= ini);
+}
+function _feriasBadge(fid) {
+  const fr = _feriasNoMes(fid); if (!fr.length) return '';
+  const d = (x) => x.slice(8, 10) + '/' + x.slice(5, 7);
+  return ` <span class="badge badge-warning" title="Férias do RH — continua no custo">🏖 férias ${fr.map((x) => d(x.data_inicio) + '–' + d(x.data_fim)).join(', ')}</span>`;
+}
+function setPessoaGrupo(fid, gid) {
+  if (!fid) return; _pessoasNorm();
+  if (!gid) { state.equipeAdmin = state.equipeAdmin.filter((x) => x !== fid); delete state.pessoaGrupo[fid]; render(); return; }
+  const g = _grupoDe(state, gid); if (!g) return;
+  if (_idsEmTurno().has(fid)) { if (typeof toast === 'function') toast('Esta pessoa está num turno de linha — tire do turno primeiro.', 'warning'); return; }
+  if (g.regra === 'fora') state.equipeAdmin = state.equipeAdmin.filter((x) => x !== fid);
+  else if (!state.equipeAdmin.includes(fid)) state.equipeAdmin.push(fid);
+  state.pessoaGrupo[fid] = gid; render();
+}
+function setForaMotivo(fid, v) { _pessoasNorm(); state.foraMotivo[fid] = String(v || '').trim(); }
+function renomearGrupo(gid, nome) { const g = _grupoDe(state, gid); if (g && String(nome).trim()) g.nome = String(nome).trim(); render(); }
+function addGrupo() {
+  _pessoasNorm();
+  const nome = (document.getElementById('cp-novo-grupo-nome') || {}).value || '';
+  const regra = (document.getElementById('cp-novo-grupo-regra') || {}).value || 'tonelagem';
+  if (!nome.trim()) { if (typeof toast === 'function') toast('Dê um nome ao grupo.', 'warning'); return; }
+  const cores = ['#0369A1', '#0F766E', '#6D28D9', '#B45309', '#BE123C', '#4D7C0F', '#1D4ED8'];
+  state.grupos.push({ id: 'g' + Date.now().toString(36), nome: nome.trim(), cor: cores[state.grupos.length % cores.length], regra });
+  render();
+}
+function removerGrupo(gid) {
+  _pessoasNorm(); const g = _grupoDe(state, gid); if (!g) return;
+  const mesmos = state.grupos.filter((x) => x.regra === g.regra);
+  if (mesmos.length <= 1) { if (typeof toast === 'function') toast('Precisa ficar pelo menos um grupo deste tipo.', 'warning'); return; }
+  const destino = mesmos.find((x) => x.id !== gid);
+  Object.keys(state.pessoaGrupo).forEach((fid) => { if (state.pessoaGrupo[fid] === gid) state.pessoaGrupo[fid] = destino.id; });
+  state.grupos = state.grupos.filter((x) => x.id !== gid);
+  if (typeof toast === 'function') toast(`Grupo removido — as pessoas foram para "${destino.nome}".`, 'success');
+  render();
+}
+function setSecaoNec(blocoId, secaoId, campo, v) { const s = _acharSecao(blocoId, secaoId); if (!s) return; const n = Math.max(0, Math.round(Number(v) || 0)); s[campo] = n || null; render(); }
+let _simParaH = 8;
+function setSimParaH(v) { _simParaH = Math.max(0, Number(String(v).replace(',', '.')) || 0); render(); }
+
+// 📊 Total programado do mês por linha (mesma conta da aba: r.producao.detalhes) + "e se parar X horas?"
+function renderTotaisLinhas(r) {
+  const det = (r && r.producao && r.producao.detalhes) || [];
+  if (!(state.blocos || []).length) return '';
+  const horasSec = (sec) => {
+    const turno = state.turnosReais.find((t) => t.nome === sec.turnoNome);
+    const h = calcHorasSecao(state.calendario, turno, sec.eficiencia, sec.extras, (sec.paradas || []).reduce((a, p) => a + (Number(p.horas) || 0), 0), state.horasDomingoEspecial);
+    aplicarSimulacaoSecao(state.calendario, sec, h); return h;
+  };
+  const un = (u) => { const x = String(u || '').toLowerCase(); return x.startsWith('ton') ? 't' : x.startsWith('unid') ? 'un' : 'sc'; };
+  const totProd = {};
+  const cards = state.blocos.filter((b) => b.linhaNome).map((b) => {
+    const secs = b.secoes || [];
+    const hs = secs.map(horasSec);
+    const horas = hs.reduce((a, h) => a + h.dispH, 0);
+    const dias = hs.reduce((a, h) => Math.max(a, h.diasTrabalho || 0), 0);
+    const parados = hs.reduce((a, h) => Math.max(a, h.diasParados || 0), 0);
+    const todosDesl = secs.length && secs.every((x) => x.simuladoDesligado);
+    const prods = {};
+    det.filter((d) => d.blocoId === b.id).forEach((d) => {
+      const k = d.produtoNome; const p = prods[k] || (prods[k] = { qtd: 0, cap: 0, un: un(d.unidade) });
+      p.qtd += Number(d.qtd) || 0; p.cap = Math.max(p.cap, Number(d.capHora) || 0);
+      const t = totProd[k] || (totProd[k] = { qtd: 0, un: un(d.unidade) }); t.qtd += Number(d.qtd) || 0;
+    });
+    const pessoas = secs.reduce((a, x) => a + (x.equipe || []).length, 0), nec = secs.reduce((a, x) => a + (Number(x.necessarias) || 0), 0);
+    const status = todosDesl ? '<span class="badge badge-danger">⛔ parada o mês todo</span>'
+      : parados ? `<span class="badge badge-warning">⏸ parada ${parados} dia(s)</span>` : '<span class="badge badge-success">✓ rodando</span>';
+    const linhasProd = Object.entries(prods).map(([n, p]) => `<div style="display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:10px;font-size:12px;padding:3px 0;border-bottom:1px dashed #eef2f7;">
+        <span>${esc(n)} <span class="cp-muted">· ${fmtNum(p.cap, 0)}/h</span></span><strong>${fmtNum(p.qtd, 0)} ${p.un}</strong>
+        <span class="cp-muted" title="O que deixa de sair se a linha parar ${fmtNum(_simParaH, 1)} h rodando este produto">${_simParaH > 0 ? `${fmtNum(_simParaH, 1)} h = −${fmtNum(_simParaH * p.cap, 0)} ${p.un}` : ''}</span></div>`).join('') || '<p class="cp-ajuda" style="margin:0;">Nenhum produto nesta linha.</p>';
+    return `<div class="cp-box" style="padding:10px 12px;">
+      <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px;"><strong style="color:var(--primary,#0B2545);">${esc(b.linhaNome)}</strong>${status}</div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;font-size:11.5px;color:#64748b;margin-bottom:6px;"><span>Dias <b style="color:#0f172a;">${dias}</b></span><span>Horas disp. <b style="color:#0f172a;">${fmtNum(horas, 1)} h</b></span><span>Pessoas <b style="color:#0f172a;">${pessoas}${nec ? ' / ' + nec : ''}</b></span></div>
+      ${linhasProd}</div>`;
+  }).join('');
+  const chips = Object.entries(totProd).map(([n, t]) => `<span class="badge badge-gray" style="font-size:12px;">${esc(n)}: <b>${fmtNum(t.qtd, 0)} ${t.un}</b></span>`).join(' ');
+  return `<div class="card" style="margin-bottom:16px;">
+    <h3 class="cp-h3">📊 Programado no mês — por linha <span class="cp-muted">— mesma conta das linhas abaixo (dias parados já descontados)</span></h3>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">${chips}</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;">${cards}</div>
+    <div class="cp-field-row" style="margin-top:10px;gap:8px;align-items:center;flex-wrap:wrap;">
+      <label class="form-label" style="margin:0;">⏱️ E se a linha parar</label>
+      <input class="form-input cp-input-sm" style="width:70px;text-align:center;" type="text" inputmode="decimal" value="${fmtNum(_simParaH, 1)}" onchange="setSimParaH(this.value)">
+      <span class="cp-muted">horas? — mostra quanto deixa de sair de cada produto (média/h × horas). Só para consulta: não muda o plano. Para lançar de verdade, use "Paradas" ou a 🧪 Simulação do turno.</span>
+    </div>
+  </div>`;
+}
+
+// 👥 Pessoas do plano: quadro + grupos + fora do custo + para decidir + férias
+function renderPessoasPlano(r) {
+  _pessoasNorm();
+  const F = state.funcionariosReais || [];
+  const emTurno = _idsEmTurno();
+  const nome = (fid) => (F.find((f) => f.id === fid) || {}).nome || 'Funcionário fora do cadastro';
+  const funcao = (fid) => (F.find((f) => f.id === fid) || {}).funcao || '';
+  const gruposRateio = state.grupos.filter((g) => g.regra === 'tonelagem'), gruposFora = state.grupos.filter((g) => g.regra === 'fora');
+  const membros = (gid) => Object.keys(state.pessoaGrupo).filter((fid) => state.pessoaGrupo[fid] === gid && F.some((f) => f.id === fid)).sort((a, b) => nome(a).localeCompare(nome(b)));
+  const livres = F.filter((f) => !emTurno.has(f.id) && !state.pessoaGrupo[f.id]);
+  const optsLivres = livres.map((f) => `<option value="${f.id}">${esc(f.nome)}${f.funcao ? ' — ' + esc(f.funcao) : ''}</option>`).join('');
+  const optsGrupos = (atual) => state.grupos.map((g) => `<option value="${g.id}" ${g.id === atual ? 'selected' : ''}>${esc(g.nome)}</option>`).join('');
+  const nTurno = [...emTurno].filter((fid) => F.some((f) => f.id === fid)).length;
+  const ferias = F.filter((f) => _feriasNoMes(f.id).length);
+  const pessoaRow = (fid, g) => {
+    const custo = custoMensalFuncionario(fid, state.mes, state.ano);
+    const semDados = g.regra !== 'fora' && !registroFolhaDoFuncionario(fid, state.mes, state.ano);
+    return `<div style="display:grid;grid-template-columns:minmax(0,1.3fr) ${g.regra === 'fora' ? 'minmax(0,1fr)' : 'auto'} 150px 24px;gap:8px;align-items:center;padding:4px 0;border-bottom:1px dotted var(--border);font-size:12.5px;">
+      <span>${esc(nome(fid))}${funcao(fid) ? ` <span class="cp-muted">— ${esc(funcao(fid))}</span>` : ''}${_feriasBadge(fid)}</span>
+      ${g.regra === 'fora' ? `<input class="form-input cp-input-tabela" style="width:100%!important;" placeholder="motivo (ex.: escritório, portaria)" value="${esc(state.foraMotivo[fid] || '')}" onchange="setForaMotivo('${fid}', this.value)">`
+        : (semDados ? '<span class="badge badge-warning">⚠️ sem dados na Folha</span>' : `<strong>${fmtBRL(custo)}</strong>`)}
+      <select class="form-input cp-input-tabela" style="width:150px!important;" title="Mudar de grupo" onchange="setPessoaGrupo('${fid}', this.value)">${optsGrupos(g.id)}<option value="">↩ tirar (para decidir)</option></select>
+      <button class="cp-fechar-btn" title="Tirar do grupo (volta para 'Para decidir')" onclick="setPessoaGrupo('${fid}','')">✕</button>
+    </div>`;
+  };
+  const grupoBox = (g) => {
+    const m = membros(g.id);
+    const total = g.regra === 'fora' ? 0 : m.reduce((a, fid) => a + custoMensalFuncionario(fid, state.mes, state.ano), 0);
+    return `<div class="cp-box" style="padding:10px 12px;border-left:4px solid ${g.cor || '#94a3b8'};">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:4px;">
+        <input class="form-input" style="flex:1;min-width:180px;font-weight:700;" value="${esc(g.nome)}" title="Clique para renomear" onchange="renomearGrupo('${g.id}', this.value)">
+        <span class="badge ${g.regra === 'fora' ? 'badge-gray' : 'badge-info'}">${g.regra === 'fora' ? 'não entra no custo' : 'rateado por tonelagem'}</span>
+        <span class="badge badge-gray">${m.length}</span>
+        ${g.regra === 'fora' ? '' : `<strong style="font-size:12.5px;">${fmtBRL(total)}</strong>`}
+        <button class="btn btn-ghost btn-sm" style="color:var(--danger);" title="Apagar grupo (as pessoas vão para outro grupo do mesmo tipo)" onclick="removerGrupo('${g.id}')">🗑</button>
+      </div>
+      ${m.map((fid) => pessoaRow(fid, g)).join('') || '<p class="cp-ajuda" style="margin:4px 0;">Ninguém neste grupo.</p>'}
+      ${livres.length ? `<select class="form-input" style="margin-top:6px;width:100%;" onchange="setPessoaGrupo(this.value,'${g.id}'); this.value='';"><option value="">+ Adicionar pessoa…</option>${optsLivres}</select>` : ''}
+    </div>`;
+  };
+  const kp = (rot, n, cor, sub) => `<div style="border:1px solid var(--border);border-radius:10px;padding:8px 10px;"><div style="font-size:10.5px;font-weight:700;color:#64748b;text-transform:uppercase;">${rot}</div><div style="font-size:20px;font-weight:800;color:${cor};">${n}</div><div style="font-size:10.5px;color:#64748b;">${sub}</div></div>`;
+  const decidirHtml = livres.length ? `<div class="cp-box" style="padding:10px 12px;border-left:4px solid #dc2626;">
+      <div style="font-weight:700;color:#b91c1c;margin-bottom:4px;">⚠️ Para decidir — ${livres.length} pessoa(s) sem lugar neste plano</div>
+      ${livres.map((f) => `<div style="display:grid;grid-template-columns:minmax(0,1fr) 220px;gap:8px;align-items:center;padding:3px 0;border-bottom:1px dotted var(--border);font-size:12.5px;">
+        <span>${esc(f.nome)}${f.funcao ? ` <span class="cp-muted">— ${esc(f.funcao)}${f.setor ? ' · ' + esc(f.setor) : ''}</span>` : ''}${_feriasBadge(f.id)}</span>
+        <select class="form-input cp-input-tabela" style="width:220px!important;" onchange="setPessoaGrupo('${f.id}', this.value)"><option value="">Colocar em…</option>${optsGrupos(null)}</select></div>`).join('')}
+      <p class="cp-ajuda" style="margin:6px 0 0;">Para pôr numa linha, use "+ Adicionar funcionário" no turno, mais abaixo.</p></div>` : '';
+  return `<div class="card" style="margin-bottom:16px;">
+    <h3 class="cp-h3">👥 Pessoas do plano <span class="cp-muted">— cada funcionário ativo num lugar só: turno de linha, um grupo, ou fora deste custo</span></h3>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin-bottom:12px;">
+      ${kp('Nas linhas', nTurno, '#0B2545', 'turnos, abaixo')}
+      ${gruposRateio.map((g) => kp(esc(g.nome.split('(')[0]), membros(g.id).length, g.cor || '#6D28D9', 'rateio por tonelagem')).join('')}
+      ${kp('Fora do custo', gruposFora.reduce((a, g) => a + membros(g.id).length, 0), '#64748b', 'com motivo')}
+      ${kp('Para decidir', livres.length, livres.length ? '#dc2626' : '#16a34a', livres.length ? 'sem lugar' : 'ninguém solto')}
+      ${kp('Férias no mês', ferias.length, '#b45309', 'continuam no custo')}
+    </div>
+    ${decidirHtml}
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(460px,1fr));gap:10px;margin-top:10px;">${state.grupos.map(grupoBox).join('')}</div>
+    <div class="cp-field-row" style="margin-top:10px;gap:8px;flex-wrap:wrap;align-items:center;">
+      <input class="form-input" id="cp-novo-grupo-nome" style="min-width:240px;" placeholder="Nome do novo grupo (ex.: Feristas)">
+      <select class="form-input" id="cp-novo-grupo-regra" style="width:220px;"><option value="tonelagem">Entra no custo · rateio por tonelagem</option><option value="fora">Não entra no custo</option></select>
+      <button class="btn btn-secondary btn-sm" onclick="addGrupo()">+ Novo grupo</button>
+    </div>
+    <div class="cp-grid-2" style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:12px;">
+      <div>
+        <div class="cp-kpi-linha"><span>Folha das linhas (pessoas nos turnos)</span><strong>${fmtBRL(r.atribFolha.totalAtribuido)}</strong></div>
+        <div class="cp-kpi-linha"><span>Grupos rateados por tonelagem (antigo Administrativo)</span><strong>${fmtBRL(r.atribAdmin.custoTotal)}</strong></div>
+        ${(() => { const dup = _funcionariosDuplicados(state); return dup.length ? alertBox('atencao', `<strong>${dup.length} pessoa(s) escalada(s) em mais de um turno:</strong> ${dup.map((d) => `${esc(d.nome)} (${d.vezes}×)`).join(', ')}. O salário entra <strong>uma vez só</strong> no total e é dividido entre os turnos — se foi engano, tire de um dos turnos.`) : ''; })()}
+      </div>
+      <div>
+        <div class="form-group cp-field-row"><label class="form-label">Fator sobre salário bruto <span class="cp-muted">(encargos)</span></label>
+          <select class="form-input cp-input-sm" onchange="setFatorEncargos(this.value)">
+            ${[['1.00', '1,00 — sem acréscimo (só o bruto)'], ['1.20', '1,20 — +20%'], ['1.35', '1,35 — +35%'], ['1.50', '1,50 — +50%'], ['1.68', '1,68 — +68%'], ['1.80', '1,80 — +80%'], ['2.00', '2,00 — +100%']].map(([v, label]) => `<option value="${v}" ${Math.abs(state.fatorEncargos - Number(v)) < 0.001 ? 'selected' : ''}>${label}</option>`).join('')}
+          </select></div>
+        <div class="form-group cp-field-row"><label class="form-label">Ou fator personalizado</label>
+          <input class="form-input cp-input-sm" type="number" min="1" step="0.01" value="${state.fatorEncargos}" onchange="setFatorEncargos(this.value)"></div>
+      </div>
+    </div>
+    <p class="cp-ajuda">Grupos são só organização: todos os grupos "rateado por tonelagem" entram no custo exatamente como o Administrativo entrava (dividido pela tonelagem das linhas que rodam). "Fora deste custo" não entra — e deixa de aparecer como "não alocado". Férias vêm do RH e a pessoa continua no custo.</p>
+  </div>`;
+}
+
 // Quem já está escalado em ALGUM turno (de qualquer linha) ou no administrativo. Uma pessoa
 // só pode estar em um lugar — assim a lista não oferece quem já foi alocado, igual no admin.
 function _idsJaAlocados() {
   const ids = new Set();
   (state.blocos || []).forEach((b) => (b.secoes || []).forEach((sec) => (sec.equipe || []).forEach((fid) => ids.add(fid))));
   (state.equipeAdmin || []).forEach((fid) => ids.add(fid));
+  Object.keys(state.pessoaGrupo || {}).forEach((fid) => { if (_ehFora(state, fid)) ids.add(fid); });
   return ids;
 }
 function renderEquipeSecao(bloco, secao) {
@@ -4379,12 +4596,22 @@ function renderEquipeSecao(bloco, secao) {
     const custo = custoMensalFuncionario(fid, state.mes, state.ano);
     const semDados = !registroFolhaDoFuncionario(fid, state.mes, state.ano);
     return `<div class="cp-equipe-row" onclick="window.location.href='rh.html'">
-      <span>${esc(func.nome)}${func.funcao ? ` <span class="cp-muted">— ${esc(func.funcao)}</span>` : ''}</span>
+      <span>${esc(func.nome)}${func.funcao ? ` <span class="cp-muted">— ${esc(func.funcao)}</span>` : ''}${_feriasBadge(fid)}</span>
       <span>${semDados ? '<span class="badge badge-warning" title="Esta pessoa não tem lançamento em nenhuma Folha">⚠️ sem dados na Folha</span>' : `<strong>${fmtBRL(custo)}</strong>`} <span class="cp-muted">${semDados ? 'vem da Folha' : _rotuloOrigemFolha(fid)}</span></span>
       <button class="cp-fechar-btn" onclick="event.stopPropagation(); removeFuncionarioSecao('${bloco.id}','${secao.id}','${fid}')" title="Remover da equipe">✕</button>
     </div>`;
   }).join('');
+  const nec = Number(secao.necessarias) || 0, tem = equipe.length;
+  const corNec = !nec ? '#94a3b8' : tem < nec ? '#dc2626' : tem > nec ? '#b45309' : '#16a34a';
+  const necHtml = `<div class="cp-field-row" style="gap:8px;align-items:center;margin-bottom:6px;flex-wrap:wrap;">
+      <label class="form-label" style="margin:0;font-size:11px;">👥 Pessoas necessárias</label>
+      <input class="form-input cp-input-sm" style="width:56px;text-align:center;" type="number" min="0" step="1" value="${nec || ''}" placeholder="—" onchange="setSecaoNec('${bloco.id}','${secao.id}','necessarias',this.value)">
+      <span style="font-size:11px;color:#64748b;">mín.</span>
+      <input class="form-input cp-input-sm" style="width:50px;text-align:center;" type="number" min="0" step="1" value="${Number(secao.necMin) || ''}" placeholder="—" onchange="setSecaoNec('${bloco.id}','${secao.id}','necMin',this.value)">
+      ${nec ? `<span style="font-weight:800;color:${corNec};">${tem} / ${nec}</span><span style="font-size:11px;color:${corNec};margin-left:4px;">${tem < nec ? (Number(secao.necMin) && tem >= Number(secao.necMin) ? 'abaixo do padrão, acima do mínimo' : 'falta ' + (nec - tem)) : tem > nec ? (tem - nec) + ' a mais' : 'coberto'}</span>` : '<span class="cp-muted" style="font-size:11px;">informe para ver se o turno está coberto</span>'}
+    </div>`;
   return `<div class="cp-equipe">
+    ${necHtml}
     <label class="form-label" style="font-size:11px;">👷 Equipe deste turno <span class="cp-muted">— nome vem de Funcionários; o custo vem sempre da Folha do mês (clique pra abrir e lançar/editar lá)</span></label>
     ${linhas || '<p class="cp-ajuda" style="margin:4px 0;">Nenhum funcionário alocado neste turno ainda.</p>'}
     <div class="cp-field-row" style="margin-top:6px;">
@@ -4618,7 +4845,8 @@ function renderConfig(r) {
         <div style="margin-top:4px;">${r.atribFolha.naoAlocados.map((f) => `<span class="badge badge-gray" style="margin:2px;">${esc(f.nome)}</span>`).join('')}</div>
        </details>`
     : '';
-  const headcountCard = `<div class="card" style="margin-bottom:16px;">
+  _pessoasNorm();
+  const headcountCardAntigo = `<div class="card" style="margin-bottom:16px;">
     <h3 class="cp-h3">👷 Mão de obra — Folha &amp; Administrativo</h3>
     <div class="cp-grid-2" style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
       <div>
@@ -4664,10 +4892,10 @@ function renderConfig(r) {
   </div>`;
 
   if (!state.linhasReais.length) {
-    return renderCalendario() + headcountCard + lenhaFiltroCard + `<div class="card"><div class="empty-state"><div class="empty-icon">🏭</div><h3>Nenhuma linha de produção carregada</h3><p>Cadastre em <strong>Cadastros → Linhas de Produção</strong> e <strong>Cadastros → Turnos</strong>, e recarregue a página.</p></div></div>` + renderMapeamentoProdutos();
+    return renderCalendario() + renderPessoasPlano(r) + lenhaFiltroCard + `<div class="card"><div class="empty-state"><div class="empty-icon">🏭</div><h3>Nenhuma linha de produção carregada</h3><p>Cadastre em <strong>Cadastros → Linhas de Produção</strong> e <strong>Cadastros → Turnos</strong>, e recarregue a página.</p></div></div>` + renderMapeamentoProdutos();
   }
   const blocosHtml = state.blocos.map((b) => renderBloco(b, r)).join('');
-  return renderCalendario() + headcountCard + lenhaFiltroCard + `
+  return renderCalendario() + renderTotaisLinhas(r) + renderPessoasPlano(r) + lenhaFiltroCard + `
   <div class="cp-plano-secao">
     <div class="cp-plano-secao-cab">
       <h3 class="cp-h3" style="margin:0;">🏭 Linhas, turnos e produtos deste plano</h3>
@@ -7254,7 +7482,7 @@ function serializarEstadoAtual() {
     mes: state.mes, ano: state.ano, calendario: state.calendario, feriadosLocais: state.feriadosLocais,
     horasDomingoEspecial: state.horasDomingoEspecial, blocos: state.blocos, mapaProduto: state.mapaProduto,
     produtosExtras: state.produtosExtras, produtosOcultos: state.produtosOcultos, pesos: state.pesos,
-    margemAlvo: state.margemAlvo, equipeAdmin: state.equipeAdmin,
+    margemAlvo: state.margemAlvo, equipeAdmin: state.equipeAdmin, grupos: state.grupos, pessoaGrupo: state.pessoaGrupo, foraMotivo: state.foraMotivo,
     mpCinza: state.mpCinza, refeicao: state.refeicao, cartaoAlimentacao: state.cartaoAlimentacao, filtroManga: state.filtroManga, lenha: state.lenha, arrendamento: state.arrendamento, stretch: state.stretch, itensMultiplos: state.itensMultiplos, desgaste: state.desgaste, regua: _reguaDoPlano(), energia: state.energia, fatorEncargos: state.fatorEncargos, alvoMaximoPct: state.alvoMaximoPct,
     precoVendaManual: state.precoVendaManual, faturamentoManual: state.faturamentoManual,
     insumos: state.insumos, cenarios: state.cenarios, escopos: state.escopos,
@@ -7622,6 +7850,8 @@ async function initCustoPrecificacao() {
       state.naturezasCusto = naturezas || [];
       state.centrosCusto = centros || [];
       await carregarFolhasPagamento();
+      try { const { data: fr } = await _supabase.from('rh_ferias').select('funcionario_id,data_inicio,data_fim,status').limit(2000); _feriasRH = fr || []; }
+      catch (e) { console.warn('Custo: férias do RH não carregaram', e); }
     }
   } catch (e) { console.error('Custo & Precificação: erro ao carregar linhas/turnos/empresa/funcionarios/produtos:', e); }
   render();
