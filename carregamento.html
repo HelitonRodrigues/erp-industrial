@@ -1019,6 +1019,7 @@ let _carrPreIds=new Set();    // pallets que JÁ estavam salvos como carregados 
 let _linhasCarr=[], _alloc={}, _allocSet=new Set(), _extra={}, _linhaAtiva=null;
 let _qtdInf={}, _qtdUlt={};   // (out/2026) "pallet de quantos?" informado na leitura (por pallet) e a última resposta por produto
 let _doa={}, _doaPre={}, _modoDoa=false;  /* pallets abertos: {palletId:{qtd,produto,key}} — _doaPre = já gravado no banco nesta carga */
+let _dsmSaidas=[];   /* view granel_saidas_dsm: granel que saiu pela Portaria DSM (baixa automática do granel) */
 let _semQrSaldo={};   /* view estoque_sem_qr_saldo: estoque SEM QR por produto (saldo inicial/ajustes − cargas sem QR) — migração 130 */
 let _semQr=true; const ROT_ANTIGO='rotulo_antigo', ROT_ANTIGO_TXT='🏷️ Rótulo antigo (sem QR)';   /* empresa_config.carga_sem_qr: aceita item "rótulo antigo (sem QR)" (migração 129) */
 let _avulsos={};   /* modo quantidade: itens SEM pallet por linha {key:[{id,sacos,motivo,obs}]} — granel, avulsos, contingência */
@@ -1103,9 +1104,10 @@ function granelCarregadoTon(nome,exceptoCarrId){
 }
 // Saldo. `exceptoCarrId` = carga sendo editada agora: o que ela já tirou volta
 // para o saldo, senão editar uma carga salva parecia estouro de estoque.
+function granelDsmTon(nome){const a=normNome(nome);return _dsmSaidas.reduce((t,r)=>t+(normNome(r.produto)===a?(Number(r.kg)||0)/1000:0),0);}
 function granelSaldoTon(nome,exceptoCarrId){
-  const prod=granelProduzidoTon(nome), carr=granelCarregadoTon(nome,exceptoCarrId), aj=semQrSaldo(nome)/1000;   // acerto com a planilha (kg)
-  return {produzido:prod, carregado:carr, ajuste:aj, saldo:prod-carr+aj};
+  const prod=granelProduzidoTon(nome), dsm=granelDsmTon(nome), carr=granelCarregadoTon(nome,exceptoCarrId)+dsm, aj=semQrSaldo(nome)/1000;   // DSM sai sozinho; acerto com a planilha (kg)
+  return {produzido:prod, carregado:carr, dsm, ajuste:aj, saldo:prod-carr+aj};
 }
 function granelProdutos(){
   const m={}; _granel.forEach(p=>{ if(p.produto)m[normNome(p.produto)]=p.produto; });
@@ -1398,6 +1400,9 @@ async function recarregarTudo(showToast){
     { const ec=await _supabase.from('empresa_config').select('carga_sem_qr').limit(1);
       if(ec.error)toast('Não li a chave "carga sem QR": '+ec.error.message,'warning');
       else _semQr=!(ec.data&&ec.data[0]&&ec.data[0].carga_sem_qr===false); }
+    { const ds=await _supabase.from('granel_saidas_dsm').select('produto,data,kg');
+      if(ds.error)toast('Não li as saídas da Portaria DSM: '+ds.error.message,'danger');
+      _dsmSaidas=ds.data||[]; }
     { const sq=await _supabase.from('estoque_sem_qr_saldo').select('produto,saldo');
       if(sq.error)toast('Não li o estoque sem QR: '+sq.error.message,'danger');
       _semQrSaldo={};(sq.data||[]).forEach(r=>{const v=Number(r.saldo)||0;if(v)_semQrSaldo[normNome(r.produto)]={produto:r.produto,saldo:v};}); }
@@ -1517,7 +1522,7 @@ function renderKpisEstoque(){
 function renderSaldoGranel(){
   const el=document.getElementById('est-granel');if(!el)return;
   const prods=granelProdutos();
-  Object.values(_semQrSaldo).forEach(x=>{if(ehGranel(x.produto)&&!prods.some(n=>normNome(n)===normNome(x.produto)))prods.push(x.produto);});
+  [...Object.values(_semQrSaldo).map(x=>x.produto),..._dsmSaidas.map(r=>r.produto)].forEach(n=>{if(ehGranel(n)&&!prods.some(x=>normNome(x)===normNome(n)))prods.push(n);});
   if(!prods.length){el.innerHTML='';return;}
   const linhas=prods.map(nome=>{
     const g=granelSaldoTon(nome);
@@ -1525,7 +1530,7 @@ function renderSaldoGranel(){
     return `<div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:9px 0;border-top:1px solid #eef2f6;">
       <strong style="color:var(--primary);font-size:13px;min-width:150px;">${esc(nome)}</strong>
       <span style="font-size:12px;color:#64748b;">produzido <strong style="color:#334155;">${n2(g.produzido)} t</strong></span>
-      <span style="font-size:12px;color:#64748b;">carregado <strong style="color:#334155;">${n2(g.carregado)} t</strong></span>
+      <span style="font-size:12px;color:#64748b;">carregado <strong style="color:#334155;">${n2(g.carregado)} t</strong>${g.dsm?` <span style="color:#94a3b8;">(Portaria DSM ${n2(g.dsm)} t)</span>`:''}</span>
       ${g.ajuste?`<span style="font-size:12px;color:#64748b;">acerto <strong style="color:#334155;">${g.ajuste>0?'+':''}${n2(g.ajuste)} t</strong></span>`:''}
       <span style="margin-left:auto;font-size:12px;color:#64748b;">saldo
         <strong style="color:${cor};font-size:17px;">${n2(g.saldo)} t</strong></span>
