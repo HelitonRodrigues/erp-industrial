@@ -12,6 +12,7 @@
 <script src="js/qrcode.min.js"></script>
 <script src="js/certificados.js"></script>
 <script src="js/regras.js"></script>
+<script src="js/alerta-linhas.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/zxing-wasm@3.1.5/dist/iife/reader/index.js"></script>
 <style>
@@ -326,6 +327,8 @@ body.patio-on #toast-container{top:10px;bottom:auto;left:10px;right:10px;z-index
 .ptd .v{text-align:right;font-size:24px;font-weight:900;color:#15803d;white-space:nowrap;}.ptd.ruim .v{color:#b91c1c;}.ptd.neutro .v{color:#0f2a44;}
 .ptd .v small{display:block;font-size:12px;font-weight:800;}
 .ptpen{display:flex;gap:6px;}.ptpen div{flex:1;background:#fff;border-radius:10px;text-align:center;padding:6px 0;font-size:12px;color:#475569;font-weight:700;}.ptpen b{display:block;font-size:15px;color:#0f2a44;}
+body.patio-on #al-bt{bottom:96px;right:10px;padding:10px 12px;font-size:13px;}
+body.patio-on #al-menu{bottom:150px;}
 .patio{position:fixed;inset:0;z-index:1050;background:#eef2f6;overflow-y:auto;-webkit-overflow-scrolling:touch;font-family:'Plus Jakarta Sans',sans-serif;}
 .patio.hidden{display:none;}
 #patio-body{max-width:640px;margin:0 auto;padding:10px 12px 170px;}
@@ -5239,7 +5242,11 @@ async function patioLinhas(){
   if(_patioTela!=='linhas')return;
   if(r.error){body.innerHTML=topo+`<div class="pt-vazio">Não consegui ler as linhas.<br><small>${esc(r.error.message)}</small></div>`;renderPatioRede();return;}
   _ptlDados=r.data||[];
-  body.innerHTML=topo+(_ptlDados.map((l,i)=>{const [c,t]=ptlCor(l.status);
+  body.innerHTML=topo+(_ptlDados.map((l,i)=>{
+    /* igual ao Laboratório: só vale o teste de HOJE; sem teste hoje = cinza, com o último embaixo */
+    if(l.data!==hojeISO())return `<button class="ptl s-na" onclick="patioLinhaDet(${i})"><div><b>${esc(l.linha)}</b><span>${esc(l.produto||'—')}</span></div>
+      <div class="st">⏳ SEM TESTE<br>HOJE<small>último: ${esc(ptlIdade(l))} · ${esc(l.status||'—')}</small></div></button>`;
+    const [c,t]=ptlCor(l.status);
     return `<button class="ptl ${c}" onclick="patioLinhaDet(${i})"><div><b>${esc(l.linha)}</b><span>${esc(l.produto||'—')}</span></div>
       <div class="st">${t}<small>${esc(ptlIdade(l))}</small></div></button>`;}).join('')||'<div class="pt-vazio">Nenhuma análise de linha ainda.</div>')+
     `<div style="font-size:13px;color:#64748b;text-align:center;margin:6px 0 12px;">Toque na linha para ver umidade e granulometria</div>
@@ -5259,7 +5266,9 @@ async function patioLinhaDet(i){
   if(_patioTela!=='linha-det')return;
   const a=r.data||null;
   const bom={OK:'👍 TUDO CERTO',AJUSTE:'⚠️ PRECISA DE AJUSTE',MANUTENCAO:'🔧 EM MANUTENÇÃO',PARADA:'⛔ LINHA PARADA'}[String(l.status||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase()]||t;
-  let html=`<div class="ptl ${c}" style="cursor:default;"><div><b>${bom}</b><span>${esc(ptlIdade(l)||'')}${l.responsavel?' · '+esc(String(l.responsavel).split(/\s+/)[0]):''}</span></div></div>`;
+  const hoje=l.data===hojeISO();
+  let html=hoje?`<div class="ptl ${c}" style="cursor:default;"><div><b>${bom}</b><span>${esc(ptlIdade(l)||'')}${l.responsavel?' · '+esc(String(l.responsavel).split(/\s+/)[0]):''}</span></div></div>`
+    :`<div class="ptl s-na" style="cursor:default;"><div><b>⏳ AINDA SEM TESTE HOJE</b><span>Abaixo é o último teste (${esc(ptlIdade(l))} · ${esc(l.status||'—')}) — pode ter mudado.</span></div></div>`;
   if(!a){body.innerHTML=topo+html+'<div class="pt-vazio">A análise não foi encontrada.</div>';return;}
   const ind=(window.Regras&&Regras.labIndicadoresCard)?Regras.labIndicadoresCard(a,[]):null;
   const f2=v=>Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -5885,6 +5894,8 @@ window.addEventListener('beforeunload',e=>{
 recarregarTudo().then(()=>{
   /* celular/tablet abre direto no MODO PÁTIO; se a pessoa tocou em SAIR, a escolha fica guardada */
   const prefPatio=lsGet(LS_PATIO,null);
+  /* perfil só pátio: som + aviso grande quando o Laboratório muda o status de uma linha */
+  if(soPatio()&&window.AlertaLinhas)AlertaLinhas.iniciar({aoMudar:()=>{if(_patioTela==='linhas')patioLinhas();}});
   if(soPatio()||/[?&]patio=1/.test(location.search)||prefPatio===true||(prefPatio===null&&ehCelularOuTablet()))abrirPatio();
   enviarPendentes();
 });
