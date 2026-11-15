@@ -155,7 +155,7 @@ table.fd tr:last-child td{border-bottom:1px solid var(--fd-cab);}
         </div>
         <button type="button" class="ref-btn" id="ref-next" onclick="mudarDia(1)" aria-label="Próximo dia">›</button>
       </div>
-      <button type="button" class="fx-btn" id="bt-carreg" onclick="abrirCarregamento()" style="display:none;">🚚 Carregamento do dia</button>
+      <button type="button" class="fx-btn" id="bt-carreg" onclick="abrirCarregamento()" style="display:none;">🚚 Carregado e diferença</button>
       <button type="button" class="fx-btn" id="bt-estoque" onclick="abrirEstoque()" style="display:none;">📦 Estoque inicial e contagens</button>
       <button type="button" class="fx-btn pri" onclick="window.print()">🖨️ Imprimir / PDF</button>
     </div>
@@ -174,7 +174,7 @@ table.fd tr:last-child td{border-bottom:1px solid var(--fd-cab);}
     <b>Produção</b> do dia = OPs do dia (manhã e noite) + a madrugada do dia seguinte.
     <b>Em análise</b> = OPs de sacaria 10 kg e 20 kg que o laboratório ainda não aprovou (bag, 25 kg e granel saem liberados).
     <b>Estoque liberado</b> = estoque inicial + produzido − em análise − reprovado − diferença − carregado.
-    <b>Carregamento</b> e <b>diferença</b> entram pelo botão 🚚; o estoque do mês anterior e as contagens (pallet PBR e invertido,
+    <b>Carregamento</b> vem sozinho do Carregamento e da Portaria DSM; a <b>diferença</b> entra pelo botão 🚚; o estoque do mês anterior e as contagens (pallet PBR e invertido,
     aditivo em estoque, bag de areia, produto vencido) pelo botão 📦.
     Insumos da fábrica vêm de Insumos (fim do dia + madrugada seguinte); Felisbina, Preparador e Tintas vêm da Felisbina;
     diesel = bombas ativas no fim do dia. Granel em kg.
@@ -189,7 +189,7 @@ table.fd tr:last-child td{border-bottom:1px solid var(--fd-cab);}
       <div class="modal-title" id="mc-tit">🚚 Carregamento do dia</div>
       <button class="modal-close" onclick="closeModal('m-carreg')">✕</button>
     </div>
-    <p class="lc-dica">Quantidade carregada até meia-noite e a diferença de estoque do dia (positivo = faltou). Bag em unidades, granel em kg. Deixe em branco o que não teve.</p>
+    <p class="lc-dica"><b>Carregado vem sozinho</b> do Carregamento (QR e sem QR) e da Portaria DSM (granel). Aqui você lança só a <b>diferença de estoque</b> do dia (positivo = faltou). Bag em unidades, granel em kg.</p>
     <div class="lc-scroll"><table class="lc-tab" id="mc-tab"></table></div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal('m-carreg')">Cancelar</button>
@@ -401,7 +401,7 @@ async function gerar(){
     const inicio=datasEI[0]||D;   // sem estoque inicial: só o dia (e aviso)
 
     // 2) o resto em paralelo
-    const [ops,ins,movIns,fItens,fMov,bombas,entr,regs,prods]=await Promise.all([
+    const [ops,ins,movIns,fItens,fMov,bombas,entr,regs,prods,cargas,dsm]=await Promise.all([
       todos(()=>_supabase.from('producao').select('id,data,turno,status,op_numero,produtos_op').gte('data',inicio).lte('data',D1).order('id')),
       todos(()=>_supabase.from('insumos').select('id,codigo,nome,tipo,unidade_estoque,status').order('id')),
       todos(()=>_supabase.from('insumos_movimentos').select('id,insumo_id,data,tipo,quantidade,origem_id').lte('data',D1).order('id')),
@@ -411,9 +411,12 @@ async function gerar(){
       todos(()=>_supabase.from('abastecimento_entradas').select('id,bomba_id,data,litros').gt('data',D).order('id')),
       todos(()=>_supabase.from('abastecimento_registros').select('id,bomba_id,data,litros').gte('data',new Date(D1+'T08:00:00').toISOString()).order('id')),
       todos(()=>_supabase.from('produtos').select('id,nome,status').order('id')),
+      // CARREGADO automático: cargas do Carregamento (QR, sem QR, avulsos) + granel da Portaria DSM (kg, dia da entrada do caminhão)
+      todos(()=>_supabase.from('carregamentos').select('id,data,itens').gte('data',inicio).lte('data',D).order('id')),
+      todos(()=>_supabase.from('granel_saidas_dsm').select('id,produto,data,kg').gte('data',inicio).lte('data',D).order('id')),
     ]);
     if(meu!==_gerando) return;
-    _R=calcular({D,D1,EI,ops,ins,movIns,fItens,fMov,bombas,entr,regs,prods});
+    _R=calcular({D,D1,EI,ops,ins,movIns,fItens,fMov,bombas,entr,regs,prods,cargas,dsm});
     render();
   }catch(e){
     console.error(e);
@@ -444,6 +447,18 @@ function calcular(x){
   const grupos=PA_FAB.map(g=>({g:g.g,cor:g.cor,itens:g.itens.map(([rot,erp])=>({rot,k:norm(erp)}))}));
   if(Object.keys(fora).length) grupos.push({g:'OUTROS',cor:'--g4',itens:Object.entries(fora).map(([k,n])=>({rot:String(n).toUpperCase(),k}))});
 
+  // ── carregado automático por produto/dia (sacos; bag em unidades; granel em kg)
+  const carrAuto=[];
+  (x.cargas||[]).forEach(c=>(Array.isArray(c.itens)?c.itens:[]).forEach(i=>{
+    if(!i||i.doador||!i.produto) return;
+    const q=(i.unidade==='t'||num(i.ton)>0)?num(i.ton)*1000:num(i.sacos);
+    if(q) carrAuto.push({k:norm(i.produto),data:String(c.data).slice(0,10),q});
+  }));
+  (x.dsm||[]).forEach(r=>{ if(num(r.kg)) carrAuto.push({k:norm(r.produto),data:String(r.data).slice(0,10),q:num(r.kg)}); });
+  carrAuto.forEach(c=>{ if(c.data<=D&&!noModelo.has(c.k)&&!fora[c.k]) fora[c.k]=(x.cargas||[]).flatMap(cg=>cg.itens||[]).find(i=>i&&norm(i.produto)===c.k)?.produto||c.k; });
+  if(Object.keys(fora).length&&!grupos.some(g=>g.g==='OUTROS')) grupos.push({g:'OUTROS',cor:'--g4',itens:Object.entries(fora).map(([k,n])=>({rot:String(n).toUpperCase(),k}))});
+  else { const o=grupos.find(g=>g.g==='OUTROS'); if(o) Object.entries(fora).forEach(([k,n])=>{ if(!o.itens.some(i=>i.k===k)) o.itens.push({rot:String(n).toUpperCase(),k}); }); }
+
   const semEI=[];
   grupos.forEach(g=>g.itens.forEach(it=>{
     const ei=EI[it.k], de=ei?ei.data:null;
@@ -454,9 +469,10 @@ function calcular(x){
     const emAnalise=quar.has(it.k)?ps.filter(p=>p.status==='em_analise').reduce((a,p)=>a+p.s,0):0;
     const reprovado=ps.filter(p=>p.status==='reprovado').reduce((a,p)=>a+p.s,0);
     const pa=m=>_PA.filter(r=>r.motivo===m&&norm(r.produto)===it.k&&depois(r.data));
-    const carr=pa('carregamento').reduce((a,r)=>a+num(r.sacos),0);
+    const cs=carrAuto.filter(c=>c.k===it.k&&depois(c.data));
+    const carr=cs.reduce((a,c)=>a+c.q,0);
     const dif=pa('diferenca').reduce((a,r)=>a+num(r.sacos),0);
-    const carrDia=pa('carregamento').filter(r=>r.data===D).reduce((a,r)=>a+num(r.sacos),0);
+    const carrDia=cs.filter(c=>c.data===D).reduce((a,c)=>a+c.q,0);
     if(!ei&&(produzido||carr||dif)) semEI.push(it.rot);
     Object.assign(it,{prod:prodDia,anal:emAnalise,carr:carrDia,lib:(ei?num(ei.sacos):0)+produzido-emAnalise-reprovado-dif-carr,
       det:{ei:ei?num(ei.sacos):null,de,produzido,emAnalise,reprovado,dif,carr}});
@@ -612,12 +628,12 @@ function abrirCarregamento(){
   if(!PODE_EDITAR()){ toast('Sem permissão para lançar no fechamento.','warning'); return; }
   const D=_dia;
   const doDia=m=>{ const o={}; _PA.filter(r=>r.motivo===m&&r.data===D).forEach(r=>{ const k=norm(r.produto); o[k]=(o[k]||0)+num(r.sacos); }); return o; };
-  const car=doDia('carregamento'), dif=doDia('diferenca');
+  const dif=doDia('diferenca');
   document.getElementById('mc-tit').textContent='🚚 Carregamento e diferença — '+dBR(D);
   let h='<thead><tr><th>Produto</th><th style="text-align:right;">Carregado</th><th style="text-align:right;">Diferença</th></tr></thead><tbody>';
   produtosLanc().forEach(g=>{ h+=`<tr class="g"><td colspan="3">${esc(g.g)}${g.g==='TON'?' — em kg':g.g==='BAG'?' — em bags':''}</td></tr>`;
     g.itens.forEach(it=>{ h+=`<tr><td>${esc(it.rot)}</td>
-      <td style="text-align:right;"><input inputmode="decimal" data-k="${esc(it.k)}" data-n="${esc(nomeERP(it))}" data-m="carregamento" value="${vIni(car[it.k])}" data-ini="${vIni(car[it.k])}" oninput="marcarMud(this)"></td>
+      <td style="text-align:right;font-weight:700;color:#475569;">${fmt(it.carr||0)}</td>
       <td style="text-align:right;"><input inputmode="decimal" data-k="${esc(it.k)}" data-n="${esc(nomeERP(it))}" data-m="diferenca" value="${vIni(dif[it.k])}" data-ini="${vIni(dif[it.k])}" oninput="marcarMud(this)"></td></tr>`; }); });
   document.getElementById('mc-tab').innerHTML=h+'</tbody>';
   document.getElementById('m-carreg').classList.remove('hidden');
