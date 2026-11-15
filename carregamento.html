@@ -5794,26 +5794,45 @@ function patioSetTamanho(v){
 /* ── DIGITAR (quando a câmera não lê) ──
    (15/11) Menos para digitar: aparecem como BOTÕES as OPs que têm pallet do produto desta linha
    no estoque (a última usada já vem marcada) → é só digitar o nº do pallet. "Outra OP" continua. */
-let _digOp=null, _digUltOp=null;
-function digOpsDoProduto(){
+let _digOp=null, _digUltOp=null, _digGrupos=[];
+/* rótulo da central (totem): LIN-AAAAMMDD-XXX-P000 → grupo = tudo antes do "P000" (não tem OP no papel) */
+const RE_CENTRAL=/^([A-Z0-9]{3}-?20\d{6}-?[0-9A-Z]{3}-?)P(\d{1,4})$/i;
+function digGrupoDe(p){
+  const m=RE_CENTRAL.exec(String(p.codigo||''));
+  if(m)return {chave:'R:'+m[1].toUpperCase(),tipo:'pref',prefixo:m[1].toUpperCase(),amarelo:m[1].replace(/-$/,'').split('-').pop().toUpperCase()};
+  const op=chaveCodigo(opTailDe(p));
+  return op?{chave:'O:'+op,tipo:'op',op,amarelo:op}:null;
+}
+function digOpsDoProduto(extras){
   const l=linhaObj(_linhaAtiva), alvo=l&&l.produto?normNome(l.produto):'';
   const g={};
-  fisicos().forEach(p=>{
+  const somar=(p,conta)=>{
     if(alvo&&normNome(p.produto)!==alvo)return;
-    const op=chaveCodigo(opTailDe(p));if(!op)return;
-    const o=g[op]||(g[op]={op,n:0,data:'',produto:p.produto,linha:p.linha||''});
-    o.n++;const d=String(p.data||'').slice(0,10);if(d>o.data)o.data=d;
-  });
-  return Object.values(g).sort((a,b)=>(b.op===_digUltOp)-(a.op===_digUltOp)||String(b.data).localeCompare(String(a.data))||b.n-a.n).slice(0,8);
+    const x=digGrupoDe(p);if(!x)return;
+    const o=g[x.chave]||(g[x.chave]={...x,n:0,data:'',linha:p.linha||''});
+    if(conta)o.n++;const d=String(p.data||p.dia||'').slice(0,10);if(d>o.data)o.data=d;
+  };
+  fisicos().forEach(p=>somar(p,true));
+  (extras||[]).forEach(r=>somar(r,false));   // rótulo do totem impresso que ainda não virou pallet
+  return Object.values(g).sort((a,b)=>(b.chave===_digUltOp)-(a.chave===_digUltOp)||String(b.data).localeCompare(String(a.data))||b.n-a.n).slice(0,8);
 }
-function patioDigitar(){
-  const ops=digOpsDoProduto();
-  _digOp=ops.some(o=>o.op===_digUltOp)?_digUltOp:(ops.length===1?ops[0].op:null);
+async function patioDigitar(){
+  const l=linhaObj(_linhaAtiva);let extras=[];
+  if(l&&l.produto){   /* rótulos do totem dos últimos 5 dias deste produto */
+    const r=await _supabase.from('rotulos_impressos').select('codigo,produto,linha,dia').eq('produto',l.produto)
+      .gte('dia',new Date(Date.now()-5*864e5).toISOString().slice(0,10)).order('dia',{ascending:false}).limit(300);
+    if(!r.error)extras=r.data||[];
+  }
+  const ops=digOpsDoProduto(extras);_digGrupos=ops;
+  _digOp=ops.some(o=>o.chave===_digUltOp)?_digUltOp:(ops.length===1?ops[0].chave:null);
+  const ex=(ops.find(o=>o.chave===_digOp)||ops[0]);
+  const exTxt=ex&&ex.tipo==='pref'?`${esc(ex.prefixo.slice(0,ex.prefixo.lastIndexOf(ex.amarelo)))}<b style="background:#fde047;">${esc(ex.amarelo)}</b>-P<b style="background:#86efac;">012</b>`
+    :`EMI-20260924-<b style="background:#fde047;">2186</b>-P<b style="background:#86efac;">012</b>`;
   patioFlash('info','⌨️','DIGITE O NÚMERO DO PALLET',
-    `<div class="pt-ex">No papel está assim:<br><span class="mono">EMI-20260924-<b style="background:#fde047;">2186</b>-P<b style="background:#86efac;">012</b></span></div>
-     ${ops.length?`<div class="pt-lbl" style="background:#fde047;">1) TOQUE NA OP (amarelo do papel)</div>
-     <div class="pt-opcoes" id="dig-ops">${ops.map(o=>`<button class="pt-op ${o.op===_digOp?'on':''}" data-op="${escA(o.op)}" onclick="digEscolherOp('${escA(o.op)}')">${esc(o.op)}<small>${esc(String(o.linha||'').slice(0,10))} · ${fmtData(o.data).slice(0,5)} · ${n0(o.n)} pal</small></button>`).join('')}
-       <button class="pt-op ${_digOp===''?'on':''}" data-op="" onclick="digEscolherOp('')">OUTRA<small>digitar</small></button></div>`:''}
+    `<div class="pt-ex">No papel está assim:<br><span class="mono">${exTxt}</span></div>
+     ${ops.length?`<div class="pt-lbl" style="background:#fde047;">1) TOQUE NO CÓDIGO AMARELO DO PAPEL</div>
+     <div class="pt-opcoes" id="dig-ops">${ops.map(o=>`<button class="pt-op ${o.chave===_digOp?'on':''}" data-op="${escA(o.chave)}" onclick="digEscolherOp('${escA(o.chave)}')">${esc(o.amarelo)}<small>${esc(String(o.linha||'').slice(0,10))} · ${fmtData(o.data).slice(0,5)}${o.n?' · '+n0(o.n)+' pal':''}</small></button>`).join('')}
+       <button class="pt-op ${_digOp===''?'on':''}" data-op="" onclick="digEscolherOp('')">OUTRA<small>digitar OP</small></button></div>`:''}
      <div id="dig-op-box" style="${ops.length&&_digOp!==''?'display:none;':''}">
        <div class="pt-lbl" style="background:#fde047;margin-top:8px;">NÚMERO DA OP (4 números)</div>
        <input id="dig-op" inputmode="numeric" maxlength="6" class="pt-input" placeholder="2186" autocomplete="off"></div>
@@ -5823,7 +5842,7 @@ function patioDigitar(){
      <button class="pt-btn verde" style="margin-top:12px;" onclick="patioBuscarDigitado()">🔍 PROCURAR</button>
      <div id="dig-res" style="margin-top:10px;"></div>`,
     {botao:'FECHAR'});
-  setTimeout(()=>document.getElementById(_digOp?'dig-pal':(ops.length?'dig-pal':'dig-op'))?.focus(),150);
+  setTimeout(()=>document.getElementById(ops.length?'dig-pal':'dig-op')?.focus(),150);
 }
 function digEscolherOp(op){
   _digOp=op;
@@ -5832,12 +5851,14 @@ function digEscolherOp(op){
   setTimeout(()=>document.getElementById(op===''?'dig-op':'dig-pal')?.focus(),60);
 }
 async function patioBuscarDigitado(){
-  const opDig=String(document.getElementById('dig-op')?.value||'').replace(/\D/g,'');
-  const op=(_digOp&&_digOp!=='')?_digOp:opDig;
   const n=parseInt(String(document.getElementById('dig-pal')?.value||'').replace(/\D/g,''));
   const res=document.getElementById('dig-res');
-  if(!op){if(res)res.innerHTML='<div class="pt-erro">Toque na OP (ou digite o número dela).</div>';beep('err');return;}
+  const grupo=_digOp?_digGrupos.find(o=>o.chave===_digOp):null;
+  const op=grupo?(grupo.tipo==='op'?grupo.op:null):String(document.getElementById('dig-op')?.value||'').replace(/\D/g,'');
+  if(!grupo&&!op){if(res)res.innerHTML='<div class="pt-erro">Toque no código amarelo (ou digite a OP).</div>';beep('err');return;}
   if(!(n>0)){if(res)res.innerHTML='<div class="pt-erro">Digite o número do pallet.</div>';beep('err');return;}
+  /* rótulo do totem: monta o código inteiro e segue igual a bipar (se ainda não for pallet, o totem cria) */
+  if(grupo&&grupo.tipo==='pref'){_digUltOp=grupo.chave;patioFlashFechar();beep(patioLeitura(grupo.prefixo+'P'+String(n).padStart(3,'0')));return;}
   let cands=_pallets.filter(p=>Number(p.numero)===n&&chaveCodigo(opTailDe(p))===op&&situacaoPallet(p)!=='carregado');
   if(!cands.length){   /* pallet antigo, fora do que a tela baixou: procura no banco */
     if(res)res.innerHTML='<div class="pt-vazio" style="padding:6px;">Procurando…</div>';
@@ -5846,7 +5867,7 @@ async function patioBuscarDigitado(){
     if(!r.error){juntarPallets(r.data);cands=_pallets.filter(p=>Number(p.numero)===n&&chaveCodigo(opTailDe(p))===op&&situacaoPallet(p)!=='carregado');}
   }
   if(!cands.length){if(res)res.innerHTML='<div class="pt-erro">Não achei pallet com esses números.<br>Confira no papel.</div>';beep('err');return;}
-  _digUltOp=op;
+  _digUltOp=grupo?grupo.chave:'O:'+op;
   if(cands.length===1){patioFlashFechar();beep(patioLeitura(palCodigo(cands[0])));return;}
   window._digCands=cands;
   if(res)res.innerHTML='<div class="pt-lbl">QUAL DESTES?</div>'+cands.map((p,i)=>`<button class="pt-op larga" onclick="patioFlashFechar();beep(patioLeitura(palCodigo(window._digCands[${i}])))">

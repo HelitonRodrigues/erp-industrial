@@ -812,3 +812,5 @@ fábrica específica. Não generalizar.
   o 1º toque na tela libera o som). 🔔 sobe para 96 px do rodapé no pátio (não cobre o TERMINEI).
 - (15/11) ⌨️ DIGITAR no pátio: as OPs com pallet do produto da linha no estoque viram botões (`digOpsDoProduto`, até 8; a última usada `_digUltOp`
   vem marcada) → só digita o nº do pallet. "OUTRA" abre o campo da OP. Não achou na tela: procura no banco (`producao!inner`, op_numero termina com a OP).
+- (15/11) DIGITAR também para rótulo do totem (LIN-AAAAMMDD-XXX-P000, sem OP no papel): botão = código amarelo XXX (`digGrupoDe`/`RE_CENTRAL`),
+  vindo dos pallets em estoque + `rotulos_impressos` dos últimos 5 dias do produto; monta o código inteiro e segue igual ao bipar (`patioLeitura`).
