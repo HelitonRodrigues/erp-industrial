@@ -784,3 +784,17 @@ fábrica específica. Não generalizar.
 - **Fora da contagem** (`producao_pallets.fora_estoque_em`): pallet não entra no estoque (`fisicos()` e dashboard filtram), mas o QR vale — bipado, carrega normal e baixa do saldo sem QR (toda carga baixa o estoque). Usado na implantação: 8.289 pallets antes de 03/11 + baixa do mais antigo nos produtos com saldo sem QR negativo (Liga 531, Sikal 100, bags…). `pallet_guarda_estado` tem escape só por SQL (`set local app.pallet_guarda_off='on'`).
 - `capDoPallet`: pallet do totem com o produto em mais de um tamanho na OP → tamanho mais comum (antes dava 0 = "sem capacidade"; 238 pallets de Liga).
 - **fechamento.html (15/11)**: CARREGADO agora é automático — `carregamentos.itens` (QR, sem QR, avulsos; granel em t → kg) + view `granel_saidas_dsm` (kg), por `data` da carga / dia de entrada do caminhão. O botão 🚚 só grava a **diferença** (carregado aparece só para leitura). Os 35 lançamentos manuais antigos viraram `motivo='carregamento_manual_antigo'` (não contam). Estoque inicial 14/11 = planilha EM ESTOQUE de 14/11 (todos os produtos do modelo) → do dia 15 em diante roda sozinho; diferenças de 10–13/11 da planilha lançadas. Dias antes de 14/11 seguem o estoque inicial de 31/10 (histórico, não bate 100% por causa da análise/produção da época).
+
+### Carregamento — estoque simples e uma conta no banco (migração 131, 15/11/2026)
+- **`producao_pallets.sacos_pallet`** = sacos do pallet calculado no banco (`pallet_sacos_calc`: cap da OP pelo nº → cap única do produto na OP →
+  cap do nº → cap única do cadastro → cap mais comum na OP). Gatilho no pallet (insert / troca de produto, nº, OP) e na OP (`produtos_op` mudou).
+  Backfill feito: 10.112/10.112 preenchidos. `capDoPallet` usa `sacos_pallet` primeiro; a conta local fica só para pallet recém-criado.
+  "Informar sacos/pallet" grava `sacos_pallet` nos pallets do produto que estão sem quantidade (antes só no navegador).
+- View **`estoque_atual_produto`** (liberado/análise/bloqueado em sc e pallets + sem QR + físico) para outros módulos. `norm_nome(text)` já existia.
+- **Aba Estoque**: uma linha por produto — Estoque físico (pallets QR + sem QR) · Liberado · Em análise · Bloqueado · Carregado hoje · Carregado no mês
+  (`carregadoPorProduto`), linha TOTAL; clique abre a lista de pallets. Saíram: chips de barracão, coluna "mais antigo", **layout do piso/FIFO**
+  (`acc-piso`; 0 pallets tinham posição) e o "mover para barracão". A aba ⚙️ Barracões continua (nomes usados pela Portaria).
+- **Carga do estoque**: só pallets em estoque (fora da contagem não) + produzidos nos últimos `JANELA_DIAS`=40 dias + granel (~1 mil em vez de 10 mil).
+  Rótulo de dia fora da janela: `acharPallet` não chuta outro dia (`diaCarregado`) → `buscarPalletNovo` busca o código exato e o dia do rótulo
+  (`_diasExtra`). Carga antiga reaberta/continuada: `garantirPalletsDaCarga` traz os pallets pelo id. Movimento do dia limitado à janela.
+- **Contagem física** do Movimento do dia em `estoque_conferencia` (dia+produto, quem/quando); a contagem antiga do navegador sobe sozinha 1×.

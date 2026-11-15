@@ -587,7 +587,6 @@ body.patio-on #toast-container{top:10px;bottom:auto;left:10px;right:10px;z-index
     <div id="est-granel"></div>
       <div class="kpis" id="est-kpis"></div>
 
-    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;align-items:center;" id="bar-chips"></div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px;">
       <div class="search-input-wrap" style="flex:1;min-width:210px;"><span class="search-icon">🔍</span><input type="text" class="form-input" id="busca-est" placeholder="Produto, código do pallet / QR, OP, lote..." oninput="renderEstoque()"></div>
       <label class="sw" style="display:none;" title="Pallets pendentes de análise podem ou não sair no carregamento"><input type="checkbox" id="chk-pend" onchange="setPendentes(this.checked)"> Liberar pendentes para carregar</label>
@@ -598,9 +597,9 @@ body.patio-on #toast-container{top:10px;bottom:auto;left:10px;right:10px;z-index
       <table class="t-est">
         <thead><tr>
           <th style="width:26px;"></th><th>Produto</th>
-          <th style="text-align:right;">Disponível</th><th style="text-align:right;">Em análise</th>
-          <th style="text-align:right;">Reprovado</th><th style="text-align:right;">Total físico</th>
-          <th>Unidade / Barracão</th><th style="text-align:right;">Mais antigo</th>
+          <th style="text-align:right;">Estoque físico</th><th style="text-align:right;">Liberado p/ carregar</th>
+          <th style="text-align:right;">Em análise</th><th style="text-align:right;">Bloqueado</th>
+          <th style="text-align:right;">Carregado hoje</th><th style="text-align:right;">Carregado no mês</th>
         </tr></thead>
         <tbody id="est-tbody"><tr><td colspan="8" style="text-align:center;color:#94a3b8;padding:26px;">Carregando estoque…</td></tr></tbody>
       </table>
@@ -618,7 +617,7 @@ body.patio-on #toast-container{top:10px;bottom:auto;left:10px;right:10px;z-index
         </div>
         <div class="aviso" style="margin-bottom:12px;">
           <strong>Estoque anterior</strong> e <strong>Estoque calculado</strong> são deduzidos dos pallets e dos carregamentos gravados — nenhum número é digitado ou inventado.
-          A coluna <strong>Contagem física</strong> é sua conferência de piso: fica salva <em>somente neste navegador</em> e serve para gerar a <strong>Diferença</strong>.<br>
+          A coluna <strong>Contagem física</strong> é a conferência de piso: fica <strong>gravada no sistema</strong> (vale em qualquer aparelho) e gera a <strong>Diferença</strong>.<br>
           <strong>Carregado</strong> já inclui os <strong>sacos a mais</strong> lançados nas cargas — a coluna <strong>Fora de pallet</strong> só mostra quanto desse total saiu sem estar em pallet.
         </div>
         <div class="table-wrap"><table><thead><tr>
@@ -630,20 +629,6 @@ body.patio-on #toast-container{top:10px;bottom:auto;left:10px;right:10px;z-index
       </div>
     </div>
 
-    <!-- LAYOUT DO PISO (visual, FIFO, arrastar) -->
-    <div class="acc" id="acc-piso">
-      <div class="acc-head" onclick="toggleAcc('acc-piso');renderPiso();"><span class="arw">▶</span><span class="tit">🏭 Layout do piso — posição física, FIFO e rótulos (arraste os pallets)</span></div>
-      <div class="acc-body">
-        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px;">
-          <label class="form-label" style="margin:0;">Barracão:</label>
-          <select id="piso-barr" class="form-input" style="width:210px;" onchange="renderPiso()"></select>
-          <button class="btn btn-secondary btn-sm" onclick="abrirAddProduto()">➕ Adicionar produto</button>
-          <button class="btn btn-primary btn-sm" id="btn-salvar-est" onclick="salvarEstoque()">💾 Salvar layout</button>
-          <span class="dirty-dot" id="dirty-dot">● alterações não salvas</span>
-        </div>
-        <div class="estoque-piso" id="bar-view"></div>
-      </div>
-    </div>
   </div>
 
   <!-- ══════════ ABA 2 · CARREGAMENTO ══════════ -->
@@ -924,7 +909,7 @@ body.patio-on #toast-container{top:10px;bottom:auto;left:10px;right:10px;z-index
   <div class="modal" style="max-width:480px;">
     <div class="modal-header"><div class="modal-title">📦 Pallet</div><button class="modal-close" onclick="closeModal('modal-pallet')">✕</button></div>
     <div class="modal-body" id="pal-body"></div>
-    <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('modal-pallet')">Fechar</button><button class="btn btn-primary" id="pal-mover-btn">↔️ Mover</button></div>
+    <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('modal-pallet')">Fechar</button></div>
   </div>
 </div>
 
@@ -1067,16 +1052,43 @@ const PALLETS_TETO=20000;  // teto da consulta de pallets — o saldo de granel 
    Com a ordem por created_at crescente, passando de 1.000 pallets os mais NOVOS
    ficavam de fora e o QR do rótulo dava "pallet não existe no sistema".
    Aqui busca em páginas de 1.000 até acabar (ou bater o teto). */
+/* (15/11/2026) Baixa só o necessário: pallets em estoque (fora da contagem não) + produzidos nos
+   últimos JANELA_DIAS dias (Movimento do dia) + granel (o saldo soma toda a produção).
+   Pallet mais antigo bipado: buscarPalletNovo traz o dia do rótulo; carga antiga reaberta:
+   garantirPalletsDaCarga traz pelo id. */
+const JANELA_DIAS=40;
+function janelaDesde(){const d=new Date(Date.now()-JANELA_DIAS*864e5);return d.toISOString().slice(0,10);}
+const _diasExtra=new Set();   // dias de produção fora da janela que já foram baixados (leitura de rótulo antigo)
+function diaCarregado(iso){return !!iso&&(iso>=janelaDesde()||_diasExtra.has(iso));}
+const SEL_PALLET='*,producao(op_numero,encarregado,produtos_op,data)';
 async function buscarPalletsPaginado(){
   const PAG=1000, todos=[];
+  const filtro=`and(estoque_status.eq.estoque,fora_estoque_em.is.null),data.gte.${janelaDesde()},produto.ilike.*granel*`;
   for(let ini=0; ini<PALLETS_TETO; ini+=PAG){
-    const r=await _supabase.from('producao_pallets').select('*,producao(op_numero,encarregado,produtos_op,data)')
+    const r=await _supabase.from('producao_pallets').select(SEL_PALLET).or(filtro)
       .order('created_at',{ascending:true}).order('id',{ascending:true}).range(ini,ini+PAG-1);
     if(r.error)return {data:todos,error:r.error};
     const d=r.data||[]; todos.push(...d);
     if(d.length<PAG)break;
   }
   return {data:todos,error:null};
+}
+/* junta pallets ao _pallets sem repetir (granel fica em _granel) */
+function juntarPallets(lista){
+  const ids=new Set(_pallets.map(x=>x.id)); let n=0;
+  (lista||[]).forEach(p=>{ if(!ids.has(p.id)&&!ehGranel(p.produto)){ _pallets.push(p); ids.add(p.id); n++; } });
+  return n;
+}
+/* carga antiga (reabrir / continuar): traz os pallets dela que ficaram fora da janela */
+async function garantirPalletsDaCarga(c){
+  if(!c)return;
+  const tem=new Set(_pallets.map(x=>x.id));
+  const ids=[...new Set(itensRaw(c).map(it=>it&&it.pallet_id).filter(id=>id&&!tem.has(id)))];
+  for(let i=0;i<ids.length;i+=200){
+    const r=await _supabase.from('producao_pallets').select(SEL_PALLET).in('id',ids.slice(i,i+200));
+    if(r.error){toast('Não consegui trazer os pallets antigos desta carga: '+r.error.message,'danger');return;}
+    juntarPallets(r.data);
+  }
 }
 
 /* ── GRANEL: SALDO EM TONELADA ──────────────────────────────────────────────
@@ -1172,6 +1184,9 @@ function sacosDoPallet(p){
 }
 function capDoPallet(p){
   if(!p)return 0;
+  /* (131) sacos do pallet calculados no BANCO (mesma regra abaixo, num lugar só). A conta local
+     abaixo fica só para pallet recém-criado que ainda não voltou do banco. */
+  if(Number(p.sacos_pallet)>0)return Number(p.sacos_pallet);
   const map=mapaCapOP(p.producao,p);
   if(map){
     const alvo=map[p.numero];
@@ -1336,6 +1351,8 @@ function acharPallet(txt){
     const porNumero=_pallets.filter(x=>Number(x.numero)===d.numero);
     let lista=porNumero.filter(x=>String(x.data||'').slice(0,10)===d.data);
     let base='data+numero';
+    /* dia do rótulo fora do que foi baixado: não chuta pallet de outro dia — busca no banco antes */
+    if(!lista.length&&!diaCarregado(d.data)){_diagLeitura={motivo:'sem_pallet',data:d.data,numero:d.numero,prefixo:d.prefixo};return null;}
     if(!lista.length){lista=porNumero.filter(x=>lin3De(x.linha)===d.prefixo);base='linha+numero';}
     if(lista.length){
       const porLinhaEOp=lista.filter(x=>lin3De(x.linha)===d.prefixo&&opTailDe(x)&&chaveCodigo(opTailDe(x))===d.opTail);
@@ -1434,11 +1451,11 @@ async function recarregarTudo(showToast){
     if(!document.getElementById('filtro-de').value)document.getElementById('filtro-de').value=h.slice(0,8)+'01';
     if(!document.getElementById('filtro-ate').value)document.getElementById('filtro-ate').value=h;
     if(!document.getElementById('mov-dia').value)document.getElementById('mov-dia').value=h;
+    document.getElementById('mov-dia').min=janelaDesde();document.getElementById('mov-dia').max=h;
     if(!document.getElementById('mes-ref').value)document.getElementById('mes-ref').value=h.slice(0,7);
     limparDirty();
     renderChips();renderKpisEstoque();renderEstoque();renderMovimento();
     renderOrdens();atualizarPortaria();renderBarracoes();popularFiltrosCarregados();renderCarregados();renderMes();
-    if(document.getElementById('acc-piso').classList.contains('open'))renderPiso();
     aplicarGuards();
     if(showToast)toast('Dados atualizados!','success');
   }catch(e){console.warn(e);toast('Erro ao carregar: '+(e.message||e),'danger');}
@@ -1516,7 +1533,7 @@ function renderKpisEstoque(){
     kpi(n0(r.analise.s)+'<span style="font-size:13px;color:#94a3b8;"> sc</span>','Em análise (laboratório)',n0(r.analise.p)+' pallet(s)','k-an')+
     kpi(n0(r.reprovado.s+r.decisao.s)+'<span style="font-size:13px;color:#94a3b8;"> sc</span>','Reprovado / bloqueado',n0(r.reprovado.p)+' reprov. · '+n0(r.decisao.p)+' aguard. decisão','k-rep')+
     kpi(n0(carregadoHoje.sacos)+'<span style="font-size:13px;color:#94a3b8;"> sc</span>','Carregado hoje',n0(carregadoHoje.pallets)+' pallet(s) · '+n0(carregadoHoje.cargas)+' carga(s)','k-inf')+
-    kpi(n0(r.produtos),'Produtos em estoque',n0(r.barracoes)+' unidade(s)','k-pri');
+    kpi(n0(carregadoNoMes().sacos)+'<span style="font-size:13px;color:#94a3b8;"> sc</span>','Carregado no mês',n0(r.produtos)+' produto(s) em estoque','k-pri');
   renderSaldoGranel();
 }
 
@@ -1571,6 +1588,21 @@ function resumoEstoqueGlobal(){
   t.liberado={s:t.disp.s+(pendentesLiberados()?t.analise.s:0),p:t.disp.p+(pendentesLiberados()?t.analise.p:0)};
   return t;
 }
+/* sacos carregados por produto entre duas datas (itens com QR, sem QR e avulsos; granel em t fica fora) */
+function carregadoPorProduto(de,ate){
+  const m={};
+  _carregamentos.forEach(c=>{
+    const d=String(c.data||'').slice(0,10);if(!d||d<de||d>ate)return;
+    itensDe(c).forEach(it=>{
+      if(it.unidade==='t'||Number(it.ton)>0||ehGranel(it.produto))return;
+      const k=normNome(it.produto);const base=it.sacos_base!=null?(Number(it.sacos_base)||0):(Number(it.sacos)||0);
+      const o=m[k]||(m[k]={produto:it.produto,sacos:0,cargas:new Set()});
+      o.sacos+=base+(Number(it.sacos_extra)||0);o.cargas.add(c.id);
+    });
+  });
+  return m;
+}
+function carregadoNoMes(){const h=hojeISO();let s=0;Object.values(carregadoPorProduto(h.slice(0,8)+'01',h)).forEach(o=>s+=o.sacos);return {sacos:s};}
 function carregadoNoDia(dia){
   let sacos=0,pallets=0,cargas=0;
   _carregamentos.forEach(c=>{
@@ -1580,51 +1612,53 @@ function carregadoNoDia(dia){
   return {sacos,pallets,cargas};
 }
 
-function renderChips(){
-  const wrap=document.getElementById('bar-chips');if(!wrap)return;
-  const lista=fisicos();const cont={};lista.forEach(p=>{const b=barracaoDoPallet(p);cont[b]=(cont[b]||0)+1;});
-  const opts=[{id:TODOS,nome:'Todas as unidades',n:lista.length}];
-  _barracoes.forEach(b=>opts.push({id:b.id,nome:b.nome,n:cont[b.id]||0}));
-  if(cont[NAO_ALOCADO])opts.push({id:NAO_ALOCADO,nome:'Não alocado',n:cont[NAO_ALOCADO]});
-  if(!opts.some(o=>o.id===_barFiltro))_barFiltro=TODOS;
-  wrap.innerHTML=opts.map(o=>`<div class="bar-chip ${o.id===_barFiltro?'active':''}" onclick="trocarFiltroBarr('${o.id}')">${o.id===TODOS?'🌐':'🏭'} ${esc(o.nome)} <span class="cnt">${o.n}</span></div>`).join('');
-  /* select do painel de piso */
-  const sel=document.getElementById('piso-barr');
-  if(sel){
-    const atual=sel.value;
-    sel.innerHTML=_barracoes.map(b=>`<option value="${b.id}">${esc(b.nome)}</option>`).join('')+(cont[NAO_ALOCADO]?`<option value="${NAO_ALOCADO}">Não alocado</option>`:'');
-    if(atual&&[..._barracoes.map(b=>b.id),NAO_ALOCADO].includes(atual))sel.value=atual;
-  }
-}
+/* (15/11) estoque sem barracão/piso: os chips de unidade e o layout FIFO saíram (0 pallets tinham posição).
+   O nome do barracão continua só para a Portaria ("Carregar na Unidade X"). */
+function renderChips(){}
 function trocarFiltroBarr(id){_barFiltro=id;renderChips();renderEstoque();}
 
 function renderEstoque(){
   const tb=document.getElementById('est-tbody');if(!tb)return;
+  const busca=(document.getElementById('busca-est')?.value||'').trim().toLowerCase();
   const arr=resumoEstoque();
   renderKpisEstoque();
+  const h=hojeISO(), hoje=carregadoPorProduto(h,h), mes=carregadoPorProduto(h.slice(0,8)+'01',h);
+  /* produto sem estoque que carregou no mês também aparece (estoque 0) */
+  Object.values(mes).forEach(x=>{
+    if(arr.some(o=>normNome(o.produto)===normNome(x.produto)))return;
+    if(busca&&!String(x.produto).toLowerCase().includes(busca))return;
+    arr.push({produto:x.produto,pallets:[],sacos:0,pal:0,semCap:0,disp:{s:0,p:0},analise:{s:0,p:0},reprovado:{s:0,p:0},decisao:{s:0,p:0},
+      liberado:{s:0,p:0},bloqueado:{s:0,p:0},ops:new Set(),lotes:new Set(),linhas:new Set(),ton:null});
+  });
   if(!arr.length){
     tb.innerHTML=`<tr><td colspan="8" style="text-align:center;color:#94a3b8;padding:30px;">
-      ${(document.getElementById('busca-est')?.value||'').trim()?'Nenhum produto encontrado para esta busca.':'Nenhum pallet em estoque nesta unidade. Os pallets aparecem aqui quando a Produção lança a OP ou o Aferidor gera os rótulos.'}</td></tr>`;
+      ${busca?'Nenhum produto encontrado para esta busca.':'Nenhum produto em estoque. Os pallets aparecem aqui quando a Produção lança a OP ou o Aferidor gera os rótulos.'}</td></tr>`;
     return;
   }
+  const num=(v,cor,sub)=>`<span class="num ${v?'':'num-zero'}" style="${v&&cor?'color:'+cor+';':''}">${n0(v)}</span>${sub?`<span class="mini">${sub}</span>`:''}`;
+  const tot={f:0,l:0,a:0,b:0,h:0,m:0};
   let html='';
   arr.forEach(o=>{
-    const aberto=_abertos.has(o.produto);
-    const barrList=Object.keys(o.barr).sort((a,b)=>o.barr[b]-o.barr[a]);
-    const barrTxt=barrList.map(b=>`${esc(nomeBarracao(b))} <span style="color:#94a3b8;">(${o.barr[b]})</span>`).join(' · ');
+    const aberto=_abertos.has(o.produto), k=normNome(o.produto);
+    const ch=(hoje[k]||{}).sacos||0, cm=(mes[k]||{}).sacos||0, nCm=mes[k]?mes[k].cargas.size:0;
+    tot.f+=o.sacos;tot.l+=o.liberado.s;tot.a+=o.analise.s;tot.b+=o.bloqueado.s;tot.h+=ch;tot.m+=cm;
     html+=`<tr class="linha-prod ${aberto?'aberta':''}" onclick="toggleProduto('${escA(o.produto)}')">
       <td style="text-align:center;"><span class="arw">▶</span></td>
       <td><div style="font-weight:800;color:var(--primary);font-size:13px;">${esc(o.produto)}</div>
         <span class="mini">${[...o.linhas].map(esc).join(' · ')||'—'}${o.semCap?` · <span style="color:var(--danger);">⚠ ${o.semCap} pallet(s) sem capacidade</span>`:''}</span></td>
-      <td style="text-align:right;"><span class="num ${o.liberado.s?'':'num-zero'}" style="${o.liberado.s?'color:#15803d;':''}">${n0(o.liberado.s)}</span><span class="mini">${n0(o.liberado.p)} pallet(s)${o.semqr?` <b style="color:#b45309;">${o.semqr>0?'+':''}${n0(o.semqr)} sem QR</b>`:''}</span></td>
-      <td style="text-align:right;"><span class="num ${o.analise.s?'':'num-zero'}" style="${o.analise.s?'color:#a16207;':''}">${n0(o.analise.s)}</span><span class="mini">${n0(o.analise.p)} pallet(s)</span></td>
-      <td style="text-align:right;"><span class="num ${o.bloqueado.s?'':'num-zero'}" style="${o.bloqueado.s?'color:#be123c;':''}">${n0(o.bloqueado.s)}</span><span class="mini">${o.decisao.p?n0(o.reprovado.p)+' rep · '+n0(o.decisao.p)+' dec':n0(o.reprovado.p)+' pallet(s)'}</span></td>
-      <td style="text-align:right;"><span class="num">${n0(o.sacos)}</span><span class="mini">${n0(o.pal)} pallet(s)${o.ton?' · '+n2(o.ton)+' t':''}</span></td>
-      <td style="font-size:11.5px;color:#475569;">${barrTxt||'—'}</td>
-      <td style="text-align:right;"><span class="num" style="${o.maisAntigo>=90?'color:var(--danger);':''}">${o.maisAntigo==null?'—':o.maisAntigo+' d'}</span><span class="mini">${o.ops.size} OP(s)</span></td>
+      <td style="text-align:right;">${num(o.sacos,'',`${n0(o.pal)} pallet(s) QR${o.semqr?` · <b style="color:#b45309;">${o.semqr>0?'+':''}${n0(o.semqr)} sem QR</b>`:''}${o.ton?' · '+n2(o.ton)+' t':''}`)}</td>
+      <td style="text-align:right;">${num(o.liberado.s,'#15803d',n0(o.liberado.p)+' pallet(s)')}</td>
+      <td style="text-align:right;">${num(o.analise.s,'#a16207',n0(o.analise.p)+' pallet(s)')}</td>
+      <td style="text-align:right;">${num(o.bloqueado.s,'#be123c',o.bloqueado.p?n0(o.bloqueado.p)+' pallet(s)':'')}</td>
+      <td style="text-align:right;">${num(ch,'#0369a1')}</td>
+      <td style="text-align:right;">${num(cm,'#0369a1',nCm?n0(nCm)+' carga(s)':'')}</td>
     </tr>`;
-    if(aberto)html+=`<tr class="linha-det"><td colspan="8">${detalheProdutoHtml(o)}</td></tr>`;
+    if(aberto)html+=`<tr class="linha-det"><td colspan="8">${o.pal?detalheProdutoHtml(o):`<div style="padding:12px 14px;color:#64748b;font-size:12.5px;">${o.semqr?`Só estoque sem QR (rótulo antigo): ${n0(o.semqr)} sc — não há pallet com QR deste produto no estoque.`:'Sem estoque agora — só carregamentos no mês.'}</div>`}</td></tr>`;
   });
+  html+=`<tr style="background:#eef6ff !important;font-weight:800;"><td></td><td style="color:var(--primary);">TOTAL</td>
+    <td style="text-align:right;"><span class="num">${n0(tot.f)}</span></td><td style="text-align:right;"><span class="num">${n0(tot.l)}</span></td>
+    <td style="text-align:right;"><span class="num">${n0(tot.a)}</span></td><td style="text-align:right;"><span class="num">${n0(tot.b)}</span></td>
+    <td style="text-align:right;"><span class="num">${n0(tot.h)}</span></td><td style="text-align:right;"><span class="num">${n0(tot.m)}</span></td></tr>`;
   tb.innerHTML=html;
   aplicarGuards();
 }
@@ -1649,9 +1683,8 @@ function detalheProdutoHtml(o){
       <td style="font-size:11.5px;white-space:nowrap;">${fmtData(p.data)}<span class="mini">${diasEstoque(p)} d</span></td>
       <td style="text-align:right;"><span class="num ${s?'':'num-zero'}">${s?n0(s):'?'}</span></td>
       <td><span class="sit sit-${sit}">${SIT_LBL[sit]}</span>${p.motivo_bloqueio?`<span class="mini" style="color:#be123c;">${esc(p.motivo_bloqueio)}</span>`:''}</td>
-      <td style="font-size:11.5px;">${esc(nomeBarracao(barracaoDoPallet(p)))}${p.pos_fila!=null?`<span class="mini">${esc(posicaoTexto(p))}</span>`:''}</td>
       <td style="text-align:right;white-space:nowrap;">
-        <button class="ic-btn" onclick="abrirPallet('${p.id}')" title="Detalhes / mover">🔍</button>
+        <button class="ic-btn" onclick="abrirPallet('${p.id}')" title="Detalhes">🔍</button>
         <a class="ic-btn" href="${urlRastreio(cod)}" target="_blank" title="Abrir rastreio (mesmo link do QR)" style="text-decoration:none;">🔗</a>
         ${bloq?`<button class="ic-btn del" onclick="mostrarBloqueio('${p.id}',true)" title="Por que está bloqueado?">⛔</button>`:''}
       </td></tr>`;
@@ -1667,7 +1700,7 @@ function detalheProdutoHtml(o){
       <button class="ic-btn" style="margin-left:6px;" onclick="abrirSacosManual('${escA(o.produto)}')">Informar sacos/pallet</button></div>`:''}
     <div class="table-wrap" style="background:#fff;">
       <table><thead><tr><th>Código / QR</th><th>OP</th><th>Lote</th><th>Fabricação</th>
-      <th style="text-align:right;">Sacos</th><th>Situação</th><th>Barracão / posição</th><th style="text-align:right;">Ações</th></tr></thead>
+      <th style="text-align:right;">Sacos</th><th>Situação</th><th style="text-align:right;">Ações</th></tr></thead>
       <tbody>${linhasTb}</tbody></table>
     </div></div>`;
 }
@@ -1769,24 +1802,30 @@ function abrirSacosManual(produto,depois){
   document.getElementById('sacos-body').innerHTML=`
     <p style="font-size:13px;color:#475569;line-height:1.6;">Não foi possível saber quantos sacos tem cada pallet de <strong>${esc(produto)}</strong>:
     a OP não detalhou os pallets${caps.length>1?` e o cadastro do produto tem ${caps.length} capacidades (${caps.join(', ')})`:''}.</p>
-    <div class="aviso" style="margin:10px 0;">Este valor <strong>não vai para o banco</strong> — fica salvo neste navegador só para calcular a tela. O certo é corrigir o detalhamento de pallets na OP (Produção) ou a capacidade em Produtos.</div>
+    <div class="aviso" style="margin:10px 0;">Este valor é <strong>gravado nos pallets deste produto que estão sem quantidade</strong> (vale em todos os aparelhos). O certo continua sendo corrigir o detalhamento de pallets na OP (Produção) ou a capacidade em Produtos — aí o sistema recalcula sozinho.</div>
     ${caps.length?`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">${caps.map(c=>`<button class="ic-btn" onclick="document.getElementById('sacos-val').value=${c}">${c} sc</button>`).join('')}</div>`:''}
     <div class="form-group"><label class="form-label">Sacos por pallet</label>
       <input type="number" min="1" id="sacos-val" class="form-input" value="${atual}" placeholder="Ex: 180" onkeydown="if(event.key==='Enter')salvarSacosManual();"></div>`;
   document.getElementById('modal-sacos').classList.remove('hidden');
   setTimeout(()=>document.getElementById('sacos-val')?.focus(),80);
 }
-function salvarSacosManual(){
+async function salvarSacosManual(){
   if(!_sacosProd)return;
   const v=parseInt(document.getElementById('sacos-val').value);
   if(!(v>0)){toast('Informe um número de sacos maior que zero.','warning');return;}
   const nome=_sacosProd.produto, dp=_sacosProd.depois;
+  const semQtd=_pallets.filter(p=>normNome(p.produto)===normNome(nome)&&!(Number(p.sacos_pallet)>0)).map(p=>p.id);
+  for(let i=0;i<semQtd.length;i+=200){
+    const r=await db(_supabase.from('producao_pallets').update({sacos_pallet:v}).in('id',semQtd.slice(i,i+200)),'gravar sacos por pallet');
+    if(r.error)return;
+  }
+  _pallets.forEach(p=>{if(semQtd.includes(p.id))p.sacos_pallet=v;});
   _sacosManual[normNome(nome)]=v;lsSet(LS_SACOS,_sacosManual);
   _sacosProd=null;
   closeModal('modal-sacos');
   renderEstoque();renderKpisEstoque();renderMovimento();
   if(_carrOrdem)renderCarr();
-  toast(`${nome}: ${v} sacos por pallet registrado neste navegador.`,'success');
+  toast(`${nome}: ${v} sacos por pallet gravado em ${semQtd.length} pallet(s).`,'success');
   if(typeof dp==='function')dp();
 }
 
@@ -1819,7 +1858,7 @@ function movimentoDoDia(dia){
       else if(d>dia)o.posCarr+=base+ex;
     });
   });
-  const conf=(lsGet(LS_CONF,{})||{})[dia]||{};
+  const conf=_conf[dia]||{};
   const arr=Object.values(g).map(o=>{
     o.fimDia=o.atual+o.posCarr-o.posProd;             /* estoque no fim do dia escolhido */
     o.anterior=o.fimDia-o.prod+o.carr;                /* identidade: anterior + prod − carr = fim */
@@ -1831,9 +1870,31 @@ function movimentoDoDia(dia){
   arr.sort((a,b)=>b.calculado-a.calculado||a.produto.localeCompare(b.produto));
   return arr;
 }
+/* contagem física gravada no banco (estoque_conferencia, migração 131) — cache por dia */
+const _conf={}, _confLendo=new Set();
+async function lerConferencia(dia,forcar){
+  if((_conf[dia]&&!forcar)||_confLendo.has(dia))return;
+  _confLendo.add(dia);
+  const r=await _supabase.from('estoque_conferencia').select('produto,contagem').eq('dia',dia);
+  _confLendo.delete(dia);
+  if(r.error){toast('Não li a contagem física: '+r.error.message,'danger');_conf[dia]={};return;}
+  const m={};(r.data||[]).forEach(x=>m[x.produto]=Number(x.contagem));
+  /* contagem antiga que ficou só neste navegador: sobe para o banco uma vez */
+  const velho=((lsGet(LS_CONF,{})||{})[dia])||{};
+  const subir=Object.keys(velho).filter(k=>m[k]==null&&velho[k]!=null);
+  if(subir.length){
+    const ins=subir.map(k=>({dia,produto:k,contagem:Number(velho[k])||0,contado_por:operadorAtual()}));
+    const u=await db(_supabase.from('estoque_conferencia').upsert(ins,{onConflict:'dia,produto'}),'subir contagem física');
+    if(!u.error){subir.forEach(k=>m[k]=Number(velho[k])||0);const all=lsGet(LS_CONF,{})||{};delete all[dia];lsSet(LS_CONF,all);}
+  }
+  _conf[dia]=m;
+  renderMovimento();
+}
 function renderMovimento(){
   const tb=document.getElementById('mov-tbody');if(!tb)return;
   const dia=document.getElementById('mov-dia')?.value||hojeISO();
+  if(!_conf[dia])lerConferencia(dia);
+  if(dia<janelaDesde()){tb.innerHTML=`<tr><td colspan="10" style="text-align:center;color:#94a3b8;padding:24px;">A tela carrega a produção dos últimos ${JANELA_DIAS} dias. Para dias mais antigos use o Fechamento.</td></tr>`;return;}
   const arr=movimentoDoDia(dia);
   if(!arr.length){tb.innerHTML='<tr><td colspan="10" style="text-align:center;color:#94a3b8;padding:24px;">Nenhuma movimentação nem estoque neste dia.</td></tr>';return;}
   const tot={anterior:0,prod:0,analise:0,reprovado:0,carr:0,avul:0,calculado:0,dif:0,temDif:false};
@@ -1867,16 +1928,22 @@ function renderMovimento(){
       <td></td>
       <td style="text-align:right;"><span class="num">${tot.temDif?(tot.dif>0?'+':'')+n0(tot.dif):'—'}</span></td></tr>`;
 }
-function setConferencia(produto,valor){
+async function setConferencia(produto,valor){
   const dia=document.getElementById('mov-dia').value||hojeISO();
-  const all=lsGet(LS_CONF,{})||{};all[dia]=all[dia]||{};
   const v=String(valor).trim();
-  if(v==='')delete all[dia][produto];else all[dia][produto]=Number(v)||0;
-  lsSet(LS_CONF,all);renderMovimento();
+  const r=v===''
+    ? await db(_supabase.from('estoque_conferencia').delete().eq('dia',dia).eq('produto',produto),'apagar contagem física')
+    : await db(_supabase.from('estoque_conferencia').upsert({dia,produto,contagem:Number(v)||0,contado_por:operadorAtual(),contado_em:new Date().toISOString()},{onConflict:'dia,produto'}),'gravar contagem física');
+  if(r.error){renderMovimento();return;}
+  _conf[dia]=_conf[dia]||{};
+  if(v==='')delete _conf[dia][produto];else _conf[dia][produto]=Number(v)||0;
+  renderMovimento();
 }
-function limparConferencia(){
+async function limparConferencia(){
   const dia=document.getElementById('mov-dia').value||hojeISO();
-  const all=lsGet(LS_CONF,{})||{};delete all[dia];lsSet(LS_CONF,all);renderMovimento();
+  const r=await db(_supabase.from('estoque_conferencia').delete().eq('dia',dia),'apagar contagem do dia');
+  if(r.error)return;
+  _conf[dia]={};renderMovimento();
   toast('Contagem física do dia '+fmtData(dia)+' apagada.','info');
 }
 function exportarMovimento(){
@@ -2267,8 +2334,7 @@ function abrirPallet(id){
   const sit=situacaoPallet(p);const cod=palCodigo(p);const s=sacosDoPallet(p);
   const linhas=[['Código / QR',cod],['Produto',p.produto],['Linha',p.linha],['Sacos no pallet',s?n0(s)+' sc':'desconhecido'],
     ['Data Fab.',fmtData(p.data)],['Lote',loteDe(p)],['OP',opDe(p)],['Nº na OP',p.numero],
-    ['Dias em estoque',diasEstoque(p)+' d'],['Barracão',nomeBarracao(barracaoDoPallet(p))],
-    ['Posição no piso',posicaoTexto(p)||'não posicionado']];
+    ['Dias em estoque',diasEstoque(p)+' d']];
   let extra='';
   if(sit==='carregado')extra=`<div class="aviso" style="margin-top:10px;background:#e0f2fe;border-color:#bae6fd;color:#0369a1;">🚚 Já carregado${p.ordem_numero?' na ordem <strong>'+esc(p.ordem_numero)+'</strong>':''}${p.cliente_dest?' para <strong>'+esc(p.cliente_dest)+'</strong>':''}${p.carregado_em?' em '+fmtDataHora(p.carregado_em):''}.</div>`;
   else if(sit==='reprovado'||sit==='decisao')extra=`<div class="aviso" style="margin-top:10px;background:#fff1f2;border-color:#fecdd3;color:#be123c;">⛔ <strong>${SIT_LBL[sit]}</strong>${p.motivo_bloqueio?' — '+esc(p.motivo_bloqueio):''}${p.responsavel_lab?'<br>Laboratório: '+esc(p.responsavel_lab)+(p.hora_lab?' às '+esc(p.hora_lab):''):''}${p.obs_lab?'<br>Obs: '+esc(p.obs_lab):''}</div>`;
@@ -2277,16 +2343,7 @@ function abrirPallet(id){
     `<div style="display:grid;grid-template-columns:1fr 1fr;gap:7px;">${linhas.map(([l,v])=>cel(l,v,sit==='reprovado'?'var(--danger)':'var(--primary)')).join('')}</div>
      <div style="margin-top:10px;"><span class="sit sit-${sit}">${SIT_LBL[sit]}</span>
        <a class="ic-btn" href="${urlRastreio(cod)}" target="_blank" style="text-decoration:none;margin-left:6px;">🔗 Abrir rastreio</a></div>
-     ${extra}
-     <div style="margin-top:14px;padding-top:12px;border-top:1px solid #e2e8f0;">
-       <label class="form-label">Mover para barracão</label>
-       <select id="pal-mov-barr" class="form-input">${_barracoes.map(b=>`<option value="${b.id}" ${barracaoDoPallet(p)===b.id?'selected':''}>${esc(b.nome)}</option>`).join('')}<option value="${NAO_ALOCADO}">Não alocado</option></select>
-     </div>`;
-  document.getElementById('pal-mover-btn').onclick=()=>{
-    const dest=document.getElementById('pal-mov-barr').value;
-    moverPallet(id,{barracao:dest===NAO_ALOCADO?null:dest,pos_fila:null,pos_nivel:null});
-    closeModal('modal-pallet');toast('Pallet movido — abra "Layout do piso" e clique em Salvar layout.','info');
-  };
+     ${extra}`;
   document.getElementById('modal-pallet').classList.remove('hidden');
 }
 
@@ -2760,12 +2817,13 @@ function novaKey(){return 'L'+(++_keySeq)+'-'+_linhasCarr.length;}
 function abrirCarregar(romId){
   definirEquipeAutomatica(()=>abrirCarregar2(romId));
 }
-function abrirCarregar2(romId){
+async function abrirCarregar2(romId){
   const rom=_romaneios.find(r=>r.id===romId);if(!rom)return;
   const cargas=cargasDaOrdem(rom.numero);
   if(cargas.length){
     /* já existe carga salva desta ordem: continua NELA (não cria linha duplicada) */
     const c=cargas[0];
+    await garantirPalletsDaCarga(c);
     if(cargas.length>1)toast(`Atenção: esta ordem tem ${cargas.length} cargas salvas. Continuando na mais recente.`,'warning');
     iniciarCarregamento({rom,carregamento:c,manterCarregados:true});
     toast('Continuando o carregamento já salvo desta ordem — ao salvar, a mesma carga é atualizada.','info');
@@ -3470,11 +3528,19 @@ let _rotuloOutro=null;   // rótulo lido que é de OUTRO produto (não vira pall
 async function buscarPalletNovo(txt){
   try{
     const desde=new Date(Date.now()-3*864e5).toISOString();
-    const r=await _supabase.from('producao_pallets').select('*,producao(op_numero,encarregado,produtos_op,data)')
+    const r=await _supabase.from('producao_pallets').select(SEL_PALLET)
       .gte('created_at',desde).order('created_at',{ascending:false}).limit(1000);
-    if(!r.error){ const ids=new Set(_pallets.map(x=>x.id));
-      (r.data||[]).forEach(p=>{ if(!ids.has(p.id)&&!ehGranel(p.produto)){ _pallets.push(p); ids.add(p.id); } }); }
+    if(!r.error)juntarPallets(r.data);
     if(acharPallet(normalizarLeitura(txt))) return;
+    /* rótulo antigo (fora da janela baixada): código exato e o dia de produção do rótulo */
+    { const cod0=normalizarLeitura(txt), d=decomporCodigo(cod0);
+      const ex=await _supabase.from('producao_pallets').select(SEL_PALLET).ilike('codigo',cod0).limit(5);
+      if(!ex.error)juntarPallets(ex.data);
+      if(d&&!diaCarregado(d.data)){
+        const dd=await _supabase.from('producao_pallets').select(SEL_PALLET).eq('data',d.data).limit(1000);
+        if(!dd.error){juntarPallets(dd.data);_diasExtra.add(d.data);}
+      }
+      if(acharPallet(cod0)) return; }
     /* (nov/2026) rótulo da central ainda sem pallet: SÓ vira pallet (e vai para o laboratório)
        se o produto for de algum item DESTE caminhão. Produto diferente: não cria nada. */
     const cod=normalizarLeitura(txt);
@@ -3484,7 +3550,7 @@ async function buscarPalletNovo(txt){
       if(pedidos.length&&!pedidos.includes(normNome(ro.data.produto))){ _rotuloOutro={cod:chaveCodigo(ro.data.codigo),produto:ro.data.produto,linha:ro.data.linha}; return; }
     }
     const t=await _supabase.rpc('totem_pallet_por_rotulo',{p_cod:cod});
-    if(!t.error&&t.data&&t.data.length){ const ids=new Set(_pallets.map(x=>x.id)); t.data.forEach(p=>{ if(!ids.has(p.id)) _pallets.push(p); }); }
+    if(!t.error&&t.data&&t.data.length)juntarPallets(t.data);
   }catch(e){ console.warn('[pallet novo]',e); }
 }
 function avisoAConferir(txt){
@@ -4361,8 +4427,9 @@ async function removerItemCarga(idx){
 function continuarCarregamento(id){
   definirEquipeAutomatica(()=>continuarCarregamento2(id));
 }
-function continuarCarregamento2(id){
+async function continuarCarregamento2(id){
   const c=_carregamentos.find(x=>x.id===id);if(!c)return;
+  await garantirPalletsDaCarga(c);
   closeModal('modal-detcarr');
   const rom=_romaneios.find(r=>String(r.numero)===String(c.ordem_numero))||null;
   iniciarCarregamento({rom,carregamento:c,manterCarregados:true});
@@ -4382,6 +4449,7 @@ function reabrirCarregamento(id){
       closeModal('modal-confirm');closeModal('modal-detcarr');
       /* transação única (migration 005): devolve TODOS os pallets, zera o
          documento e reabre o romaneio — ou nada acontece */
+      await garantirPalletsDaCarga(c);
       const {data:res,error}=await _supabase.rpc('rpc_reabrir_carga',{p_carga_id:c.id,p_excluir:false});
       if(error){toast('Nada foi alterado — '+(error.message||error),'danger');return;}
       items.forEach(it=>refletirDevolucaoLocal(it.pallet_id));
