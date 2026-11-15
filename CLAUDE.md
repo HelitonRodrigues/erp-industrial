@@ -798,3 +798,12 @@ fábrica específica. Não generalizar.
   Rótulo de dia fora da janela: `acharPallet` não chuta outro dia (`diaCarregado`) → `buscarPalletNovo` busca o código exato e o dia do rótulo
   (`_diasExtra`). Carga antiga reaberta/continuada: `garantirPalletsDaCarga` traz os pallets pelo id; ao abrir a tela, os pallets dos rascunhos do celular (`erp_carr_rascunhos`) também (`garantirPalletsIds`), senão o pallet antigo bipado sumia do apontamento. Movimento do dia limitado à janela.
 - **Contagem física** do Movimento do dia em `estoque_conferencia` (dia+produto, quem/quando); a contagem antiga do navegador sobe sozinha 1×.
+
+### Perfil CAR — Encarregado de Carregamento (só pátio, 15/11/2026)
+- `perfis` CAR = só `carregamento` (mesmas abas do ENC). Usuários: Luciano de Brito (era ENC — perdeu BPF/Qualidade), Narcizo, Henrique, Lucas Henrique
+  (logins narcizo/henrique/lucas, e-mail login@silicate.com.br; **sem senha** — o dono cria pelo 🔑 em Usuários).
+- carregamento.html `PERFIS_SO_PATIO=['CAR']` / `soPatio()`: abre sempre no pátio (ignora a preferência salva e o tamanho da tela); "✕ SAIR" vira ☰ (`patioMenu`):
+  🟢 COMO ESTÃO AS LINHAS (`patioLinhas`: `linhas_status_atual`, cor por status, atualiza a cada 60 s) · 🚚 CARREGAR CAMINHÃO · 🔒 Sair do sistema (logout; rascunho fica).
+  Tocar na linha (`patioLinhaDet`) mostra a última análise (`laboratorio`): umidade, granulometria (soma das peneiras) com BOM/RUIM pelas faixas do
+  `Regras.labIndicadoresCard` (as mesmas do Laboratório: umidade ≤ 0,60 %, granulometria 20–25 %, Longa Vida ≥ 30 %), peneiras, separador, massa, recado.
+- Entrada: com só `carregamento` nas permissões, o login já cai no carregamento.html; outras páginas devolvem para ele (requireAuth → 1º módulo permitido).
