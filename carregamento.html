@@ -329,6 +329,7 @@ body.patio-on #toast-container{top:10px;bottom:auto;left:10px;right:10px;z-index
 .ptpen{display:flex;gap:6px;}.ptpen div{flex:1;background:#fff;border-radius:10px;text-align:center;padding:6px 0;font-size:12px;color:#475569;font-weight:700;}.ptpen b{display:block;font-size:15px;color:#0f2a44;}
 body.patio-on #al-bt{bottom:96px;right:10px;padding:10px 12px;font-size:13px;}
 body.patio-on #al-menu{bottom:150px;}
+body.patio-on:has(#patio-flash:not(.hidden)) #al-bt,body:has(.qtdpal-ov) #al-bt,body:has(.ptm-ov) #al-bt{display:none;}   /* não cobre os botões das janelas */
 .patio{position:fixed;inset:0;z-index:1050;background:#eef2f6;overflow-y:auto;-webkit-overflow-scrolling:touch;font-family:'Plus Jakarta Sans',sans-serif;}
 .patio.hidden{display:none;}
 #patio-body{max-width:640px;margin:0 auto;padding:10px 12px 170px;}
@@ -3335,9 +3336,44 @@ function semQrTxt(l,a){const b=ehBagNome(l.produto),p=Number(a.pallets)||0,so=Nu
   return b?`${n0(p)} bag(s)`:`${n0(p)} pallet(s)${so?` + ${n0(so)} sc soltos`:''}`;}
 function avisoQrNoEstoque(l){const r=resumoDoProduto(l.produto);
   return r.pal>0?`⚠️ Tem <b>${n0(r.pal)} ${ehBagNome(l.produto)?'bag(s)':'pallet(s)'} com QR</b> deste produto no estoque. Se o pallet tem QR, prefira bipar.`:'';}
+/* (15/11) LOTE OBRIGATÓRIO no sem QR: o certificado sai do laudo do lote (o produto é vinculado ao lote).
+   Lotes do produto = OPs dos últimos 150 dias (produtos_op[].lote) + laudos do Laboratório; viram botões. */
+const _lotesCache={};
+const normLote=s=>String(s||'').toUpperCase().replace(/\s+/g,'');
+async function lotesDoProduto(produto){
+  const k=normNome(produto);if(_lotesCache[k])return _lotesCache[k];
+  const desde=new Date(Date.now()-150*864e5).toISOString().slice(0,10);
+  const [op,ld]=await Promise.all([
+    _supabase.from('producao').select('data,produtos_op').gte('data',desde).order('data',{ascending:false}).limit(1000),
+    _supabase.from('lab_laudos').select('lote,produto,emitido_em').ilike('produto',produto).limit(300)]);
+  if(op.error&&ld.error)return null;   // sem internet: não dá para conferir
+  const m={};
+  (op.data||[]).forEach(o=>(Array.isArray(o.produtos_op)?o.produtos_op:[]).forEach(pp=>{
+    if(!pp||!pp.lote||normNome(pp.produto||pp.nome)!==k)return;
+    const L=normLote(pp.lote);if(!m[L]||String(o.data)>m[L].data)m[L]={lote:String(pp.lote).trim(),data:String(o.data||''),laudo:false};}));
+  (ld.data||[]).forEach(x=>{if(!x.lote)return;const L=normLote(x.lote),d=String(x.emitido_em||'').slice(0,10);
+    if(!m[L])m[L]={lote:String(x.lote).trim(),data:d,laudo:true};else m[L].laudo=true;});
+  return (_lotesCache[k]=Object.values(m).sort((a,b)=>String(b.data).localeCompare(String(a.data))));
+}
+function loteValido(produto,lote){
+  const L=normLote(lote);if(!L)return {ok:false,msg:'Digite o LOTE que está no rótulo.'};
+  const lista=_lotesCache[normNome(produto)];
+  if(!lista)return {ok:true,lote:String(lote).trim()};   // não conseguiu ler os lotes (sem internet): aceita o digitado
+  const achou=lista.find(x=>normLote(x.lote)===L);
+  return achou?{ok:true,lote:achou.lote}:{ok:false,msg:`O lote <b>${esc(lote)}</b> não é de ${esc(produto)} (nenhuma produção com ele).<br>Confira o rótulo.`};
+}
+function lotesBotoesHtml(produto,campo,pat){
+  const lista=(_lotesCache[normNome(produto)]||[]).slice(0,8);
+  if(!lista.length)return '';
+  return `<div class="${pat?'pt-opcoes':''}" style="${pat?'':'display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;'}">${lista.map(x=>
+    `<button type="button" class="${pat?'pt-op':'ic-btn'}" style="${pat?'font-size:17px;':''}" onclick="document.getElementById('${campo}').value='${escA(x.lote)}';this.parentNode.querySelectorAll('button').forEach(b=>b.classList.toggle('on',b===this));">${esc(x.lote)}${pat?`<small>${fmtData(x.data).slice(0,5)}${x.laudo?' · 📜':''}</small>`:''}</button>`).join('')}</div>`;
+}
 function semQrAdd(key,p,so,lote){
   const l=linhaObj(key);if(!l)return false;
   if(!_semQr){toast('Carga sem QR está desligada — bipe o QR.','warning');return false;}
+  const lv=loteValido(l.produto,lote);
+  if(!lv.ok){if(_patio)patioFlash('err','🏷️','FALTA O LOTE CERTO',lv.msg,{botao:'ENTENDI',depois:()=>patioSemQr()});else toast(lv.msg.replace(/<[^>]+>/g,''),'warning');return false;}
+  lote=lv.lote;
   const cap=capSemQr(l);p=Math.max(0,Math.floor(p||0));so=ehBagNome(l.produto)?0:Math.max(0,Math.floor(so||0));
   if(!cap&&p){toast('Não sei quantos sacos tem o pallet deste produto — informe os sacos soltos.','warning');return false;}
   const sc=p*cap+so;if(sc<=0){toast('Informe quantos pallets/bags.','warning');return false;}
@@ -3345,8 +3381,9 @@ function semQrAdd(key,p,so,lote){
   try{salvarRascunho();}catch(e){}
   return true;
 }
-function abrirSemQr(key){
+async function abrirSemQr(key){
   const l=linhaObj(key);if(!l)return;
+  if(l.produto)await lotesDoProduto(l.produto);
   if(!l.produto){toast('Defina o produto do item antes (✏️ item).','warning');return;}
   const b=ehBagNome(l.produto),cap=capSemQr(l),av=avisoQrNoEstoque(l);
   document.getElementById('extra-body').innerHTML=`
@@ -3357,7 +3394,7 @@ function abrirSemQr(key){
       <div class="form-group"><label class="form-label">Quantos ${b?'bags':'pallets'}</label><input type="number" min="0" id="sq-pal" class="form-input" value="1"></div>
       ${b?'':`<div class="form-group"><label class="form-label">Sacos soltos (opcional)</label><input type="number" min="0" id="sq-sol" class="form-input" value="0"></div>`}
     </div>
-    <div class="form-group" style="margin-top:9px;"><label class="form-label">Lote do rótulo (se tiver)</label><input id="sq-lote" class="form-input" placeholder="ex.: 261002B"></div>`;
+    <div class="form-group" style="margin-top:9px;"><label class="form-label">Lote do rótulo (obrigatório)</label><input id="sq-lote" class="form-input" placeholder="ex.: 20261112B01">${lotesBotoesHtml(l.produto,'sq-lote',false)}</div>`;
   document.querySelector('#modal-extra .modal-title').textContent=ROT_ANTIGO_TXT;
   document.querySelector('#modal-extra .modal-footer .btn-primary').setAttribute('onclick',`salvarSemQr('${key}')`);
   document.getElementById('modal-extra').classList.remove('hidden');
@@ -3375,8 +3412,10 @@ function salvarSemQr(key){
 }
 /* pátio: tela grande, uma pergunta só */
 let _sqPal=1;
-function patioSemQr(){
+async function patioSemQr(){
   const l=linhaObj(_linhaAtiva);if(!l)return;
+  if(!l.produto){patioFlash('warn','👆','ESCOLHA O PRODUTO','Toque no produto lá em cima antes.');return;}
+  await lotesDoProduto(l.produto);
   const b=ehBagNome(l.produto),cap=capSemQr(l),av=avisoQrNoEstoque(l);_sqPal=1;
   patioFlash('info','🏷️',`${b?'BAG':'PALLET'} SEM QR (RÓTULO ANTIGO)`,
     `<div class="pt-lbl">${esc(l.produto)}${b?'':` · pallet de ${cap?n0(cap):'?'} sacos`}</div>
@@ -3387,7 +3426,9 @@ function patioSemQr(){
        <b id="sq-n" style="font-size:44px;min-width:70px;text-align:center;">1</b>
        <button class="pt-op" style="min-width:70px;font-size:30px;" onclick="patioSqMais(1)">+</button></div>
      ${b?'':`<div class="pt-lbl" style="margin-top:8px;">SACOS SOLTOS (se tiver)</div><input id="sq-sol" inputmode="numeric" class="pt-input" placeholder="0">`}
-     <div class="pt-lbl" style="margin-top:8px;">LOTE DO RÓTULO (se tiver)</div><input id="sq-lote" class="pt-input" placeholder="ex.: 261002B" autocomplete="off">
+     <div class="pt-lbl" style="margin-top:8px;background:#fde047;">LOTE DO RÓTULO (obrigatório) — toque ou digite</div>
+     ${lotesBotoesHtml(l.produto,'sq-lote',true)}
+     <input id="sq-lote" class="pt-input" style="margin-top:6px;" placeholder="lote do rótulo" autocomplete="off">
      <button class="pt-btn verde" style="margin-top:12px;" onclick="patioSqSalvar()">✅ COLOCAR NO CAMINHÃO</button>`,
     {botao:'CANCELAR'});
 }

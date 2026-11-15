@@ -814,3 +814,7 @@ fábrica específica. Não generalizar.
   vem marcada) → só digita o nº do pallet. "OUTRA" abre o campo da OP. Não achou na tela: procura no banco (`producao!inner`, op_numero termina com a OP).
 - (15/11) DIGITAR também para rótulo do totem (LIN-AAAAMMDD-XXX-P000, sem OP no papel): botão = código amarelo XXX (`digGrupoDe`/`RE_CENTRAL`),
   vindo dos pallets em estoque + `rotulos_impressos` dos últimos 5 dias do produto; monta o código inteiro e segue igual ao bipar (`patioLeitura`).
+- (15/11) 🏷️ Sem QR: **LOTE OBRIGATÓRIO** (o produto é vinculado ao lote). `lotesDoProduto` = lotes das OPs dos últimos 150 dias (`produtos_op[].lote`)
+  + `lab_laudos` do produto → botões; `loteValido` recusa lote que não é do produto (sem internet aceita o digitado). certificados.js: rótulo antigo
+  NÃO cai mais no último laudo do produto — lote sem laudo = "avise o Laboratório" (só granel sem lote usa o último laudo).
+  🔔 some enquanto há janela aberta no pátio (`:has(#patio-flash:not(.hidden))`), para não cobrir botões.
