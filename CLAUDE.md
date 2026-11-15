@@ -810,3 +810,5 @@ fábrica específica. Não generalizar.
 - (15/11) Linha sem teste HOJE fica cinza "⏳ SEM TESTE HOJE · esperando o laboratório" e o detalhe NÃO mostra números (pedido do dono); separador 0 não aparece.
   Som: carregamento.html carrega `js/alerta-linhas.js` e, só no perfil CAR, `AlertaLinhas.iniciar` (som por status + aviso grande; Parada repete até "OK, VI";
   o 1º toque na tela libera o som). 🔔 sobe para 96 px do rodapé no pátio (não cobre o TERMINEI).
+- (15/11) ⌨️ DIGITAR no pátio: as OPs com pallet do produto da linha no estoque viram botões (`digOpsDoProduto`, até 8; a última usada `_digUltOp`
+  vem marcada) → só digita o nº do pallet. "OUTRA" abre o campo da OP. Não achou na tela: procura no banco (`producao!inner`, op_numero termina com a OP).
