@@ -796,5 +796,5 @@ fábrica específica. Não generalizar.
   (`acc-piso`; 0 pallets tinham posição) e o "mover para barracão". A aba ⚙️ Barracões continua (nomes usados pela Portaria).
 - **Carga do estoque**: só pallets em estoque (fora da contagem não) + produzidos nos últimos `JANELA_DIAS`=40 dias + granel (~1 mil em vez de 10 mil).
   Rótulo de dia fora da janela: `acharPallet` não chuta outro dia (`diaCarregado`) → `buscarPalletNovo` busca o código exato e o dia do rótulo
-  (`_diasExtra`). Carga antiga reaberta/continuada: `garantirPalletsDaCarga` traz os pallets pelo id. Movimento do dia limitado à janela.
+  (`_diasExtra`). Carga antiga reaberta/continuada: `garantirPalletsDaCarga` traz os pallets pelo id; ao abrir a tela, os pallets dos rascunhos do celular (`erp_carr_rascunhos`) também (`garantirPalletsIds`), senão o pallet antigo bipado sumia do apontamento. Movimento do dia limitado à janela.
 - **Contagem física** do Movimento do dia em `estoque_conferencia` (dia+produto, quem/quando); a contagem antiga do navegador sobe sozinha 1×.

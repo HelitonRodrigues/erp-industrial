@@ -1082,8 +1082,12 @@ function juntarPallets(lista){
 /* carga antiga (reabrir / continuar): traz os pallets dela que ficaram fora da janela */
 async function garantirPalletsDaCarga(c){
   if(!c)return;
+  await garantirPalletsIds(itensRaw(c).map(it=>it&&it.pallet_id));
+}
+/* traz pelo id os pallets que não estão na tela (fora da janela de dias) */
+async function garantirPalletsIds(lista){
   const tem=new Set(_pallets.map(x=>x.id));
-  const ids=[...new Set(itensRaw(c).map(it=>it&&it.pallet_id).filter(id=>id&&!tem.has(id)))];
+  const ids=[...new Set((lista||[]).filter(id=>id&&!tem.has(id)))];
   for(let i=0;i<ids.length;i+=200){
     const r=await _supabase.from('producao_pallets').select(SEL_PALLET).in('id',ids.slice(i,i+200));
     if(r.error){toast('Não consegui trazer os pallets antigos desta carga: '+r.error.message,'danger');return;}
@@ -1430,6 +1434,10 @@ async function recarregarTudo(showToast){
     const todosPallets=pl.data||[];
     _pallets=todosPallets.filter(p=>!ehGranel(p.produto));
     _granel =todosPallets.filter(p=> ehGranel(p.produto));
+    /* apontamento guardado no celular (rascunho) com pallet antigo, fora da janela: traz antes de usar */
+    { const rs=rascunhos(), ids=[];
+      Object.values(rs).forEach(r=>{Object.values((r&&r.alloc)||{}).forEach(a=>(a||[]).forEach(id=>ids.push(id)));Object.keys((r&&r.doa)||{}).forEach(id=>ids.push(id));});
+      if(ids.length)await garantirPalletsIds(ids); }
     _barracoes=br.data||[];_romaneios=ro.data||[];_romItens=ri.data||[];
     _escalas=es.data||[];_funcionarios=(fu.data||[]).filter(f=>!f.status||f.status==='ativo');
     _turnos=(tn.data||[]).filter(t=>!t.status||t.status==='ativo');
