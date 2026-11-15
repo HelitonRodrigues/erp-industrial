@@ -807,6 +807,6 @@ fábrica específica. Não generalizar.
   Tocar na linha (`patioLinhaDet`) mostra a última análise (`laboratorio`): umidade, granulometria (soma das peneiras) com BOM/RUIM pelas faixas do
   `Regras.labIndicadoresCard` (as mesmas do Laboratório: umidade ≤ 0,60 %, granulometria 20–25 %, Longa Vida ≥ 30 %), peneiras, separador, massa, recado.
 - Entrada: com só `carregamento` nas permissões, o login já cai no carregamento.html; outras páginas devolvem para ele (requireAuth → 1º módulo permitido).
-- (15/11) Linha sem teste HOJE fica cinza "⏳ SEM TESTE HOJE" com o último embaixo (regra do Laboratório); o detalhe avisa "ainda sem teste hoje".
+- (15/11) Linha sem teste HOJE fica cinza "⏳ SEM TESTE HOJE · esperando o laboratório" e o detalhe NÃO mostra números (pedido do dono); separador 0 não aparece.
   Som: carregamento.html carrega `js/alerta-linhas.js` e, só no perfil CAR, `AlertaLinhas.iniciar` (som por status + aviso grande; Parada repete até "OK, VI";
   o 1º toque na tela libera o som). 🔔 sobe para 96 px do rodapé no pátio (não cobre o TERMINEI).
