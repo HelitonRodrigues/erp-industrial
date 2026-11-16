@@ -1276,7 +1276,10 @@ let _polPend=lsGet(LS_PEND,false)===true;   /* cache até o banco responder */
 /* (nov/2026) regra da fábrica: pallet EM ANÁLISE não carrega nunca — quem libera é o laboratório,
    aprovando o pallet (o carregamento avisa o laboratório na hora da leitura). A opção antiga
    "liberar pendentes" fica sem efeito. */
-function pendentesLiberados(){return false;}
+/* (16/11/2026) TEMPORÁRIO: empresa_config.carga_permite_analise = true → pallet EM ANÁLISE carrega
+   (o laboratório continua sendo avisado e o pallet continua em análise). Para voltar a bloquear: false no banco. */
+let _permiteAnalise=false;
+function pendentesLiberados(){return _permiteAnalise;}
 async function carregarPoliticaPendentes(){
   try{
     const{data,error}=await _supabase.from('app_preferencias').select('dados').eq('chave',POL_PEND_CHAVE).maybeSingle();
@@ -1456,9 +1459,10 @@ async function recarregarTudo(showToast){
       safe(_supabase.from('turnos').select('nome,calendario,status')),   /* janelas de horário: resolve a equipe pelo relógio */
       carregarPoliticaPendentes(),   /* política central: pendente pode carregar? */
     ]);
-    { const ec=await _supabase.from('empresa_config').select('carga_sem_qr').limit(1);
+    { const ec=await _supabase.from('empresa_config').select('carga_sem_qr,carga_permite_analise').limit(1);
       if(ec.error)toast('Não li a chave "carga sem QR": '+ec.error.message,'warning');
-      else _semQr=!(ec.data&&ec.data[0]&&ec.data[0].carga_sem_qr===false); }
+      else{ _semQr=!(ec.data&&ec.data[0]&&ec.data[0].carga_sem_qr===false);
+            _permiteAnalise=!!(ec.data&&ec.data[0]&&ec.data[0].carga_permite_analise===true); } }
     { const ds=await _supabase.from('granel_saidas_dsm').select('produto,data,kg');
       if(ds.error)toast('Não li as saídas da Portaria DSM: '+ds.error.message,'danger');
       _dsmSaidas=ds.data||[]; }
@@ -3718,7 +3722,8 @@ function processarLeitura(txt){
     statusNoBanco(p).then(()=>{ _reconferido.add(p.id); let r; try{ r=processarLeitura(txt); }finally{ _reconferido.delete(p.id); } beep(r); });
     return 'conf';
   }
-  if(sit!=='disponivel'){
+  if(sit==='analise'&&pendentesLiberados())avisarLabPallet(p);   /* liberado temporariamente: carrega e avisa o laboratório */
+  else if(sit!=='disponivel'){
     if(sit==='analise')avisarLabPallet(p);
     mostrarBloqueio(p.id);
     fb(`⛔ <span class="mono">${esc(codigoDigitavel(palCodigo(p)))}</span> BLOQUEADO — ${SIT_LBL[sit]}.`,'err');
@@ -4029,7 +4034,7 @@ async function gravarCarregamento(opts){
       carregado_em:agora});
   });
   // BPF · trava "unidade_nao_liberada": pallet que não está APROVADO (reprovado, em decisão ou em análise) não carrega
-  { const naoLib=[...usados].map(id=>_pallets.find(x=>x.id===id)).filter(p=>p&&!_libEnc[p.id]&&!['disponivel','carregado'].includes(situacaoPallet(p)));
+  { const naoLib=[...usados].map(id=>_pallets.find(x=>x.id===id)).filter(p=>p&&!_libEnc[p.id]&&!['disponivel','carregado'].includes(situacaoPallet(p))&&!(situacaoPallet(p)==='analise'&&pendentesLiberados()));
     if(naoLib.length&&!(await bpfTravaGenerica('unidade_nao_liberada',{onde:'carregamento',violou:true,
         msg:`${naoLib.length} unidade(s) sem liberação da Qualidade: ${naoLib.slice(0,8).map(p=>(p.codigo||p.numero||'pallet')+' ('+(SIT_LBL[situacaoPallet(p)]||'')+')').join(', ')}${naoLib.length>8?'…':''}.`,
         contexto:'Carregamento da ordem '+(_carrOrdem.numero||'')}))){
@@ -5744,7 +5749,9 @@ async function avisarLabPallet(p){
   const o=_carrOrdem||{}, cod=codigoDigitavel(palCodigo(p));
   const msg=`O carregamento quer levar o pallet ${cod} — ${p.produto}${p.linha?' · '+p.linha:''}${p.data?' · fabricado em '+String(p.data).slice(0,10).split('-').reverse().join('/'):''}. `+
     `Ordem ${o.numero||'—'}${o.placa?' · placa '+o.placa:''}${o.transportadora?' · '+o.transportadora:''} · quem pediu: ${operadorAtual()}. `+
-    `O pallet está EM ANÁLISE: aprove ou reprove no Laboratório para o carregamento saber se pode levar.`;
+    (pendentesLiberados()
+      ? `O pallet está EM ANÁLISE e foi CARREGADO assim mesmo (carga de pallet em análise liberada temporariamente). Analise e registre o resultado no Laboratório.`
+      : `O pallet está EM ANÁLISE: aprove ou reprove no Laboratório para o carregamento saber se pode levar.`);
   // vai para Notificações E para o quadro "Carregamento pedindo liberação" do laboratorio.html
   const det={pallet_id:p.id,codigo:cod,produto:p.produto,linha:p.linha||null,data:p.data||null,
     ordem:o.numero||null,placa:o.placa||null,transportadora:o.transportadora||null,quem:operadorAtual()};
@@ -5791,7 +5798,8 @@ function patioLeitura(txt){
     statusNoBanco(p).then(()=>{ _reconferido.add(p.id); _patioOcupado=false; let r; try{ r=patioLeitura(txt); }finally{ _reconferido.delete(p.id); } beep(r); });
     return 'conf'; }
   /* (nov/2026) reprovado, em análise, em decisão ou já carregado: NUNCA entra (sem exceção) */
-  if(sit!=='disponivel'){
+  if(sit==='analise'&&pendentesLiberados()){ avisarLabPallet(p); /* liberado temporariamente (empresa_config.carga_permite_analise): carrega e avisa o laboratório */ }
+  else if(sit!=='disponivel'){
     if(sit==='analise'&&_libEnc[p.id]){ /* já liberado pelo encarregado nesta carga: segue */ }
     else if(sit==='analise'&&podeLiberarEnc(p)){
       avisarLabPallet(p);window._libCtx={p,alvo};
