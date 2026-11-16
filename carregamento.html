@@ -2442,14 +2442,72 @@ function buscarOrdens(){recarregarTudo(true);}
    (romaneios.status = 'em_carregamento'). Confere só as ordens a cada 20 s — sem recarregar
    pallets — e nunca no meio de uma carga aberta. */
 let _ordVigia=null;
+/* (16/11) 🔄 a Portaria pode MUDAR A CARGA (subir a ordem nova no lugar da antiga, mesmo id de romaneio).
+   Assinatura dos itens: produto/cliente/quantidade — se mudou (ou o número mudou), refaz as linhas da carga. */
+function sigLinhas(ls){return (ls||[]).filter(l=>!l.manual).map(l=>[normNome(l.produto),l.cliente||'',l.granel?l.tonNeed:l.sacksNeed].join('|')).sort().join(';');}
+function aplicarOrdemNova(rom,itens,avisar){
+  if(!_carrOrdem)return;
+  const numAnt=String(_carrOrdem.numero);
+  _romItens=_romItens.filter(x=>String(x.numero)!==numAnt&&String(x.numero)!==String(rom.numero)).concat(itens||[]);
+  if(_romaneios.some(r=>r.id===rom.id))_romaneios=_romaneios.map(r=>r.id===rom.id?rom:r);else _romaneios.push(rom);
+  const antes=[];_linhasCarr.forEach(l=>(_alloc[l.key]||[]).forEach(id=>antes.push(id)));
+  const semQr=[];_linhasCarr.forEach(l=>avulsosDe(l.key).forEach(a=>{if(a.motivo===ROT_ANTIGO)semQr.push({produto:l.produto,a});}));
+  const palAnt={};_linhasCarr.forEach(l=>{if(l.palPedido)palAnt[normNome(l.produto)]=l.palPedido;});
+  _linhasCarr=[];_alloc={};_allocSet=new Set();_avulsos={};
+  linhasRomaneio(rom).forEach(l=>addLinha({...l,sacksNeed:ehGranel(l.produto)?Math.max(0,Number(l.qtd)||0):Math.max(0,Math.round(l.qtd))}));
+  if(!_linhasCarr.length)addLinha({pedido:'',cidade:'',cliente:'',produto:'',qtd:0,lote:'',sacksNeed:0,manual:true});
+  _linhasCarr.forEach(l=>{l.palPedido=(_patio&&l.palOrdem>0)?l.palOrdem:(palAnt[normNome(l.produto)]||palletPadraoDoProduto(l.produto));});
+  let ficou=0;const saiu=[];
+  antes.forEach(id=>{const p=_pallets.find(x=>x.id===id);
+    const ls=p?_linhasCarr.filter(l=>!l.granel&&!l.felis&&normNome(l.produto)===normNome(p.produto)):[];
+    const l=ls.find(x=>(x.sacksNeed||0)>allocSacks(x.key))||ls[0];
+    if(l){_alloc[l.key].push(id);_allocSet.add(id);ficou++;}else{delete _extra[id];if(p)saiu.push(p);}});
+  semQr.forEach(({produto,a})=>{const l=_linhasCarr.find(x=>normNome(x.produto)===normNome(produto));if(l)(_avulsos[l.key]=_avulsos[l.key]||[]).push(a);});
+  Object.keys(_doa).forEach(id=>{const d=_doa[id];if(!_linhasCarr.some(l=>normNome(l.produto)===normNome(d.produto))){delete _doa[id];if(typeof _doaAuto!=='undefined')delete _doaAuto[id];}});
+  _carrOrdem={..._carrOrdem,numero:rom.numero,placa:rom.placa||_carrOrdem.placa,motorista:rom.motorista||_carrOrdem.motorista,
+    transportadora:rom.transportadora||_carrOrdem.transportadora,romId:rom.id,atualizado_em:rom.atualizado_em};
+  _linhaAtiva=_linhasCarr[0].key;
+  if(String(rom.numero)!==numAnt)apagarRascunho(numAnt);
+  salvarRascunho();
+  if(_patio&&_patioTela==='resumo')patioAbrirCarga();else renderCarr();
+  if(avisar){
+    const saiuTxt=saiu.length?`<br><b>${saiu.length} ${saiu.length===1?'saiu':'saíram'} da carga</b> (produto não está mais na ordem):<br>${[...new Set(saiu.map(p=>p.produto))].map(esc).join('<br>')}<br><b>Tire do caminhão.</b>`:'';
+    if(_patio)patioFlash(saiu.length?'err':'warn','🔄','A PORTARIA MUDOU A ORDEM',`Agora é a ordem <b>${esc(rom.numero)}</b>.<br>${ficou} ${ficou===1?'continua':'continuam'} no caminhão.${saiuTxt}`,{botao:'ENTENDI'});
+    else toast(`🔄 A Portaria mudou a ordem: agora é a ${rom.numero}. ${ficou} continuam na carga${saiu.length?`, ${saiu.length} saíram (produto fora da ordem) — tire do caminhão`:''}.`,'warning');
+    try{beep(saiu.length?'err':'dup');}catch(e){}
+  }
+}
+async function vigiarOrdemAberta(){
+  const o=_carrOrdem; if(!o||!o.romId)return;
+  const {data,error}=await _supabase.from('romaneios').select('*').eq('id',o.romId).maybeSingle();
+  if(error||!data||_carrOrdem!==o)return;
+  if(!o.atualizado_em||data.atualizado_em===o.atualizado_em){o.atualizado_em=data.atualizado_em;return;}
+  const ri=await _supabase.from('romaneio_itens').select('*').eq('numero',String(data.numero));
+  if(ri.error||_carrOrdem!==o)return;
+  o.atualizado_em=data.atualizado_em;
+  const atual=sigLinhas(linhasRomaneio({numero:o.numero}).map(l=>({...l,granel:ehGranel(l.produto),tonNeed:Number(l.qtd)||0,sacksNeed:Math.round(Number(l.qtd)||0)})));
+  const salvo=_romItens; _romItens=(ri.data||[]);
+  const nova=sigLinhas(linhasRomaneio(data).map(l=>({...l,granel:ehGranel(l.produto),tonNeed:Number(l.qtd)||0,sacksNeed:Math.round(Number(l.qtd)||0)})));
+  _romItens=salvo;
+  if(String(data.numero)===String(o.numero)&&atual===nova)return;
+  aplicarOrdemNova(data,ri.data||[],true);
+}
 async function vigiarOrdensPortaria(forcar){
-  if(document.hidden||_carrOrdem)return;
+  if(document.hidden)return;
+  if(_carrOrdem){try{await vigiarOrdemAberta();}catch(e){console.warn('[carregamento] vigia ordem aberta:',e);}return;}
   try{
     const {data,error}=await _supabase.from('romaneios').select('*').order('importado_em',{ascending:false}).limit(800);
     if(error||!data||_carrOrdem)return;
     const antes=new Map(_romaneios.map(r=>[r.id,r.status]));
-    const mudou=data.length!==_romaneios.length||data.some(r=>antes.get(r.id)!==r.status);
+    const antesAt=new Map(_romaneios.map(r=>[r.id,r]));
+    const trocadas=data.filter(r=>{const a=antesAt.get(r.id);return a&&(a.atualizado_em!==r.atualizado_em||String(a.numero)!==String(r.numero));});
+    const mudou=data.length!==_romaneios.length||data.some(r=>antes.get(r.id)!==r.status)||trocadas.length;
     if(!mudou)return;
+    if(trocadas.length){
+      const nums=[...new Set(trocadas.flatMap(r=>[String(r.numero),String(antesAt.get(r.id).numero)]))];
+      const ri=await _supabase.from('romaneio_itens').select('*').in('numero',nums.slice(0,150));
+      if(!ri.error)_romItens=_romItens.filter(x=>!nums.includes(String(x.numero))).concat(ri.data||[]);
+    }
     const novas=data.filter(r=>r.status==='em_carregamento'&&antes.get(r.id)!=='em_carregamento'&&antes.get(r.id)!=='carregado');
     const devolvidas=data.filter(r=>r.status==='em_carregamento'&&antes.get(r.id)==='carregado');
     const semItens=data.filter(r=>!_romItens.some(i=>String(i.numero)===String(r.numero))).map(r=>r.numero).filter(Boolean);
@@ -2933,7 +2991,7 @@ function iniciarCarregamento(opt){
   _doa={};_doaPre={};_modoDoa=false;_doaAuto={};_ptGranel=null;
   if(rom){
     _carrOrdem={numero:rom.numero,transportadora:rom.transportadora,motorista:rom.motorista,placa:rom.placa,
-      data_emissao:rom.data_emissao,status:rom.status||'recebido',romId:rom.id};
+      data_emissao:rom.data_emissao,status:rom.status||'recebido',romId:rom.id,atualizado_em:rom.atualizado_em||null};
     /* granel vem em TONELADA e pode ter decimal (38,5 t): arredondar aqui
        perderia meia tonelada. Saco continua inteiro. */
     linhasRomaneio(rom).forEach(l=>addLinha({...l,
@@ -2989,9 +3047,14 @@ function iniciarCarregamento(opt){
   /* NADA SE PERDE: se este aparelho tem a carga desta ordem guardada (tela
      bloqueou, bateria acabou, internet caiu), continua exatamente dela. */
   if(!opt.semRascunho){
-    const r=rascunhos()[String(_carrOrdem.numero)];
+    let r=rascunhos()[String(_carrOrdem.numero)];
+    /* a Portaria trocou o número da ordem: o rascunho ficou guardado com o número antigo */
+    if(!r&&rom)r=Object.values(rascunhos()).find(x=>x&&x.ordem&&x.ordem.romId===rom.id&&rascunhoTemConteudo(x));
     if(r&&rascunhoTemConteudo(r)){
+      const sigOrdem=rom?sigLinhas(_linhasCarr):null;
       const perdidos=aplicarRascunho(r);
+      if(rom&&(String((r.ordem||{}).numero)!==String(rom.numero)||sigLinhas(_linhasCarr)!==sigOrdem)){aplicarOrdemNova(rom,itensRomaneio(rom.numero),true);}
+      else if(rom)_carrOrdem.atualizado_em=rom.atualizado_em||null;
       toast(`Continuando de onde parou: ${n0(Object.values(_alloc).reduce((s,a)=>s+a.length,0))} pallet(s) já bipados neste aparelho.`+
         (perdidos?` ${perdidos} pallet(s) saíram porque já foram carregados em outra carga.`:''),'info');
     }

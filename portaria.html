@@ -902,6 +902,13 @@ tr.mi-sel td{background:#f0fdf4;}
     </div>
   </div>
 </div>
+<div id="m-confprod" class="modal-overlay hidden">
+  <div class="modal" style="max-width:720px;">
+    <div class="modal-header"><div class="modal-title">🔎 O produto está certo?</div><button class="modal-close" onclick="closeModal('m-confprod')">✕</button></div>
+    <div id="cp-corpo"></div>
+    <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('m-confprod')">◀ Voltar e corrigir</button><button class="btn btn-primary" id="cp-ok">✅ Sim, os produtos estão certos</button></div>
+  </div>
+</div>
 <div id="m-confirm" class="modal-overlay hidden">
   <div class="modal" style="max-width:440px;">
     <div class="modal-header"><div class="modal-title">⚠️ Confirmar</div><button class="modal-close" onclick="closeModal('m-confirm')">✕</button></div>
@@ -943,6 +950,7 @@ const TESSERACT='https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.
 
 let _veic=[], _ordens=[], _itens=[], _mot=[], _cargas=[], _hist=[], _aba='fila', _carregando=false;
 let _prodFel=[];   // produtos da Felisbina — não têm QR (o Carregamento não pede bipagem)
+let _troca=null;   // (16/11) 🔄 mudar a carga: {portId,ordemId,numero,placa,em} — a ordem nova SUBSTITUI a do caminhão
 let _imp=null, _impArq=null, _impUrl=null, _unidades=[], _pesoPallet=28, _cfgLida=false, _prodErp=[], _aliases=[];
 let _ch={id:null,tem:true,ordemId:null,motId:null}, _vi={portId:null,ordemId:null}, _in={portId:null,fura:null}, _sa={portId:null}, _mt={id:null};
 
@@ -1139,7 +1147,7 @@ function renderFila(){
       <div class="f-main"><div class="f-placa">${esc(v.placa)}${v.placa2?`<small> + ${esc(v.placa2)}</small>`:''}</div><div class="f-mot" title="${esc(v.nome_motorista||'')}">${esc(doisNomes(v.nome_motorista)||'—')} · ${esc(v.modelo_veiculo||'')}</div></div>
       <div class="f-mid">${ordemTxt(o,v)}<div class="f-meta">🏭 <b>${esc(v.unidade_carregamento||'—')}</b> · tara ${v.peso_tara!=null?nf(v.peso_tara,2)+' t':'—'} · ${r&&r.plt?pc+'/'+r.plt+' plt':pc+' plt'}</div></div>
       <div class="f-tempo"><b>${durTxt(Date.now()-Date.parse(v.inicio_carregamento||v.hora_chegada))}</b><small>${pronto?'carregado':'carregando'}</small></div>
-      <div class="f-acoes" ${podeEditar?'':'style="opacity:.6;pointer-events:none;"'}>${ic('Pesar saída','btn-pesar'+(pronto?' pronto':''),`abrirSaida('${v.id}')`,'⚖️ Pesar saída')}
+      <div class="f-acoes" ${podeEditar?'':'style="opacity:.6;pointer-events:none;"'}>${ic('Pesar saída','btn-pesar'+(pronto?' pronto':''),`abrirSaida('${v.id}')`,'⚖️ Pesar saída')}${o?ic('Mudou a carga? Subir a ordem nova (troca a ordem deste caminhão e o Carregamento muda junto)','btn-ghost',`mudarCarga('${v.id}')`,'🔄'):''}
         ${pc?ic('Encarregado precisa trocar/tirar pallet ou bag? Devolve a ordem para o Carregamento','btn-ghost',`devolverAoCarregamento('${v.id}')`,'📦'):ic('Voltar para a fila (mantém a posição)','btn-ghost',`voltarFila('${v.id}')`,'↩')}${pc?'':ic('Excluir','btn-ghost del',`excluirPassagem('${v.id}')`,'🗑️')}</div></div>`;};
   const linhaFila=(v,i)=>{
     const o=ordemDe(v), st=ST[v.status]||ST.aguardando, eh=prox&&prox.id===v.id, esp=Date.now()-Date.parse(v.hora_chegada), m=esp/60000;
@@ -1254,6 +1262,7 @@ function verOrdem(id){
   if(o.arquivo_path)ac.push(`<button class="btn btn-secondary" onclick="abrirArquivoOrdem('${o.id}')">📎 PDF original</button>`,`<button class="btn btn-secondary" data-perm="portaria:edit" onclick="reconhecerAnexo('${o.id}')">🔎 Reconhecer o PDF anexado</button>`);
   ac.push(`<button class="btn btn-secondary" onclick="imprimirOrdem('${o.id}')">🖨️ Imprimir</button>`);
   if(!pc)ac.unshift(`<button class="btn btn-ghost" style="color:#dc2626;margin-right:auto;" onclick="excluirOrdem('${o.id}')">🗑️ Excluir ordem</button>`);
+  if(v&&['em_carregamento','carregado'].includes(s))ac.push(`<button class="btn btn-secondary" data-perm="portaria:edit" onclick="closeModal('m-ordem');mudarCarga('${v.id}')">🔄 Mudar a carga (subir ordem nova)</button>`);
   if(s==='esperando')ac.push(`<button class="btn btn-primary" onclick="closeModal('m-ordem');abrirChegada({ordemId:'${o.id}'})">🚚 Registrar chegada com esta ordem</button>`);
   else ac.push(`<button class="btn btn-primary" onclick="closeModal('m-ordem')">Fechar</button>`);
   document.getElementById('mo-acoes').innerHTML=ac.join('');
@@ -1371,7 +1380,7 @@ async function pecasOcr(canvas){
   }finally{await w.terminate();}
 }
 function cancelarImportacao(){
-  _imp=null;_impArq=null; if(_impUrl){URL.revokeObjectURL(_impUrl);_impUrl=null;}
+  _imp=null;_impArq=null;_troca=null; if(_impUrl){URL.revokeObjectURL(_impUrl);_impUrl=null;}
   document.getElementById('imp-conf').classList.add('hidden'); document.getElementById('imp-conf').innerHTML='';
   document.getElementById('drop').classList.remove('hidden');
 }
@@ -1380,12 +1389,16 @@ function renderConferencia(){
   const mot=r.motorista?motoristaPorNome(r.motorista):null, ehPdf=_impArq&&(_impArq.type==='application/pdf'||/\.pdf$/i.test(_impArq.name||''));
   const avisos=[...r.avisos];
   if(r.via==='ocr')avisos.unshift('Lido de imagem: confira nomes, pedidos e quantidades com atenção.');
-  if(ja){const s=situacaoOrdem(ja); avisos.unshift(['esperando','fila'].includes(s)?`A ordem ${ja.numero} já existe — salvar vai ATUALIZAR os dados dela.`:`A ordem ${ja.numero} já está ${SIT_ORD[s][0].toLowerCase()} — não será substituída.`);}
+  if(_troca&&Date.now()-_troca.em>15*60e3)_troca=null;
+  if(ja&&!(_troca&&ja.id===_troca.ordemId)){const s=situacaoOrdem(ja); avisos.unshift(['esperando','fila'].includes(s)?`A ordem ${ja.numero} já existe — salvar vai ATUALIZAR os dados dela.`:`A ordem ${ja.numero} já está ${SIT_ORD[s][0].toLowerCase()} — não será substituída.`);}
   const campo=(id,rot,val,extra)=>`<div class="form-group"><label class="form-label">${rot}</label><input id="imp-${id}" class="form-input" value="${esc(val??'')}" ${extra||''}></div>`;
   el.innerHTML=`
     <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
       <h3 style="font-size:16px;color:var(--primary);font-weight:800;">Confira a ordem lida ${r.via==='ocr'?'<span class="badge badge-warning">do print</span>':'<span class="badge badge-success">do PDF</span>'}</h3>
       <span style="font-size:12px;color:#64748b;">${esc(_impArq?.name||'imagem colada')}</span></div>
+    ${_troca?`<div class="aviso" style="background:#eff6ff;border-color:#93c5fd;color:#1e3a8a;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+      <span style="flex:1;">🔄 <b>MUDANDO A CARGA</b> do caminhão <b>${esc(_troca.placa)}</b>: esta ordem <b>substitui a ordem ${esc(_troca.numero)}</b>. O Carregamento muda junto — o que já foi bipado continua, se o produto ainda estiver na ordem.</span>
+      <button class="btn btn-ghost btn-sm" onclick="_troca=null;renderConferencia()">✕ Não é troca</button></div>`:''}
     ${avisos.map(a=>`<div class="aviso">⚠️ ${esc(a)}</div>`).join('')}
     ${!avisos.length?'<div class="aviso ok">✅ Tudo lido. Confira e salve.</div>':''}
     <div class="conf-grid">
@@ -1409,8 +1422,9 @@ function renderConferencia(){
         ${ehPdf?`<iframe src="${_impUrl}#toolbar=0&view=FitH" style="width:100%;height:640px;border:0;" title="PDF da ordem"></iframe>`:`<img src="${_impUrl}" style="width:100%;display:block;" alt="Print da ordem">`}</div></details>
     <div class="modal-footer" style="padding-top:14px;">
       <button class="btn btn-secondary" onclick="cancelarImportacao()">Cancelar</button>
-      <button class="btn btn-secondary" id="imp-btn1" onclick="salvarOrdem(false)">💾 Salvar ordem</button>
-      <button class="btn btn-primary" id="imp-btn2" onclick="salvarOrdem(true)">💾 Salvar e registrar chegada</button>
+      ${_troca?`<button class="btn btn-primary" id="imp-btn1" onclick="salvarOrdem(false)">🔄 Trocar a carga do ${esc(_troca.placa)}</button>`
+       :`<button class="btn btn-secondary" id="imp-btn1" onclick="salvarOrdem(false)">💾 Salvar ordem</button>
+      <button class="btn btn-primary" id="imp-btn2" onclick="salvarOrdem(true)">💾 Salvar e registrar chegada</button>`}
     </div>`;
   el.classList.remove('hidden'); totalImp();
   el.querySelectorAll('#imp-itens').forEach(t=>t.addEventListener('input',totalImp));
@@ -1445,7 +1459,113 @@ function totalImp(){
   const it=itensConferidos(), sc=it.reduce((a,i)=>a+(parseFloat(i.quantidade)||0),0), cli=new Set(it.map(i=>i.cliente)).size, plt=it.reduce((a,i)=>a+(parseInt(i.unidades)||0),0);
   const el=document.getElementById('imp-total'); if(el)el.innerHTML=`<b>${cli}</b> cliente(s) · <b>${it.length}</b> item(ns) · <b>${nf(sc)}</b> unidades${plt?` · <b>${plt}</b> plt`:''}`;
 }
-async function salvarOrdem(registrar){
+/* (16/11) antes de salvar, SEMPRE mostra produto da ordem × produto do ERP. Número diferente (Branco 02 × Branco 01),
+   troca feita na mão contra a ligação automática e item sem cadastro ficam em vermelho/amarelo. */
+function numerosDoNome(s){return new Set((prodNorm(s).match(/\b\d+\b/g)||[]).map(x=>String(parseInt(x,10))));}
+function nomeProdId(id){if(!id)return '';const p=_prodErp.find(x=>x.id===id)||_prodFel.find(x=>x.id===id);return p?(p.felis?'🏪 '+p.nome:p.nome):'';}
+function salvarOrdem(registrar){
+  if(!guardAction(MOD,_troca?'edit':'create')||!_imp)return;
+  const numero=document.getElementById('imp-numero').value.trim().replace(/\D/g,''), itens=itensConferidos();
+  if(!numero){toast('Informe o número da ordem.','warning');return;}
+  if(!itens.length){toast('A ordem precisa de pelo menos um item.','warning');return;}
+  if(itens.some(i=>!i.produto||!(parseFloat(i.quantidade)>0))){toast('Toda linha precisa de produto e quantidade.','warning');return;}
+  let alertas=0;
+  const vistos=new Set();
+  const linhas=itens.filter(i=>{const k=prodNorm(i.produto)+'|'+i.produto_id;if(vistos.has(k))return false;vistos.add(k);return true;}).map(i=>{
+    const erp=nomeProdId(i.produto_id), m=casarTudo(i.produto), auto=m&&m.seguro?m.produto.id:null;
+    const na=numerosDoNome(i.produto), ne=numerosDoNome(erp.replace(/^🏪 /,''));
+    const difNum=erp&&([...na].some(x=>!ne.has(x))||[...ne].some(x=>!na.has(x)));
+    let st='ok',msg='✅';
+    if(!i.produto_id){st='am';msg='Sem cadastro no ERP — o Carregamento não vai reconhecer o QR';}
+    else if(difNum){st='vm';const nr=x=>(prodNorm(x).match(/\b\d+\b/g)||[]).join(', ')||'—';msg=`NÚMERO DIFERENTE: na ordem <b>${nr(i.produto)}</b> × no ERP <b>${nr(erp)}</b>`;}
+    else if(auto&&auto!==i.produto_id){st='vm';msg=`Você trocou: o sistema tinha ligado em <b>${esc(nomeProdId(auto))}</b>`;}
+    if(st!=='ok')alertas++;
+    const cor={ok:'#f0fdf4',am:'#fef9c3',vm:'#fee2e2'}[st];
+    return `<tr style="background:${cor};"><td style="padding:8px;font-weight:700;">${esc(i.produto)}</td><td style="padding:8px;font-weight:800;color:var(--primary);">${erp?esc(erp):'—'}</td>
+      <td style="padding:8px;font-size:12.5px;font-weight:700;color:${st==='vm'?'#b91c1c':st==='am'?'#854d0e':'#15803d'};">${msg}</td></tr>`;});
+  document.getElementById('cp-corpo').innerHTML=`
+    ${alertas?`<div class="aviso" style="background:#fee2e2;border-color:#fca5a5;color:#991b1b;font-weight:700;">⚠️ ${alertas} produto(s) para conferir com o PDF antes de salvar. Se o produto estiver errado, o Carregamento não deixa carregar.</div>`
+             :'<div class="aviso ok">Confira se cada produto da ordem está ligado ao produto certo do ERP.</div>'}
+    <div class="table-wrap"><table style="width:100%;border-collapse:separate;border-spacing:0 4px;font-size:13.5px;">
+      <thead><tr><th style="text-align:left;padding:4px 8px;">📄 No PDF da ordem</th><th style="text-align:left;padding:4px 8px;">🏭 Vai carregar como (ERP)</th><th></th></tr></thead>
+      <tbody>${linhas.join('')}</tbody></table></div>
+    ${_troca?`<div class="aviso info" style="margin-top:8px;">🔄 Esta ordem vai substituir a ordem <b>${esc(_troca.numero)}</b> do caminhão <b>${esc(_troca.placa)}</b>.</div>`:''}`;
+  const b=document.getElementById('cp-ok');
+  b.onclick=async()=>{b.disabled=true;try{closeModal('m-confprod');if(_troca)await salvarTroca();else await gravarOrdem(registrar);}finally{b.disabled=false;}};
+  document.getElementById('m-confprod').classList.remove('hidden');
+}
+function itensParaGravar(itens,romId,numero){
+  return itens.map(i=>({romaneio_id:romId,numero,pedido:i.pedido||null,cidade:i.cidade||null,cliente:i.cliente||null,
+      produto:i.produto,quantidade:i.quantidade,frete:i.frete||null,unidades:i.unidades||null,ordem_entrega:i.ordem_entrega,caixa:null,lote:null,
+      produto_id:String(i.produto_id||'').startsWith('F:')?null:(i.produto_id||null),felis_item_id:String(i.produto_id||'').startsWith('F:')?i.produto_id.slice(2):null,
+      produto_erp:String(i.produto_id||'').startsWith('F:')?((_prodFel.find(p=>p.id===i.produto_id)||{}).nome||null)+' (Felisbina)':((_prodErp.find(p=>p.id===i.produto_id)||{}).nome||null)}));
+}
+async function aprenderApelidos(itens){
+  const novos=[...new Map(itens.filter(i=>i.produto_id&&!String(i.produto_id).startsWith('F:')).map(i=>[prodNorm(i.produto),i])).values()]
+    .filter(i=>{const a=_aliases.find(x=>x.alias_norm===prodNorm(i.produto));return !a||a.produto_id!==i.produto_id;})
+    .map(i=>({alias_norm:prodNorm(i.produto),alias_texto:i.produto,produto_id:i.produto_id,produto_nome:(_prodErp.find(p=>p.id===i.produto_id)||{}).nome||null,criado_por:quemSou()}));
+  if(novos.length){const ra=await _supabase.from('produto_aliases').upsert(novos,{onConflict:'alias_norm'}); if(!ra.error)novos.forEach(n=>{_aliases=_aliases.filter(x=>x.alias_norm!==n.alias_norm);_aliases.push(n);});}
+}
+/* 🔄 MUDAR A CARGA: o caminhão já está carregando (ou carregado) e a ordem mudou. A ordem nova entra NO LUGAR da antiga
+   (mesma linha de romaneios → o Carregamento acha pelo id): troca cabeçalho e itens; se o número mudou, leva junto
+   o que já foi bipado (carregamentos / pallets / certificado). Ordem que já estava "carregada" volta para "em carregamento". */
+function mudarCarga(portId){
+  if(!guardAction(MOD,'edit'))return;
+  const v=_veic.find(x=>x.id===portId), o=ordemDe(v); if(!v||!o){toast('Caminhão sem ordem — use Vincular.','warning');return;}
+  if(o.status==='finalizado'){toast('Essa ordem já saiu — não dá para mudar.','warning');return;}
+  _troca={portId:v.id,ordemId:o.id,numero:o.numero,placa:v.placa,em:Date.now()};
+  closeModal('m-saida'); showTab('ordens');
+  toast(`🔄 Escolha o PDF da ordem NOVA do ${v.placa}. Ela vai substituir a ordem ${o.numero}.`,'info');
+  document.getElementById('arq-ordem').click();
+}
+async function salvarTroca(){
+  const t=_troca, old=t&&ordemPorId(t.ordemId), v=t&&_veic.find(x=>x.id===t.portId);
+  if(!old||!v){toast('Não achei o caminhão ou a ordem antiga — atualize a tela e tente de novo.','danger');return;}
+  const g=id=>document.getElementById('imp-'+id).value.trim();
+  const numero=g('numero').replace(/\D/g,''), itens=itensConferidos();
+  const outra=_ordens.find(o=>String(o.numero)===numero&&o.id!==old.id);
+  if(outra&&situacaoOrdem(outra)!=='esperando'){toast(`A ordem ${numero} já está com outro caminhão (${SIT_ORD[situacaoOrdem(outra)][0].toLowerCase()}).`,'warning');return;}
+  const bts=['imp-btn1'].map(id=>document.getElementById(id)); bts.forEach(b=>b&&(b.disabled=true));
+  try{
+    let arquivo_path=old.arquivo_path||null;
+    if(_impArq){
+      const ext=(_impArq.type==='application/pdf'||/\.pdf$/i.test(_impArq.name||''))?'pdf':((_impArq.type.split('/')[1]||'png').replace('jpeg','jpg'));
+      const path=`portaria/ordens/${numero}-${Date.now()}.${ext}`;
+      const up=await _supabase.storage.from('documentos').upload(path,_impArq,{contentType:_impArq.type||undefined,upsert:false});
+      if(up.error)toast('A troca será feita, mas o arquivo não subiu: '+up.error.message,'warning');
+      else{ if(old.arquivo_path)_supabase.storage.from('documentos').remove([old.arquivo_path]).catch(()=>{}); arquivo_path=path; }
+    }
+    // a mesma ordem nova já tinha sido importada sozinha (sem caminhão): sai, para não ficar duplicada
+    if(outra){
+      await _supabase.from('romaneio_itens').delete().eq('numero',outra.numero);
+      const rx=await db(_supabase.from('romaneios').delete().eq('id',outra.id),'tirar ordem duplicada'); if(rx.error)return;
+      if(outra.arquivo_path&&outra.arquivo_path!==arquivo_path)_supabase.storage.from('documentos').remove([outra.arquivo_path]).catch(()=>{});
+    }
+    const agora=new Date().toISOString(), eraCarregado=old.status==='carregado';
+    const sacos=itens.reduce((a,i)=>a+(parseFloat(i.quantidade)||0),0);
+    const row={numero,data_emissao:g('emissao')||old.data_emissao||null,transportadora:g('transp')||old.transportadora||null,motorista:(g('motorista').toUpperCase()||old.motorista||null),
+      placa:normPlaca(g('placa'))||old.placa||null,caminhao:g('caminhao')||old.caminhao||null,paletes:parseInt(g('paletes'))||null,bags:g('bags')===''?null:parseInt(g('bags')),
+      sacos,mapa:_imp.mapa&&_imp.mapa.length?_imp.mapa:null,origem:_imp.via==='ocr'?'print':'pdf',arquivo_path,atualizado_em:agora,
+      ...(eraCarregado?{status:'em_carregamento',devolvido_em:agora,devolvido_por:quemSou()}:{})};
+    const rr=await db(_supabase.from('romaneios').update(row).eq('id',old.id).select().single(),'trocar a ordem'); if(rr.error)return;
+    await _supabase.from('romaneio_itens').delete().eq('romaneio_id',old.id);
+    const rd=await db(_supabase.from('romaneio_itens').delete().eq('numero',String(old.numero)),'trocar itens'); if(rd.error)return;
+    const ri=await db(_supabase.from('romaneio_itens').insert(itensParaGravar(itens,old.id,numero)),'salvar itens');
+    if(ri.error){toast('A ordem foi trocada, mas os itens falharam — suba o PDF de novo.','danger');return;}
+    if(String(numero)!==String(old.numero)){
+      await db(_supabase.from('portaria').update({numero_ordem:numero,romaneio_id:old.id}).eq('id',v.id),'caminhão → ordem nova');
+      // o que já foi bipado na ordem antiga vai junto para o número novo
+      for(const tb of ['carregamentos','producao_pallets','carregamento_ao_vivo','lab_laudo_carregamentos']){
+        try{await _supabase.from(tb).update({ordem_numero:numero}).eq('ordem_numero',String(old.numero));}catch(e){console.warn('[portaria] troca '+tb,e);}
+      }
+    }
+    await aprenderApelidos(itens);
+    addLog('UPDATE','PORTARIA',v.placa,`🔄 Carga mudada: ${v.placa} · ordem ${old.numero} → ${numero} · ${itens.length} itens, ${nf(sacos)} un · por ${quemSou()}`);
+    toast(`🔄 Carga do ${v.placa} trocada para a ordem ${numero}. O Carregamento já recebe a ordem nova${eraCarregado?' (volta para CONTINUAR)':''}.`,'success');
+    cancelarImportacao(); await carregarTudo();
+  }finally{bts.forEach(b=>{if(b)b.disabled=false;});}
+}
+async function gravarOrdem(registrar){
   if(!guardAction(MOD,'create')||!_imp)return;
   const g=id=>document.getElementById('imp-'+id).value.trim();
   const numero=g('numero').replace(/\D/g,''), itens=itensConferidos();
@@ -1474,16 +1594,10 @@ async function salvarOrdem(registrar){
     const rom=rr.data;
     // 3) itens (troca todos)
     const rd=await db(_supabase.from('romaneio_itens').delete().eq('numero',numero),'trocar itens'); if(rd.error)return;
-    const ri=await db(_supabase.from('romaneio_itens').insert(itens.map(i=>({romaneio_id:rom.id,numero,pedido:i.pedido||null,cidade:i.cidade||null,cliente:i.cliente||null,
-      produto:i.produto,quantidade:i.quantidade,frete:i.frete||null,unidades:i.unidades||null,ordem_entrega:i.ordem_entrega,caixa:null,lote:null,
-      produto_id:String(i.produto_id||'').startsWith('F:')?null:(i.produto_id||null),felis_item_id:String(i.produto_id||'').startsWith('F:')?i.produto_id.slice(2):null,
-      produto_erp:String(i.produto_id||'').startsWith('F:')?((_prodFel.find(p=>p.id===i.produto_id)||{}).nome||null)+' (Felisbina)':((_prodErp.find(p=>p.id===i.produto_id)||{}).nome||null)}))),'salvar itens');
+    const ri=await db(_supabase.from('romaneio_itens').insert(itensParaGravar(itens,rom.id,numero)),'salvar itens');
     if(ri.error){toast('Cabeçalho salvo, mas os itens falharam — tente salvar de novo.','danger');return;}
     // o que foi conferido vira apelido do produto: da próxima vez liga sozinho
-    const novos=[...new Map(itens.filter(i=>i.produto_id&&!String(i.produto_id).startsWith('F:')).map(i=>[prodNorm(i.produto),i])).values()]
-      .filter(i=>{const a=_aliases.find(x=>x.alias_norm===prodNorm(i.produto));return !a||a.produto_id!==i.produto_id;})
-      .map(i=>({alias_norm:prodNorm(i.produto),alias_texto:i.produto,produto_id:i.produto_id,produto_nome:(_prodErp.find(p=>p.id===i.produto_id)||{}).nome||null,criado_por:quemSou()}));
-    if(novos.length){const ra=await _supabase.from('produto_aliases').upsert(novos,{onConflict:'alias_norm'}); if(!ra.error)novos.forEach(n=>{_aliases=_aliases.filter(x=>x.alias_norm!==n.alias_norm);_aliases.push(n);});}
+    await aprenderApelidos(itens);
     // 4) motorista novo no cadastro
     const cad=document.getElementById('imp-cad-mot');
     if(cad&&cad.checked&&row.motorista&&!motoristaPorNome(row.motorista)){

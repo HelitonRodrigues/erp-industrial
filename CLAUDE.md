@@ -836,6 +836,15 @@ fábrica específica. Não generalizar.
   Pallet do estoque menor que o do caminhão: os sacos a mais entram sozinhos (`_extra`, sem pergunta); no TERMINEI `doacaoAutomatica` escolhe de onde
   saíram (pallet já aberto → mais antigo), marcado em `_doaAuto` e desfeito ao voltar a bipar. "Pallet de quantos?" no pátio só se o sistema não
   souber a qtd (`sacosDoPallet`=0). Computador não mudou.
+- (16/11) **🔄 Mudar a carga (portaria.html)**: botão 🔄 no caminhão carregando e "Mudar a carga" no detalhe da ordem (`mudarCarga` → `_troca`).
+  A ordem nova (PDF) entra NO LUGAR da antiga (`salvarTroca`: update na MESMA linha de `romaneios`, troca os itens; ordem "carregado" volta a
+  `em_carregamento` com `devolvido_em`; número novo → atualiza `portaria.numero_ordem` e `ordem_numero` em carregamentos/producao_pallets/
+  carregamento_ao_vivo/lab_laudo_carregamentos; ordem nova já importada sozinha é apagada). carregamento.html: `vigiarOrdemAberta` (carga aberta)
+  e `vigiarOrdensPortaria` (lista) percebem pelo `atualizado_em` + assinatura dos itens (`sigLinhas`) → `aplicarOrdemNova` refaz as linhas,
+  mantém o bipado do mesmo produto e avisa o que saiu ("tire do caminhão"). Rascunho com número antigo é achado pelo `romId`.
+- (16/11) **Conferência do produto ao subir ordem** (portaria.html): `salvarOrdem` sempre abre `#m-confprod` (PDF × ERP) antes de gravar
+  (`gravarOrdem` / `salvarTroca`). Vermelho: número diferente no nome (`numerosDoNome`, ex. Branco 02 × 01) ou troca manual contra a ligação
+  automática segura; amarelo: sem cadastro no ERP.
 
 ### Granel no Estoque do carregamento (16/11/2026)
 - `renderSaldoGranel` novo: por produto, "FICOU NO ESTOQUE" em destaque, produzido/carregado hoje e no mês, e tabela dia a dia do mês
