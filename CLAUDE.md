@@ -833,3 +833,7 @@ fábrica específica. Não generalizar.
   `programacao_cargas.portaria` jsonb {id, ordem, placa, saida, liquido_kg, carregado_qtd, motivo_menos}. ↩ Voltar para o carregamento (saída desfeita)
   devolve o que a portaria marcou. Testado no banco com transação desfeita (marcou e desfez).
 - Tela: origem "🚪 Portaria" (filtro em 📦 Carregadas, etiqueta verde), quadro "Balança / Portaria" no pedido com a saída, busca mostra "🚪 portaria placa".
+
+### Portaria DSM — Histórico com líquido (16/11/2026)
+- portaria-dsm.html aba 📚 Histórico: coluna **Líquido (balança)** = `peso_saida − peso_entrada` (kg + t; cancelado não conta, `liqH`) e linha TOTAL
+  do que está filtrado; PDF/impressão do histórico com a coluna e o KPI "Líquido total".

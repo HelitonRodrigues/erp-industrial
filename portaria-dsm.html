@@ -244,7 +244,7 @@
     <div class="d-filt"><input type="date" class="form-input" id="h-ini" style="max-width:160px;" onchange="carregarHist()"><input type="date" class="form-input" id="h-fim" style="max-width:160px;" onchange="carregarHist()">
       <select class="form-input" id="h-st" style="max-width:190px;" onchange="renderHist()"><option value="">Todas as situações</option><option value="saiu">Saíram</option><option value="cancelado">Canceladas</option><option value="ativo">No pátio</option></select>
       <input class="form-input" id="h-q" style="flex:1;min-width:200px;" placeholder="🔍 Placa, motorista, NF, ordem" oninput="renderHist()"><button class="btn btn-secondary btn-sm" onclick="docAba('hist','imp')">🖨️ Imprimir</button><button class="btn btn-secondary btn-sm" onclick="docAba('hist','pdf')">📄 PDF</button></div>
-    <div class="card" style="padding:0;"><div class="table-wrap"><table><thead><tr><th>Chegada</th><th>Caminhão</th><th>Motorista</th><th>Ordem / NF</th><th>Situação</th><th class="num">Total no pátio</th><th>Registrado por</th><th></th></tr></thead><tbody id="h-b"></tbody></table></div></div>
+    <div class="card" style="padding:0;"><div class="table-wrap"><table><thead><tr><th>Chegada</th><th>Caminhão</th><th>Motorista</th><th>Ordem / NF</th><th>Situação</th><th class="num">Líquido (balança)</th><th class="num">Total no pátio</th><th>Registrado por</th><th></th></tr></thead><tbody id="h-b"></tbody></table></div></div>
   </div>
 
   <div id="t-mot" style="display:none;">
@@ -807,8 +807,8 @@ async function docHist(){
   const emp=await dadosEmpresa();const st=document.getElementById('h-st').value,q=String(document.getElementById('h-q').value||'').toLowerCase();
   const l=_hist.filter(x=>(!st||(st==='ativo'?['patio','carregando','aguardando_nf'].includes(x.status):x.status===st))&&(!q||[x.placa,x.motorista,x.nf_numero,x.ordem].join(' ').toLowerCase().includes(q)));
   return {html:relDoc(emp,{titulo:'HISTÓRICO DE PASSAGENS — DSM',sub:`${fmtBr(document.getElementById('h-ini').value)} a ${fmtBr(document.getElementById('h-fim').value)} · ${l.length} passagem(ns)`,
-    kpis:[['Passagens',l.length],['Saíram',l.filter(x=>x.status==='saiu').length],['Canceladas',l.filter(x=>x.status==='cancelado').length],['Total médio no pátio',hmin(_media(l,'min_total'))]],
-    corpo:relTab(['Chegada','Placa','Motorista','Ordem','NF','Situação',{t:'Total no pátio',n:true},'Registrado por'],l.map(x=>[dh(x.recepcao_em),'<b>'+esc(x.placa)+'</b>',esc(x.motorista),esc(x.ordem||''),esc(x.nf_numero||''),(SIT[x.status]||[x.status])[0],hmin(x.min_total),esc(x.recepcao_por||'')]))}),
+    kpis:[['Passagens',l.length],['Saíram',l.filter(x=>x.status==='saiu').length],['Canceladas',l.filter(x=>x.status==='cancelado').length],['Líquido total',nf(l.reduce((a,x)=>a+(liqH(x)||0),0)/1000,2)+' t'],['Total médio no pátio',hmin(_media(l,'min_total'))]],
+    corpo:relTab(['Chegada','Placa','Motorista','Ordem','NF','Situação',{t:'Líquido (kg)',n:true},{t:'Total no pátio',n:true},'Registrado por'],l.map(x=>[dh(x.recepcao_em),'<b>'+esc(x.placa)+'</b>',esc(x.motorista),esc(x.ordem||''),esc(x.nf_numero||''),(SIT[x.status]||[x.status])[0],liqH(x)!=null?nf(liqH(x)):'—',hmin(x.min_total),esc(x.recepcao_por||'')]))}),
     nome:`Histórico DSM ${document.getElementById('h-ini').value} a ${document.getElementById('h-fim').value}.pdf`,paisagem:true};
 }
 async function docMot(){
@@ -1207,13 +1207,17 @@ async function carregarHist(){
   if(error){toast(error.message,'danger');return;}_hist=data||[];renderHist();
 }
 const SIT={patio:['Na fila','badge-warning'],carregando:['Carregando','badge-success'],aguardando_nf:['Aguardando NF','badge-info'],saiu:['Saiu','badge-gray'],cancelado:['Cancelado','badge-danger']};
+/* líquido da balança (saída − entrada), em kg; cancelado não conta */
+const liqH=x=>x.status!=='cancelado'&&x.peso_saida&&x.peso_entrada?x.peso_saida-x.peso_entrada:null;
 function renderHist(){
   const st=document.getElementById('h-st').value,q=String(document.getElementById('h-q').value||'').toLowerCase();
   const l=_hist.filter(x=>(!st||(st==='ativo'?['patio','carregando','aguardando_nf'].includes(x.status):x.status===st))&&(!q||[x.placa,x.motorista,x.nf_numero,x.ordem].join(' ').toLowerCase().includes(q)));
   document.getElementById('h-b').innerHTML=l.length?l.map(x=>{const s=SIT[x.status]||[x.status,'badge-gray'];return `<tr><td>${dh(x.recepcao_em)}</td><td><b>${esc(x.placa)}</b><div class="mini">${esc(x.modelo||'')}</div></td><td>${esc(x.motorista)}<div class="mini">${esc(x.celular||'')}</div></td>
     <td>${esc(x.ordem||'—')}<div class="mini">${x.nf_numero?'NF '+esc(x.nf_numero):''}</div></td><td><span class="badge ${s[1]}">${s[0]}</span>${x.correcoes?` <span class="mini" style="color:#b45309;">🕘 ${x.correcoes}</span>`:''}</td>
-    <td class="num">${hmin(x.min_total)}</td><td class="mini">${esc(x.recepcao_por||'')}</td><td><button class="btn btn-ghost btn-sm" onclick="detalhe('${x.id}')">👁️</button></td></tr>`;}).join('')
-    :'<tr><td colspan="8" style="text-align:center;color:#94a3b8;padding:18px;">Nada no período.</td></tr>';
+    <td class="num">${(lq=>lq!=null?`<b>${nf(lq)} kg</b><div class="mini">${nf(lq/1000,2)} t</div>`:'—')(liqH(x))}</td>
+    <td class="num">${hmin(x.min_total)}</td><td class="mini">${esc(x.recepcao_por||'')}</td><td><button class="btn btn-ghost btn-sm" onclick="detalhe('${x.id}')">👁️</button></td></tr>`;}).join('')+
+    (()=>{const t=l.reduce((a,x)=>a+(liqH(x)||0),0),n=l.filter(x=>liqH(x)!=null).length;return n?`<tr style="background:#eef6ff;font-weight:800;"><td colspan="5">TOTAL · ${n} caminhão(ões) pesado(s)</td><td class="num">${nf(t)} kg<div class="mini">${nf(t/1000,2)} t</div></td><td colspan="3"></td></tr>`:'';})()
+    :'<tr><td colspan="9" style="text-align:center;color:#94a3b8;padding:18px;">Nada no período.</td></tr>';
 }
 /* ═══ MOTORISTAS — cadastro (dados, CNH, veículo, bloqueio) + histórico de visitas ═══ */
 let _mot=[],_motStats={},_motCad=[];
