@@ -2526,9 +2526,10 @@ function grupoProduto(nome){const p=_prodErp.find(x=>normNome(x.nome)===normNome
 async function carregarFechamento(){
   const dia=document.getElementById('fe-dia').value||hojeISO(), ini=inicioDia(dia), fim=new Date(ini.getTime()+86400e3);
   document.getElementById('fe-body').innerHTML='<tr><td colspan="13" style="text-align:center;color:#94a3b8;padding:20px;">Carregando…</td></tr>';
-  const [pv,pf]=await Promise.all([
+  const [pv,pf,pd]=await Promise.all([
     db(_supabase.from('portaria').select('*').eq('status','finalizado').gte('hora_saida',ini.toISOString()).lt('hora_saida',fim.toISOString()).order('hora_saida'),'carregar saídas do dia'),
-    _supabase.from('portaria_fechamentos').select('*').eq('data',dia).limit(1)]);
+    _supabase.from('portaria_fechamentos').select('*').eq('data',dia).limit(1),
+    _supabase.from('dsm_caminhoes').select('*').is('cancelado_em',null).gte('saida_em',ini.toISOString()).lt('saida_em',fim.toISOString()).order('saida_em')]);
   if(pv.error)return;
   const saidas=pv.data||[], nums=[...new Set(saidas.map(v=>v.numero_ordem).filter(Boolean))];
   let roms=[],its=[],cgs=[];
@@ -2542,20 +2543,32 @@ async function carregarFechamento(){
   }
   const linhas=saidas.map((v,k)=>{
     const num=v.numero_ordem, carga=cgs.filter(c=>String(c.ordem_numero)===String(num)).flatMap(c=>Array.isArray(c.itens)?c.itens:[]).filter(i=>i&&!i.doador);
-    const prods={}, add=(nome,q,un,sem)=>{if(!nome||!(q>0))return; const p=prods[nome]=prods[nome]||{qtd:0,un:un||unProduto(nome)||'UN',sem:!!sem}; p.qtd+=q;};
+    const prods={}, add=(nome,q,un,sem)=>{if(!nome||!(q>0))return;
+      /* (16/11) produto da Felisbina: reconhecido pelo cadastro da Felisbina (nunca "sem cadastro"), unidade própria FL */
+      let fel=false; if(ehFelisNome(nome)){nome=felNome(nome);un='FL';sem=false;fel=true;}
+      const p=prods[nome]=prods[nome]||{qtd:0,un:un||unProduto(nome)||'UN',sem:!!sem,fel}; p.qtd+=q;};
     let fonte='carga';
     if(carga.length) carga.forEach(i=>{const t=window.certTipoProduto?certTipoProduto(i.produto):'saco';
       if(i.unidade==='t'||t==='granel')add(i.produto,Number(i.ton)||0,'T'); else add(i.produto,t==='bag'?(Number(i.sacos)||1):(Number(i.sacos)||0));});
-    else{fonte='ordem'; its.filter(i=>String(i.numero)===String(num)).forEach(i=>{const pe=produtoErpDoItem(i); add(pe?pe.nome:i.produto,parseFloat(i.quantidade)||0,pe?null:'UN',!pe);});}
+    else{fonte='ordem'; its.filter(i=>String(i.numero)===String(num)).forEach(i=>{const pe=produtoErpDoItem(i); add(pe?(pe.felis?pe.nome+' (Felisbina)':pe.nome):i.produto,parseFloat(i.quantidade)||0,pe?null:'UN',!pe);});}
     const rom=roms.find(r=>String(r.numero)===String(num));
     return {n:k+1,id:v.id,placa:v.placa,motorista:v.nome_motorista,ordem:num,veiculo:v.modelo_veiculo,unidade:v.unidade_carregamento,
       chegada:v.hora_chegada,inicio:v.inicio_carregamento,saida:v.hora_saida,pallets:v.qtd_pallets??null,
       tara:v.peso_tara,bruto:v.peso_bruto,liquido:v.peso_liquido,produto_t:v.peso_produto??v.peso_liquido,esperado:v.peso_esperado,
       transp:v.transportadora||(rom&&rom.transportadora)||'',fonte,prods};
   });
+  /* (16/11) caminhões da DSM (granel) também entram no fechamento — o controle detalhado continua na aba DSM */
+  (pd&&pd.data||[]).forEach(d=>{
+    const t=Number(d.nf_peso_liquido)>0?Number(d.nf_peso_liquido)/1000:(Number(d.peso_saida)>0&&Number(d.peso_entrada)>0?(Number(d.peso_saida)-Number(d.peso_entrada))/1000:null);
+    const nome=produtoDsm(d.nf_produto), prods={}; if(t>0)prods[nome]={qtd:t,un:'T',sem:false,fel:false};
+    linhas.push({n:0,id:d.id,dsm:true,placa:d.placa,motorista:d.motorista,ordem:d.nf_numero?'NF '+d.nf_numero:'DSM',veiculo:d.modelo,unidade:d.unidade,
+      chegada:d.recepcao_em,inicio:d.inicio_em,saida:d.saida_em,pallets:null,tara:d.peso_entrada!=null?Number(d.peso_entrada)/1000:null,
+      bruto:d.peso_saida!=null?Number(d.peso_saida)/1000:null,liquido:t,produto_t:t,esperado:null,transp:d.transportadora||'DSM',fonte:'dsm',prods});
+  });
+  linhas.sort((a,b)=>Date.parse(a.saida)-Date.parse(b.saida)).forEach((l,k)=>l.n=k+1);
   const grupos={}, totUn={};
   linhas.forEach(l=>Object.entries(l.prods).forEach(([nome,p])=>{
-    const g=p.sem?'Sem cadastro no ERP':grupoProduto(nome), gr=grupos[g]=grupos[g]||{};
+    const g=p.fel?'🏪 Felisbina':p.sem?'Sem cadastro no ERP':grupoProduto(nome), gr=grupos[g]=grupos[g]||{};
     const x=gr[nome]=gr[nome]||{qtd:0,un:p.un}; x.qtd+=p.qtd; totUn[p.un]=(totUn[p.un]||0)+p.qtd;}));
   const med=a=>a.length?a.reduce((x,y)=>x+y,0)/a.length:null;
   const kp={caminhoes:linhas.length,toneladas:linhas.reduce((a,l)=>a+(Number(l.produto_t)||0),0),pallets:linhas.reduce((a,l)=>a+(Number(l.pallets)||0),0),
@@ -2564,6 +2577,15 @@ async function carregarFechamento(){
   _fe={dia,linhas,grupos,kp,raw:saidas,fechamento:(pf.data||[])[0]||null,geradoEm:new Date().toISOString()};
   renderFechamento();
 }
+function ehFelisNome(n){n=String(n||'');return /\(Felisbina\)\s*$/i.test(n)||_prodFel.some(f=>normNome(f.nome)===normNome(n));}
+function felNome(n){return String(n||'').replace(/\s*\(Felisbina\)\s*$/i,'').trim();}
+/* produto da NF da DSM → produto do ERP (a NF às vezes traz o texto inteiro; vale o último "CAULIM GRANEL - X") */
+function produtoDsm(txt){
+  const ms=[...String(txt||'').matchAll(/CAULIM\s+GRANEL\s*-\s*[A-Z0-9]+(?:\s+0?\d+)?/gi)], t=ms.length?ms[ms.length-1][0]:String(txt||'');
+  const p=_prodErp.find(x=>normNome(x.nome)===normNome(t))||(()=>{const m=casarProduto(t,_prodErp,_aliases);return m?m.produto:null;})();
+  return p?p.nome:(t&&t.length<60?t:'Caulim Granel (DSM)');
+}
+const UN_TXT={SC:'SC — sacos',UN:'UN — bags / unidades',T:'T — toneladas',FL:'UN — Felisbina'};
 const fmtUn=(q,u)=>nf(q,u==='T'?2:0)+' '+(u==='T'?'t':u==='SC'?'sc':'un');
 function renderFechamento(){
   const f=_fe; if(!f)return; const k=f.kp, hoje=f.dia===hojeISO();
@@ -2573,6 +2595,7 @@ function renderFechamento(){
     kk(nf(k.toneladas,2)+' t','Produto carregado','líquido sem pallets','#5E8C00')+
     kk(nf(k.totUn.SC||0),'Sacos','todas as linhas','#1F6FD1')+
     kk(nf(k.totUn.UN||0),'Bags / unidades','','#7C3AED')+
+    kk(nf(k.totUn.FL||0),'Felisbina','unidades','#6d28d9')+
     kk(nf(k.totUn.T||0,2)+' t','Granel','','#B45309')+
     kk(nf(k.pallets),'Pallets','descontados na balança','#94a3b8')+
     kk(durTxt(k.permanencia),'Tempo na fábrica','média chegada → saída','#f59e0b')+
@@ -2587,7 +2610,7 @@ function renderFechamento(){
     <td class="num">${l.pallets??'—'}</td><td class="num">${(()=>{const d=difKg(l.produto_t,l.esperado), fora=d!=null&&Math.abs(d)>TOL_KG;
       return `<b class="${d==null?'':fora?'liq-erro':'liq-ok'}">${l.produto_t!=null?nf(l.produto_t,3)+' t':'—'}</b>${d!=null?`<div style="font-size:10.5px;" class="${fora?'liq-erro':'liq-ok'}">${fora?'⚠ ':''}${difTxt(d)}</div>`:''}`;})()}</td>
     <td><div class="fe-prods">${Object.entries(l.prods).map(([n,p])=>`<span class="${p.sem?'sem':''}" title="${p.sem?'Sem cadastro no ERP':''}">${esc(n)} <b>${fmtUn(p.qtd,p.un)}</b></span>`).join('')||'<span>—</span>'}${l.fonte==='ordem'&&Object.keys(l.prods).length?' <span style="background:none;color:#94a3b8;">(pela ordem)</span>':''}</div></td>
-    <td style="white-space:nowrap;text-align:right;"><button class="btn btn-ghost btn-sm" title="Visualizar o romaneio" onclick="imprimirSaida('${l.id}',true)">👁️</button><button class="btn btn-ghost btn-sm" title="Imprimir o romaneio de novo" onclick="imprimirSaida('${l.id}')">🖨️</button><button class="btn btn-ghost btn-sm" title="Certificado de análise (laudo) e relação dos bags/pallets carregados" onclick="abrirDocumentos('${l.id}')">📜</button><button class="btn btn-ghost btn-sm" title="Errou algo? Volta o caminhão para o carregamento" style="color:#b45309;" onclick="voltarParaCarregamento('${l.id}')">↩</button></td></tr>`).join('')
+    <td style="white-space:nowrap;text-align:right;">${l.dsm?`<a class="badge badge-info" href="portaria-dsm.html" title="Caminhão da DSM — detalhes na aba DSM">DSM</a>`:`<button class="btn btn-ghost btn-sm" title="Visualizar o romaneio" onclick="imprimirSaida('${l.id}',true)">👁️</button><button class="btn btn-ghost btn-sm" title="Imprimir o romaneio de novo" onclick="imprimirSaida('${l.id}')">🖨️</button><button class="btn btn-ghost btn-sm" title="Certificado de análise (laudo) e relação dos bags/pallets carregados" onclick="abrirDocumentos('${l.id}')">📜</button><button class="btn btn-ghost btn-sm" title="Errou algo? Volta o caminhão para o carregamento" style="color:#b45309;" onclick="voltarParaCarregamento('${l.id}')">↩</button>`}</td></tr>`).join('')
     :'<tr><td colspan="13"><div class="empty-state" style="padding:24px;"><p>Nenhum caminhão saiu neste dia.</p></div></td></tr>';
   const gs=Object.entries(f.grupos).sort((a,b)=>(a[0]==='Sem cadastro no ERP')-(b[0]==='Sem cadastro no ERP')||a[0].localeCompare(b[0]));
   document.getElementById('fe-grupos').innerHTML=gs.map(([g,ps])=>{const lst=Object.entries(ps).sort((a,b)=>b[1].qtd-a[1].qtd), un=[...new Set(lst.map(x=>x[1].un))];
@@ -2595,7 +2618,7 @@ function renderFechamento(){
       ${lst.map(([n,p])=>`<tr><td>${esc(n)}</td><td>${p.un}</td><td class="num"><b>${nf(p.qtd,p.un==='T'?2:0)}</b></td></tr>`).join('')}
       ${un.length===1?`<tr style="background:#f1f5f9;"><td colspan="2"><b>Total</b></td><td class="num"><b>${nf(lst.reduce((a,x)=>a+x[1].qtd,0),un[0]==='T'?2:0)}</b></td></tr>`:''}</tbody></table></div></div>`;}).join('')
     +(Object.keys(k.totUn).length?`<div class="card fe-grupo"><h4>Total por unidade de medida</h4><div class="table-wrap"><table class="fe-tab"><thead><tr><th>Unidade</th><th class="num">Quantidade</th></tr></thead><tbody>
-      ${Object.entries(k.totUn).map(([u,q])=>`<tr><td>${u==='SC'?'SC — sacos':u==='UN'?'UN — bags / unidades':u==='T'?'T — toneladas':u}</td><td class="num"><b>${nf(q,u==='T'?2:0)}</b></td></tr>`).join('')}</tbody></table></div></div>`:'');
+      ${Object.entries(k.totUn).map(([u,q])=>`<tr><td>${UN_TXT[u]||u}</td><td class="num"><b>${nf(q,u==='T'?2:0)}</b></td></tr>`).join('')}</tbody></table></div></div>`:'');
 }
 /* ↩ ERROU ALGO: a saída é desfeita e o caminhão volta a "carregando". A ordem volta para o
    Carregamento (em_carregamento) para corrigir a bipagem; depois pesa a saída de novo. */
@@ -2687,7 +2710,7 @@ async function imprimirFechamento(){
     .marca{font-size:20px;font-weight:800;color:#042D4D;letter-spacing:-.5px;} .marca small{display:block;font-size:9px;color:#64748b;font-weight:700;letter-spacing:0;}
     h1{font-size:15px;margin:0;color:#042D4D;text-align:right;} .sub{font-size:9.5px;color:#64748b;text-align:right;}
     .lime{height:4px;background:#C9FF64;margin:-8px 0 10px;}
-    .kp{display:grid;grid-template-columns:repeat(8,1fr);gap:5px;margin-bottom:9px;}
+    .kp{display:grid;grid-template-columns:repeat(9,1fr);gap:5px;margin-bottom:9px;}
     .kp div{border:1px solid #cbd5e1;border-left:4px solid #042D4D;border-radius:5px;padding:4px 6px;} .kp b{display:block;font-size:13px;color:#042D4D;} .kp small{font-size:7.5px;color:#64748b;font-weight:700;text-transform:uppercase;}
     table{width:100%;border-collapse:collapse;} th{background:#042D4D;color:#C9FF64;font-size:8px;text-transform:uppercase;padding:4px 5px;text-align:left;}
     td{padding:3.5px 5px;border-bottom:1px solid #e2e8f0;vertical-align:top;} tr:nth-child(even) td{background:#f8fafc;}
@@ -2704,7 +2727,7 @@ async function imprimirFechamento(){
     <div><h1>FECHAMENTO DA PORTARIA</h1><div class="sub">${E(dataBrDia(f.dia))}${fz?` · fechado por ${E(fz.fechado_por||'')} em ${E(dtBr(fz.fechado_em))}`:' · prévia (dia em aberto)'}</div></div></div>
   <div class="lime"></div>
   <div class="kp"><div><b>${k.caminhoes}</b><small>Caminhões</small></div><div><b>${nf(k.toneladas,2)} t</b><small>Produto</small></div><div><b>${nf(k.totUn.SC||0)}</b><small>Sacos</small></div>
-    <div><b>${nf(k.totUn.UN||0)}</b><small>Bags / un.</small></div><div><b>${nf(k.totUn.T||0,2)} t</b><small>Granel</small></div><div><b>${nf(k.pallets)}</b><small>Pallets</small></div>
+    <div><b>${nf(k.totUn.UN||0)}</b><small>Bags / un.</small></div><div><b>${nf(k.totUn.FL||0)}</b><small>Felisbina</small></div><div><b>${nf(k.totUn.T||0,2)} t</b><small>Granel</small></div><div><b>${nf(k.pallets)}</b><small>Pallets</small></div>
     <div><b>${durTxt(k.permanencia)}</b><small>Tempo na fábrica</small></div><div><b>${durTxt(k.espera)}</b><small>Espera na fila</small></div></div>
   <div class="sec">Caminhões que saíram</div>
   <table><thead><tr><th>#</th><th>Placa</th><th>Motorista</th><th>Transportadora</th><th>Ordem</th><th>Veículo</th><th>Unid.</th><th class="n">Cheg.</th><th class="n">Saída</th><th class="n">Pallets</th><th class="n">Tara</th><th class="n">Bruto</th><th class="n">Produto</th><th>Produtos carregados</th></tr></thead><tbody>
@@ -2716,7 +2739,7 @@ async function imprimirFechamento(){
   <div class="gr">${gs.map(([g,ps])=>{const lst=Object.entries(ps).sort((a,b)=>b[1].qtd-a[1].qtd),un=[...new Set(lst.map(x=>x[1].un))];
     return `<div><h3>${E(g)}</h3><table><thead><tr><th>Produto</th><th>Un.</th><th class="n">Qtd.</th></tr></thead><tbody>${lst.map(([n,p])=>`<tr><td>${E(n)}</td><td>${p.un}</td><td class="n">${nf(p.qtd,p.un==='T'?2:0)}</td></tr>`).join('')}
       ${un.length===1?`<tr class="tot"><td colspan="2">Total</td><td class="n">${nf(lst.reduce((a,x)=>a+x[1].qtd,0),un[0]==='T'?2:0)}</td></tr>`:''}</tbody></table></div>`;}).join('')}
-    <div><h3>Total por unidade de medida</h3><table><thead><tr><th>Unidade</th><th class="n">Qtd.</th></tr></thead><tbody>${Object.entries(k.totUn).map(([u,q])=>`<tr><td>${u==='SC'?'SC — sacos':u==='UN'?'UN — bags / unid.':'T — toneladas'}</td><td class="n">${nf(q,u==='T'?2:0)}</td></tr>`).join('')}</tbody></table></div></div>
+    <div><h3>Total por unidade de medida</h3><table><thead><tr><th>Unidade</th><th class="n">Qtd.</th></tr></thead><tbody>${Object.entries(k.totUn).map(([u,q])=>`<tr><td>${UN_TXT[u]||u}</td><td class="n">${nf(q,u==='T'?2:0)}</td></tr>`).join('')}</tbody></table></div></div>
   <div class="ass" style="${fz&&fz.assinatura_img?'margin-top:60px;':'margin-top:40px;'}"><div>${fz&&fz.assinatura_img?`<img src="${fz.assinatura_img}">`:''}Portaria${fz&&fz.assinatura_nome?' — '+E(fz.assinatura_nome):''}${fz?`<small>fechado em ${E(dtBr(fz.fechado_em))}</small>`:''}</div></div>
   <div class="rod"><span>ERP Industrial · Portaria</span><span>Gerado em ${new Date().toLocaleString('pt-BR')}</span></div>
   </body></html>`);

@@ -848,6 +848,9 @@ fábrica específica. Não generalizar.
 - (16/11) **Fechamento da portaria assinado** (portaria.html): "Fechar o dia" abre `#m-fe-ass` — o usuário logado assina (desenho) ou usa a
   última assinatura dele num fechamento; grava `portaria_fechamentos.assinatura_img/assinatura_nome` (migration 134). PDF só com a linha
   **Portaria — nome** (assinatura em cima); saíram Expedição e Gerência. Histórico: entra quem chegou OU saiu no período.
+- (16/11) **Fechamento mostra tudo que saiu**: produtos da Felisbina reconhecidos (`ehFelisNome`/`felNome`, grupo "🏪 Felisbina", unidade
+  `FL`, KPI próprio — nunca "sem cadastro") e caminhões da DSM (`dsm_caminhoes` com `saida_em` no dia) como linhas `dsm` com granel em t
+  (`nf_peso_liquido` ou saída−entrada; produto da NF → ERP por `produtoDsm`). A aba DSM continua com o controle detalhado.
 
 ### Granel no Estoque do carregamento (16/11/2026)
 - `renderSaldoGranel` novo: por produto, "FICOU NO ESTOQUE" em destaque, produzido/carregado hoje e no mês, e tabela dia a dia do mês
