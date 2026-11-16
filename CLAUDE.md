@@ -830,6 +830,13 @@ fábrica específica. Não generalizar.
   outro) no pátio (`patioSalvar`) e no computador (select no "Carga incompleta"). Itens da linha gravam `pedido_qtd`, `carregado_qtd`, `motivo_menos`.
   O estoque baixa só o que foi carregado (pallets bipados / sem QR lançados). Granel fora (balança nunca fecha).
 
+### Granel no Estoque do carregamento (16/11/2026)
+- `renderSaldoGranel` novo: por produto, "FICOU NO ESTOQUE" em destaque, produzido/carregado hoje e no mês, e tabela dia a dia do mês
+  (produzido · carregado · acerto · estoque no fim do dia). Produto sem movimento e sem estoque vira uma linha cinza.
+- Conta (`carregarGranel` / `granelSaldoTon`): ponto de partida = `estoque_sem_qr` tipo 'inicial' mais novo do produto (kg, fim do dia; hoje 13/11 = 28.200 kg Cinza,
+  0 Branco 02) + acertos depois dele + produção das **OPs** (`produtos_op[].total_sacos` kg) − Portaria DSM − cargas com tonelada. Os registros
+  LON-…-GRANEL (14 t fixas cada) **não** contam mais. Dias antes do ponto de partida são calculados para trás. Conferido: 01–16/11 igual à planilha dia a dia.
+
 ### Leitura de QR mais forte (16/11/2026)
 - carregamento.html `LeitorQR._quadroZx`: o ZXing alterna quadro inteiro e centro (60%×80%) com filtro de mínimo 1/2 px (`qrEngrossarPretos`,
   tampa falha de toner). Nativo (BarcodeDetector) continua nos quadros ímpares. Teste com câmera falsa no Chromium: tinta falhada M 0/4 → 4/4.

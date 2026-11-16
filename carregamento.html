@@ -1117,39 +1117,52 @@ async function garantirPalletsIds(lista){
   }
 }
 
-/* ── GRANEL: SALDO EM TONELADA ──────────────────────────────────────────────
-   Granel não tem pallet para bipar, então não tem estoque de pallet — mas tem
-   saldo. Ele sai de onde o sistema já sabe:
-     produzido = o que a produção lançou (a OP grava a carga em kg)
-     carregado = a tonelada lançada nas cargas (item sem pallet, motivo granel)
-     saldo     = produzido − carregado, acumulado
-   Nada de cadastro novo e nada chutado: as duas pontas são apontamento real. */
-function granelProduzidoTon(nome){
-  const alvo=normNome(nome);let kg=0;
-  _granel.forEach(p=>{ if(normNome(p.produto)===alvo) kg+=sacosDoPallet(p); });
-  return kg/1000;
+/* ── GRANEL: ESTOQUE EM TONELADA (16/11) ───────────────────────────────────
+   Granel não tem pallet. O estoque vem de três pontas reais:
+     ponto de partida = estoque_sem_qr tipo 'inicial' mais novo do produto (kg, fim do dia)
+                        + acertos depois dele
+     produzido        = OP (produtos_op[].total_sacos, em kg) depois do ponto de partida
+     carregado        = Portaria DSM (granel_saidas_dsm) + cargas com tonelada lançada
+   Os "pallets" LON-…-GRANEL NÃO entram na conta (cada um tinha só 14 t fixas e
+   não batiam com a OP). Dias antes do ponto de partida são contados de trás
+   para frente, só para mostrar o mês inteiro. */
+let _granelBase={}, _granelOps=[];
+async function carregarGranel(){
+  const sq=await _supabase.from('estoque_sem_qr').select('produto,data,sacos,tipo').ilike('produto','%granel%');
+  if(sq.error){toast('Não li o estoque inicial do granel: '+sq.error.message,'danger');return;}
+  const base={};
+  (sq.data||[]).filter(r=>r.tipo==='inicial').forEach(r=>{const k=normNome(r.produto); if(!base[k]||r.data>base[k].corte) base[k]={produto:r.produto,corte:String(r.data).slice(0,10),kg:0,acertos:[]};});
+  (sq.data||[]).forEach(r=>{const b=base[normNome(r.produto)]; if(!b)return; const d=String(r.data).slice(0,10);
+    if(r.tipo==='inicial'&&d===b.corte) b.kg+=Number(r.sacos)||0; else if(r.tipo!=='inicial'&&d>b.corte) b.acertos.push({data:d,kg:Number(r.sacos)||0}); });
+  _granelBase=base;
+  const ini1=hojeISO().slice(0,8)+'01', cortes=Object.values(base).map(b=>b.corte), desde=[ini1,...cortes].sort()[0];
+  const op=await _supabase.from('producao').select('data,produtos_op').gte('data',desde);
+  if(op.error){toast('Não li a produção de granel: '+op.error.message,'danger');return;}
+  const ops=[]; (op.data||[]).forEach(o=>(Array.isArray(o.produtos_op)?o.produtos_op:[]).forEach(x=>{ if(x&&ehGranel(x.produto)){const kg=Number(x.total_sacos)||0; if(kg) ops.push({produto:x.produto,data:String(o.data).slice(0,10),kg});} }));
+  _granelOps=ops;
 }
-function granelCarregadoTon(nome,exceptoCarrId){
-  const alvo=normNome(nome);let t=0;
-  (_carregamentos||[]).forEach(c=>{
-    if(exceptoCarrId&&c.id===exceptoCarrId)return;   // reabrir carga não conta duas vezes
-    itensDe(c).forEach(it=>{
-      if(!it.avulso||normNome(it.produto)!==alvo)return;
-      t+=Number(it.ton)|| (it.unidade==='t'?Number(it.sacos)||0:0);
-    });
-  });
-  return t;
+/* movimento por dia (t) do produto: {dia:{prod,carr,dsm}} */
+function granelDias(nome,exceptoCarrId){
+  const a=normNome(nome), m={}, dia=d=>m[d]||(m[d]={prod:0,carr:0,dsm:0});
+  _granelOps.forEach(o=>{ if(normNome(o.produto)===a) dia(o.data).prod+=o.kg/1000; });
+  _dsmSaidas.forEach(r=>{ if(normNome(r.produto)===a){const x=dia(String(r.data).slice(0,10)); x.carr+=(Number(r.kg)||0)/1000; x.dsm+=(Number(r.kg)||0)/1000;} });
+  (_carregamentos||[]).forEach(c=>{ if(exceptoCarrId&&c.id===exceptoCarrId)return;   // reabrir carga não conta duas vezes
+    itensDe(c).forEach(it=>{ if(!it.avulso||normNome(it.produto)!==a)return; const t=Number(it.ton)||(it.unidade==='t'?Number(it.sacos)||0:0); if(t) dia(String(c.data||'').slice(0,10)).carr+=t; }); });
+  return m;
 }
-// Saldo. `exceptoCarrId` = carga sendo editada agora: o que ela já tirou volta
-// para o saldo, senão editar uma carga salva parecia estouro de estoque.
 function granelDsmTon(nome){const a=normNome(nome);return _dsmSaidas.reduce((t,r)=>t+(normNome(r.produto)===a?(Number(r.kg)||0)/1000:0),0);}
+// Saldo. `exceptoCarrId` = carga sendo editada agora: o que ela já tirou volta para o saldo.
 function granelSaldoTon(nome,exceptoCarrId){
-  const prod=granelProduzidoTon(nome), dsm=granelDsmTon(nome), carr=granelCarregadoTon(nome,exceptoCarrId)+dsm, aj=semQrSaldo(nome)/1000;   // DSM sai sozinho; acerto com a planilha (kg)
-  return {produzido:prod, carregado:carr, dsm, ajuste:aj, saldo:prod-carr+aj};
+  const b=_granelBase[normNome(nome)]||{corte:'0000-00-00',kg:0,acertos:[]}, m=granelDias(nome,exceptoCarrId);
+  let prod=0,carr=0,dsm=0; Object.entries(m).forEach(([d,x])=>{ if(d>b.corte){prod+=x.prod;carr+=x.carr;dsm+=x.dsm;} });
+  const aj=b.acertos.reduce((t,x)=>t+x.kg,0)/1000, ini=b.kg/1000;
+  return {inicial:ini, corte:b.corte, produzido:prod, carregado:carr, dsm, ajuste:aj, saldo:ini+prod-carr+aj, dias:m, acertos:b.acertos};
 }
 function granelProdutos(){
-  const m={}; _granel.forEach(p=>{ if(p.produto)m[normNome(p.produto)]=p.produto; });
-  return Object.values(m);
+  const m={}; const add=n=>{ if(n&&ehGranel(n)) m[normNome(n)]=m[normNome(n)]||n; };
+  Object.values(_granelBase).forEach(b=>add(b.produto)); _granelOps.forEach(o=>add(o.produto)); _dsmSaidas.forEach(r=>add(r.produto));
+  (_prods||[]).forEach(p=>{ if(p.status!=='inativo') add(p.nome); });
+  return Object.values(m).sort((x,y)=>x.localeCompare(y,'pt-BR'));
 }
 function pesoUnidade(nome){const p=prodObj(nome);const v=Number(p.peso_unidade_kg);return v>0?v:null;}
 
@@ -1452,6 +1465,7 @@ async function recarregarTudo(showToast){
     { const sq=await _supabase.from('estoque_sem_qr_saldo').select('produto,saldo');
       if(sq.error)toast('Não li o estoque sem QR: '+sq.error.message,'danger');
       _semQrSaldo={};(sq.data||[]).forEach(r=>{const v=Number(r.saldo)||0;if(v)_semQrSaldo[normNome(r.produto)]={produto:r.produto,saldo:v};}); }
+    await carregarGranel();
     _prods=pr.data||[];_linhas=ln.data||[];_carregamentos=cg.data||[];
     const todosPallets=pl.data||[];
     _pallets=todosPallets.filter(p=>!ehGranel(p.produto));
@@ -1567,37 +1581,75 @@ function renderKpisEstoque(){
   renderSaldoGranel();
 }
 
-/* Granel não entra na tabela de pallets (não existe pallet de granel), mas tem
-   saldo e precisa aparecer: produzido − carregado, em tonelada. */
+/* Granel (16/11): por produto — estoque agora em destaque, hoje e mês (produzido × carregado)
+   e o dia a dia do mês com o estoque no fim de cada dia. */
+function isoMais(d,n){const x=new Date(d+'T12:00:00');x.setDate(x.getDate()+n);return x.toISOString().slice(0,10);}
+function granelEstoquePorDia(g,ini,fim){
+  const E={}, mov=d=>{const x=g.dias[d]||{prod:0,carr:0};const aj=g.acertos.filter(a=>a.data===d).reduce((t,a)=>t+a.kg,0)/1000;return x.prod-x.carr+aj;};
+  if(g.corte<'0001'){ let e=0; for(let d=ini;d<=fim;d=isoMais(d,1)){e+=mov(d);E[d]=e;} return E; }
+  E[g.corte]=g.inicial;
+  for(let d=isoMais(g.corte,1);d<=fim;d=isoMais(d,1)) E[d]=E[isoMais(d,-1)]+mov(d);
+  for(let d=isoMais(g.corte,-1);d>=isoMais(ini,-1);d=isoMais(d,-1)) E[d]=E[isoMais(d,1)]-mov(isoMais(d,1));
+  return E;
+}
 function renderSaldoGranel(){
   const el=document.getElementById('est-granel');if(!el)return;
-  const prods=granelProdutos();
-  [...Object.values(_semQrSaldo).map(x=>x.produto),..._dsmSaidas.map(r=>r.produto)].forEach(n=>{if(ehGranel(n)&&!prods.some(x=>normNome(x)===normNome(n)))prods.push(n);});
-  if(!prods.length){el.innerHTML='';return;}
-  const linhas=prods.map(nome=>{
-    const g=granelSaldoTon(nome);
-    const cor=g.saldo<0?'#dc2626':(g.saldo<=0.001?'#94a3b8':'#16a34a');
-    return `<div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:9px 0;border-top:1px solid #eef2f6;">
-      <strong style="color:var(--primary);font-size:13px;min-width:150px;">${esc(nome)}</strong>
-      <span style="font-size:12px;color:#64748b;">produzido <strong style="color:#334155;">${n2(g.produzido)} t</strong></span>
-      <span style="font-size:12px;color:#64748b;">carregado <strong style="color:#334155;">${n2(g.carregado)} t</strong>${g.dsm?` <span style="color:#94a3b8;">(Portaria DSM ${n2(g.dsm)} t)</span>`:''}</span>
-      ${g.ajuste?`<span style="font-size:12px;color:#64748b;">acerto <strong style="color:#334155;">${g.ajuste>0?'+':''}${n2(g.ajuste)} t</strong></span>`:''}
-      <span style="margin-left:auto;font-size:12px;color:#64748b;">saldo
-        <strong style="color:${cor};font-size:17px;">${n2(g.saldo)} t</strong></span>
-    </div>`;
-  }).join('');
-  /* O produzido sai da lista de pallets, que vem com teto de 5.000 linhas. Se o
-     teto encostar, o produzido está cortado e o saldo mentiria para baixo — tem
-     que aparecer, não ser escondido (protocolo #7). */
-  const truncado=(_pallets.length+_granel.length)>=PALLETS_TETO;
+  const hj=hojeISO(), ini=hj.slice(0,8)+'01', DS=['dom','seg','ter','qua','qui','sex','sáb'];
+  const t=v=>n2(v)+' t', dd=d=>d.slice(8,10)+'/'+d.slice(5,7);
+  const parados=[], blocos=[];
+  granelProdutos().forEach(nome=>{
+    const g=granelSaldoTon(nome), E=granelEstoquePorDia(g,ini,hj);
+    let pm=0,cm=0,dsmM=0; const linhas=[];
+    for(let d=ini;d<=hj;d=isoMais(d,1)){ const x=g.dias[d]||{prod:0,carr:0,dsm:0}; pm+=x.prod; cm+=x.carr; dsmM+=x.dsm;
+      const aj=g.acertos.filter(a=>a.data===d).reduce((s,a)=>s+a.kg,0)/1000;
+      if(x.prod||x.carr||aj||d===hj||d===g.corte) linhas.push({d,...x,aj,est:E[d]}); }
+    const h=g.dias[hj]||{prod:0,carr:0};
+    if(!pm&&!cm&&Math.abs(g.saldo)<0.001){ parados.push(nome); return; }
+    const cor=g.saldo<-0.001?'#dc2626':(g.saldo<=0.001?'#64748b':'#15803d'), fundo=g.saldo<-0.001?'#fef2f2':(g.saldo<=0.001?'#f1f5f9':'#ecfdf5');
+    const box=(rot,v,cl,sub)=>`<div style="flex:1;min-width:120px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:8px 12px;">
+        <div style="font-size:10.5px;font-weight:800;color:#64748b;text-transform:uppercase;letter-spacing:.3px;">${rot}</div>
+        <div style="font-size:18px;font-weight:800;color:${cl};">${v}</div>${sub?`<div style="font-size:10.5px;color:#94a3b8;">${sub}</div>`:''}</div>`;
+    const tab=linhas.slice().reverse().map(r=>{ const sem=DS[new Date(r.d+'T12:00:00').getDay()], ehH=r.d===hj, ehC=r.d===g.corte;
+      return `<tr style="${ehH?'background:#eff6ff;':''}">
+        <td style="padding:5px 8px;white-space:nowrap;"><strong>${dd(r.d)}</strong> <span style="color:#94a3b8;">${sem}</span>${ehH?' <span style="font-size:10px;font-weight:800;color:#1d4ed8;">HOJE</span>':''}${ehC?' <span style="font-size:10px;font-weight:800;color:#7c3aed;" title="Estoque conferido no fim deste dia">PONTO DE PARTIDA</span>':''}</td>
+        <td style="padding:5px 8px;text-align:right;color:${r.prod?'#15803d':'#cbd5e1'};font-weight:${r.prod?800:400};">${r.prod?'+ '+t(r.prod):'—'}</td>
+        <td style="padding:5px 8px;text-align:right;color:${r.carr?'#b45309':'#cbd5e1'};font-weight:${r.carr?800:400};">${r.carr?'− '+t(r.carr):'—'}${r.dsm&&r.dsm<r.carr-0.001?` <span style="font-size:10px;color:#94a3b8;">(DSM ${n2(r.dsm)})</span>`:''}</td>
+        <td style="padding:5px 8px;text-align:right;color:${r.aj?'#7c3aed':'#cbd5e1'};">${r.aj?(r.aj>0?'+ ':'− ')+t(Math.abs(r.aj)):'—'}</td>
+        <td style="padding:5px 8px;text-align:right;font-weight:800;color:${(r.est||0)<-0.001?'#dc2626':'#0f172a'};">${r.est==null?'—':t(r.est)}</td></tr>`; }).join('');
+    const temAj=linhas.some(r=>r.aj);
+    blocos.push(`<div style="border-top:1px solid #eef2f6;padding:12px 0 6px;">
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px;">
+        <strong style="color:var(--primary);font-size:15px;">${esc(nome)}</strong>
+        <div style="margin-left:auto;background:${fundo};border:2px solid ${cor};border-radius:12px;padding:6px 16px;text-align:right;">
+          <div style="font-size:10.5px;font-weight:800;color:${cor};letter-spacing:.4px;">FICOU NO ESTOQUE</div>
+          <div style="font-size:26px;font-weight:900;color:${cor};line-height:1.1;">${t(g.saldo)}</div></div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+        ${box('Produzido hoje',h.prod?t(h.prod):'—','#15803d')}
+        ${box('Carregado hoje',h.carr?t(h.carr):'—','#b45309')}
+        ${box('Produzido no mês',t(pm),'#15803d')}
+        ${box('Carregado no mês',t(cm),'#b45309',dsmM?('Portaria DSM '+n2(dsmM)+' t'+(cm-dsmM>0.001?' · cargas '+n2(cm-dsmM)+' t':'')):'')}
+      </div>
+      <details ${linhas.length<=12?'open':''}><summary style="cursor:pointer;font-size:12px;font-weight:800;color:#475569;">📅 Dia a dia do mês</summary>
+        <div style="max-height:300px;overflow:auto;margin-top:6px;border:1px solid #e2e8f0;border-radius:8px;">
+        <table style="width:100%;min-width:480px;border-collapse:collapse;font-size:12.5px;">
+          <thead style="position:sticky;top:0;background:#f8fafc;"><tr style="color:#64748b;font-size:11px;text-transform:uppercase;">
+            <th style="padding:6px 8px;text-align:left;">Dia</th><th style="padding:6px 8px;text-align:right;">Produzido</th>
+            <th style="padding:6px 8px;text-align:right;">Carregado</th><th style="padding:6px 8px;text-align:right;" title="Acerto de estoque (contagem)">Acerto</th>
+            <th style="padding:6px 8px;text-align:right;">Estoque no fim do dia</th></tr></thead>
+          <tbody>${tab}</tbody></table></div>
+        ${temAj?'':'<div style="font-size:10.5px;color:#94a3b8;margin-top:4px;">Sem acerto de contagem no mês.</div>'}
+      </details>
+    </div>`);
+  });
+  if(!blocos.length&&!parados.length){el.innerHTML='';return;}
   el.innerHTML=`<div class="card" style="margin-bottom:14px;">
     <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap;">
-      <div style="font-weight:800;font-size:13px;color:var(--primary);">🚛 Granel — saldo em tonelada</div>
-      <span style="font-size:11.5px;color:#94a3b8;">produzido menos carregado · granel não é paletizado, então fica fora da tabela de pallets</span>
+      <div style="font-weight:800;font-size:14px;color:var(--primary);">🚛 Granel — em tonelada</div>
+      <span style="font-size:11.5px;color:#94a3b8;">produzido pela OP · carregado pela Portaria DSM e pelas cargas · estoque = o que sobrou</span>
     </div>
-    ${truncado?`<div class="aviso" style="margin:8px 0 0;background:#ffe4e6;border-color:#fecdd3;color:#be123c;">
-      ⚠ A lista de pallets bateu o teto de ${n0(PALLETS_TETO)} linhas: o <strong>produzido</strong> pode estar cortado e o saldo aparecer menor do que é. Aumente o teto da consulta antes de confiar neste número.</div>`:''}
-    ${linhas}
+    ${blocos.join('')}
+    ${parados.length?`<div style="border-top:1px solid #eef2f6;padding-top:8px;font-size:12px;color:#94a3b8;">Sem estoque e sem movimento no mês: ${parados.map(esc).join(' · ')}</div>`:''}
   </div>`;
 }
 function resumoEstoqueGlobal(){
