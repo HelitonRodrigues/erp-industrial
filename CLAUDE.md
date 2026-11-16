@@ -830,6 +830,13 @@ fábrica específica. Não generalizar.
   outro) no pátio (`patioSalvar`) e no computador (select no "Carga incompleta"). Itens da linha gravam `pedido_qtd`, `carregado_qtd`, `motivo_menos`.
   O estoque baixa só o que foi carregado (pallets bipados / sem QR lançados). Granel fora (balança nunca fecha).
 
+### Leitura de QR mais forte (16/11/2026)
+- carregamento.html `LeitorQR._quadroZx`: o ZXing alterna quadro inteiro e centro (60%×80%) com filtro de mínimo 1/2 px (`qrEngrossarPretos`,
+  tampa falha de toner). Nativo (BarcodeDetector) continua nos quadros ímpares. Teste com câmera falsa no Chromium: tinta falhada M 0/4 → 4/4.
+- totem.html e aferidor.html: `qrResistente` = correção **H** na **versão 7** (6 marcas de alinhamento → aguenta papel ondulado: ondulação de ½
+  quadradinho 0/8 → 6/8) se o quadradinho ficar ≥ 0,75 mm; senão H automático (≥ 0,6 mm); senão Q. Totem 60 mm → 1,10 mm; aferidor 44 mm → 0,81 mm;
+  térmica 29 mm continua 0,63 mm. Rótulos já impressos (totem era M) seguem como estão.
+
 ### Programação de Cargas × saída da Portaria (migração 132, 16/11/2026)
 - Gatilho `tg_prog_portaria_saida` em `portaria` (`prog_portaria_saida`, SECURITY DEFINER): quando o caminhão sai (`status='finalizado'` + `hora_saida`),
   cada `romaneio_itens.pedido` da ordem (normalizado `^[A-Za-z0-9]+`) vira carregado na Programação — não carregado ou carregado por salescode/planilha →

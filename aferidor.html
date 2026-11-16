@@ -658,6 +658,16 @@ function renderRotulos() {
 // ══════════════════════════════════════════════════════════════════════════
 // Resolução da impressora, em pontos por milímetro (203 dpi ÷ 25,4).
 const DOTS_POR_MM = 8;
+/* QR mais resistente que cabe com módulo legível (16/11):
+   correção H (30%) na versão 7 — tem 6 marcas de alinhamento, o leitor acompanha o papel ondulado
+   (simulado: ondulação de 1/2 quadradinho lia 0/8 na versão 5 e 6/8 na versão 7).
+   Só usa a versão 7 se o quadradinho ficar com 0,75 mm ou mais; senão H automático; senão Q. */
+function qrResistente(texto,ladoMaxMm){
+  const tenta=o=>{try{return QRCode.create(texto,o);}catch(e){return null;}}, mod=q=>ladoMaxMm/(q.modules.size+8);
+  let q=tenta({errorCorrectionLevel:'H',version:7}); if(q&&mod(q)>=0.75) return q;
+  q=tenta({errorCorrectionLevel:'H'}); if(q&&mod(q)>=0.6) return q;
+  return QRCode.create(texto,{errorCorrectionLevel:'Q'});
+}
 function qrSvgLocal(texto, ladoMaxMm, ecLevel, pontosPorMm) {
   if (typeof QRCode === 'undefined' || !QRCode.create) {
     // Sem a biblioteca não existe QR: melhor dizer isso na etiqueta do que
@@ -666,7 +676,7 @@ function qrSvgLocal(texto, ladoMaxMm, ecLevel, pontosPorMm) {
       align-items:center;justify-content:center;text-align:center;font-size:7pt;font-weight:700;
       font-family:Arial,sans-serif;padding:2mm;box-sizing:border-box;">QR NÃO GERADO<br>js/qrcode.min.js<br>não carregou</div>`;
   }
-  const qr = QRCode.create(texto, { errorCorrectionLevel: ecLevel || 'Q' });
+  const qr = ecLevel ? QRCode.create(texto, { errorCorrectionLevel: ecLevel }) : qrResistente(texto, ladoMaxMm);
   const n = qr.modules.size, d = qr.modules.data, borda = 4;   // quiet zone de 4 módulos (norma)
   const tot = n + borda * 2;
   // ── AJUSTE FINO QUE IMPORTA NA TÉRMICA ────────────────────────────────

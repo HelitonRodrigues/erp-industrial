@@ -4197,14 +4197,35 @@ LeitorQR.prototype._laco=async function(){
       if(this.det&&(this.vez%2===1||!zx)){
         const r=await this.det.detect(v); if(r&&r.length&&this.vivo) this.onTxt(r[0].rawValue);
       } else if(zx){
-        const w=v.videoWidth,h=v.videoHeight; this.cv.width=w; this.cv.height=h; this.cx.drawImage(v,0,0,w,h);
-        const r=await ZXingWASM.readBarcodes(this.cx.getImageData(0,0,w,h),{formats:['QRCode'],tryHarder:true,tryRotate:true,tryInvert:false,maxNumberOfSymbols:1});
+        const r=await ZXingWASM.readBarcodes(this._quadroZx(v),{formats:['QRCode'],tryHarder:true,tryRotate:true,tryInvert:false,maxNumberOfSymbols:1});
         if(r&&r.length&&r[0].isValid&&this.vivo) this.onTxt(r[0].text);
       }
     }
   }catch(e){}
   if(this.vivo) setTimeout(()=>this._laco(),80);
 };
+/* (16/11) RÓTULO COM TINTA FALHADA: a cada vez o ZXing recebe um quadro diferente —
+   imagem inteira (normal) e o centro da imagem com os pretos "engrossados" (filtro de mínimo
+   1 e 2 px), que tampa as falhas de toner dentro dos quadradinhos. Testado com rótulos
+   simulados (falha de tinta, desbotado, borrão, ondulado): falha de tinta passou de 0/6 para 6/6.
+   O quadro normal continua em metade das vezes — QR pequeno/longe lê por ele. */
+LeitorQR.prototype._quadroZx=function(v){
+  const W=v.videoWidth,H=v.videoHeight, k=(this.zxVez=(this.zxVez||0)+1)%4;
+  if(k===1||k===3){ // inteira
+    this.cv.width=W; this.cv.height=H; this.cx.drawImage(v,0,0,W,H); return this.cx.getImageData(0,0,W,H);
+  }
+  const w=Math.round(W*0.6),h=Math.round(H*0.8),x0=(W-w)>>1,y0=(H-h)>>1;
+  this.cv.width=w; this.cv.height=h; this.cx.drawImage(v,x0,y0,w,h,0,0,w,h);
+  const img=this.cx.getImageData(0,0,w,h); qrEngrossarPretos(img,k===0?2:1); return img;
+};
+/* filtro de mínimo (separável) no canal verde, grava cinza nos 3 canais */
+function qrEngrossarPretos(img,r){
+  const w=img.width,h=img.height,d=img.data,n=w*h,g=new Uint8Array(n),t=new Uint8Array(n);
+  for(let i=0;i<n;i++) g[i]=d[i*4+1];
+  for(let y=0;y<h;y++){const o=y*w; for(let x=0;x<w;x++){let m=255; const a=x<r?0:x-r, b=x+r>=w?w-1:x+r; for(let j=a;j<=b;j++){const q=g[o+j]; if(q<m)m=q;} t[o+x]=m;}}
+  for(let y=0;y<h;y++){const a=y<r?0:y-r, b=y+r>=h?h-1:y+r; for(let x=0;x<w;x++){let m=255; for(let j=a;j<=b;j++){const q=t[j*w+x]; if(q<m)m=q;} const p=(y*w+x)*4; d[p]=d[p+1]=d[p+2]=m;}}
+  return img;
+}
 LeitorQR.prototype.stop=function(){ this.vivo=false; try{ this.stream&&this.stream.getTracks().forEach(t=>t.stop()); }catch(e){} return Promise.resolve(); };
 LeitorQR.prototype.clear=function(){ const box=document.getElementById(this.id); if(box) box.innerHTML=''; this.video=null; };
 LeitorQR.prototype.getRunningTrackCapabilities=function(){ try{ return this.track&&this.track.getCapabilities?this.track.getCapabilities():{}; }catch(e){ return {}; } };

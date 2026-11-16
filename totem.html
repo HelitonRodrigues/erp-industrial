@@ -310,9 +310,19 @@ const ultimoHoje=(linha,produto)=>_emHoje.filter(e=>e.linha===linha&&e.produto==
 const palDe=r=>({numero:r.numero,codigo:r.codigo,lote:r.lote,validade:r.validade,data:r.dia,linha:r.linha,produto:r.produto});
 
 /* ═══ QR em SVG (igual ao aferidor) ═══ */
+/* QR mais resistente que cabe com módulo legível (16/11):
+   correção H (30%) na versão 7 — tem 6 marcas de alinhamento, o leitor acompanha o papel ondulado
+   (simulado: ondulação de 1/2 quadradinho lia 0/8 na versão 5 e 6/8 na versão 7).
+   Só usa a versão 7 se o quadradinho ficar com 0,75 mm ou mais; senão H automático; senão Q. */
+function qrResistente(texto,ladoMaxMm){
+  const tenta=o=>{try{return QRCode.create(texto,o);}catch(e){return null;}}, mod=q=>ladoMaxMm/(q.modules.size+8);
+  let q=tenta({errorCorrectionLevel:'H',version:7}); if(q&&mod(q)>=0.75) return q;
+  q=tenta({errorCorrectionLevel:'H'}); if(q&&mod(q)>=0.6) return q;
+  return QRCode.create(texto,{errorCorrectionLevel:'Q'});
+}
 function qrSvg(texto,ladoMaxMm,dpmm){
   if(typeof QRCode==='undefined'||!QRCode.create) return `<div style="width:${ladoMaxMm}mm;height:${ladoMaxMm}mm;border:0.5mm solid #000;display:flex;align-items:center;justify-content:center;font:700 7pt Arial;">QR NÃO GERADO</div>`;
-  const qr=QRCode.create(texto,{errorCorrectionLevel:'M'}), n=qr.modules.size, d=qr.modules.data, b=4, tot=n+b*2;
+  const qr=qrResistente(texto,ladoMaxMm), n=qr.modules.size, d=qr.modules.data, b=4, tot=n+b*2;
   dpmm=dpmm||8; const dm=Math.max(3,Math.floor((ladoMaxMm*dpmm)/tot)), lado=(tot*dm)/dpmm;
   let r=''; for(let y=0;y<n;y++){let x=0;while(x<n){if(d[y*n+x]){const x0=x;while(x<n&&d[y*n+x])x++;r+=`<rect x="${x0+b}" y="${y+b}" width="${x-x0}" height="1"/>`;}else x++;}}
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${tot} ${tot}" width="${lado}mm" height="${lado}mm" shape-rendering="crispEdges" style="display:block;"><rect width="${tot}" height="${tot}" fill="#fff"/><g fill="#000">${r}</g></svg>`;
