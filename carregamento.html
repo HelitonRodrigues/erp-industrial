@@ -2464,7 +2464,7 @@ async function vigiarOrdensPortaria(forcar){
 if(!_ordVigia)_ordVigia=setInterval(async()=>{await vigiarOrdensPortaria();if(!document.hidden)await atualizarPortaria();},20000);
 function itensRomaneio(numero){return _romItens.filter(x=>String(x.numero)===String(numero));}
 /* produto do ERP quando a Portaria ligou o item da ordem ao cadastro (migração 054) — senão o texto da ordem */
-function linhasRomaneio(r){return itensRomaneio(r.numero).map(it=>({felis:!!it.felis_item_id||/\(Felisbina\)\s*$/i.test(it.produto_erp||''),pedido:it.pedido||'',cidade:it.cidade||'',cliente:it.cliente||'',produto:it.produto_erp||it.produto||'',produto_ordem:it.produto||'',qtd:parseFloat(it.quantidade)||0,lote:it.lote||''}));}
+function linhasRomaneio(r){return itensRomaneio(r.numero).map(it=>({felis:!!it.felis_item_id||/\(Felisbina\)\s*$/i.test(it.produto_erp||''),pedido:it.pedido||'',cidade:it.cidade||'',cliente:it.cliente||'',produto:it.produto_erp||it.produto||'',produto_ordem:it.produto||'',qtd:parseFloat(it.quantidade)||0,lote:it.lote||'',plt:Number((String(it.unidades||'').match(/(\d+)\s*(plt|pal|pallet|palete)/i)||[])[1])||0}));}
 function cargasDaOrdem(numero){return _carregamentos.filter(c=>String(c.ordem_numero)===String(numero));}
 
 function renderOrdens(){
@@ -2930,7 +2930,7 @@ function iniciarCarregamento(opt){
   _carrPreIds=new Set();
   _alloc={};_allocSet=new Set();_extra={};_qtdInf={};_qtdUlt={};_avulsos={};_linhasCarr=[];_linhaAtiva=null;_keySeq=0;
   Object.keys(_libEnc).forEach(k=>delete _libEnc[k]);
-  _doa={};_doaPre={};_modoDoa=false;
+  _doa={};_doaPre={};_modoDoa=false;_doaAuto={};_ptGranel=null;
   if(rom){
     _carrOrdem={numero:rom.numero,transportadora:rom.transportadora,motorista:rom.motorista,placa:rom.placa,
       data_emissao:rom.data_emissao,status:rom.status||'recebido',romId:rom.id};
@@ -2985,7 +2985,7 @@ function iniciarCarregamento(opt){
   }
   if(!_linhasCarr.length)addLinha({pedido:'',cidade:'',cliente:'',produto:'',qtd:0,lote:'',sacksNeed:0,manual:true});
   _linhaAtiva=_linhasCarr[0].key;
-  _linhasCarr.forEach(l=>{if(!l.palPedido)l.palPedido=palletPadraoDoProduto(l.produto);});
+  _linhasCarr.forEach(l=>{if(_patio&&!l.palPedido&&l.palOrdem>0)l.palPedido=l.palOrdem;if(!l.palPedido)l.palPedido=palletPadraoDoProduto(l.produto);});
   /* NADA SE PERDE: se este aparelho tem a carga desta ordem guardada (tela
      bloqueou, bateria acabou, internet caiu), continua exatamente dela. */
   if(!opt.semRascunho){
@@ -3011,6 +3011,9 @@ function addLinha(l){
   const nova={pedido:l.pedido||'',cidade:l.cidade||'',cliente:l.cliente||'',produto:l.produto||'',
     qtd:l.qtd||0,lote:l.lote||'',manual:!!l.manual,granel:granel,
     sacksNeed:granel?0:(l.sacksNeed||0), tonNeed:granel?(Number(l.sacksNeed||l.qtd)||0):0, key:novaKey()};
+  /* (16/11) a ordem diz "N plt": qtd ÷ N = sacos por pallet NO CAMINHÃO (ex.: 2000 sc / 10 plt = 200) */
+  const _pq=Math.round(Number(l.qtd)||0),_pn=Number(l.plt)||0;
+  if(!granel&&!l.felis&&_pn>0&&_pq%_pn===0&&_pq/_pn>=20)nova.palOrdem=_pq/_pn;
   _linhasCarr.push(nova);_alloc[nova.key]=[];
   /* produto da Felisbina (revenda/acabado) não tem QR: o operador CONFIRMA a quantidade carregada (patioFelis) */
   if(l.felis){nova.felis=true;nova.granel=false;nova.tonNeed=0;nova.sacksNeed=Number(l.qtd)||nova.sacksNeed||0;}
@@ -5125,7 +5128,7 @@ function salvarRascunho(extra){
   }
   all[num]={ordem:_carrOrdem,editId:_carrEditId,preIds:[..._carrPreIds],linhas:_linhasCarr,alloc:_alloc,
     extra:_extra,qtdInf:_qtdInf,qtdUlt:_qtdUlt,doa:_doa,doaPre:_doaPre,avulsos:_avulsos,ativa:_linhaAtiva,keySeq:_keySeq,
-    op:_opSel,enc:_opEncarregado,ts:Date.now(),pendente:!!(extra&&extra.pendente),libEnc:_libEnc};
+    op:_opSel,enc:_opEncarregado,ts:Date.now(),pendente:!!(extra&&extra.pendente),libEnc:_libEnc,doaAuto:_doaAuto};
   lsSet(LS_RASC,all);
 }
 function apagarRascunho(num){const all=rascunhos();if(all[num]){delete all[num];lsSet(LS_RASC,all);}}
@@ -5134,7 +5137,7 @@ function aplicarRascunho(r){
   _carrPreIds=new Set(r.preIds||[]);
   _linhasCarr=Array.isArray(r.linhas)&&r.linhas.length?r.linhas:_linhasCarr;
   _extra=r.extra||{};_qtdInf=r.qtdInf||{};_qtdUlt=r.qtdUlt||{};_doa=r.doa||{};_doaPre=r.doaPre||{};_avulsos=r.avulsos||{};
-  _keySeq=Math.max(_keySeq,Number(r.keySeq)||0);
+  _keySeq=Math.max(_keySeq,Number(r.keySeq)||0);_doaAuto=r.doaAuto||{};
   Object.keys(_libEnc).forEach(k=>delete _libEnc[k]);Object.assign(_libEnc,r.libEnc||{});
   if(r.op)_opSel=r.op; if(r.enc)_opEncarregado=r.enc;
   _alloc={};_allocSet=new Set();let perdidos=0;
@@ -5260,7 +5263,7 @@ document.addEventListener('visibilitychange',()=>{
   if(document.visibilityState==='visible'){
     pedirTelaAcesa();
     /* o celular costuma matar a câmera quando a tela apaga: religa sozinho */
-    if(_patioTela==='carga'&&_patioCamQuer){const l=linhaObj(_linhaAtiva);if(l&&!l.granel){pararCam();setTimeout(()=>{if(_patio&&_patioTela==='carga')iniciarCam();},350);}}
+    if(_patioTela==='carga'&&_patioCamQuer){if(!_ptGranel&&patioQrLinhas().length){pararCam();setTimeout(()=>{if(_patio&&_patioTela==='carga')iniciarCam();},350);}}
   }else salvarRascunho();
 });
 
@@ -5564,11 +5567,11 @@ function patioDescartarRascunho(num){
 
 /* ── TELA 2 · CARREGANDO ── */
 function patioAbrirCarga(){
-  _patioTela='carga';_patioLidos=[];_patioHist=[];_patioDoaAtual={};
+  _patioTela='carga';_patioLidos=[];_patioHist=[];_patioDoaAtual={};_ptGranel=null;
+  desfazerDoaAuto();   // voltou para bipar: o pallet que o sistema escolheu para os sacos a mais fica livre de novo
   closeModal('modal-carregar');
   renderPatio();
-  const l=linhaObj(_linhaAtiva);
-  if(l&&!l.granel&&_patioCamQuer&&!_camOn)setTimeout(()=>{if(_patio&&_patioTela==='carga')iniciarCam();},200);
+  if(patioQrLinhas().length&&_patioCamQuer&&!_camOn)setTimeout(()=>{if(_patio&&_patioTela==='carga'&&!_ptGranel)iniciarCam();},200);
 }
 function patioVoltar(){
   salvarRascunho();fecharCarregar();patioLista();
@@ -5600,82 +5603,88 @@ let _ptOkAnt={};
 function patioFelis(key,acao){
   const l=linhaObj(key);if(!l)return;
   if(acao==='limpar'){_avulsos[key]=[];try{salvarRascunho();}catch(e){}if(_patio)renderPatio();else{try{renderCarrAtiva();}catch(e){}}return;}
-  const inp=document.getElementById('fq-'+key)||document.getElementById('felis-qtd');const q=Number(String(inp?inp.value:l.sacksNeed).replace(',','.'))||0;
+  const inp=document.getElementById('fq-'+key)||document.getElementById('felis-qtd');const q=parseInt(String(inp?inp.value:l.sacksNeed).replace(/\D/g,''))||0;
   if(q<=0){toast('Informe a quantidade carregada.','warning');return;}
   _avulsos[key]=[{id:'av'+(++_keySeq),sacos:q,ton:0,unidade:'un',motivo:'felisbina',obs:'Produto da Felisbina — sem QR'}];
   try{salvarRascunho();}catch(e){}
   if(_patio)renderPatio();else{try{renderCarrAtiva();}catch(e){}}
 }
+/* (16/11) BIPAR TUDO JUNTO: não escolhe produto. Cada pallet/bag bipado entra sozinho no produto certo da ordem.
+   Felisbina (sem QR) não aparece aqui — é perguntada no TERMINEI. Granel tem botão próprio (peso da balança). */
+let _ptGranel=null,_doaAuto={};
+function patioQrLinhas(){return _linhasCarr.filter(x=>!x.felis&&!x.granel);}
+function patioGranel(key){_ptGranel=key;_linhaAtiva=key;pararCam();renderPatio();}
+function patioSairGranel(){_ptGranel=null;renderPatio();if(patioQrLinhas().length&&_patioCamQuer&&!_camOn)setTimeout(()=>iniciarCam(),150);}
+function patioTamanhoDe(key){_linhaAtiva=key;patioTrocarTamanho();}
+function patioSemQrDe(key){_linhaAtiva=key;patioSemQr();}
 function renderPatio(){
   if(!_patio||_patioTela!=='carga')return;
   const body=document.getElementById('patio-body');if(!body)return;
   const camViva=_camOn?document.getElementById('cam-area'):null;
   if(camViva&&camViva.parentNode)camViva.parentNode.removeChild(camViva);
   const o=_carrOrdem||{};
-  const ordem=patioOrdem();
-  let l=linhaObj(_linhaAtiva)||ordem.find(x=>!patioLinhaInfo(x).ok)||ordem[0];
-  if(l&&_ptOkAnt[l.key]===false&&patioLinhaInfo(l).ok){   // acabou de completar → próxima pendente
-    // na Felisbina, continua nela até conferir todos; depois vai para o que faltar
-    const prox=(l.felis&&ordem.find(x=>x.felis&&!patioLinhaInfo(x).ok))||ordem.find(x=>!patioLinhaInfo(x).ok);
-    if(prox&&prox.key!==l.key){if(!(l.felis&&prox.felis))toast(`✔ ${l.produto} completo — agora: ${prox.produto}`,'success');l=prox;if(!prox.felis&&!prox.granel&&_patioCamQuer&&!_camOn)setTimeout(()=>iniciarCam(),200);}
-  }
-  _linhasCarr.forEach(x=>_ptOkAnt[x.key]=patioLinhaInfo(x).ok);
-  if(l&&_linhaAtiva!==l.key)_linhaAtiva=l.key;
-  if(l&&(l.felis||l.granel))pararCam();
-  const inf=l?patioLinhaInfo(l):null;
-  const feitos=ordem.filter(x=>patioLinhaInfo(x).ok).length;
-  const tabs=ordem.length>1?`<div class="pt-oqc"><div class="pt-oqc-h">O QUE CARREGAR <span>${feitos} de ${ordem.length} prontos</span></div>${ordem.map((x,i)=>{const it=patioLinhaInfo(x),on=x.key===(l&&l.key);
-      const qtd=it.granel?`${n2(it.feito)} / ${n2(it.alvo)} t`:it.felis?`${n0(it.feito)} / ${n0(it.need)} un`:`${n0(it.pal)} / ${n0(it.palNeed||0)} pallets`;
-      const sub=x.felis&&!(ordem[i-1]&&ordem[i-1].felis)?`<div class="pt-oqc-sub">🏪 PRODUTOS DA FELISBINA — sem QR · confira <b>um por um</b></div>`:'';
-      return sub+`<button class="pt-li ${on?'on':''} ${it.ok?'ok':''}" onclick="selecionarLinhaPatio('${x.key}')">
-        <i>${it.ok?'✔':i+1}</i><span class="pt-li-n"><b>${esc(String(x.produto||'(sem produto)').replace(/\s*\(Felisbina\)\s*$/i,''))}</b><small>${esc(x.cliente||'')}${x.felis?'':' · bipar o QR'}</small></span>
-        <span class="pt-li-q">${qtd}</span>${on&&!it.ok?'<em>AGORA</em>':''}</button>`;}).join('')}</div>`:'';
-  const fal=faltaDoarTotal();
+  const qr=patioQrLinhas(),gr=_linhasCarr.filter(x=>x.granel),fel=_linhasCarr.filter(x=>x.felis);
+  if(_ptGranel&&!linhaObj(_ptGranel))_ptGranel=null;
+  const la=linhaObj(_linhaAtiva);
+  if(!la||la.felis||(la.granel&&!_ptGranel))_linhaAtiva=((qr.find(x=>!patioLinhaInfo(x).ok)||qr[0]||gr[0]||_linhasCarr[0])||{}).key||null;
+  const lg=_ptGranel?linhaObj(_ptGranel):null;
+  if(lg)pararCam();
   let miolo='';
-  if(!l){miolo='<div class="pt-vazio">Carga sem itens.</div>';}
-  else if(inf.felis){
-    const fel=ordem.filter(x=>x.felis),fok=fel.filter(x=>patioLinhaInfo(x).ok).length;
-    miolo=`<div class="pt-falta ${fok===fel.length?'ok':''}">${fok===fel.length?'✔ FELISBINA CONFERIDA':`CONFIRA <b>${fel.length-fok}</b> ${fel.length-fok===1?'PRODUTO':'PRODUTOS'} DA FELISBINA`}</div>
-      <div class="pt-felis">🏪 Estes produtos <b>não têm QR</b>. Conte cada um no caminhão e toque em <b>✔</b> — um por um, para não esquecer nenhum.</div>
-      <div class="pt-fl">${fel.map(x=>{const it=patioLinhaInfo(x);return `<div class="pt-fl-i ${it.ok?'ok':''} ${x.key===l.key?'on':''}">
-        <div class="pt-fl-n"><b>${esc(String(x.produto||'').replace(/\s*\(Felisbina\)\s*$/i,''))}</b><small>${esc(x.cliente||'')}${x.cidade?' · '+esc(x.cidade):''}</small></div>
-        ${it.ok?`<div class="pt-fl-ok">✔ ${n0(it.feito)} un</div><button class="pt-fl-x" onclick="patioFelis('${x.key}','limpar')" title="Contar de novo">↩️</button>`
-          :`<input class="pt-fl-q" id="fq-${x.key}" inputmode="numeric" value="${n0(it.need)}" onkeydown="if(event.key==='Enter'){event.preventDefault();patioFelis('${x.key}');}"><span class="pt-fl-u">un</span>
-            <button class="pt-fl-b" onclick="patioFelis('${x.key}')">✔</button>`}</div>`;}).join('')}</div>`;
-  }
-  else if(inf.granel){
+  if(lg){
+    const inf=patioLinhaInfo(lg);
     miolo=`
+      <button class="pt-btn cinza" style="min-height:44px;font-size:15px;margin-bottom:8px;" onclick="patioSairGranel()">◀ VOLTAR PARA BIPAR</button>
+      <div class="pt-prod-box"><div style="min-width:0;flex:1;"><div class="pt-prod">${esc(lg.produto||'')}</div><div class="pt-cli">${esc(lg.cliente||'')}</div></div></div>
       <div class="pt-falta ${inf.ok?'ok':''}">${inf.ok?'✔ COMPLETO':`FALTAM <b>${n2(inf.falta)}</b> TONELADAS`}</div>
       <div class="pt-conta">${n2(inf.feito)} de ${n2(inf.alvo)} t lançadas</div>
       <div class="pt-granel">
         <div class="pt-lbl">TONELADAS DA BALANÇA</div>
         <input id="granel-ton" inputmode="decimal" placeholder="39,500" autocomplete="off" oninput="ecoGranel()"
-          onkeydown="if(event.key==='Enter'){event.preventDefault();lancarGranel('${l.key}');}">
+          onkeydown="if(event.key==='Enter'){event.preventDefault();lancarGranel('${lg.key}');}">
         <div id="granel-eco" class="pt-eco"></div>
-        <button class="pt-btn verde" onclick="lancarGranel('${l.key}')">🚛 LANÇAR PESO</button>
+        <button class="pt-btn verde" onclick="lancarGranel('${lg.key}')">🚛 LANÇAR PESO</button>
       </div>
-      <div class="pt-lidos">${avulsosDe(l.key).map(a=>`<div>⚖️ ${n2(a.ton)} t <button class="pt-x" onclick="retirarAvulso('${l.key}','${a.id}')">✕</button></div>`).join('')}</div>`;
+      <div class="pt-lidos">${avulsosDe(lg.key).map(a=>`<div>⚖️ ${n2(a.ton)} t <button class="pt-x" onclick="retirarAvulso('${lg.key}','${a.id}')">✕</button></div>`).join('')}</div>`;
+  }else if(!qr.length){
+    miolo=`<div class="pt-felis">${fel.length?'🏪 Esta carga só tem produtos da Felisbina (sem QR).<br>Toque em <b>TERMINEI</b> para conferir.':'Carga sem itens.'}</div>
+      ${gr.map(x=>{const it=patioLinhaInfo(x);return `<button class="pt-btn verde" style="margin-top:8px;" onclick="patioGranel('${x.key}')">⚖️ PESO: ${esc(x.produto)} <small>(${n2(it.feito)} / ${n2(it.alvo)} t)</small></button>`;}).join('')}`;
   }else{
-    const faltaTxt=inf.ok?'✔ COMPLETO':(inf.pp?`FALTAM <b>${n0(inf.faltaPal)}</b> ${nomePallets(inf.faltaPal)}`:`FALTAM <b>${n0(inf.faltaSc)}</b> SACOS`);
-    const est=palletPadraoDoProduto(l.produto);
+    const infos=qr.map(x=>({x,it:patioLinhaInfo(x),bag:ehBagNome(x.produto)}));
+    const tudoOk=infos.every(i=>i.it.ok);
+    const faltaUn=infos.reduce((t,i)=>t+(i.it.pp?i.it.faltaPal:0),0);
+    const soBag=infos.every(i=>i.bag),algumBag=infos.some(i=>i.bag);
+    const unid=soBag?(faltaUn===1?'BAG':'BAGS'):algumBag?'PALLETS/BAGS':nomePallets(faltaUn);
+    const faltaSc=infos.filter(i=>!i.it.pp).reduce((t,i)=>t+i.it.faltaSc,0);
+    const faltaTxt=tudoOk?'✔ TUDO BIPADO':(faltaUn?`FALTAM <b>${n0(faltaUn)}</b> ${unid}`:`FALTAM <b>${n0(faltaSc)}</b> SACOS`);
+    const btnSt='background:#fff;color:var(--primary);border:2px solid var(--primary);min-height:36px;font-size:12.5px;padding:4px 10px;';
+    const cards=infos.map(({x,it,bag})=>{
+      const est=palletPadraoDoProduto(x.produto);
+      const feito=bag?it.sc:(it.pp?it.pal:it.sc), alvo=bag?it.need:(it.pp?it.palNeed:it.need);
+      const un=bag?'bags':(it.pp?'pallets':'sacos');
+      const tam=bag?'':`Pallet de ${it.pp?n0(it.pp):'?'} sacos`+(it.pp&&est&&it.pp>est?` · no estoque é ${n0(est)}: os +${n0(it.pp-est)} já entram sozinhos`:'');
+      const semqr=avulsosDe(x.key).filter(a=>a.motivo===ROT_ANTIGO);
+      return `<div style="background:${it.ok?'#f0fdf4':'#f8fafc'};border:2px solid ${it.ok?'#86efac':'#e2e8f0'};border-radius:12px;padding:9px 10px;margin-top:6px;">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <div style="flex:0 0 32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;background:${it.ok?'#16a34a':'#e2e8f0'};color:${it.ok?'#fff':'#334155'};">${it.ok?'✔':''}</div>
+          <div style="flex:1;min-width:0;"><div style="font-size:15px;font-weight:800;color:var(--primary);line-height:1.15;">${esc(x.produto||'(sem produto)')}</div>
+            <div style="font-size:12px;color:#64748b;font-weight:600;">${esc(x.cliente||'')}</div></div>
+          <div style="text-align:right;white-space:nowrap;"><div style="font-size:24px;font-weight:900;color:${it.ok?'#15803d':'#0f172a'};line-height:1;">${n0(feito)}<span style="font-size:15px;color:#64748b;"> / ${n0(alvo)}</span></div><div style="font-size:11px;font-weight:800;color:#64748b;">${un}</div></div>
+        </div>
+        ${tam?`<div style="font-size:12.5px;color:#334155;font-weight:700;margin-top:6px;">📦 ${tam}</div>`:''}
+        ${semqr.map(a=>`<div style="font-size:12.5px;color:#92400e;font-weight:700;margin-top:4px;">🏷️ ${semQrTxt(x,a)} sem QR <button class="pt-x" onclick="retirarAvulso('${x.key}','${a.id}')">✕</button></div>`).join('')}
+        ${(!bag||_semQr)?`<div style="display:flex;gap:6px;margin-top:6px;">${bag?'':`<button class="pt-mini" style="${btnSt}" onclick="patioTamanhoDe('${x.key}')">TROCAR PALLET</button>`}${_semQr?`<button class="pt-mini" style="${btnSt}background:#fef3c7;color:#92400e;border-color:#f59e0b;" onclick="patioSemQrDe('${x.key}')">🏷️ SEM QR</button>`:''}</div>`:''}
+      </div>`;}).join('');
     miolo=`
-      <div class="pt-falta ${inf.ok?'ok':''}">${faltaTxt}</div>
-      <div class="pt-prog"><div style="width:${inf.need?Math.min(100,Math.round(inf.sc/inf.need*100)):0}%"></div></div>
-      <div class="pt-conta">${n0(inf.pal)} de ${n0(inf.palNeed||0)} pallets · ${n0(inf.sc)} de ${n0(inf.need)} sacos</div>
-      <div class="pt-tam">PALLET NO CAMINHÃO: <b>${inf.pp?n0(inf.pp)+' SACOS':'?'}</b>
-        <button class="pt-mini" onclick="patioTrocarTamanho()">TROCAR</button>
-        ${inf.pp&&est&&inf.pp>est?`<div class="pt-tam-av">No estoque o pallet é de ${n0(est)} → coloque <b>+${n0(inf.pp-est)} sacos</b> em cada um.</div>`:''}
-      </div>
-      ${fal.length&&!_modoDoa?`<div class="pt-doa-av" onclick="patioModoDoa(true)">📦 Faltam bipar <b>${n0(fal.reduce((s,x)=>s+x.falta,0))} sacos</b> tirados de outro pallet.<br><u>TOQUE AQUI e bipe o pallet que você abriu</u></div>`:''}
-      ${_modoDoa?`<div class="pt-doa-on">📦 AGORA BIPE O PALLET DE ONDE TIROU OS SACOS <button class="pt-mini" onclick="patioModoDoa(false)">DEPOIS</button></div>`:''}
-      ${_semQr?`<button class="pt-btn" style="background:#fef3c7;border:2px solid #f59e0b;color:#92400e;margin:0 0 8px;" onclick="patioSemQr()">🏷️ ${ehBagNome(l.produto)?'BAG':'PALLET'} SEM QR <small>(rótulo antigo)</small></button>`:''}
-      ${avulsosDe(l.key).filter(a=>a.motivo===ROT_ANTIGO).map(a=>`<div class="pt-doa-av" style="cursor:default;background:#fffbeb;border-color:#fcd34d;color:#78350f;display:flex;align-items:center;gap:8px;">🏷️ <span style="flex:1;">${semQrTxt(l,a)} sem QR${a.lote?' · lote '+esc(a.lote):''}</span><button class="pt-x" onclick="retirarAvulso('${l.key}','${a.id}')">✕</button></div>`).join('')}
-      <div class="pt-cam ${_modoDoa?'doa':''}">
+      <div class="pt-falta ${tudoOk?'ok':''}">${faltaTxt}</div>
+      <div class="pt-felis" style="background:#ecfdf5;border-color:#6ee7b7;color:#065f46;">📷 Bipe <b>todos</b>, em qualquer ordem. Cada um vai sozinho para o produto certo.</div>
+      <div class="pt-oqc"><div class="pt-oqc-h">NO CAMINHÃO <span>${infos.filter(i=>i.it.ok).length} de ${infos.length} prontos</span></div>${cards}</div>
+      ${gr.map(x=>{const it=patioLinhaInfo(x);return `<button class="pt-btn verde" style="margin:8px 0;" onclick="patioGranel('${x.key}')">⚖️ PESO: ${esc(x.produto)} <small>(${n2(it.feito)} / ${n2(it.alvo)} t)</small></button>`;}).join('')}
+      <div class="pt-cam">
         <div class="cam-area off" id="cam-area">
           <div id="qr-reader-cli"></div>
           <div class="cam-alvo" id="cam-alvo"><i></i><i></i><i></i><i></i></div>
           <div class="cam-scan" id="cam-scan" style="display:none;"></div>
-          <div class="cam-msg" id="cam-msg"><div class="ic">📷</div><div class="t">Aponte para o QR do pallet</div><div class="s"></div></div>
+          <div class="cam-msg" id="cam-msg"><div class="ic">📷</div><div class="t">Aponte para o QR</div><div class="s"></div></div>
         </div>
       </div>
       <div class="pt-botoes">
@@ -5684,10 +5693,11 @@ function renderPatio(){
         <button class="pt-bt ${_torch?'on':''}" onclick="patioLuz()">🔦<span>${_torch?'APAGAR LUZ':'LUZ'}</span></button>
         <button class="pt-bt" id="btn-cam-cli" onclick="patioCam()">${_camOn?'⏸️':'📷'}<span>${_camOn?'PARAR':'CÂMERA'}</span></button>
       </div>
-      ${(()=>{const n=Object.values(_alloc).reduce((s,a)=>s+(a||[]).length,0);return n?`<button class="pt-btn tirar" onclick="patioListaTirar()">🗑️ TIRAR ${ehBagNome(l.produto)?'BAG':'PALLET'} DO CAMINHÃO <small>(${n} no caminhão)</small></button>`:'';})()}
+      ${(()=>{const n=Object.values(_alloc).reduce((s,a)=>s+(a||[]).length,0);return n?`<button class="pt-btn tirar" onclick="patioListaTirar()">🗑️ TIRAR DO CAMINHÃO <small>(${n} no caminhão)</small></button>`:'';})()}
       <div class="pt-lidos">${_patioLidos.slice(0,6).map(x=>`<div class="${x.cls||''}">${x.ic} ${esc(x.txt)}</div>`).join('')}</div>`;
   }
   const qtdPal=Object.values(_alloc).reduce((s,a)=>s+(a||[]).length,0);
+  const podeTerminar=qtdPal||Object.values(_avulsos).some(a=>a&&a.length)||fel.length;
   body.innerHTML=`
     <div class="pt-top">
       <button class="pt-mini" onclick="patioVoltar()">◀</button>
@@ -5698,21 +5708,14 @@ function renderPatio(){
       </div>
       <button class="pt-mini" onclick="trocarEquipeDaCarga()">👷</button>
     </div>
-    ${tabs}
-    ${l&&!l.felis?`<div class="pt-prod-box">
-      ${fotoDoProduto(l.produto)?`<img class="foto-lido" data-prod="${escA(l.produto)}" alt="">`:''}
-      <div style="min-width:0;flex:1;"><div class="pt-prod">${esc(l.produto||'(defina o produto)')}</div>
-      <div class="pt-cli">${esc(l.cliente||'')}${l.cidade?' · '+esc(l.cidade):''}</div></div>
-      ${l.manual?`<button class="pt-mini" onclick="editarLinha('${l.key}')">✏️</button>`:''}
-    </div>`:''}
     ${miolo}
     <div class="ihm-fb" id="carr-fb"></div>
     <div class="pt-rodape">
-      <button class="pt-btn verde grande" onclick="patioTerminar()" ${qtdPal||Object.values(_avulsos).some(a=>a&&a.length)?'':'disabled'}>✅ TERMINEI</button>
+      <button class="pt-btn verde grande" onclick="patioTerminar()" ${podeTerminar?'':'disabled'}>✅ TERMINEI</button>
       ${cargaTemConteudo()?'<button class="pt-btn cinza" style="min-height:44px;font-size:15px;" onclick="patioCancelarCarga()">🗑 CANCELAR CARGA</button>':''}
     </div>`;
-  aplicarFotos(body);
   renderPatioRede();
+  if(lg)return;
   if(camViva){
     const novo=document.getElementById('cam-area');
     if(novo&&novo.parentNode)novo.parentNode.replaceChild(camViva,novo);
@@ -5765,8 +5768,11 @@ async function avisarLabPallet(p){
   }
 }
 function patioLeitura(txt){
-  const l=linhaObj(_linhaAtiva);
-  if(!l||l.granel){patioFlash('warn','👆','ESCOLHA O PRODUTO','Toque no produto lá em cima antes de bipar.');return 'err';}
+  if(_ptGranel){patioFlash('warn','⚖️','VOCÊ ESTÁ NO PESO','Toque em ◀ VOLTAR PARA BIPAR antes de bipar.');return 'err';}
+  const avulsa=_carrOrdem&&_carrOrdem.status==='avulso';
+  const qrL=patioQrLinhas();
+  if(!qrL.length&&!avulsa){patioFlash('warn','🚫','NADA PARA BIPAR','Esta carga não tem produto com QR.<br>Toque em TERMINEI.',{botao:'ENTENDI'});return 'err';}
+  const pedeTxt=()=>[...new Set(qrL.map(x=>x.produto).filter(Boolean))].map(esc).join('<br>')||'—';
   const bruto=codigoDigitavel(txt);
   const p=acharPallet(txt);
   if(_modoDoa)return patioDoador(p,bruto);
@@ -5774,24 +5780,26 @@ function patioLeitura(txt){
     buscarPalletNovo(txt).then(()=>{ _buscouNovo=true; _patioOcupado=false; let r; try{ r=patioLeitura(txt); }finally{ _buscouNovo=false; } beep(r); });
     return 'conf'; }
   if(!p&&_rotuloOutro&&chaveCodigo(bruto)===_rotuloOutro.cod){ const ro=_rotuloOutro; _rotuloOutro=null;
-    patioFlash('err','🚫','PRODUTO ERRADO',`Este pallet é <b>${esc(ro.produto)}</b>.<br>O caminhão pede <b>${esc(l.produto)}</b>.<br>Deixe este pallet no lugar.`,{botao:'ENTENDI'});
+    patioFlash('err','🚫','PRODUTO ERRADO',`Este pallet é <b>${esc(ro.produto)}</b>.<br>O caminhão pede:<br><b>${pedeTxt()}</b><br>Deixe este pallet no lugar.`,{botao:'ENTENDI'});
     return 'block'; }
   if(!p){patioFlash('err','❓','PALLET NÃO ENCONTRADO',`Código lido: <b class="mono">${esc(bruto)}</b><br>Tente de novo ou toque em DIGITAR.`,{botao:'ENTENDI'});return 'err';}
   if(_allocSet.has(p.id)){patioFlash('warn','🔁','ESTE PALLET JÁ FOI BIPADO',`${esc(codCurto(p))} já está no caminhão.`);return 'dup';}
   if(_doa[p.id]){patioFlash('warn','📦','ESTE É O PALLET ABERTO',`Você tirou sacos do ${esc(codCurto(p))}.<br>Ele não vai no caminhão.`,{botao:'ENTENDI'});return 'dup';}
   /* (nov/2026) produto diferente do pedido: é a PRIMEIRA coisa conferida — antes do status
      do laboratório e de qualquer pergunta. Produto errado não entra, esteja como estiver. */
-  let alvo=l;
-  if(l.produto&&normNome(p.produto)!==normNome(l.produto)){
-    /* é de outro item deste mesmo caminhão? entra lá sozinho */
-    const outros=_linhasCarr.filter(x=>!x.granel&&normNome(x.produto)===normNome(p.produto));
-    const outro=outros.find(x=>(x.sacksNeed||0)>allocSacks(x.key))||outros[0];
-    if(outro){alvo=outro;_linhaAtiva=outro.key;}
-    else{
-      patioFlash('err','🚫','PRODUTO ERRADO',`Este pallet é <b>${esc(p.produto)}</b>.<br>O caminhão pede <b>${esc(l.produto)}</b>.<br>Deixe este pallet no lugar.`,{botao:'ENTENDI'});
-      return 'block';
-    }
+  /* (16/11) não escolhe produto: o pallet vai sozinho para o item da ordem com o mesmo produto (o que ainda falta primeiro) */
+  const mesmos=qrL.filter(x=>normNome(x.produto)===normNome(p.produto));
+  let alvo=mesmos.find(x=>(x.sacksNeed||0)>allocSacks(x.key))||mesmos[0];
+  if(!alvo&&avulsa){   // carga sem ordem: o produto bipado vira item da carga
+    alvo=qrL.find(x=>!x.produto);
+    if(alvo){alvo.produto=p.produto;alvo.palPedido=palletPadraoDoProduto(p.produto);}
+    else{alvo=addLinha({pedido:'',cidade:'',cliente:'',produto:p.produto,qtd:0,lote:'',sacksNeed:0,manual:true});alvo.palPedido=palletPadraoDoProduto(p.produto);}
   }
+  if(!alvo){
+    patioFlash('err','🚫','PRODUTO ERRADO',`Este pallet é <b>${esc(p.produto)}</b>.<br>O caminhão pede:<br><b>${pedeTxt()}</b><br>Deixe este pallet no lugar.`,{botao:'ENTENDI'});
+    return 'block';
+  }
+  _linhaAtiva=alvo.key;
   let sit=situacaoPallet(p);
   /* em análise: confere no banco antes (o laboratório pode ter acabado de liberar) */
   if(sit==='analise'&&!_reconferido.has(p.id)){ _patioOcupado=true;
@@ -5818,7 +5826,8 @@ function patioLeitura(txt){
     return 'block';
     }
   }
-  if(precisaQtdPallet(p)&&_qtdInf[p.id]==null){ _patioOcupado=true; perguntarQtdPallet(p,()=>{ _patioOcupado=false; beep(patioLeitura(txt)); },true,()=>{ _patioOcupado=false; }); return 'conf'; }
+  /* (16/11) no pátio só pergunta "pallet de quantos?" se o sistema NÃO sabe a quantidade do pallet */
+  if(precisaQtdPallet(p)&&_qtdInf[p.id]==null&&!sacosDoPallet(p)){ _patioOcupado=true; perguntarQtdPallet(p,()=>{ _patioOcupado=false; beep(patioLeitura(txt)); },true,()=>{ _patioOcupado=false; }); return 'conf'; }
   if(!sacosDoPallet(p)){patioFlash('err','⚠️','PALLET SEM QUANTIDADE NO SISTEMA','Chame o encarregado.',{botao:'ENTENDI'});return 'err';}
   if(alvo.sacksNeed>0&&allocSacks(alvo.key)>=alvo.sacksNeed){
     patioFlash('warn','✋','ESTE PRODUTO JÁ ESTÁ COMPLETO',`O caminhão já tem todo o ${esc(alvo.produto)} pedido.<br>Não precisa deste pallet.`,
@@ -5834,17 +5843,17 @@ function patioIncluir(p,l){
   const base=sacosDoPallet(p),alvoPal=Number(l.palPedido)||0;
   const lido={ic:'✅',txt:`${codCurto(p)} · ${n0(base)} sc`};
   _patioLidos.unshift(lido);
-  if(alvoPal>base){
-    const dif=alvoPal-base;
-    patioFlash('warn','➕',`COLOQUE MAIS ${n0(dif)} SACOS`,
-      `Este pallet tem ${n0(base)}. O caminhão leva pallet de ${n0(alvoPal)}.<br>Complete com sacos de outro pallet de ${esc(p.produto)}.`,
-      {botao:'✅ JÁ COLOQUEI',depois:()=>patioCompletou(p,l,dif,grupo,lido),botao2:'NÃO VOU COMPLETAR',depois2:()=>renderPatio()});
-    renderPatio();
-    return 'conf';
+  /* (16/11) pallet do caminhão maior que o do estoque (ex.: 200 × 180): os sacos a mais entram SOZINHOS.
+     De qual pallet saíram é escolhido no TERMINEI (doacaoAutomatica) — ninguém digita nada. */
+  let dif=0;
+  if(alvoPal>base&&!ehBagNome(p.produto)){
+    dif=alvoPal-base;
+    _extra[p.id]={qtd:dif,obs:`Completado para pallet de ${n0(alvoPal)}`};
+    lido.txt+=` +${n0(dif)}`;
   }
   renderPatio();
   const inf=patioLinhaInfo(l);
-  patioFlash('ok','✅','PALLET OK',`${esc(codCurto(p))} · ${n0(base)} sacos`+(inf.ok?'<br><b>PRODUTO COMPLETO!</b>':(inf.pp?`<br>Faltam ${n0(inf.faltaPal)} ${nomePallets(inf.faltaPal).toLowerCase()}`:'')));
+  patioFlash('ok','✅','OK',`${esc(l.produto)}<br>${esc(codCurto(p))} · ${dif?`${n0(base)} + ${n0(dif)} = ${n0(base+dif)}`:n0(base)} ${ehBagNome(p.produto)?'':'sacos'}`+(inf.ok?'<br><b>PRODUTO COMPLETO!</b>':(inf.pp?`<br>Faltam ${n0(inf.faltaPal)} ${nomePallets(inf.faltaPal).toLowerCase()}`:'')));
   return 'ok';
 }
 /* +N sacos colocados: tira sozinho do pallet que está aberto; se não tem
@@ -6033,29 +6042,79 @@ async function patioBuscarDigitado(){
 }
 
 /* ── TERMINEI ── resumo antes de gravar */
+/* sacos a mais: o sistema escolhe de qual pallet do estoque saíram (primeiro o que já está aberto, depois o mais antigo) */
+function desfazerDoaAuto(){
+  Object.keys(_doaAuto||{}).forEach(id=>{const p=_pallets.find(x=>x.id===id);const q=doaQtd(id)-(_doaAuto[id]||0);
+    if(p)registrarDoacao(p,q,(_doa[id]||{}).key);else if(q<=0)delete _doa[id];});
+  _doaAuto={};
+}
+function doacaoAutomatica(){
+  desfazerDoaAuto();
+  faltaDoarTotal().forEach(({produto,falta})=>{
+    let resta=falta;const a=normNome(produto);
+    const key=(_linhasCarr.find(l=>normNome(l.produto)===a)||{}).key;
+    const aberto=p=>(_doa[p.id]||Number(p.sacos_retirados)>0)?0:1;
+    const cands=fisicos().filter(p=>normNome(p.produto)===a&&podeCarregar(p)&&!_allocSet.has(p.id)&&saldoAgora(p)>0)
+      .sort((x,y)=>aberto(x)-aberto(y)||String(x.data||'').localeCompare(String(y.data||''))||(Number(x.numero)||0)-(Number(y.numero)||0));
+    for(const p of cands){if(resta<=0)break;const q=Math.min(resta,saldoAgora(p));
+      registrarDoacao(p,doaQtd(p.id)+q,key);_doaAuto[p.id]=(_doaAuto[p.id]||0)+q;resta-=q;}
+  });
+}
+function felResp(l){return l.felisNao?'nao':(avulsosDe(l.key).length?'sim':null);}
+function patioFelisResp(key,r){
+  const l=linhaObj(key);if(!l)return;
+  if(r==='sim'){
+    const inp=document.getElementById('fq-'+key);const q=parseInt(String(inp?inp.value:l.sacksNeed).replace(/\D/g,''))||0;
+    if(q<=0){toast('Informe a quantidade carregada.','warning');return;}
+    _avulsos[key]=[{id:'av'+(++_keySeq),sacos:q,ton:0,unidade:'un',motivo:'felisbina',obs:'Produto da Felisbina — sem QR'}];l.felisNao=false;
+  }else if(r==='nao'){_avulsos[key]=[];l.felisNao=true;}
+  else{_avulsos[key]=[];l.felisNao=false;}
+  try{salvarRascunho();}catch(e){}
+  patioTerminar();
+}
+function patioFelisTodos(){
+  _linhasCarr.filter(l=>l.felis&&!felResp(l)).forEach(l=>{
+    const inp=document.getElementById('fq-'+l.key);const q=parseInt(String(inp?inp.value:l.sacksNeed).replace(/\D/g,''))||0;
+    if(q>0){_avulsos[l.key]=[{id:'av'+(++_keySeq),sacos:q,ton:0,unidade:'un',motivo:'felisbina',obs:'Produto da Felisbina — sem QR'}];l.felisNao=false;}
+  });
+  try{salvarRascunho();}catch(e){}
+  patioTerminar();
+}
 function patioTerminar(){
   pararCam();_torch=false;
   _patioTela='resumo';
+  doacaoAutomatica();
   const body=document.getElementById('patio-body');
   const conf=conferenciaDoacoes();
-  const linhas=_linhasCarr.map(l=>{
+  const fel=_linhasCarr.filter(l=>l.felis);
+  const linhas=_linhasCarr.filter(l=>!l.felis).map(l=>{
     const i=patioLinhaInfo(l);
+    const ex=(_alloc[l.key]||[]).reduce((t,id)=>t+sacosExtra(id),0);
     return `<div class="pt-res ${i.ok?'ok':'inc'}">
       <div class="pt-res-p">${esc(l.produto||'—')}</div>
       <div class="pt-res-c">${esc(l.cliente||'')}</div>
-      <div class="pt-res-n">${i.granel?`${n2(i.feito)} de ${n2(i.alvo)} t`:`${n0(i.pal)} pallets${avulsosPallets(l.key)?` (🏷️ ${n0(avulsosPallets(l.key))} sem QR)`:''} · ${n0(i.sc)} de ${n0(i.need)} sacos`}
-        ${i.ok?'<span>✔</span>':`<span class="f">FALTA ${i.granel?n2(i.falta)+' t':(i.pp?n0(i.faltaPal)+' '+nomePallets(i.faltaPal).toLowerCase():n0(i.faltaSc)+' sc')}</span>`}</div>
+      <div class="pt-res-n">${i.granel?`${n2(i.feito)} de ${n2(i.alvo)} t`:ehBagNome(l.produto)?`${n0(i.sc)} de ${n0(i.need)} bags`:`${n0(i.pal)} pallets${avulsosPallets(l.key)?` (🏷️ ${n0(avulsosPallets(l.key))} sem QR)`:''} · ${n0(i.sc)} de ${n0(i.need)} sacos`}
+        ${i.ok?'<span>✔</span>':`<span class="f">FALTA ${i.granel?n2(i.falta)+' t':(i.pp?n0(i.faltaPal)+' '+(ehBagNome(l.produto)?'bags':nomePallets(i.faltaPal).toLowerCase()):n0(i.faltaSc)+' sc')}</span>`}</div>
+      ${ex?`<div class="pt-res-c">➕ já conta ${n0(ex)} sacos a mais (pallet de ${n0(l.palPedido)})</div>`:''}
     </div>`;}).join('');
-  const abertos=Object.keys(_doa).map(id=>{const p=_pallets.find(x=>x.id===id);return p?`<div class="pt-li"><b>📦 ${esc(codCurto(p))} · ${esc(p.produto)}</b><span>−${n0(doaQtd(id))} · sobram ${n0(saldoAgora(p))}</span></div>`:'';}).join('');
-  const inc=_linhasCarr.filter(l=>!patioLinhaInfo(l).ok&&((l.granel&&l.tonNeed>0)||(!l.granel&&l.sacksNeed>0))).length;
+  const abertos=Object.keys(_doa).map(id=>{const p=_pallets.find(x=>x.id===id);return p?`<div class="pt-li" style="cursor:default;"><b>📦 ${esc(p.produto)} · nº ${esc(String(p.numero||codCurto(p)))}</b><span>−${n0(doaQtd(id))} · sobram ${n0(saldoAgora(p))}</span></div>`:'';}).join('');
+  const felHtml=fel.length?`<div class="pt-card" style="margin-top:10px;"><div class="pt-lbl">🏪 FELISBINA — FOI CARREGADO?</div>
+    <div class="pt-fl">${fel.map(x=>{const r=felResp(x);return `<div class="pt-fl-i ${r==='sim'?'ok':''}">
+      <div class="pt-fl-n"><b>${esc(String(x.produto||'').replace(/\s*\(Felisbina\)\s*$/i,''))}</b><small>${esc(x.cliente||'')}</small></div>
+      ${r==='sim'?`<div class="pt-fl-ok">✔ ${n0(allocSacks(x.key))} un</div><button class="pt-fl-x" onclick="patioFelisResp('${x.key}',null)">↩️</button>`
+       :r==='nao'?`<div class="pt-fl-ok" style="color:#b91c1c;">✕ NÃO FOI</div><button class="pt-fl-x" onclick="patioFelisResp('${x.key}',null)">↩️</button>`
+       :`<input class="pt-fl-q" id="fq-${x.key}" inputmode="numeric" value="${Math.round(Number(x.sacksNeed)||0)}"><span class="pt-fl-u">un</span>
+         <button class="pt-fl-b" onclick="patioFelisResp('${x.key}','sim')">✔</button><button class="pt-fl-b" style="background:#ef4444;" onclick="patioFelisResp('${x.key}','nao')">✕</button>`}
+    </div>`;}).join('')}</div>
+    ${fel.some(x=>!felResp(x))?`<button class="pt-btn verde" style="margin-top:8px;" onclick="patioFelisTodos()">✔ SIM, FOI TUDO CARREGADO</button>`:''}</div>`:'';
+  const inc=_linhasCarr.filter(l=>!l.felis&&!patioLinhaInfo(l).ok&&((l.granel&&l.tonNeed>0)||(!l.granel&&l.sacksNeed>0))).length;
   body.innerHTML=`
     <div class="pt-top"><div class="pt-titulo" style="flex:1;">CONFERIR A CARGA</div></div>
     <div class="pt-placa" style="text-align:center;margin:6px 0 10px;">${esc((_carrOrdem&&_carrOrdem.placa)||('ORDEM '+((_carrOrdem&&_carrOrdem.numero)||'')))}</div>
     ${linhas}
-    ${abertos?`<div class="pt-card" style="margin-top:10px;"><div class="pt-lbl">PALLETS ABERTOS (sacos tirados)</div>${abertos}</div>`:''}
-    ${conf.map(x=>`<div class="pt-doa-av" style="cursor:default;">${x.falta>0
-        ?`⚠️ ${esc(x.produto)}: colocou ${n0(x.extras)} sacos a mais, mas só bipou de onde saíram ${n0(x.doado)}.<br><b>Volte e bipe o pallet que você abriu.</b>`
-        :`⚠️ ${esc(x.produto)}: bipou ${n0(x.doado)} sacos tirados, mas só colocou ${n0(x.extras)} a mais.`}</div>`).join('')}
+    ${felHtml}
+    ${abertos?`<div class="pt-card" style="margin-top:10px;"><div class="pt-lbl">SACOS A MAIS SAÍRAM DESTES PALLETS (automático)</div>${abertos}</div>`:''}
+    ${conf.filter(x=>x.falta>0).map(x=>`<div class="pt-doa-av" style="cursor:default;">⚠️ ${esc(x.produto)}: ${n0(x.falta)} sacos a mais não acharam pallet no estoque. Pode salvar.</div>`).join('')}
     ${inc?`<div class="pt-doa-av" style="cursor:default;background:#fef9c3;border-color:#fde047;color:#854d0e;">⚠️ ${inc} produto(s) com menos do que o pedido. Se o encarregado mandou sair assim, pode salvar.</div>`:''}
     <div class="pt-rodape" style="display:grid;gap:10px;">
       <button class="pt-btn verde grande" onclick="patioSalvar()">💾 SALVAR CARGA</button>
@@ -6087,6 +6146,8 @@ function patioMotivoMenos(m){
   linhasIncompletas().forEach(l=>l.motivoMenos=m);patioFlashFechar();salvarRascunho();patioSalvar();
 }
 async function patioSalvar(){
+  const felPend=_linhasCarr.filter(l=>l.felis&&!felResp(l));
+  if(felPend.length){patioFlash('warn','🏪','RESPONDA A FELISBINA',`Toque em ✔ ou ✕ em:<br><b>${felPend.map(l=>esc(String(l.produto||'').replace(/\s*\(Felisbina\)\s*$/i,''))).join('<br>')}</b>`,{botao:'OK'});return;}
   const semMot=linhasIncompletas().filter(l=>!l.motivoMenos);
   if(semMot.length){
     patioFlash('warn','✋','SAIU MENOS QUE A ORDEM',

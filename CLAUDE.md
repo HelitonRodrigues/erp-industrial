@@ -829,6 +829,13 @@ fábrica específica. Não generalizar.
 - (16/11) **Saiu menos que a ordem** (50 → 40 bags): não trava; pede o MOTIVO (Motorista quis levar menos / Faltou produto / Caminhão não comporta /
   outro) no pátio (`patioSalvar`) e no computador (select no "Carga incompleta"). Itens da linha gravam `pedido_qtd`, `carregado_qtd`, `motivo_menos`.
   O estoque baixa só o que foi carregado (pallets bipados / sem QR lançados). Granel fora (balança nunca fecha).
+- (16/11) **Pátio: BIPAR TUDO JUNTO (ensacado igual ao bag)**: a carga abre numa tela só (`renderPatio`) com todos os produtos com QR
+  (`patioQrLinhas`) e a câmera; não escolhe produto — `patioLeitura` põe o pallet no item da ordem com o mesmo produto (o que falta primeiro).
+  Felisbina não aparece na bipagem: no TERMINEI pergunta "foi carregado?" com a qtd da ordem (`patioFelisResp`/`patioFelisTodos`, `l.felisNao`);
+  SALVAR exige resposta. Granel tem botão próprio (`patioGranel`/`_ptGranel`). Pallet do caminhão = qtd ÷ "N plt" da ordem (`palOrdem`, só no pátio).
+  Pallet do estoque menor que o do caminhão: os sacos a mais entram sozinhos (`_extra`, sem pergunta); no TERMINEI `doacaoAutomatica` escolhe de onde
+  saíram (pallet já aberto → mais antigo), marcado em `_doaAuto` e desfeito ao voltar a bipar. "Pallet de quantos?" no pátio só se o sistema não
+  souber a qtd (`sacosDoPallet`=0). Computador não mudou.
 
 ### Granel no Estoque do carregamento (16/11/2026)
 - `renderSaldoGranel` novo: por produto, "FICOU NO ESTOQUE" em destaque, produzido/carregado hoje e no mês, e tabela dia a dia do mês
