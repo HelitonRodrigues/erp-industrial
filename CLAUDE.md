@@ -851,6 +851,10 @@ fábrica específica. Não generalizar.
 - (16/11) **Fechamento mostra tudo que saiu**: produtos da Felisbina reconhecidos (`ehFelisNome`/`felNome`, grupo "🏪 Felisbina", unidade
   `FL`, KPI próprio — nunca "sem cadastro") e caminhões da DSM (`dsm_caminhoes` com `saida_em` no dia) como linhas `dsm` com granel em t
   (`nf_peso_liquido` ou saída−entrada; produto da NF → ERP por `produtoDsm`). A aba DSM continua com o controle detalhado.
+- (16/11) **Romaneio de saída** (`imprimirSaida`): entregas com **Pedido × Carregado** (soma dos itens da carga por pedido/cliente/produto,
+  `carregadoDe`) e linha vermelha "saiu N a menos — motivo" (`motivo_menos` da carga); horários com rótulo claro (chegada / início do
+  carregamento + espera / saída = pesagem final + tempo carregando e total); assinaturas: Portaria (quem pesou a saída, `finalizado_por`, com a
+  última assinatura dele no ERP — fechamento ou ticket do minério), Carregamento e Motorista (saiu Expedição).
 
 ### Granel no Estoque do carregamento (16/11/2026)
 - `renderSaldoGranel` novo: por produto, "FICOU NO ESTOQUE" em destaque, produzido/carregado hoje e no mês, e tabela dia a dia do mês
