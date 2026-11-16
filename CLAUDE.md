@@ -855,6 +855,9 @@ fábrica específica. Não generalizar.
   `carregadoDe`) e linha vermelha "saiu N a menos — motivo" (`motivo_menos` da carga); horários com rótulo claro (chegada / início do
   carregamento + espera / saída = pesagem final + tempo carregando e total); assinaturas: Portaria (quem pesou a saída, `finalizado_por`, com a
   última assinatura dele no ERP — fechamento ou ticket do minério), Carregamento e Motorista (saiu Expedição).
+- (16/11) **📸 FOTO DO RÓTULO no pátio** (carregamento.html): botão grande abaixo da câmera e no topo do DIGITAR (`patioFoto` → `patioLerFoto`).
+  Tesseract (eng, só A–Z/0–9/-, psm 11; 0°/90°/270°) lê o código impresso; `casarOcr` compara com pallets não carregados + `rotulos_impressos`
+  (10 dias, produtos da carga) tolerando O×0, I×1, S×5… (`OCR_TROCA`, `distDentro`). Um só → `patioLeitura` como bipado; empate → botões.
 
 ### Granel no Estoque do carregamento (16/11/2026)
 - `renderSaldoGranel` novo: por produto, "FICOU NO ESTOQUE" em destaque, produzido/carregado hoje e no mês, e tabela dia a dia do mês
