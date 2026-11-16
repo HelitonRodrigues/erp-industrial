@@ -825,3 +825,11 @@ fábrica específica. Não generalizar.
 - (16/11) **Saiu menos que a ordem** (50 → 40 bags): não trava; pede o MOTIVO (Motorista quis levar menos / Faltou produto / Caminhão não comporta /
   outro) no pátio (`patioSalvar`) e no computador (select no "Carga incompleta"). Itens da linha gravam `pedido_qtd`, `carregado_qtd`, `motivo_menos`.
   O estoque baixa só o que foi carregado (pallets bipados / sem QR lançados). Granel fora (balança nunca fecha).
+
+### Programação de Cargas × saída da Portaria (migração 132, 16/11/2026)
+- Gatilho `tg_prog_portaria_saida` em `portaria` (`prog_portaria_saida`, SECURITY DEFINER): quando o caminhão sai (`status='finalizado'` + `hora_saida`),
+  cada `romaneio_itens.pedido` da ordem (normalizado `^[A-Za-z0-9]+`) vira carregado na Programação — não carregado ou carregado por salescode/planilha →
+  `carregado_em` = saída, origem **`portaria`**, por "Portaria · ordem N · placa"; balança ou manual → só guarda a info.
+  `programacao_cargas.portaria` jsonb {id, ordem, placa, saida, liquido_kg, carregado_qtd, motivo_menos}. ↩ Voltar para o carregamento (saída desfeita)
+  devolve o que a portaria marcou. Testado no banco com transação desfeita (marcou e desfez).
+- Tela: origem "🚪 Portaria" (filtro em 📦 Carregadas, etiqueta verde), quadro "Balança / Portaria" no pedido com a saída, busca mostra "🚪 portaria placa".
