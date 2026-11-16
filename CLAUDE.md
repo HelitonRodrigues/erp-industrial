@@ -845,6 +845,9 @@ fábrica específica. Não generalizar.
 - (16/11) **Conferência do produto ao subir ordem** (portaria.html): `salvarOrdem` sempre abre `#m-confprod` (PDF × ERP) antes de gravar
   (`gravarOrdem` / `salvarTroca`). Vermelho: número diferente no nome (`numerosDoNome`, ex. Branco 02 × 01) ou troca manual contra a ligação
   automática segura; amarelo: sem cadastro no ERP.
+- (16/11) **Fechamento da portaria assinado** (portaria.html): "Fechar o dia" abre `#m-fe-ass` — o usuário logado assina (desenho) ou usa a
+  última assinatura dele num fechamento; grava `portaria_fechamentos.assinatura_img/assinatura_nome` (migration 134). PDF só com a linha
+  **Portaria — nome** (assinatura em cima); saíram Expedição e Gerência. Histórico: entra quem chegou OU saiu no período.
 
 ### Granel no Estoque do carregamento (16/11/2026)
 - `renderSaldoGranel` novo: por produto, "FICOU NO ESTOQUE" em destaque, produzido/carregado hoje e no mês, e tabela dia a dia do mês

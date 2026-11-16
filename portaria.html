@@ -902,6 +902,22 @@ tr.mi-sel td{background:#f0fdf4;}
     </div>
   </div>
 </div>
+<div id="m-fe-ass" class="modal-overlay hidden">
+  <div class="modal" style="max-width:560px;">
+    <div class="modal-header"><div class="modal-title">✍️ Assinar o fechamento do dia</div><button class="modal-close" onclick="closeModal('m-fe-ass')">✕</button></div>
+    <div id="fe-as-info" style="font-size:14px;color:#334155;margin-bottom:10px;"></div>
+    <div class="mi-as-op" id="fe-as-op">
+      <button type="button" data-o="ultima" onclick="feAsModo('ultima')"><i class="dot"></i><span>Usar minha última assinatura</span></button>
+      <button type="button" data-o="nova" onclick="feAsModo('nova')"><i class="dot"></i><span>Assinar agora</span></button>
+    </div>
+    <div id="fe-as-ultima" class="mi-as-box" style="display:none;border:1.5px solid #e2e8f0;border-radius:12px;padding:8px;text-align:center;background:#f8fafc;"><img id="fe-as-img" style="max-height:110px;max-width:100%;" alt=""><small id="fe-as-quando" style="display:block;color:#64748b;font-size:11.5px;"></small></div>
+    <div id="fe-as-nova" class="mi-as-box" style="display:none;">
+      <div class="mi-as-pad"><canvas id="fe-as-cv"></canvas><div class="dica" id="fe-as-dica">Assine aqui com o dedo, a caneta ou o mouse</div><div class="linha"></div></div>
+      <button type="button" class="btn btn-secondary btn-sm" style="margin-top:8px;" onclick="feAsLimpar()">🧹 Limpar</button>
+    </div>
+    <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('m-fe-ass')">Voltar</button><button class="btn btn-primary" id="fe-as-ok" onclick="feAsConfirma()">🔒 Assinar e fechar o dia</button></div>
+  </div>
+</div>
 <div id="m-confprod" class="modal-overlay hidden">
   <div class="modal" style="max-width:720px;">
     <div class="modal-header"><div class="modal-title">🔎 O produto está certo?</div><button class="modal-close" onclick="closeModal('m-confprod')">✕</button></div>
@@ -2599,15 +2615,60 @@ function voltarParaCarregamento(id){
   },'Voltar para o carregamento');
 }
 const dataBrDia=d=>new Date(d+'T12:00:00').toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'2-digit',year:'numeric'});
+/* (16/11) quem fecha o dia ASSINA (usuário logado): desenha agora ou usa a última assinatura dele num fechamento */
+let _feAs={modo:null,ctx:null,tem:false,ult:null,depois:null};
+async function pedirAssinaturaFechamento(depois){
+  _feAs={modo:null,ctx:null,tem:false,ult:null,depois};
+  document.getElementById('fe-as-info').innerHTML=`Fechamento de <b>${esc(dataBrDia(_fe.dia))}</b><br>Quem assina: <b>${esc(nomeLogado())}</b>`;
+  const bu=document.querySelector('#fe-as-op [data-o="ultima"]'); bu.disabled=true;
+  document.getElementById('m-fe-ass').classList.remove('hidden');
+  feAsModo('nova');
+  try{const {data}=await _supabase.from('portaria_fechamentos').select('assinatura_img,fechado_em').eq('assinatura_nome',nomeLogado()).not('assinatura_img','is',null).order('fechado_em',{ascending:false}).limit(1);
+    const u=(data||[])[0]; if(u){_feAs.ult=u.assinatura_img;bu.disabled=false;document.getElementById('fe-as-img').src=u.assinatura_img;
+      document.getElementById('fe-as-quando').textContent='usada em '+dtBr(u.fechado_em);feAsModo('ultima');}}catch(e){}
+}
+function nomeLogado(){const u=getUser()||{};return u.nome||quemSou();}
+function feAsModo(m){
+  _feAs.modo=m;
+  document.querySelectorAll('#fe-as-op button').forEach(b=>b.classList.toggle('on',b.dataset.o===m));
+  ['ultima','nova'].forEach(x=>document.getElementById('fe-as-'+x).style.display=x===m?'':'none');
+  if(m==='nova')setTimeout(feAsPad,30);
+}
+function feAsPad(){
+  const cv=document.getElementById('fe-as-cv'); if(!cv)return;
+  const W=cv.clientWidth,H=cv.clientHeight; if(!W||!H)return;
+  const dpr=Math.max(1,window.devicePixelRatio||1);
+  if(!(_feAs.ctx&&cv.width===Math.round(W*dpr))){cv.width=Math.round(W*dpr);cv.height=Math.round(H*dpr);
+    const ctx=cv.getContext('2d');ctx.scale(dpr,dpr);ctx.lineWidth=2.4;ctx.lineCap='round';ctx.lineJoin='round';ctx.strokeStyle='#0b1f4a';ctx.fillStyle='#0b1f4a';
+    _feAs.ctx=ctx;_feAs.tem=false;document.getElementById('fe-as-dica').style.display='flex';}
+  if(cv._ok)return; cv._ok=true;
+  let des=false,ult=null; const pos=e=>{const r=cv.getBoundingClientRect();return {x:e.clientX-r.left,y:e.clientY-r.top};};
+  cv.addEventListener('pointerdown',e=>{e.preventDefault();try{cv.setPointerCapture(e.pointerId);}catch(x){} des=true;ult=pos(e);
+    const c=_feAs.ctx;c.beginPath();c.arc(ult.x,ult.y,1.1,0,7);c.fill();_feAs.tem=true;document.getElementById('fe-as-dica').style.display='none';});
+  cv.addEventListener('pointermove',e=>{if(!des)return;e.preventDefault();const p=pos(e),c=_feAs.ctx;c.beginPath();c.moveTo(ult.x,ult.y);c.lineTo(p.x,p.y);c.stroke();ult=p;});
+  ['pointerup','pointercancel','pointerleave'].forEach(t=>cv.addEventListener(t,()=>{des=false;}));
+}
+function feAsLimpar(){const cv=document.getElementById('fe-as-cv');if(_feAs.ctx)_feAs.ctx.clearRect(0,0,cv.width,cv.height);_feAs.tem=false;document.getElementById('fe-as-dica').style.display='flex';}
+async function feAsConfirma(){
+  let img=null;
+  if(_feAs.modo==='ultima')img=_feAs.ult;
+  else{ if(!_feAs.tem){toast('Assine no quadro para fechar o dia.','warning');return;}
+    const cv=document.getElementById('fe-as-cv'),o=document.createElement('canvas');o.width=500;o.height=Math.round(500*cv.clientHeight/cv.clientWidth);
+    o.getContext('2d').drawImage(cv,0,0,o.width,o.height);img=o.toDataURL('image/png'); }
+  if(!img){toast('Assine para fechar o dia.','warning');return;}
+  const b=document.getElementById('fe-as-ok');b.disabled=true;
+  try{closeModal('m-fe-ass');if(_feAs.depois)await _feAs.depois(img);}finally{b.disabled=false;}
+}
 async function fecharDia(){
   if(!guardAction(MOD,'edit'))return;
   if(!_fe)await carregarFechamento(); const f=_fe; if(!f)return;
-  const faz=async()=>{
-    const row={data:f.dia,resumo:{linhas:f.linhas,grupos:f.grupos,kp:f.kp,geradoEm:f.geradoEm},caminhoes:f.kp.caminhoes,toneladas:+f.kp.toneladas.toFixed(3),fechado_por:quemSou(),fechado_em:new Date().toISOString()};
+  const faz=async()=>pedirAssinaturaFechamento(async img=>{
+    const row={data:f.dia,resumo:{linhas:f.linhas,grupos:f.grupos,kp:f.kp,geradoEm:f.geradoEm},caminhoes:f.kp.caminhoes,toneladas:+f.kp.toneladas.toFixed(3),fechado_por:quemSou(),fechado_em:new Date().toISOString(),
+      assinatura_img:img,assinatura_nome:nomeLogado()};
     const r=await db(_supabase.from('portaria_fechamentos').upsert(row,{onConflict:'data'}).select().single(),'fechar o dia'); if(r.error)return;
     _fe.fechamento=r.data; addLog('CREATE','PORTARIA',f.dia,`Fechamento da portaria ${f.dia}: ${f.kp.caminhoes} caminhões, ${nf(f.kp.toneladas,2)} t`);
     toast('Dia fechado.','success'); renderFechamento(); imprimirFechamento();
-  };
+  });
   const ab=f.dia===hojeISO()?_veic.filter(v=>v.status!=='finalizado').length:0;
   if(f.fechamento||ab)confirmar(`${f.fechamento?'O dia já foi fechado — refazer com os dados de agora?':''}${ab?`<br>Ainda há <b>${ab}</b> caminhão(ões) na portaria (fila/carregando): eles entram no fechamento do dia em que saírem.`:''}`,faz,'Fechar assim mesmo');
   else await faz();
@@ -2634,7 +2695,8 @@ async function imprimirFechamento(){
     .sec{font-size:10.5px;font-weight:800;color:#042D4D;text-transform:uppercase;margin:10px 0 5px;border-left:4px solid #C9FF64;padding-left:6px;}
     .gr{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;} .gr>div{break-inside:avoid;} .gr h3{font-size:9.5px;margin:0 0 3px;color:#042D4D;text-transform:uppercase;}
     .tot td{background:#e2e8f0!important;font-weight:800;}
-    .ass{display:grid;grid-template-columns:repeat(3,1fr);gap:30px;margin-top:26px;} .ass div{border-top:1.2px solid #042D4D;padding-top:4px;text-align:center;font-weight:700;font-size:9px;}
+    .ass{display:flex;justify-content:center;margin-top:18px;break-inside:avoid;} .ass div{width:300px;border-top:1.2px solid #042D4D;padding-top:4px;text-align:center;font-weight:700;font-size:9px;position:relative;}
+    .ass img{position:absolute;bottom:100%;left:50%;transform:translateX(-50%);max-height:52px;max-width:240px;} .ass small{display:block;font-weight:600;color:#64748b;font-size:8px;}
     .rod{position:fixed;bottom:0;left:0;right:0;font-size:7.5px;color:#94a3b8;display:flex;justify-content:space-between;}
     thead{display:table-header-group;} tr{break-inside:avoid;}
   </style></head><body>
@@ -2655,7 +2717,7 @@ async function imprimirFechamento(){
     return `<div><h3>${E(g)}</h3><table><thead><tr><th>Produto</th><th>Un.</th><th class="n">Qtd.</th></tr></thead><tbody>${lst.map(([n,p])=>`<tr><td>${E(n)}</td><td>${p.un}</td><td class="n">${nf(p.qtd,p.un==='T'?2:0)}</td></tr>`).join('')}
       ${un.length===1?`<tr class="tot"><td colspan="2">Total</td><td class="n">${nf(lst.reduce((a,x)=>a+x[1].qtd,0),un[0]==='T'?2:0)}</td></tr>`:''}</tbody></table></div>`;}).join('')}
     <div><h3>Total por unidade de medida</h3><table><thead><tr><th>Unidade</th><th class="n">Qtd.</th></tr></thead><tbody>${Object.entries(k.totUn).map(([u,q])=>`<tr><td>${u==='SC'?'SC — sacos':u==='UN'?'UN — bags / unid.':'T — toneladas'}</td><td class="n">${nf(q,u==='T'?2:0)}</td></tr>`).join('')}</tbody></table></div></div>
-  <div class="ass"><div>Portaria</div><div>Expedição</div><div>Gerência</div></div>
+  <div class="ass" style="${fz&&fz.assinatura_img?'margin-top:60px;':'margin-top:40px;'}"><div>${fz&&fz.assinatura_img?`<img src="${fz.assinatura_img}">`:''}Portaria${fz&&fz.assinatura_nome?' — '+E(fz.assinatura_nome):''}${fz?`<small>fechado em ${E(dtBr(fz.fechado_em))}</small>`:''}</div></div>
   <div class="rod"><span>ERP Industrial · Portaria</span><span>Gerado em ${new Date().toLocaleString('pt-BR')}</span></div>
   </body></html>`);
   w.document.close(); setTimeout(()=>{try{w.focus();w.print();}catch(e){}},500);
