@@ -797,6 +797,7 @@ fábrica específica. Não generalizar.
 - **Carga do estoque**: só pallets em estoque (fora da contagem não) + produzidos nos últimos `JANELA_DIAS`=40 dias + granel (~1 mil em vez de 10 mil).
   Rótulo de dia fora da janela: `acharPallet` não chuta outro dia (`diaCarregado`) → `buscarPalletNovo` busca o código exato e o dia do rótulo
   (`_diasExtra`). Carga antiga reaberta/continuada: `garantirPalletsDaCarga` traz os pallets pelo id; ao abrir a tela, os pallets dos rascunhos do celular (`erp_carr_rascunhos`) também (`garantirPalletsIds`), senão o pallet antigo bipado sumia do apontamento. Movimento do dia limitado à janela.
+- (16/11, migração 133) `pallet_sacos_calc_v2`: nº do pallet contado DENTRO do produto na OP (OP com 2 produtos dava o tamanho do 1º ao P001 do 2º). Gatilhos chamam a v2; 474 pallets recalculados (granel fora).
 - **Contagem física** do Movimento do dia em `estoque_conferencia` (dia+produto, quem/quando); a contagem antiga do navegador sobe sozinha 1×.
 
 ### Perfil CAR — Encarregado de Carregamento (só pátio, 15/11/2026)
