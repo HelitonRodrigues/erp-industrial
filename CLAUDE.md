@@ -818,3 +818,10 @@ fábrica específica. Não generalizar.
   + `lab_laudos` do produto → botões; `loteValido` recusa lote que não é do produto (sem internet aceita o digitado). certificados.js: rótulo antigo
   NÃO cai mais no último laudo do produto — lote sem laudo = "avise o Laboratório" (só granel sem lote usa o último laudo).
   🔔 some enquanto há janela aberta no pátio (`:has(#patio-flash:not(.hidden))`), para não cobrir botões.
+- (16/11) **Pallet sem produção lançada** (sem OP → em análise): no pátio, só **Big Bag e Caulim 25 kg** (`podeLiberarEnc`), aparece
+  "PRODUÇÃO AINDA NÃO LANÇADA" com **ENCARREGADO LIBERA** → motivo (botões ou escrito) → entra na carga. Gravado no item `liberado_encarregado`
+  {motivo,por,em}; o Laboratório é avisado (`avisarLabPallet`); a trava BPF `unidade_nao_liberada` ignora esses pallets. Outros produtos continuam travados.
+  Guardado no rascunho (`libEnc`) e volta ao reabrir a carga.
+- (16/11) **Saiu menos que a ordem** (50 → 40 bags): não trava; pede o MOTIVO (Motorista quis levar menos / Faltou produto / Caminhão não comporta /
+  outro) no pátio (`patioSalvar`) e no computador (select no "Carga incompleta"). Itens da linha gravam `pedido_qtd`, `carregado_qtd`, `motivo_menos`.
+  O estoque baixa só o que foi carregado (pallets bipados / sem QR lançados). Granel fora (balança nunca fecha).

@@ -2873,6 +2873,7 @@ function iniciarCarregamento(opt){
   _carrEditId=c?c.id:null;
   _carrPreIds=new Set();
   _alloc={};_allocSet=new Set();_extra={};_qtdInf={};_qtdUlt={};_avulsos={};_linhasCarr=[];_linhaAtiva=null;_keySeq=0;
+  Object.keys(_libEnc).forEach(k=>delete _libEnc[k]);
   _doa={};_doaPre={};_modoDoa=false;
   if(rom){
     _carrOrdem={numero:rom.numero,transportadora:rom.transportadora,motorista:rom.motorista,placa:rom.placa,
@@ -2920,6 +2921,8 @@ function iniciarCarregamento(opt){
         const ex=Number(it.sacos_extra)||0;
         if(ex>0)_extra[p.id]={qtd:ex,obs:it.extra_obs||''};
         if(it.sacos_informado&&Number(it.sacos_base)>0) _qtdInf[p.id]=Number(it.sacos_base);
+        if(it.liberado_encarregado) _libEnc[p.id]=it.liberado_encarregado;
+        if(it.motivo_menos) l.motivoMenos=it.motivo_menos;
       }
       if(!rom)l.sacksNeed+=(Number(it.sacos)||0);
     });
@@ -3883,14 +3886,32 @@ async function salvarCarregamento(){
   }
   await salvarCarregamentoPasso2(incompletas);
 }
+/* (16/11) saiu MENOS que a ordem (motorista levou 40 de 50): não trava, mas grava o MOTIVO no item.
+   O estoque já baixa só o que foi carregado (pallets bipados / sem QR lançados). Granel fica de fora (balança nunca fecha). */
+const MOTIVOS_MENOS=['Motorista quis levar menos','Faltou produto no estoque','Caminhão não comporta'];
+function linhasIncompletas(){return _linhasCarr.filter(l=>!l.granel&&l.sacksNeed>0&&allocSacks(l.key)<l.sacksNeed);}
+function menosDe(l){
+  if(!l||l.granel||!(l.sacksNeed>0)||allocSacks(l.key)>=l.sacksNeed)return {};
+  return {pedido_qtd:l.sacksNeed,carregado_qtd:allocSacks(l.key),motivo_menos:l.motivoMenos||null};
+}
 async function salvarCarregamentoPasso2(incompletas){
   if(incompletas.length&&!_patio){
     const msg=`<strong>${incompletas.length} item(ns) não atingiram a quantidade pedida:</strong><br>`+
       incompletas.map(l=>l.granel
         ? `• ${esc(l.cliente||l.produto||'—')} — ${n2(avulsosTon(l.key))} de ${n2(l.tonNeed)} t`
         : `• ${esc(l.cliente||l.produto||'—')} — ${n0(allocSacks(l.key))} de ${n0(l.sacksNeed)} sc`).join('<br>')+
+      (linhasIncompletas().length?`<br><br><label class="form-label">Por que saiu menos? (obrigatório)</label>
+        <select id="inc-mot" class="form-input"><option value="">— escolha —</option>${MOTIVOS_MENOS.map(m=>`<option>${esc(m)}</option>`).join('')}<option value="__outro">Outro…</option></select>
+        <input id="inc-mot-outro" class="form-input" style="margin-top:6px;" placeholder="se for outro, escreva aqui">`:'')+
       '<br><br>Salvar a carga assim mesmo?';
-    confirmar('Carga incompleta',msg,async()=>{closeModal('modal-confirm');await gravarCarregamento();},'Salvar assim mesmo');
+    confirmar('Carga incompleta',msg,async()=>{
+      if(linhasIncompletas().length){
+        let m=document.getElementById('inc-mot')?.value||'';
+        if(m==='__outro')m=(document.getElementById('inc-mot-outro')?.value||'').trim();
+        if(!m){toast('Escolha por que saiu menos que a ordem.','warning');return;}
+        linhasIncompletas().forEach(l=>l.motivoMenos=m);
+      }
+      closeModal('modal-confirm');await gravarCarregamento();},'Salvar assim mesmo');
     return;
   }
   await gravarCarregamento();
@@ -3912,6 +3933,7 @@ async function gravarCarregamento(opts){
       const base=sacosDoPallet(p),ex=sacosExtra(id),obs=(_extra[id]||{}).obs||'';
       itensSnap.push({pallet_id:id,codigo:palCodigo(p),produto:p.produto,linha:p.linha||'',
         sacos_base:base,sacos_extra:ex,sacos:base+ex,extra_obs:obs,sacos_informado:_qtdInf[id]!=null,
+        ...menosDe(l),liberado_encarregado:_libEnc[id]||null,
         cliente:l.cliente||'',pedido:l.pedido||'',cidade:l.cidade||'',
         data_producao:p.data||null,lote:(lp=>lp&&lp!=='—'?lp:(l.lote||'—'))(loteDe(p)),   // lote do pallet bipado manda; o da ordem só se o pallet não tiver
         barracao:nomeBarracao(barracaoDoPallet(p)),
@@ -3930,7 +3952,7 @@ async function gravarCarregamento(opts){
         ton_pedido:emTon?(Number(l.tonNeed)||0):0,
         ton_diferenca:emTon&&l.tonNeed>0?Math.round((ton-l.tonNeed)*1000)/1000:0,
         sacos_base:0,sacos_extra:0,sacos:emTon?0:(Number(a.sacos)||0),
-        motivo_avulso:a.motivo,extra_obs:a.obs||'',
+        motivo_avulso:a.motivo,extra_obs:a.obs||'',...menosDe(l),
         pallets_sem_qr:a.motivo===ROT_ANTIGO?(Number(a.pallets)||0):0, soltos_sem_qr:a.motivo===ROT_ANTIGO?(Number(a.soltos)||0):0,
         cliente:l.cliente||'',pedido:l.pedido||'',cidade:l.cidade||'',
         data_producao:null,lote:(a.motivo===ROT_ANTIGO&&a.lote)?a.lote:(l.lote||''),barracao:'',
@@ -3955,7 +3977,7 @@ async function gravarCarregamento(opts){
       carregado_em:agora});
   });
   // BPF · trava "unidade_nao_liberada": pallet que não está APROVADO (reprovado, em decisão ou em análise) não carrega
-  { const naoLib=[...usados].map(id=>_pallets.find(x=>x.id===id)).filter(p=>p&&!['disponivel','carregado'].includes(situacaoPallet(p)));
+  { const naoLib=[...usados].map(id=>_pallets.find(x=>x.id===id)).filter(p=>p&&!_libEnc[p.id]&&!['disponivel','carregado'].includes(situacaoPallet(p)));
     if(naoLib.length&&!(await bpfTravaGenerica('unidade_nao_liberada',{onde:'carregamento',violou:true,
         msg:`${naoLib.length} unidade(s) sem liberação da Qualidade: ${naoLib.slice(0,8).map(p=>(p.codigo||p.numero||'pallet')+' ('+(SIT_LBL[situacaoPallet(p)]||'')+')').join(', ')}${naoLib.length>8?'…':''}.`,
         contexto:'Carregamento da ordem '+(_carrOrdem.numero||'')}))){
@@ -4074,6 +4096,7 @@ function fecharCarregar(){
   pararCam();closeModal('modal-lido');_lidoCtx=null;closeModal('modal-carregar');
   _carrOrdem=null;_carrEditId=null;_carrPreIds=new Set();
   _alloc={};_allocSet=new Set();_extra={};_qtdInf={};_qtdUlt={};_linhasCarr=[];_linhaAtiva=null;
+  Object.keys(_libEnc).forEach(k=>delete _libEnc[k]);
   _doa={};_doaPre={};_modoDoa=false;_avulsos={};
   _opSel=null;_opEncarregado=null;
 }
@@ -5024,7 +5047,7 @@ function salvarRascunho(extra){
   }
   all[num]={ordem:_carrOrdem,editId:_carrEditId,preIds:[..._carrPreIds],linhas:_linhasCarr,alloc:_alloc,
     extra:_extra,qtdInf:_qtdInf,qtdUlt:_qtdUlt,doa:_doa,doaPre:_doaPre,avulsos:_avulsos,ativa:_linhaAtiva,keySeq:_keySeq,
-    op:_opSel,enc:_opEncarregado,ts:Date.now(),pendente:!!(extra&&extra.pendente)};
+    op:_opSel,enc:_opEncarregado,ts:Date.now(),pendente:!!(extra&&extra.pendente),libEnc:_libEnc};
   lsSet(LS_RASC,all);
 }
 function apagarRascunho(num){const all=rascunhos();if(all[num]){delete all[num];lsSet(LS_RASC,all);}}
@@ -5034,6 +5057,7 @@ function aplicarRascunho(r){
   _linhasCarr=Array.isArray(r.linhas)&&r.linhas.length?r.linhas:_linhasCarr;
   _extra=r.extra||{};_qtdInf=r.qtdInf||{};_qtdUlt=r.qtdUlt||{};_doa=r.doa||{};_doaPre=r.doaPre||{};_avulsos=r.avulsos||{};
   _keySeq=Math.max(_keySeq,Number(r.keySeq)||0);
+  Object.keys(_libEnc).forEach(k=>delete _libEnc[k]);Object.assign(_libEnc,r.libEnc||{});
   if(r.op)_opSel=r.op; if(r.enc)_opEncarregado=r.enc;
   _alloc={};_allocSet=new Set();let perdidos=0;
   _linhasCarr.forEach(l=>{_alloc[l.key]=[];});
@@ -5695,14 +5719,23 @@ function patioLeitura(txt){
     return 'conf'; }
   /* (nov/2026) reprovado, em análise, em decisão ou já carregado: NUNCA entra (sem exceção) */
   if(sit!=='disponivel'){
-    if(sit==='analise'){
+    if(sit==='analise'&&_libEnc[p.id]){ /* já liberado pelo encarregado nesta carga: segue */ }
+    else if(sit==='analise'&&podeLiberarEnc(p)){
+      avisarLabPallet(p);window._libCtx={p,alvo};
+      patioFlash('err','🧪','PRODUÇÃO AINDA NÃO LANÇADA',`${esc(p.produto)} · ${esc(codCurto(p))}<br>Este pallet ainda não passou pelo laboratório (a produção não foi lançada).<br><b>Só carregue se o encarregado mandar.</b>`,
+        {botao:'NÃO CARREGAR',botao2:'ENCARREGADO LIBERA',depois2:()=>setTimeout(patioLibEncMotivo,50)});
+      return 'block';
+    }
+    else if(sit==='analise'){
       const ja=_avisadoLab.has(p.id); avisarLabPallet(p);
       patioFlash('err','🧪','EM ANÁLISE — NÃO CARREGAR AINDA',`${esc(p.produto)} · ${esc(codCurto(p))}<br><b>${ja?'O laboratório já foi avisado.':'Avisamos o laboratório agora.'}</b><br>Deixe este pallet de lado. Quando o laboratório liberar, bipe de novo.`,{botao:'ENTENDI'});
       return 'block';
     }
+    if(!(sit==='analise'&&_libEnc[p.id])){
     const t={reprovado:'REPROVADO PELO LABORATÓRIO',decisao:'ESPERANDO DECISÃO DA DIRETORIA',carregado:'JÁ FOI CARREGADO EM OUTRO CAMINHÃO'}[sit]||String(SIT_LBL[sit]||'').toUpperCase();
     patioFlash('err','⛔','NÃO CARREGAR',`<b>${t}</b><br>${esc(p.produto)} · ${esc(codCurto(p))}<br>Deixe este pallet no lugar.`,{botao:'ENTENDI'});
     return 'block';
+    }
   }
   if(precisaQtdPallet(p)&&_qtdInf[p.id]==null){ _patioOcupado=true; perguntarQtdPallet(p,()=>{ _patioOcupado=false; beep(patioLeitura(txt)); },true,()=>{ _patioOcupado=false; }); return 'conf'; }
   if(!sacosDoPallet(p)){patioFlash('err','⚠️','PALLET SEM QUANTIDADE NO SISTEMA','Chame o encarregado.',{botao:'ENTENDI'});return 'err';}
@@ -5948,7 +5981,41 @@ function patioTerminar(){
       <button class="pt-btn cinza" onclick="patioAbrirCarga()">◀ VOLTAR E BIPAR MAIS</button>
     </div>`;
 }
+/* (16/11) pallet SEM produção lançada (sem OP → laboratório ainda não analisou): o ENCARREGADO pode liberar,
+   com motivo, só para Big Bag e Caulim 25 kg. Fica gravado no item (liberado_encarregado) e o laboratório é avisado. */
+const _libEnc={};
+function podeLiberarEnc(p){return !!p&&!p.lancamento_id&&(ehBagNome(p.produto)||/25\s*kg/i.test(String(p.produto||'')));}
+const MOTIVOS_LIB=['Produção ainda não lançada','Cliente com urgência'];
+function patioLibEncMotivo(){
+  const c=window._libCtx;if(!c)return;
+  patioFlash('warn','✍️','POR QUE LIBERAR SEM O LABORATÓRIO?',
+    `${esc(c.p.produto)} · ${esc(codCurto(c.p))}<div style="display:grid;gap:8px;margin-top:10px;">
+     ${MOTIVOS_LIB.map(m=>`<button class="pt-btn verde" onclick="patioLibEncOk('${escA(m)}')">${esc(m.toUpperCase())}</button>`).join('')}
+     <input id="le-outro" class="pt-input" placeholder="outro motivo (escreva)" autocomplete="off">
+     <button class="pt-btn cinza" onclick="patioLibEncOk('__outro')">LIBERAR COM ESTE MOTIVO</button></div>`,{botao:'CANCELAR'});
+}
+function patioLibEncOk(m){
+  const c=window._libCtx;if(!c)return;
+  if(m==='__outro'){m=(document.getElementById('le-outro')?.value||'').trim();if(!m){beep('err');return;}}
+  _libEnc[c.p.id]={motivo:m,por:operadorAtual(),em:new Date().toISOString()};
+  window._libCtx=null;patioFlashFechar();salvarRascunho();
+  beep(patioLeitura(palCodigo(c.p)));
+}
+function patioMotivoMenos(m){
+  if(m==='__outro'){m=(document.getElementById('pm-outro')?.value||'').trim();if(!m){beep('err');return;}}
+  linhasIncompletas().forEach(l=>l.motivoMenos=m);patioFlashFechar();salvarRascunho();patioSalvar();
+}
 async function patioSalvar(){
+  const semMot=linhasIncompletas().filter(l=>!l.motivoMenos);
+  if(semMot.length){
+    patioFlash('warn','✋','SAIU MENOS QUE A ORDEM',
+      `${semMot.map(l=>`<b>${esc(l.produto)}</b>: ${n0(allocSacks(l.key))} de ${n0(l.sacksNeed)}`).join('<br>')}<br><br><b>POR QUÊ?</b>
+       <div style="display:grid;gap:8px;margin-top:8px;">${MOTIVOS_MENOS.map(m=>`<button class="pt-btn verde" onclick="patioMotivoMenos('${escA(m)}')">${esc(m.toUpperCase())}</button>`).join('')}
+       <input id="pm-outro" class="pt-input" placeholder="outro motivo (escreva)" autocomplete="off">
+       <button class="pt-btn cinza" onclick="patioMotivoMenos('__outro')">SALVAR COM ESTE MOTIVO</button></div>`,
+      {botao:'VOLTAR'});
+    return;
+  }
   const bt=document.querySelector('#patio-body .pt-btn.verde.grande');if(bt){bt.disabled=true;bt.textContent='SALVANDO…';}
   salvarRascunho();
   const ok=await gravarCarregamento();
