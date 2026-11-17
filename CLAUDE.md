@@ -969,3 +969,6 @@ fábrica específica. Não generalizar.
 - (17/11, migração 147 — substitui o "saindo agora" da 146) Quem escolhe o lote do granel é o **porteiro**, na **⬆️ Dar saída** da DSM:
   passo 2 "Qual lote foi carregado? (pergunte ao operador)" — Hoje/Ontem, obrigatório (grava `lote_granel`). O laboratório só libera o laudo
   de cada dia (o botão "Usar este lote agora" saiu). O caminhão nasce com o lote de hoje; o porteiro ainda pode trocar no cartão.
+- (17/11) Granel: o silo pode ter material de **vários dias** (ex.: sábado, DSM não veio). DSM (`dsmCarregarLotes`): opções = hoje + dias com produção
+  da Longa Vida nos últimos 15 dias (até 8), com dia da semana e ✅ quando o laudo já foi liberado. Laboratório (`_grDias`): hoje + os últimos
+  3 dias com análise OK da Longa Vida.

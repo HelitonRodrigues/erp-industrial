@@ -4709,7 +4709,10 @@ function _lauOpsTxt(g){ return g.ops.map(o=>o.op_numero||'—').join(' / '); }
    Longa Vida do dia) e marca qual lote está SAINDO AGORA (empresa_config.granel_lote_atual) — a DSM pega esse lote, e o certificado
    se liga sozinho a cada caminhão (migração 145). */
 const _grLote=d=>String(d).replace(/-/g,'')+'C';
-function _grDias(){ const h=hoje(), o=new Date(h+'T12:00:00'); o.setDate(o.getDate()-1); return [h,o.toISOString().slice(0,10)]; }
+/* dias que podem estar no silo: hoje + os últimos dias com análise OK da Longa Vida (até 4), mais novo primeiro */
+function _grDias(){ const h=hoje();
+  const ds=[...new Set((_analises||[]).filter(a=>a.linha==='Longa Vida'&&String(a.status||'').toUpperCase()==='OK'&&a.data<h).map(a=>a.data))].sort().reverse().slice(0,3);
+  return [h,...ds]; }
 function _grLaudo(lote){ return (_lauLaudos||[]).filter(l=>l.lote===lote&&/granel/i.test(l.produto||'')).sort((a,b)=>(a.status==='finalizado'?0:1)-(b.status==='finalizado'?0:1))[0]||null; }
 function renderGranelPainel(){
   const el=document.getElementById('lau-granel'); if(!el) return;
@@ -4728,10 +4731,10 @@ function renderGranelPainel(){
         ${l?`<button class="btn btn-ghost btn-sm" onclick="granelAbrir('${lote}',${l.status==='finalizado'})">🖨 Ver laudo</button>`:''}
       </div></div>`;
   };
-  const [h,o]=_grDias();
-  el.innerHTML=`<div class="card" style="margin-bottom:12px;padding:12px 14px;"><div style="font-weight:800;color:var(--primary,#042D4D);font-size:15px;">🧪 Caulim Granel Cinza — laudo de hoje e de ontem</div>
-    <div style="font-size:12px;color:#64748b;margin:2px 0 8px;">Libere o laudo de cada dia. O porteiro informa na saída de cada caminhão da DSM qual lote foi carregado (hoje ou ontem) e o certificado aparece na portaria.</div>
-    <div style="display:flex;gap:10px;flex-wrap:wrap;">${dia(h,'Hoje')}${dia(o,'Ontem')}</div></div>`;
+  const ds=_grDias(), _sem=['dom','seg','ter','qua','qui','sex','sáb'];
+  el.innerHTML=`<div class="card" style="margin-bottom:12px;padding:12px 14px;"><div style="font-weight:800;color:var(--primary,#042D4D);font-size:15px;">🧪 Caulim Granel Cinza — laudo dos dias no silo</div>
+    <div style="font-size:12px;color:#64748b;margin:2px 0 8px;">Libere o laudo de cada dia de produção. O porteiro informa na saída de cada caminhão da DSM qual lote foi carregado e o certificado aparece na portaria.</div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;">${ds.map((d,i)=>dia(d,i===0?'Hoje':_sem[new Date(d+'T12:00:00').getDay()])).join('')}</div></div>`;
 }
 async function granelLiberar(d){
   if(!guardAction('laboratorio','edit')) return;

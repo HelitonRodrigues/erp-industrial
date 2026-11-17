@@ -286,7 +286,7 @@ async function carregarPatio(){
     _supabase.from('dsm_faturamento').select('min_permanencia,min_espera,status,cancelado_em').eq('status','saiu').gte('recepcao_em',diasAtras(6)+'T00:00:00-03:00').limit(5000)]);
   if(a.error){toast(a.error.message,'danger');return;}
   _cam=(a.data||[]).filter(c=>!c.cancelado_em);_hoje=(h.data||[]).filter(c=>!c.cancelado_em);_sete=(s7.data||[]).filter(c=>!c.cancelado_em);
-  await dsmCarregarCert([..._cam,..._hoje].map(c=>c.id));
+  await Promise.all([dsmCarregarCert([..._cam,..._hoje].map(c=>c.id)),dsmCarregarLotes()]);
   renderKpis();if(_aba==='fila')renderBoard();
 }
 /* (17/11) 📜 CERTIFICADO DO GRANEL por caminhão (migração 145): o caminhão tem o lote (hoje/ontem, vem do que o laboratório marcou
@@ -301,11 +301,25 @@ async function dsmCarregarCert(ids){
   const {data:lt}=await _supabase.from('dsm_caminhoes').select('id,lote_granel').in('id',ids.length?ids:['00000000-0000-0000-0000-000000000000']);
   _dsmLote={}; (lt||[]).forEach(x=>_dsmLote[x.id]=x.lote_granel);
 }
-const dsmLotes=()=>{const h=hojeISO(),o=new Date(h+'T12:00:00');o.setDate(o.getDate()-1);return [h.replace(/-/g,'')+'C',o.toISOString().slice(0,10).replace(/-/g,'')+'C'];};
+/* lotes do silo que podem estar saindo: hoje + os dias com produção de granel na Longa Vida nos últimos 15 dias (o silo pode ficar
+   com material de vários dias — ex.: sábado, se a DSM não veio). ✅ = laudo já liberado. */
+let _dsmLotesDisp=[];
+const _DSEM=['dom','seg','ter','qua','qui','sex','sáb'];
+async function dsmCarregarLotes(){
+  const ini=new Date(hojeISO()+'T12:00:00'); ini.setDate(ini.getDate()-15); const d0=ini.toISOString().slice(0,10);
+  const [{data:ops},{data:lds}]=await Promise.all([
+    _supabase.from('producao').select('data').eq('linha','Longa Vida').gte('data',d0).order('data',{ascending:false}).limit(200),
+    _supabase.from('lab_laudos').select('lote,status').ilike('produto','caulim granel%').gte('emitido_em',d0).limit(200)]);
+  const dias=[...new Set([hojeISO(),...(ops||[]).map(o=>o.data)])].sort().reverse();
+  const lib=new Set((lds||[]).filter(l=>l.status==='finalizado').map(l=>l.lote));
+  _dsmLotesDisp=dias.slice(0,8).map(d=>{const l=d.replace(/-/g,'')+'C',w=_DSEM[new Date(d+'T12:00:00').getDay()];
+    return {lote:l,dia:d,rot:(d===hojeISO()?'Hoje':d.slice(8,10)+'/'+d.slice(5,7)+' '+w),lib:lib.has(l)};});
+}
+const dsmLotes=()=>_dsmLotesDisp.length?_dsmLotesDisp.map(x=>x.lote):[hojeISO().replace(/-/g,'')+'C'];
 function dsmCertHtml(c){
   const lote=_dsmLote[c.id]||c.lote_granel; if(!lote) return '';
   const ls=[...new Set([lote,...dsmLotes()])], cert=_dsmCert[c.id];
-  const sel=`<select class="bt gh" style="padding:4px 6px;font-size:12px;" title="Lote do granel deste caminhão" onchange="dsmSetLote('${c.id}',this.value)">${ls.map(x=>`<option ${x===lote?'selected':''}>${x}</option>`).join('')}</select>`;
+  const sel=`<select class="bt gh" style="padding:4px 6px;font-size:12px;" title="Lote do granel deste caminhão" onchange="dsmSetLote('${c.id}',this.value)">${ls.map(x=>`<option value="${x}" ${x===lote?'selected':''}>${x}${(_dsmLotesDisp.find(y=>y.lote===x)||{}).lib?' ✅':''}</option>`).join('')}</select>`;
   return `<div class="mu" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:3px;">🧪 lote ${sel}${cert?`<button class="bt vd" style="padding:4px 9px;" onclick="dsmCert('${c.id}')">📜 Certificado</button>`:'<span style="font-size:11px;font-weight:800;background:#fef3c7;color:#92400e;border-radius:99px;padding:2px 8px;">aguardando laboratório</span>'}</div>`;
 }
 async function dsmSetLote(id,lote){
@@ -900,7 +914,7 @@ async function abrirPesagem(id,tipo){
       <div><span>BRUTO (SAÍDA)</span><b id="pz-bru">—</b><small>caminhão carregado</small></div>
       <div class="liq"><span>LÍQUIDO DA CARGA</span><b id="pz-liq">—</b><small>bruto − tara</small></div></div>
       ${!/granel.*branco.*02/i.test(c.nf_produto||'')?`<div class="pz-step"><span>2</span><b>Qual lote foi carregado? <small style="font-weight:600;color:#64748b;">(pergunte ao operador)</small></b></div>
-      <div class="pz-uns">${dsmLotes().map((l,i)=>`<button type="button" class="pz-un pz-lt" data-l="${l}" onclick="document.querySelectorAll('.pz-lt').forEach(b=>b.classList.toggle('on',b===this))">🧪 ${i===0?'Hoje':'Ontem'}<small>lote ${l}</small></button>`).join('')}</div>`:''}`:''}
+      <div class="pz-uns">${(_dsmLotesDisp.length?_dsmLotesDisp:[{lote:dsmLotes()[0],rot:'Hoje'}]).map(x=>`<button type="button" class="pz-un pz-lt" data-l="${x.lote}" onclick="document.querySelectorAll('.pz-lt').forEach(b=>b.classList.toggle('on',b===this))">🧪 ${x.rot}<small>lote ${x.lote}${x.lib?' · ✅ laudo':''}</small></button>`).join('')}</div>`:''}`:''}
     ${ent?`<div class="pz-step"><span>2</span><b>Em qual unidade ele vai carregar?</b></div>
       <div class="pz-uns">${uns.map(u=>`<button type="button" class="pz-un" data-u="${esc(u)}" onclick="document.querySelectorAll('.pz-un').forEach(b=>b.classList.toggle('on',b===this))">🏭 ${esc(u)}${ocup(u).length?`<small>${ocup(u).length} carregando</small>`:''}</button>`).join('')}</div>`:''}
     <div id="pz-erro" class="alert alert-danger" style="display:none;margin-top:10px;"></div>
