@@ -624,7 +624,7 @@
    ESTADO GLOBAL
    ═══════════════════════════════════════════ */
 let _PM=[],_PP=[],_PALL=[],_LN=[],_PLTS=[],_PLTS_PREV=[],_PLANOS=[],_PRODS=[],_CAD_FUNCS=[],_HOJE_ISO='';
-let _CARR=[],_EST={total:0,liberado:0},_PLANO_TON=0;
+let _CARR=[],_EST={total:0,liberado:0},_PLANO_TON=0,_CG=[],_DSM=[],_ESTV=[],_CONF={};
 let _MES_ATUAL='';
 let _ALMX=[],_M_INI='',_M_FIM='',_PLANO_CUSTO=[],_EPI_PEND={vencidas:[],proximas:[]};   // usados pelos modais de detalhe
 
@@ -1035,6 +1035,28 @@ function _tile({l,v,u,s,dl,extra,href,cls,det}){
 /* ═══════════════════════════════════════════
    FECHAMENTO DO DIA (tiles)
    ═══════════════════════════════════════════ */
+/* tipo do item carregado: ensacado (sacos), bag (unidades) ou granel (t) */
+function _tipoItem(i){ const n=String(i.produto||'').toLowerCase(); if(i.unidade==='t'||/granel/.test(n)) return 'granel'; if(/\bbag\b|big ?bag/.test(n)) return 'bag'; return 'saco'; }
+function _qtdItem(i){ const t=_tipoItem(i); return t==='granel'?(Number(i.ton)||Number(i.sacos)||0):t==='bag'?(Number(i.sacos)||1):(Number(i.sacos)||0); }
+/* carregado de um dia: cargas salvas (QR, sem QR, a mais/a menos) + granel da DSM (líquido da balança) */
+function _carrDia(dia){
+  const r={sacos:0,bags:0,t:0,cam:0,porProd:{},cargas:[]};
+  (_CG||[]).filter(c=>c.data===dia).forEach(c=>{
+    const its=(c.itens||[]).filter(i=>i&&!i.doador); if(!its.length) return;
+    const g={ordem:c.ordem_numero,placa:c.placa,hora:c.created_at,cli:new Set(),prod:{}};
+    its.forEach(i=>{ const t=_tipoItem(i), q=_qtdItem(i); if(t==='granel') r.t+=q; else if(t==='bag') r.bags+=q; else r.sacos+=q;
+      const k=i.produto||'—', p=r.porProd[k]=r.porProd[k]||{tipo:t,q:0,cargas:new Set()}; p.q+=q; p.cargas.add(c.ordem_numero);
+      g.prod[k]=(g.prod[k]||0)+q; if(i.cliente) g.cli.add(i.cliente); if(i.motivo_menos) g.menos=i.motivo_menos; });
+    r.cargas.push(g);
+  });
+  (_DSM||[]).filter(d=>d.data===dia).forEach(d=>{ const q=(Number(d.kg)||0)/1000; r.t+=q;
+    const k=(d.produto||'Caulim Granel')+' (DSM)', p=r.porProd[k]=r.porProd[k]||{tipo:'granel',q:0,cargas:new Set(),dsm:true}; p.q+=q; p.cargas.add('DSM '+d.placa);
+    r.cargas.push({ordem:'DSM'+(d.nf_numero?' · NF '+String(d.nf_numero).replace(/^0+/,''):''),placa:d.placa,cli:new Set(['DSM']),prod:{[k]:q},dsm:true}); });
+  r.cam=r.cargas.length; return r;
+}
+const _UN_TIPO={saco:'sc',bag:'bags',granel:'t'};
+function _fmtQtdTipo(q,t){ return t==='granel'?_nf3(q)+' t':fN(q)+' '+_UN_TIPO[t]; }
+function _nf3(v){ return (Number(v)||0).toLocaleString('pt-BR',{maximumFractionDigits:2}); }
 function renderFechamento(){
   const por=_porDia(), ref=_REF;
   const dia=_agg(por[ref]);
@@ -1043,7 +1065,8 @@ function renderFechamento(){
   const med=k=>{ const xs=base.map(b=>b[k]).filter(x=>x!=null); return xs.length?xs.reduce((s,x)=>s+x,0)/xs.length:null; };
   const tit=`vs média de ${base.length} dia(s) com produção`;
   const d14=_dias(ref,14), a14=d14.map(d=>_agg(por[d]));
-  const carrDia={}; (_CARR||[]).forEach(p=>{ if(!p.carregado_em) return; const k=localISODate(new Date(p.carregado_em)); carrDia[k]=(carrDia[k]||0)+1; });
+  const cd=_carrDia(ref), estSc=(_ESTV||[]).filter(e=>!/bag|granel/i.test(e.produto||'')).reduce((s,e)=>s+(Number(e.fisico_sc)||0),0),
+        estBag=(_ESTV||[]).filter(e=>/bag/i.test(e.produto||'')).reduce((s,e)=>s+(Number(e.fisico_sc)||0),0);
 
   const mes=_agg(_PM), prevMes=_agg(_prev());
   const linhasDia=new Set((por[ref]||[]).map(o=>o.linha)).size;
@@ -1069,9 +1092,9 @@ function renderFechamento(){
     _tile({l:'Lenha',v:fN(dia.le,1),u:'m³',href:'lenha.html',det:`det('lenha','dia:${ref}')`,
       s:'consumo apontado nas OPs',
       dl:_delta(dia.n?dia.le:null,med('le'),{inv:true,titulo:tit}),extra:_spark(a14.map(a=>a.le),'#b45309')}),
-    _tile({l:'Carregado',v:fN(carrDia[ref]||0),u:'pallets',href:'carregamento.html',det:'detCarregado()',
-      s:`Em estoque agora: <b>${fN(_EST.total)}</b> pallets<br>${fN(_EST.liberado)} liberados pelo laboratório`,
-      extra:_spark(d14.map(d=>carrDia[d]||0),'#2563eb')}),
+    _tile({l:hoje?'Carregado hoje':'Carregado no dia',v:fN(cd.sacos),u:'sacos',href:'carregamento.html',det:'detCarregado()',
+      s:`${fN(cd.bags)} bags · ${_nf3(cd.t)} t granel · ${cd.cam} caminhão(ões)<br>Estoque agora: <b>${fN(estSc)}</b> sc · ${fN(estBag)} bags`,
+      extra:_spark(d14.map(d=>_carrDia(d).sacos),'#2563eb')}),
   ].join('');
 
   document.getElementById('fx-titulo').textContent=hoje?'Hoje, até agora':'Fechamento do dia';
@@ -1209,7 +1232,7 @@ function renderComparativos(){
   }
   if(rec) rec.textContent=`Primeiros ${_DIA_CORTE} dias de cada mês`;
   const c=_agg(_PM), p=_agg(PP);
-  const corte=r=>{ if(!r.created_at) return true; return new Date(r.created_at).getDate()<=_DIA_CORTE; };
+  const corte=r=>{ const d=r.data||r.created_at; if(!d) return true; return new Date(String(d).slice(0,10)+'T12:00:00').getDate()<=_DIA_CORTE; };
   const PL=_PLTS_PREV.filter(corte);
   const ap=_PLTS.filter(x=>x.status==='aprovado').length, rp=_PLTS.filter(x=>x.status==='reprovado').length;
   const apP=PL.filter(x=>x.status==='aprovado').length, rpP=PL.filter(x=>x.status==='reprovado').length;
@@ -1295,14 +1318,14 @@ async function init(opts){
       safe(_supabase.from('epi_entregas').select('id,funcionario_id,epi_id,data_entrega,data_prevista_troca,devolvido_em,created_at')),
       safe(_supabase.from('almoxarifado').select('nome,unidade,categoria,estoque_atual,estoque_minimo')),
       safe(_supabase.from('manutencao').select('id,prioridade').in('status',['aberta','em_andamento'])),
-      safe(selectTodos(_supabase.from('producao_pallets').select('id,lancamento_id,status,linha,produto,numero').gte('created_at',mIni+'T00:00:00').lte('created_at',ref+'T23:59:59.999'))),
+      safe(selectTodos(_supabase.from('producao_pallets').select('id,lancamento_id,status,linha,produto,numero,data').gte('data',mIni).lte('data',ref))),   // (17/11) pelo DIA DA PRODUÇÃO
       safe(_supabase.from('planejamentos').select('secoes,mes').eq('mes',mes)),
       safe(_supabase.from('laboratorio').select('id,linha,data,hora,status,produto,turno,responsavel,umidade,massa,separador,obs,peneiramento').order('data',{ascending:false}).order('hora',{ascending:false}).limit(300)),
       safe(_supabase.from('planejamentos_custo').select('codigo,nome,mes,ano,totais,estado,status,atualizado_em').eq('mes',m).eq('ano',ano).order('atualizado_em',{ascending:false}).limit(5)),
-      safe(selectTodos(_supabase.from('producao_pallets').select('id,status,created_at,linha').gte('created_at',pIni+'T00:00:00').lte('created_at',pFim+'T23:59:59.999'))),
+      safe(selectTodos(_supabase.from('producao_pallets').select('id,status,created_at,linha,data').gte('data',pIni).lte('data',pFim))),
       safe(_supabase.from('aferidor_aditivacao').select('numero,data,hora,linha,itens').order('data',{ascending:false}).limit(60)),
       // carregados: janela com 1 dia de folga — o dia é contado no fuso local
-      safe(selectTodos(_supabase.from('producao_pallets').select('id,produto,carregado_em').gte('carregado_em',_addDias(iniQ,-1)+'T00:00:00').lte('carregado_em',_addDias(ref,1)+'T23:59:59.999'))),
+      Promise.resolve([]),   // (17/11) o carregado agora vem das cargas salvas + DSM (_carrDia), não dos pallets
       conta(_supabase.from('producao_pallets').select('id',{count:'exact',head:true}).eq('estoque_status','estoque').is('fora_estoque_em',null)),
       conta(_supabase.from('producao_pallets').select('id',{count:'exact',head:true}).eq('estoque_status','estoque').is('fora_estoque_em',null).eq('status','aprovado')),
       safe(_supabase.from('produtos').select('id,nome,unidade,peso_unidade_kg,status')),
@@ -1338,6 +1361,28 @@ async function init(opts){
 
   _PRODS=prods||[];
   _CAD_FUNCS=funcs||[];
+
+  /* (17/11) CARREGADO igual ao fechamento da portaria (cargas salvas + DSM), ESTOQUE completo (com QR + sem QR) e CONFERÊNCIAS */
+  let _cg=[],_dsm=[],_estV=[],_lk=[],_prov=[],_aconf=[],_labp=[],_lgr=[],_ldGr=[],_fel=[],_estac=null,_cham=[];
+  try{
+    const d14=_addDias(ref,-14), d7=_addDias(ref,-7), d30=_addDias(ref,-30), d15=_addDias(ref,-15);
+    [_cg,_dsm,_estV,_lk,_prov,_aconf,_labp,_lgr,_ldGr,_fel,_estac,_cham]=await Promise.all([
+      safe(selectTodos(_supabase.from('carregamentos').select('id,data,ordem_numero,placa,itens,created_at').gte('data',d14).lte('data',ref))),
+      safe(_supabase.from('granel_saidas_dsm').select('*').gte('data',d14).lte('data',ref).limit(2000)),
+      safe(_supabase.from('estoque_atual_produto').select('*')),
+      safe(_supabase.from('lab_laudo_carregamentos').select('ordem_numero,obs,laudo_id').gte('data',_addDias(d7,-2)).limit(5000)),
+      safe(_supabase.from('producao').select('id,data,linha,produto,op_numero').ilike('obs','PROVISÓRIA%').gte('data',d30).order('data')),
+      safe(_supabase.from('producao_pallets').select('id,data,linha,produto,numero,codigo,estoque_status').eq('a_conferir',true).gte('data',d30).limit(500)),
+      safe(selectTodos(_supabase.from('producao_pallets').select('produto,data,linha').eq('status','pendente').gte('data',d30).is('fora_estoque_em',null).or('embalagem_tipo.is.null,embalagem_tipo.neq.granel'))),
+      safe(_supabase.from('producao').select('data').eq('linha','Longa Vida').gte('data',d7).lte('data',ref)),
+      safe(_supabase.from('lab_laudos').select('lote,status,produto').ilike('produto','caulim granel%').gte('emitido_em',d15).limit(500)),
+      safe(_supabase.from('felis_movimentos').select('tipo,quantidade,data').eq('data',ref).in('tipo',['producao','carregamento'])),
+      (async()=>{ try{ const r=await _supabase.rpc('estacoes_status'); return r.error?null:(r.data||[]); }catch(e){ return null; } })(),
+      safe(_supabase.from('portaria_chamados').select('id,placa,chamado_por,chamado_em,visto_em,visto_por,resposta,cancelado_em').gte('chamado_em',new Date(Date.now()-3*3600e3).toISOString())),
+    ]);
+  }catch(e){ console.warn('Erro nas consultas do carregado/conferências:',e); }
+  _CG=_cg||[]; _DSM=_dsm||[]; _ESTV=_estV||[];
+  _CONF={lk:_lk||[],prov:_prov||[],aconf:_aconf||[],labp:_labp||[],lgr:_lgr||[],ldGr:_ldGr||[],fel:_fel||[],estac:_estac,cham:_cham||[],ref,d7:_addDias(ref,-7)};
   _PALL=pAll||[];
   _PM=_PALL.filter(o=>o.data>=mIni&&o.data<=ref);
   _PP=pPrev||[]; _LN=lns||[]; _PLANOS=planos||[]; _PLTS_PREV=palsPrev||[];
@@ -1402,9 +1447,23 @@ function renderAlertas(almx,epiV,manut,port){
   if(semOrdem)     als.push({tipo:'atencao',ic:'🚛',txt:`${semOrdem} caminhão(ões) sem ordem na portaria`,href:'portaria.html',det:"detPortaria('sem_ordem')"});
   if(palPend2>5)   als.push({tipo:'atencao',ic:'🔬',txt:`${palPend2} pallets aguardando análise do laboratório`,href:'laboratorio.html',det:"det('pallets','mes','pendente')"});
   if(lancAnalise>0) als.push({tipo:'atencao',ic:'📋',txt:`${lancAnalise} lançamento(s) em análise`,href:'producao.html',det:"det('status','em_analise')"});
+  /* (17/11) conferências */
+  try{
+    const D=_confDados(), nLab=Object.values(D.labG).reduce((s,n)=>s+n,0);
+    if(D.estOff.length) als.unshift({tipo:'critico',ic:'🖨',txt:`Estação de impressão sem sinal: ${D.estOff.map(e=>e.nome||e.destino).join(', ')}`,href:'estacao-impressao.html',det:"detConf('estacoes')"});
+    if(D.semCert.length) als.unshift({tipo:'critico',ic:'📜',txt:`${D.semCert.length} carga(s) saíram sem certificado (7 dias)`,href:'portaria.html',det:"detConf('cert')"});
+    if(D.chamAb.length) als.push({tipo:'atencao',ic:'📣',txt:`${D.chamAb.length} chamado(s) do pátio sem resposta da portaria`,href:'portaria.html',det:"detConf('cham')"});
+    if(D.grSem.length) als.push({tipo:'atencao',ic:'🧪',txt:`${D.grSem.length} dia(s) de granel sem laudo liberado`,href:'laboratorio.html',det:"detConf('granel')"});
+    if(D.prov.length) als.push({tipo:'atencao',ic:'📝',txt:`${D.prov.length} OP(s) provisória(s) — falta lançar a produção`,href:'producao.html',det:"detConf('prov')"});
+    if(D.menos.length) als.push({tipo:'atencao',ic:'⚠️',txt:`${D.menos.length} carga(s) com menos que o pedido (7 dias)`,href:'portaria.html',det:"detConf('menos')"});
+    if(D.aconf.length) als.push({tipo:'atencao',ic:'📦',txt:`${D.aconf.length} pallet(s) a conferir (sem OP)`,href:'carregamento.html',det:"detConf('aconf')"});
+    if(nLab) als.push({tipo:'atencao',ic:'🔬',txt:`${nLab} pallet(s)/bag(s) aguardando o laboratório (30 dias)`,href:'laboratorio.html',det:"detConf('lab')"});
+    const fP=(_CONF.fel||[]).filter(x=>x.tipo==='producao').reduce((s,x)=>s+Math.abs(Number(x.quantidade)||0),0), fC=(_CONF.fel||[]).filter(x=>x.tipo==='carregamento').reduce((s,x)=>s+Math.abs(Number(x.quantidade)||0),0);
+    if(fP||fC) als.push({tipo:'ok',ic:'🏪',txt:`Felisbina no dia: produção ${fN(fP)} un · carregado ${fN(fC)} un`,href:'felisbina.html',det:"location.href='felisbina.html'"});
+  }catch(e){ console.warn('[conferências]',e); }
 
   document.getElementById('alertas-el').innerHTML=als.length
-    ?als.slice(0,8).map(a=>`
+    ?als.slice(0,14).map(a=>`
       <div class="alerta-item ${a.tipo}" role="button" tabindex="0" onclick="${a.det}" title="Clique para ver o detalhe">
         <span class="alerta-icon">${a.ic}</span>
         <span>${a.txt}</span>
@@ -1430,6 +1489,10 @@ function renderFila(port){
     <div class="fila-item carregando" role="button" tabindex="0" onclick="detPortaria('carregando')" title="Ver os caminhões">
       <div class="fila-num">${fil.filter(p=>p.status==='carregando').length}</div>
       <div class="fila-label">Carregando</div>
+    </div>
+    <div class="fila-item aguardando" role="button" tabindex="0" onclick="detConf('cham')" title="Chamados do pátio nas últimas 3 horas">
+      <div class="fila-num">${((_CONF&&_CONF.cham)||[]).filter(x=>!x.visto_em&&!x.cancelado_em).length}</div>
+      <div class="fila-label">📣 Chamados sem resposta</div>
     </div>`;
 }
 
@@ -2160,7 +2223,7 @@ function detComp(k){
   }[k]; if(!cfg) return;
   const PP=_prev();
   const opDe={}; (_PM||[]).forEach(l=>opDe[l.id]=l);
-  const corte=r=>!r.created_at||new Date(r.created_at).getDate()<=_DIA_CORTE;
+  const corte=r=>{ const d=r.data||r.created_at; return !d||new Date(String(d).slice(0,10)+'T12:00:00').getDate()<=_DIA_CORTE; };
   const PL=(_PLTS_PREV||[]).filter(corte);
   const linhaPal=p=>p.linha||(opDe[p.lancamento_id]||{}).linha||null;
   const val=(cur,ln)=>{
@@ -2183,32 +2246,58 @@ function detComp(k){
   abrirDet(cfg.t+' — por linha',html,'producao.html','Abrir Produção');
 }
 
-/* ── CARREGADO: pallets que saíram no dia e o estoque agora ── */
+/* ── CARREGADO (17/11): igual ao fechamento da portaria — por produto (sc / un / t), por caminhão, e o estoque completo ── */
 function detCarregado(){
-  const ref=_REF;
-  _detLazy('🚚 Carregado — '+_rotEscopo('dia:'+ref),'carregamento.html','Abrir Carregamento',async()=>{
-    const [car,est]=await Promise.all([
-      _sel(selectTodos(_supabase.from('producao_pallets').select('produto,carregado_em,romaneio_numero,ordem_numero,cliente_dest').gte('carregado_em',_addDias(ref,-1)+'T00:00:00').lte('carregado_em',_addDias(ref,1)+'T23:59:59.999'))),
-      _sel(_supabase.from('producao_pallets').select('produto,status').eq('estoque_status','estoque').is('fora_estoque_em',null))]);
-    const doDia=car.filter(p=>p.carregado_em&&localISODate(new Date(p.carregado_em))===ref);
-    let html=_boxes([[_n(doDia.length),'Pallets carregados'],[_n(est.length),'Em estoque agora'],[_n(est.filter(p=>p.status==='aprovado').length),'Liberados','var(--ok)']]);
-    const gp=_agrupar(doDia,p=>p.produto);
-    html+=_sec('Carregado no dia por produto')+(doDia.length?_tab([['Produto'],['Pallets',1]],
-      Object.keys(gp).sort((a,b)=>gp[b].length-gp[a].length).map(k=>[`<b>${_e(k)}</b>`,gp[k].length]),['TOTAL',doDia.length]):_vazio('Nenhum pallet carregado neste dia.'));
-    if(doDia.length){
-      const gr=_agrupar(doDia,p=>p.romaneio_numero||p.ordem_numero||'—');
-      html+=_sec('Por carga')+_tab([['Romaneio / ordem'],['Cliente'],['Produtos'],['Pallets',1],['Hora',1]],
-        Object.keys(gr).map(k=>{const g=gr[k];const h=g.map(p=>p.carregado_em).sort().pop();
-          return [`<b>${_e(k)}</b>`,_e([...new Set(g.map(p=>p.cliente_dest).filter(Boolean))].join(', ')||'—'),_e([...new Set(g.map(p=>p.produto))].join(', ')),g.length,
-            new Date(h).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})];}));
-    }
-    const ge=_agrupar(est,p=>p.produto);
-    html+=_sec('Estoque agora por produto')+(est.length?_tab([['Produto'],['Liberados',1],['Em análise',1],['Reprovados',1],['Total',1]],
-      Object.keys(ge).sort((a,b)=>ge[b].length-ge[a].length).map(k=>{const g=ge[k],c=s=>g.filter(p=>p.status===s).length;
-        return [`<b>${_e(k)}</b>`,c('aprovado')||'',c('pendente')||'',c('reprovado')?`<b style="color:var(--bad);">${c('reprovado')}</b>`:'',g.length];}),
-      ['TOTAL',est.filter(p=>p.status==='aprovado').length,est.filter(p=>p.status==='pendente').length,est.filter(p=>p.status==='reprovado').length,est.length]):_vazio('Estoque vazio.'));
-    return html;
-  });
+  const ref=_REF, cd=_carrDia(ref);
+  let html=_boxes([[_n(cd.sacos),'Sacos (ensacados)'],[_n(cd.bags),'Bags'],[_nf3(cd.t)+' t','Granel'],[_n(cd.cam),'Caminhões']]);
+  const ord=t=>({saco:0,bag:1,granel:2})[t];
+  const ps=Object.entries(cd.porProd).sort((a,b)=>ord(a[1].tipo)-ord(b[1].tipo)||b[1].q-a[1].q);
+  html+=_sec('Carregado no dia por produto')+(ps.length?_tab([['Produto'],['Quantidade',1],['Cargas',1]],
+    ps.map(([k,p])=>[`<b>${_e(k)}</b>`,_fmtQtdTipo(p.q,p.tipo),p.cargas.size]),
+    ['TOTAL',`${_n(cd.sacos)} sc · ${_n(cd.bags)} bags · ${_nf3(cd.t)} t`,cd.cam]):_vazio('Nada carregado neste dia.'));
+  const fel=(_CONF.fel||[]).filter(x=>x.tipo==='carregamento').reduce((s,x)=>s+Math.abs(Number(x.quantidade)||0),0);
+  if(fel) html+=_sec('🏪 Felisbina')+_tab([['Item'],['Quantidade',1]],[['Carregado no dia (todos os itens)',_n(fel)+' un']]);
+  if(cd.cargas.length) html+=_sec('Por caminhão')+_tab([['Ordem'],['Placa'],['Cliente'],['Produtos'],['Hora',1]],
+    cd.cargas.map(g=>[`<b>${_e(g.ordem||'—')}</b>${g.menos?`<div style="font-size:11px;color:#b45309;">⚠ saiu menos: ${_e(g.menos)}</div>`:''}`,_e(g.placa||'—'),_e([...g.cli].join(', ')||'—'),
+      Object.entries(g.prod).map(([k,q])=>_e(k)+': <b>'+_fmtQtdTipo(q,_tipoItem({produto:k,unidade:/granel/i.test(k)?'t':''}))+'</b>').join('<br>'),
+      g.hora?new Date(g.hora).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}):'—']));
+  const ev=(_ESTV||[]).filter(e=>Number(e.fisico_sc)||Number(e.liberado_sc)||Number(e.analise_sc)||Number(e.sem_qr_sc));
+  const u=p=>/bag/i.test(p)?'un':'sc';
+  html+=_sec('Estoque agora por produto (com QR + sem QR)')+(ev.length?_tab([['Produto'],['Liberado',1],['Em análise',1],['Bloqueado',1],['Sem QR',1],['Físico',1]],
+    ev.sort((a,b)=>(Number(b.fisico_sc)||0)-(Number(a.fisico_sc)||0)).map(e=>[`<b>${_e(e.produto)}</b>`,_n(e.liberado_sc)||'',_n(e.analise_sc)||'',
+      Number(e.bloqueado_sc)?`<b style="color:var(--bad);">${_n(e.bloqueado_sc)}</b>`:'',_n(e.sem_qr_sc)||'',`<b>${_n(e.fisico_sc)} ${u(e.produto)}</b>`])):_vazio('Estoque vazio.'));
+  abrirDet('🚚 Carregado — '+_rotEscopo('dia:'+ref),html,'carregamento.html','Abrir Carregamento');
+}
+
+/* ── CONFERÊNCIAS (17/11): o que precisa de atenção entre laboratório, laudo, produção, carregamento e portaria ── */
+function _confDados(){
+  const C=_CONF||{}, d7=C.d7||_addDias(_REF,-7);
+  const lkOrd=new Set((C.lk||[]).map(x=>x.ordem_numero).filter(Boolean)), lkDsm=new Set((C.lk||[]).map(x=>x.obs).filter(Boolean));
+  const semCert=(_CG||[]).filter(c=>c.data>=d7&&String(c.ordem_numero||'').match(/^\d/)&&(c.itens||[]).some(i=>!i.doador&&/caulim/i.test(i.produto||''))&&!lkOrd.has(c.ordem_numero))
+    .map(c=>({ordem:c.ordem_numero,placa:c.placa,data:c.data}))
+    .concat((_DSM||[]).filter(d=>d.data>=d7&&/cinza/i.test(d.produto||'')&&!lkDsm.has('dsm:'+d.id)).map(d=>({ordem:'DSM',placa:d.placa,data:d.data})));
+  const fin=new Set((C.ldGr||[]).filter(l=>l.status==='finalizado').map(l=>l.lote));
+  const grSem=[...new Set((C.lgr||[]).map(o=>o.data))].filter(d=>!fin.has(d.replace(/-/g,'')+'C')).sort();
+  const menos=(_CG||[]).filter(c=>c.data>=d7&&(c.itens||[]).some(i=>i.motivo_menos)).map(c=>({ordem:c.ordem_numero,placa:c.placa,data:c.data,motivo:((c.itens||[]).find(i=>i.motivo_menos)||{}).motivo_menos}));
+  const labG={}; (C.labp||[]).forEach(p=>{const k=p.produto+'|'+p.data; labG[k]=(labG[k]||0)+1;});
+  const est=Array.isArray(C.estac)?C.estac:null, estOff=est?est.filter(e=>(Number(e.segundos)||0)>120):[];
+  const chamAb=(C.cham||[]).filter(x=>!x.visto_em&&!x.cancelado_em), chamAus=(C.cham||[]).filter(x=>x.resposta==='ausente');
+  return {semCert,grSem,menos,labG,prov:C.prov||[],aconf:C.aconf||[],est,estOff,chamAb,chamAus};
+}
+function detConf(tipo){
+  const D=_confDados(), dBR=d=>String(d||'').slice(0,10).split('-').reverse().slice(0,2).join('/');
+  const T={
+    cert:['📜 Cargas sem certificado (7 dias)','portaria.html','Abrir Portaria',D.semCert.length?_tab([['Dia'],['Ordem'],['Placa']],D.semCert.map(x=>[dBR(x.data),`<b>${_e(x.ordem)}</b>`,_e(x.placa||'—')])):_vazio('Todas as cargas têm certificado.')],
+    granel:['🧪 Granel sem laudo liberado','laboratorio.html','Abrir Laboratório',D.grSem.length?_tab([['Dia'],['Lote']],D.grSem.map(d=>[dBR(d),`<b>${d.replace(/-/g,'')}C</b>`])):_vazio('Todos os dias de granel têm laudo.')],
+    lab:['🔬 Aguardando o laboratório (30 dias)','laboratorio.html','Abrir Laboratório',Object.keys(D.labG).length?_tab([['Produto'],['Dia'],['Pallets/bags',1]],Object.entries(D.labG).sort().map(([k,n])=>{const [p,d]=k.split('|');return [`<b>${_e(p)}</b>`,dBR(d),n];})):_vazio('Nada pendente.')],
+    prov:['📝 OP provisória — lançar a produção','producao.html','Abrir Produção',D.prov.length?_tab([['Dia'],['Linha'],['Produto'],['OP']],D.prov.map(o=>[dBR(o.data),_e(o.linha),_e(o.produto),`<b>${_e(o.op_numero)}</b>`]))+'<div class="det-nota">Criada pelo laboratório para liberar o laudo. Ao lançar a produção em Produção, ela é atualizada (não duplica).</div>':_vazio('Nenhuma OP provisória.')],
+    aconf:['📦 Pallets a conferir (sem OP)','carregamento.html','Abrir Carregamento',D.aconf.length?_tab([['Dia'],['Linha'],['Produto'],['Código'],['Situação']],D.aconf.map(p=>[dBR(p.data),_e(p.linha),_e(p.produto),`<b>${_e(p.codigo||'#'+p.numero)}</b>`,_e(p.estoque_status||'')])):_vazio('Nada a conferir.')],
+    menos:['⚠️ Cargas que saíram com menos que o pedido (7 dias)','portaria.html','Abrir Portaria',D.menos.length?_tab([['Dia'],['Ordem'],['Placa'],['Motivo']],D.menos.map(x=>[dBR(x.data),`<b>${_e(x.ordem)}</b>`,_e(x.placa||'—'),_e(x.motivo||'')])):_vazio('Nenhuma.')],
+    estacoes:['🖨 Estações de impressão','estacao-impressao.html','Abrir estação',D.est?_tab([['Estação'],['Último sinal',1]],D.est.map(e=>[`<b>${_e(e.nome||e.destino)}</b>`,(Number(e.segundos)||0)>120?`<b style="color:var(--bad);">há ${_n(Math.round(e.segundos/60))} min — desligada?</b>`:'agora'])):_vazio('Não consegui ler as estações.')],
+    cham:['📣 Chamados do pátio (3 h)','portaria.html','Abrir Portaria',(_CONF.cham||[]).length?_tab([['Hora'],['Placa'],['Chamou'],['Portaria']],(_CONF.cham||[]).map(x=>[new Date(x.chamado_em).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}),`<b>${_e(x.placa)}</b>`,_e(x.chamado_por||''),
+      x.cancelado_em?'cancelado':x.resposta==='ausente'?'🚫 motorista não está no pátio':x.visto_em?'✅ '+_e(x.visto_por||'')+' vai chamar':'<b style="color:var(--bad);">sem resposta</b>'])):_vazio('Nenhum chamado nas últimas 3 horas.')],
+  };
+  const t=T[tipo]; if(t) abrirDet(t[0],t[3],t[1],t[2]);
 }
 
 /* ── CUSTO: planejado × realizado ── */

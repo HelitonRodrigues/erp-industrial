@@ -3177,7 +3177,10 @@ function _realCobertura() {
   const cobertos = comLancamento.size;
   return { uteis, cobertos, fracao: uteis > 0 ? cobertos / uteis : 0, fechado: uteis > 0 && cobertos >= uteis };
 }
-function toggleRealProRata() { state._realProRata = !state._realProRata; render(); }
+/* (17/11) proporcional aos DIAS ÚTEIS é o padrão (mês em aberto): o plano vira "plano até hoje" e os itens sem fonte entram na mesma
+   proporção. A chave mostra o mês cheio quando a pessoa quiser. */
+const _realProRataOn = () => state._realProRata !== false;
+function toggleRealProRata() { state._realProRata = !_realProRataOn(); render(); }
 
 function _realPeriodo() {
   const ini = `${state.ano}-${String(state.mes).padStart(2, '0')}-01`;
@@ -3672,7 +3675,7 @@ function _realConsolidar(r) {
       // Compartilhado: é contrato/conta do mês. Com o mês aberto, opcionalmente
       // rateia pelo que já foi trabalhado.
       const cob = _realCobertura();
-      const fator = (state._realProRata && !cob.fechado) ? cob.fracao : 1;
+      const fator = (_realProRataOn() && !cob.fechado) ? cob.fracao : 1;
       return { qtd: null, vu: null, valor: v * fator, origem: REAL_ORIGEM.SEM_FONTE, proRata: fator < 1 };
     }
     const o = escopo === '__TOTAL__' ? (reg.total || { qtd: reg.realQtd, valor: reg.realValor }) : ((reg.porLinha || reg.realPorLinha)[escopo] || { qtd: 0, valor: 0 });
@@ -4070,7 +4073,7 @@ function renderPlanRealizado(r) {
     ${real && !cob.fechado ? alertBox('atencao', `📅 <strong>Mês em aberto:</strong> ${cob.cobertos} de ${cob.uteis} dias úteis com produção lançada (${fmtPct(cob.fracao, 2)}).
       Os itens <strong>sem fonte</strong> — arrendamento, folha, manutenção, energia — entram com o valor cheio do mês, então o custo é de mês inteiro contra uma produção parcial:
       <strong>o Alvo realizado só é comparável com o mês fechado</strong>.
-      <label style="margin-left:8px;white-space:nowrap;"><input type="checkbox" ${state._realProRata ? 'checked' : ''} onchange="toggleRealProRata()"> ratear os itens sem fonte por ${fmtPct(cob.fracao, 2)}</label>`) : ''}
+      <label style="margin-left:8px;white-space:nowrap;"><input type="checkbox" ${_realProRataOn() ? 'checked' : ''} onchange="toggleRealProRata()"> comparar só os dias úteis já trabalhados (${fmtPct(cob.fracao, 2)}) — desmarque para ver o mês cheio</label>`) : ''}
     <div class="cp-field-row" style="margin-top:10px;flex-wrap:wrap;gap:6px;">${botoes}</div>
   </div>`;
 
@@ -4086,14 +4089,18 @@ function renderPlanRealizado(r) {
   const alvoTexto = (v) => v == null ? '—' : fmtPct(v, 2);
   const dentro = k.alvoR != null && k.alvoR <= (Number(state.alvoMaximoPct) || 0) / 100;
 
-  const kpis = `<div class="cp-grid-cards" style="margin-bottom:14px;">
-    ${kpiCard('Tonelagem', k.tonP, k.tonR, (v) => fmtNum(v || 0, 1) + ' t', false)}
-    ${kpiCard('Custo total', k.custoP, k.custoR, fmtBRL, true)}
+  // (17/11) plano até hoje = plano do mês × dias úteis com produção ÷ dias úteis do mês (padrão com o mês em aberto)
+  const fDU = (real && _realProRataOn() && !cob.fechado && cob.uteis > 0) ? cob.fracao : 1;
+  const subDU = fDU < 1 ? `<b>até hoje</b> (${cob.cobertos} de ${cob.uteis} dias úteis)` : '';
+  const kpis = `${fDU < 1 ? `<div style="margin:-4px 0 10px;font-size:12.5px;color:#1e3a8a;background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:8px 12px;">📅 Comparando com o <b>plano até hoje</b>: ${cob.cobertos} de ${cob.uteis} dias úteis (${fmtPct(fDU, 1)} do mês). <a href="javascript:void 0" onclick="toggleRealProRata()">Ver o mês cheio</a></div>` : (real && !cob.fechado ? `<div style="margin:-4px 0 10px;font-size:12.5px;color:#475569;">📅 Mostrando o <b>mês cheio</b>. <a href="javascript:void 0" onclick="toggleRealProRata()">Comparar só os dias úteis já trabalhados</a></div>` : '')}
+  <div class="cp-grid-cards" style="margin-bottom:14px;">
+    ${kpiCard('Tonelagem', k.tonP * fDU, k.tonR, (v) => fmtNum(v || 0, 1) + ' t', false, subDU)}
+    ${kpiCard('Custo total', k.custoP * fDU, k.custoR, fmtBRL, true, subDU)}
     ${kpiCard('Custo / tonelada', k.custoTonP, k.custoTonR, fmtBRL, true)}
-    ${kpiCard('Faturamento', k.fatP, k.fatR, fmtBRL, false)}
+    ${kpiCard('Faturamento', k.fatP * fDU, k.fatR, fmtBRL, false, subDU)}
     <div class="card cp-card">
-      <div class="cp-kpi-linha"><span>🎯 Alvo no realizado</span><strong style="color:${k.alvoR == null ? '#64748b' : (cob.fechado ? (dentro ? 'var(--success)' : 'var(--danger)') : '#b45309')};">${alvoTexto(k.alvoR)}</strong></div>
-      <div class="cp-muted" style="font-size:11px;">plano ${alvoTexto(k.alvoP)} · teto ${state.alvoMaximoPct}%${k.alvoR == null ? ' · sem faturamento realizado' : (cob.fechado ? (dentro ? ' · dentro' : ' · estourou') : ' · <strong>mês em aberto</strong>')}</div>
+      <div class="cp-kpi-linha"><span>🎯 Alvo no realizado</span><strong style="color:${k.alvoR == null ? '#64748b' : ((cob.fechado || fDU < 1) ? (dentro ? 'var(--success)' : 'var(--danger)') : '#b45309')};">${alvoTexto(k.alvoR)}</strong></div>
+      <div class="cp-muted" style="font-size:11px;">plano ${alvoTexto(k.alvoP)} · teto ${state.alvoMaximoPct}%${k.alvoR == null ? ' · sem faturamento realizado' : (cob.fechado ? (dentro ? ' · dentro' : ' · estourou') : fDU < 1 ? (dentro ? ' · dentro (até hoje)' : ' · estourou (até hoje)') : ' · <strong>mês em aberto</strong>')}</div>
     </div>
   </div>`;
 
@@ -4101,7 +4108,7 @@ function renderPlanRealizado(r) {
   const graf = `<div class="cp-grid-2" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px;">
     <div class="card"><h3 class="cp-h3">Planejado × Realizado <span class="cp-muted">— por linha de custo, em unidades</span></h3>
       ${_realGraficoBarras(buckets.map(([bk, c]) => ({ rotulo: DESTINOS[bk], un: UNIDADE_LABEL[bk] + 's', dec: bk === 'CAULIMGRANEL' ? 2 : 0,
-        plan: bk === 'CAULIMGRANEL' ? c.tonP : c.sacosP, real: bk === 'CAULIMGRANEL' ? c.tonR : c.sacosR })))}</div>
+        plan: (bk === 'CAULIMGRANEL' ? c.tonP : c.sacosP) * fDU, real: bk === 'CAULIMGRANEL' ? c.tonR : c.sacosR })))}</div>
     <div class="card"><h3 class="cp-h3">Avanço acumulado do mês <span class="cp-muted">— em toneladas</span></h3>
       ${_realGraficoAvanco(cons, escopo) || '<p class="cp-ajuda">Sem produção lançada no período.</p>'}</div>
   </div>`;
