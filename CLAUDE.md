@@ -872,6 +872,10 @@ fábrica específica. Não generalizar.
 - (16/11) **Ordem em tonelada × saco** (portaria.html): a quantidade vem só da coluna QTD (o "25 Kg" do nome virava quantidade — 028517/028519);
   `numOrdem` separa milhar (1.260) de decimal (20.1 / 20,1); `converterToneladaParaSacos`: produto em saco com peso e quantidade quebrada →
   sacos = t × 1000 ÷ kg, com aviso na conferência.
+- (16/11) **Laboratório julga pallet já carregado** (laboratorio.html): a seleção em lote não barra mais carregado/expedido — só avisa (aprovar =
+  info; reprovar = avise a Expedição), igual ao ensaio de um pallet. O laudo do lote que saiu depende disso.
+- (16/11) **Troca de número na 🔄 Mudar a carga** usa `rpc trocar_numero_ordem` (migration 136, security definer, desliga `pallet_guarda_estado`
+  só na transação) — o update direto em `producao_pallets.ordem_numero` era barrado pelo gatilho.
 
 ### Granel no Estoque do carregamento (16/11/2026)
 - `renderSaldoGranel` novo: por produto, "FICOU NO ESTOQUE" em destaque, produzido/carregado hoje e no mês, e tabela dia a dia do mês
