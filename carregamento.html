@@ -1323,6 +1323,12 @@ function palCodigo(p){
   return `${lin}-${dt}-${op}-P${String(p.numero||0).padStart(3,'0')}`;
 }
 function codCurto(p){return palCodigo(p).split('-').slice(-1)[0];}
+/* (16/11) pallet do totem ainda sem produção lançada (sem OP): o lote vem do RÓTULO impresso (rotulos_impressos.lote) */
+const _rotLote={};
+async function garantirLotesRotulo(ids){
+  const falta=[...new Set((ids||[]).map(id=>_pallets.find(x=>x.id===id)).filter(p=>p&&p.rotulo_id&&_rotLote[p.rotulo_id]===undefined&&loteDe(p)==='—').map(p=>p.rotulo_id))];
+  for(let i=0;i<falta.length;i+=150){const r=await _supabase.from('rotulos_impressos').select('id,lote').in('id',falta.slice(i,i+150));(r.data||[]).forEach(x=>_rotLote[x.id]=x.lote||null);}
+}
 function loteDe(p){
   const map=mapaCapOP(p.producao,p);
   // o nº do pallet é por linha/dia/produto, não por OP: só vale a posição do mapa se for do MESMO produto
@@ -1331,7 +1337,7 @@ function loteDe(p){
   if(alvo&&alvo.lote&&(!alvo.produto||normNome(alvo.produto)===normNome(p.produto)))return alvo.lote;
   const po=p.producao&&p.producao.produtos_op;
   if(Array.isArray(po)){const m=po.find(x=>normNome(x.produto||x.nome)===normNome(p.produto))||po[0];if(m&&m.lote)return m.lote;}
-  return p.lote||'—';
+  return p.lote||(p.rotulo_id&&_rotLote[p.rotulo_id])||'—';
 }
 function opDe(p){return (p.producao&&p.producao.op_numero)||'—';}
 function barracaoDoPallet(p){if(p.barracao)return p.barracao;const b=_barracoes.find(b=>(b.linhas||[]).some(l=>l===p.linha));return b?b.id:NAO_ALOCADO;}
@@ -4043,6 +4049,7 @@ async function salvarCarregamentoPasso2(incompletas){
 }
 async function gravarCarregamento(opts){
   opts=opts||{};
+  try{await garantirLotesRotulo(Object.values(_alloc).flat());}catch(e){console.warn('[carregamento] lote do rótulo:',e);}
   const btn=document.getElementById('btn-salvar-carr');btn.disabled=true;btn.textContent='Salvando...';
   const agora=new Date().toISOString();
   const operador=operadorDaCarga();
@@ -5507,7 +5514,7 @@ async function patioLinhaDet(i){
   html+=`<button class="pt-btn verde grande" style="margin-top:12px;" onclick="patioIrCarregar()">🚚 IR CARREGAR</button>`;
   body.innerHTML=topo+html;
 }
-function patioAba(a){_patioAba=a;patioFecharOrdem();patioLista();document.getElementById('patio')?.scrollTo(0,0);}
+function patioAba(a){_patioAba=a;patioFecharOrdem();patioLista();if(a==='fila')lerChamados();document.getElementById('patio')?.scrollTo(0,0);}
 /* ── o que está NA ORDEM (texto da ordem de carregamento), sem conta de estoque ──
    pallet = a própria ordem diz "N plt" na coluna de unidades. Se a ordem não trouxe essa
    coluna (ordem antiga / print), vale o produto do ERP que vai em pallet (não bag, não granel). */
@@ -5569,12 +5576,55 @@ function patioFilaHtml(fp){
       +`<button class="pt-btn ver" onclick="patioVerOrdem('${o.id}')">👁️ VER ORDEM</button>`;};
   const abre=()=>'';
   const tempo=(ms,lbl)=>{const m=ms/60000;return `<div class="pt-tempo ${m>=120?'muito':m>=60?'alta':''}"><b>${durTxt(ms)}</b>${lbl}</div>`;};
-  return '<div class="pt-lista">'
+  return '<div class="pt-lista">'+chamadoAvisoHtml()
     +car.map(v=>`<div class="pt-card cor-verde carr"><div class="pt-faixa verde">🟢 JÁ ESTÁ CARREGANDO</div><div class="pt-linha"><span class="pt-pos" style="background:#fff;">🚛</span><div style="min-width:0;"><div class="pt-placa" style="font-size:26px;">${esc(v.placa)}</div><div class="pt-mot">${esc(v.nome_motorista||'—')}</div></div>${tempo(Date.now()-Date.parse(v.inicio_carregamento||v.hora_chegada),'carregando')}</div>
       ${v.unidade_carregamento?`<div class="pt-tag cont">🏭 ${esc(v.unidade_carregamento)}</div>`:''}${ord(v)}</div>`).join('')
     +esp.map((v,i)=>`<div class="pt-card cor-amarelo ${prox&&prox.id===v.id?'prox':''} ${ordemDoVeiculo(v)?'':'semord'}">${prox&&prox.id===v.id?'<div class="pt-faixa amarelo">▶ PRÓXIMO A ENTRAR</div>':''}<div class="pt-linha"><span class="pt-pos">${i+1}º</span><div style="min-width:0;"><div class="pt-placa" style="font-size:26px;">${esc(v.placa||'—')}</div><div class="pt-mot">${esc(v.nome_motorista||'—')}</div></div>${tempo(Date.now()-Date.parse(v.hora_chegada),'esperando')}</div>
-      ${ord(v)}</div>`).join('')+'</div>';
+      ${chamadoHtml(v)}${ord(v)}</div>`).join('')+'</div>';
 }
+/* ── 📣 CHAMAR CAMINHÃO (16/11): na FILA do pátio, o encarregado/operador chama o caminhão → a portaria recebe aviso
+   com som e toca "VOU CHAMAR"; aqui aparece quem viu e quando (e um aviso verde para quem chamou). */
+let _chams={},_chamT=null;
+async function lerChamados(){
+  try{const {data,error}=await _supabase.from('portaria_chamados').select('*').is('cancelado_em',null)
+      .gte('chamado_em',new Date(Date.now()-6*3600e3).toISOString()).order('chamado_em',{ascending:false}).limit(150);
+    if(error)return;
+    const novo={};(data||[]).forEach(c=>{if(c.portaria_id&&!novo[c.portaria_id])novo[c.portaria_id]=c;});
+    const vistos=Object.values(novo).filter(c=>{const a=_chams[c.portaria_id];return c.visto_em&&a&&a.id===c.id&&!a.visto_em&&c.chamado_por===operadorAtual();});
+    const mudou=JSON.stringify(Object.values(novo).map(c=>[c.id,c.visto_em]))!==JSON.stringify(Object.values(_chams).map(c=>[c.id,c.visto_em]));
+    _chams=novo;
+    if(mudou&&_patio&&_patioTela==='lista'&&_patioAba==='fila')patioLista();
+    vistos.forEach(c=>{try{beep('ok');vibrar('ok');}catch(e){}
+      if(_patio)patioFlash('ok','✅','A PORTARIA VIU',`<b>${esc(c.visto_por||'Portaria')}</b> vai chamar o caminhão<br><b style="font-size:30px;">${esc(c.placa||'')}</b>`,{botao:'OK'});
+      else toast(`✅ A portaria viu: ${c.visto_por||''} vai chamar o ${c.placa}.`,'success');});
+  }catch(e){}
+}
+if(!_chamT)_chamT=setInterval(()=>{if(!document.hidden&&_patio)lerChamados();},5000);
+function primeiroNome(n){return String(n||'').trim().split(/\s+/)[0]||'';}
+function chamadoHtml(v){
+  const c=_chams[v.id];
+  const bt=(txt,cls)=>`<button class="pt-btn ${cls}" style="margin-top:8px;${cls==='cham'?'background:#f59e0b;color:#1c1917;box-shadow:0 4px 0 #b45309;':'background:#e2e8f0;color:#334155;min-height:44px;font-size:15px;'}" onclick="chamarCaminhao('${v.id}')">${txt}</button>`;
+  if(c&&!c.visto_em)return `<div class="pt-tag" style="margin-top:8px;background:#fef3c7;color:#92400e;border:2px solid #fcd34d;">⏳ Chamado às ${hm(c.chamado_em)} por ${esc(primeiroNome(c.chamado_por))} — <b>esperando a portaria ver</b></div>`+bt('📣 CHAMAR DE NOVO','');
+  if(c&&c.visto_em&&Date.now()-Date.parse(c.visto_em)<3*3600e3)return `<div class="pt-tag" style="margin-top:8px;background:#dcfce7;color:#166534;border:2px solid #86efac;">✅ Portaria viu: <b>${esc(primeiroNome(c.visto_por))}</b> às ${hm(c.visto_em)} — vai chamar</div>`+bt('📣 CHAMAR DE NOVO','');
+  return bt('📣 CHAMAR ESTE CAMINHÃO','cham');
+}
+function chamadoAvisoHtml(){
+  const ab=Object.values(_chams).filter(c=>!c.visto_em&&_portFila.some(v=>v.id===c.portaria_id&&v.status!=='carregando'));
+  return ab.length?`<div class="pt-tag" style="background:#fef3c7;color:#92400e;border:2px solid #fcd34d;margin-bottom:8px;">📣 ${ab.length} chamado(s) esperando a portaria ver</div>`:'';
+}
+function chamarCaminhao(portId){
+  _ensureAudio();
+  const v=_portFila.find(x=>x.id===portId); if(!v)return;
+  patioFlash('info','📣',`CHAMAR O ${esc(v.placa||'')}?`,`${esc(v.nome_motorista||'')}<br>A portaria recebe um aviso com som para chamar o motorista.`,
+    {botao:'SIM, CHAMAR',botao2:'NÃO',depois:async()=>{
+      const o=ordemDoVeiculo(v);
+      const {data,error}=await _supabase.from('portaria_chamados').insert({portaria_id:v.id,placa:v.placa,motorista:v.nome_motorista||null,ordem_numero:o?String(o.numero):(v.numero_ordem||null),chamado_por:operadorAtual()}).select().single();
+      if(error){beep('err');patioFlash('err','⚠️','NÃO ENVIOU',esc(error.message),{botao:'ENTENDI'});return;}
+      _chams[v.id]=data; if(_patioTela==='lista')patioLista();
+      beep('ok');patioFlash('ok','📣','PORTARIA AVISADA',`Quando a portaria vir, aparece aqui <b>quem vai chamar</b> o ${esc(v.placa||'')}.`);
+    }});
+}
+
 /* ── VER A ORDEM (tela cheia, botão FECHAR volta para a aba) ── */
 function patioVerOrdem(romId){
   const r=_romaneios.find(x=>x.id===romId); if(!r)return;

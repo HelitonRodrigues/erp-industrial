@@ -2182,6 +2182,48 @@ function excluirPassagem(portId){
   },'Excluir');
 }
 
+/* ── 📣 CHAMADO DO PÁTIO (16/11) ─────────────────────────────────────────────
+   O encarregado/operador toca "CHAMAR ESTE CAMINHÃO" na fila do pátio (carregamento.html) → linha em portaria_chamados.
+   Aqui aparece um aviso grande com som (repete até alguém tocar VOU CHAMAR). Ao tocar, grava quem viu e quando —
+   o celular do pátio recebe a confirmação. */
+let _chams=[],_chamAudio=null,_chamSomT=null;
+document.addEventListener('pointerdown',()=>{try{_chamAudio=_chamAudio||new (window.AudioContext||window.webkitAudioContext)();if(_chamAudio.state==='suspended')_chamAudio.resume();}catch(e){}},{passive:true});
+function somChamado(){
+  try{_chamAudio=_chamAudio||new (window.AudioContext||window.webkitAudioContext)();const c=_chamAudio;if(c.state==='suspended')c.resume();
+    [[880,0],[660,0.22],[880,0.44],[660,0.66]].forEach(([f,t])=>{const o=c.createOscillator(),g=c.createGain();o.type='square';o.frequency.value=f;
+      g.gain.setValueAtTime(0.0001,c.currentTime+t);g.gain.exponentialRampToValueAtTime(0.25,c.currentTime+t+0.02);g.gain.exponentialRampToValueAtTime(0.0001,c.currentTime+t+0.2);
+      o.connect(g);g.connect(c.destination);o.start(c.currentTime+t);o.stop(c.currentTime+t+0.21);});}catch(e){}
+}
+async function vigiarChamados(){
+  try{const {data,error}=await _supabase.from('portaria_chamados').select('*').is('visto_em',null).is('cancelado_em',null)
+      .gte('chamado_em',new Date(Date.now()-6*3600e3).toISOString()).order('chamado_em');
+    if(error)return; _chams=data||[]; renderChamados();}catch(e){}
+}
+function renderChamados(){
+  let ov=document.getElementById('cham-ov');
+  if(!_chams.length){if(ov)ov.remove();clearInterval(_chamSomT);_chamSomT=null;return;}
+  if(!ov){ov=document.createElement('div');ov.id='cham-ov';
+    ov.style.cssText='position:fixed;inset:0;z-index:9999;background:rgba(3,32,54,.72);display:flex;align-items:center;justify-content:center;padding:16px;';
+    document.body.appendChild(ov);}
+  const pode=checkPerm(MOD,'edit');
+  ov.innerHTML=`<div style="background:#fff;border-radius:18px;max-width:560px;width:100%;padding:20px;box-shadow:0 20px 60px rgba(0,0,0,.4);border:4px solid #f59e0b;">
+    <div style="font-size:22px;font-weight:900;color:#b45309;text-align:center;">📣 O PÁTIO ESTÁ CHAMANDO</div>
+    ${_chams.map(c=>`<div style="margin-top:14px;border:2px solid #fde68a;background:#fffbeb;border-radius:14px;padding:12px;">
+      <div style="font-size:34px;font-weight:900;color:#042D4D;text-align:center;letter-spacing:1px;">${esc(c.placa||'—')}</div>
+      <div style="text-align:center;font-size:14px;color:#334155;font-weight:700;">${esc(c.motorista||'')}${c.ordem_numero?' · ordem '+esc(c.ordem_numero):''}</div>
+      <div style="text-align:center;font-size:12.5px;color:#64748b;margin-top:2px;">chamado por <b>${esc(c.chamado_por||'pátio')}</b> às ${hmDia(c.chamado_em)}</div>
+      ${pode?`<button class="btn btn-go" style="width:100%;margin-top:10px;font-size:18px;padding:14px;" onclick="vouChamar('${c.id}')">✅ VI — VOU CHAMAR O MOTORISTA</button>`:''}
+    </div>`).join('')}</div>`;
+  if(!_chamSomT){somChamado();_chamSomT=setInterval(somChamado,4000);}
+}
+async function vouChamar(id){
+  const c=_chams.find(x=>x.id===id); if(!c)return;
+  const {error}=await _supabase.from('portaria_chamados').update({visto_por:quemSou()||'Portaria',visto_em:new Date().toISOString()}).eq('id',id).is('visto_em',null);
+  if(error){toast('Não registrou: '+error.message,'danger');return;}
+  addLog('UPDATE','PORTARIA',c.placa,`📣 Chamado do pátio visto: ${c.placa} (chamado por ${c.chamado_por||'pátio'}) · ${quemSou()}`);
+  _chams=_chams.filter(x=>x.id!==id); renderChamados(); toast(`O pátio já sabe que você vai chamar o ${c.placa}.`,'success');
+}
+
 /* ── SAÍDA (pesagem) ────────────────────────────────────────────────────── */
 async function abrirSaida(portId){
   if(!guardAction(MOD,'edit'))return;
@@ -3693,6 +3735,7 @@ async function init(){
   prepararImportacao();
   await carregarTudo();
   setInterval(()=>{if(!document.hidden)carregarTudo();},20000);           // outra portaria/carregamento mexeu: acompanha
+  vigiarChamados(); setInterval(vigiarChamados,5000);                       // 📣 pátio chamando caminhão
   document.addEventListener('visibilitychange',()=>{if(!document.hidden)carregarTudo();});
 }
 init();
