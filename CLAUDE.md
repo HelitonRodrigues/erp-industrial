@@ -944,3 +944,6 @@ fábrica específica. Não generalizar.
   (completo no mouse), função em cinza, custo, ⇄ (select pequeno) e ✕; motivo do "fora" vira campo discreto "motivo ✎". Pessoa muda de grupo
   só pelo ⇄. **Arrastar os QUADROS** pela alça ⠿ do cabeçalho muda a ordem dos grupos (`cpArrasta/cpSobre/cpSolta` reordenam `state.grupos`). Grupos em `.cp-grupos` (grid dense): grupo com mais de
   6 pessoas ocupa 2–3 faixas (`grid-row:span`) e os outros se alinham ao lado.
+- (17/11, migração 141) **Laudo liberado depois que o caminhão saiu**: gatilho `tg_lab_laudo_liga_cargas` em `lab_laudos` — finalizou, liga o laudo
+  (`lab_laudo_carregamentos`) a toda carga que levou aquele lote+produto e ainda não tinha o vínculo (`lab_laudo_liga_cargas`). Casos de 16–17/11
+  (028512, 028517, 028518, 028524) ligados na hora.
