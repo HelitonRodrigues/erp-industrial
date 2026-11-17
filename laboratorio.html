@@ -347,6 +347,8 @@ details.pl-recolhe.pl-rt{margin-top:8px;}
       </div>
     </div>
     <div id="pal-busca-info"></div>
+    <div id="pal-modo"></div>
+    <div id="pal-rotulos"></div>
     <div id="pal-abas" class="pal-abas"></div>
     <div id="pal-aviso"></div>
     <div id="pal-kpis" style="display:none;"></div>
@@ -2221,6 +2223,69 @@ const PAL_ABAS=[
   {k:'aguardando_decisao',ic:'⚖️', t:'Em decisão',  cor:'#7c3aed'},
 ];
 function trocarAbaPallet(k){ _palAba=k; renderPallets(); }
+/* (17/11) REGRA COMPLETA × MODO PROVISÓRIO (empresa_config.lab_regra_completa, migração 138)
+   Ligada = como sempre (cada pallet é julgado; laudo quando o dia fecha). Desligada = a 1ª aprovação do produto no dia/linha vale para
+   todos os pallets/bags dele (gatilho no banco, inclusive os bipados depois), o laudo já sai finalizado, e os rótulos impressos que
+   ainda não viraram pallet (produção não lançada) aparecem aqui para analisar o 1º. */
+const labRegraCompleta=()=>!(_empresa&&_empresa.lab_regra_completa===false);
+function podeTrocarRegraLab(){ const u=(typeof getUser==='function'&&getUser())||{}; return ['ADM','SADM','ENG','DIR'].includes(String(u.perfil||'').toUpperCase())||(typeof checkPerm==='function'&&checkPerm('laboratorio','aprovar')); }
+let _palRotulos=[], _palRotulosEm=0;
+function renderPalModo(){
+  const el=document.getElementById('pal-modo'); if(!el) return;
+  const on=labRegraCompleta(), pode=podeTrocarRegraLab();
+  el.innerHTML=on
+    ?`<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 10px;font-size:12.5px;color:#475569;">
+        <span style="padding:5px 10px;border-radius:999px;background:#f1f5f9;border:1.5px solid #cbd5e1;font-weight:700;">🔒 Regra completa: <b style="color:#15803d;">LIGADA</b> — cada pallet é analisado; laudo quando o dia fecha</span>
+        ${pode?`<button class="btn btn-ghost btn-sm" onclick="trocarRegraLab(false)">Desligar (aprovar pelo 1º)</button>`:''}</div>`
+    :`<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:0 0 10px;padding:10px 14px;border-radius:12px;background:#fffbeb;border:2px solid #f59e0b;color:#92400e;font-size:13px;">
+        <span style="flex:1;min-width:240px;">⚡ <b>Modo provisório — regra completa DESLIGADA.</b> A 1ª aprovação de um produto no dia (na linha) vale para <b>todos</b> os pallets/bags dele, inclusive os que forem bipados depois, e o laudo sai na hora.</span>
+        ${pode?`<button class="btn btn-secondary btn-sm" onclick="trocarRegraLab(true)">🔒 Ligar regra completa</button>`:''}</div>`;
+  renderPalRotulos();
+}
+async function trocarRegraLab(ligar){
+  if(!podeTrocarRegraLab()){ toast('Só o responsável do laboratório ou o administrador troca a regra.','warning'); return; }
+  const ok=await erpConfirm(ligar?'Voltar para a REGRA COMPLETA? Cada pallet volta a ser analisado e o laudo só sai quando o dia fecha.'
+      :'Desligar a regra completa? A 1ª aprovação de cada produto no dia vai valer para todos os pallets/bags dele, e o laudo sai na hora.',
+    {titulo:ligar?'Ligar regra completa':'Modo provisório',ok:ligar?'Ligar':'Desligar',cancelar:'Voltar'});
+  if(!ok) return;
+  const r=_empresa&&_empresa.id?await _supabase.from('empresa_config').update({lab_regra_completa:!!ligar}).eq('id',_empresa.id).select().single()
+    :await _supabase.from('empresa_config').update({lab_regra_completa:!!ligar}).not('id','is',null).select().limit(1);
+  if(r.error){ toast('Não salvou: '+r.error.message,'danger'); return; }
+  _empresa=Object.assign({},_empresa,{lab_regra_completa:!!ligar});
+  try{ addLog('UPDATE','LABORATORIO','regra',(ligar?'Regra completa LIGADA':'Regra completa DESLIGADA (aprovação pelo 1º pallet)')+' por '+((getUser()||{}).nome||'')); }catch(e){}
+  toast(ligar?'Regra completa ligada.':'Modo provisório ligado: a 1ª aprovação vale para o produto do dia.','success');
+  _palRotulosEm=0; renderPallets();
+}
+/* rótulos impressos que ainda não viraram pallet (produção não lançada e ninguém bipou) — só no modo provisório */
+async function renderPalRotulos(){
+  const el=document.getElementById('pal-rotulos'); if(!el) return;
+  if(labRegraCompleta()){ el.innerHTML=''; return; }
+  if(Date.now()-_palRotulosEm>60000){
+    _palRotulosEm=Date.now();
+    const desde=new Date(Date.now()-3*864e5).toISOString().slice(0,10);
+    const r=await _supabase.from('rotulos_impressos').select('id,dia,linha,produto,numero,lote').is('pallet_id',null).gte('dia',desde).order('numero').limit(2000);
+    _palRotulos=r.error?[]:(r.data||[]);
+  }
+  const k=(d,l,p)=>d+'|'+l+'|'+Regras.normalizarNome(p);
+  const temPallet=new Set((_pallets||[]).map(p=>k(p.data,p.linha,p.produto)));
+  const g={}; _palRotulos.forEach(x=>{const kk=k(x.dia,x.linha,x.produto); if(temPallet.has(kk))return; (g[kk]=g[kk]||{dia:x.dia,linha:x.linha,produto:x.produto,lote:x.lote,itens:[]}).itens.push(x);});
+  const gs=Object.values(g).sort((a,b)=>String(b.dia).localeCompare(String(a.dia)));
+  el.innerHTML=gs.length?`<div style="margin:0 0 12px;padding:10px 12px;border-radius:12px;background:#eff6ff;border:1.5px solid #93c5fd;">
+    <div style="font-weight:800;color:#1e3a8a;font-size:13px;margin-bottom:6px;">🏷️ Rótulos impressos sem produção lançada — analise o 1º e o resto do produto fica aprovado</div>
+    <div style="display:flex;flex-wrap:wrap;gap:8px;">${gs.map(x=>{const f=x.itens[0];return `<div style="background:#fff;border:1px solid #bfdbfe;border-radius:10px;padding:8px 10px;font-size:12.5px;">
+      <b>${esc(x.produto)}</b> · ${esc(x.linha)} · ${String(x.dia).split('-').reverse().join('/')}${x.lote?' · lote '+esc(x.lote):''}<br>
+      <span style="color:#64748b;">${x.itens.length} rótulo(s) — nº ${x.itens[0].numero} a ${x.itens[x.itens.length-1].numero}</span>
+      <div style="margin-top:6px;"><button class="btn btn-primary btn-sm" onclick="labAnalisarRotulo('${f.id}')">🔬 Analisar o nº ${f.numero}</button></div></div>`;}).join('')}</div></div>`:'';
+}
+async function labAnalisarRotulo(rotId){
+  if(!guardAction('laboratorio','aprovar')) return;
+  const r=await _supabase.rpc('lab_rotulo_pallet',{p_rotulo:rotId});
+  const p=r.data&&(Array.isArray(r.data)?r.data[0]:r.data);
+  if(r.error||!p){ toast('Não consegui abrir o rótulo: '+((r.error&&r.error.message)||'não encontrado'),'danger'); return; }
+  if(!(_pallets||[]).some(x=>x.id===p.id)) _pallets=[Object.assign({producao:null},p),...(_pallets||[])];
+  _palRotulos=_palRotulos.filter(x=>x.id!==rotId);
+  renderPallets(); abrirPalletLab(p.id);
+}
 function pintarAbasPallet(base){
   const el=document.getElementById('pal-abas'); if(!el) return;
   const conta=k=>k?base.filter(p=>p.status===k).length:base.length;
@@ -2258,6 +2323,7 @@ function renderPallets(){
     return (!fd||dt===fd)&&(!fl||ln===fl)&&(!ft||tn===ft)&&(!fpr||p.produto===fpr)&&palletCasaBusca(p,_palBusca);
   });
   pintarAbasPallet(base);
+  try{ renderPalModo(); }catch(e){ console.warn('[modo lab]',e); }
   const lista=base.filter(p=>!_palAba||p.status===_palAba);
   const bi=document.getElementById('pal-busca-info');
   if(bi) bi.innerHTML=_palBusca
@@ -5642,7 +5708,7 @@ function _lauAprovadorPallets(op){ return _lauAprovadoresPallets(op).map(x=>x.no
 // Não finaliza (fica rascunho com o motivo) quando: veredito não APROVADO, falta ensaio,
 // sem química externa assinada, análise externa vencida, RT não configurado ou RT = quem aprovou.
 // Não mexe em laudo finalizado nem em rascunho que alguém editou à mão.
-const _lauDiaFechado=g=>String(g.dataFim||'')<hoje();
+const _lauDiaFechado=g=>!labRegraCompleta()||String(g.dataFim||'')<hoje();   // (17/11) modo provisório: o laudo sai finalizado na 1ª aprovação
 // (nov/2026, pedido do dono) lotes ANTES de 01/10/2026 = histórico em papel: o laudo sai finalizado só
 // para fechar as pendências — sem exigir umidade, granulometria, química ou análise externa.
 // Os laudos que valem são de outubro/2026 em diante.

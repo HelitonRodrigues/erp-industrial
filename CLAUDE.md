@@ -920,3 +920,8 @@ fábrica específica. Não generalizar.
 - (17/11) laboratorio.html — Análise de Pallets abre com os **últimos 60 dias + tudo não aprovado** (`_carregarTodosPallets`, `PAL_JANELA_DIAS`),
   em vez dos ~10 mil pallets. Botão "📚 Histórico completo" (`carregarMaisPallets` → `_palTudo`) traz tudo como antes; busca que não acha e
   filtro de data mais antigo que a janela puxam o histórico sozinhos.
+- (17/11) **Laboratório — regra completa × modo provisório** (migração 138, `empresa_config.lab_regra_completa`, padrão LIGADA = como sempre).
+  DESLIGADA: gatilho `tg_lab_aprova_pelo_primeiro` — aprovou 1 pallet/bag de um produto no dia/linha → os pendentes vão junto, e os criados
+  depois (bipados, rótulo, OP) já nascem aprovados; laudo sai finalizado na hora (`_lauDiaFechado`), mas ainda depende da OP lançada.
+  Tela: faixa `#pal-modo` com o liga/desliga (ADM/SADM/ENG/DIR ou laboratorio:aprovar) e `#pal-rotulos` com os rótulos impressos sem pallet
+  (últimos 3 dias) → "Analisar o nº 1" cria o pallet pela RPC `lab_rotulo_pallet` (não marca o rótulo como lido) e abre o ensaio.
