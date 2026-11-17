@@ -953,3 +953,8 @@ fábrica específica. Não generalizar.
   e umidade". Gatilho `tg_analise_segue_op`: pallet ganhou OP → a análise ganha a mesma OP.
 - (17/11) OP PROVISÓRIA `OP-LIN-20261117-4127` (Linha 2, 17/11 manhã, Caulim 25 kg Branco 01, 720 sc) aberta só para liberar o laudo LAU-2026-0215 —
   atualizar com a planilha (não criar outra).
+- (17/11, migração 143) **OP provisória automática**: no modo provisório, aprovou o 1º pallet/bag (Big Bag / Caulim 25 kg) de um dia+linha sem OP →
+  `lab_op_provisoria` cria a OP (obs "PROVISÓRIA…", lote/validade do rótulo, pallets = rótulos impressos × cap) e o `totem_alocar` liga os pallets;
+  `tg_analise_pega_op` + `tg_analise_segue_op` ligam a análise; laboratorio.html gera o laudo logo após aprovar (`_lauGerarMes`), e o laudo
+  finalizado se liga às cargas (141). **producao.html**: ao lançar uma OP nova, se existe OP PROVISÓRIA do mesmo dia/linha/produto, grava
+  EM CIMA dela (mantém nº e laudo, não duplica).

@@ -1955,6 +1955,18 @@ async function salvarLanc(){
   let _salvou=false;   // o modo pátio precisa saber se gravou
   try{
     let lid=_eL;
+    /* (17/11) OP PROVISÓRIA criada pelo laboratório (1º pallet aprovado antes da produção ser lançada): o lançamento de verdade
+       grava EM CIMA dela — mantém o nº da OP e o laudo já emitido, e não duplica a produção. */
+    if(!_eL){
+      try{
+        const {data:pv}=await _supabase.from('producao').select('id,op_numero,produto,produtos_op').eq('data',data).eq('linha',linha).ilike('obs','PROVISÓRIA%');
+        const nn=x=>Regras.normalizarNome(x||''), meus=(dados.produtos_op||[]).map(x=>nn(x&&x.produto)).concat([nn(dados.produto)]);
+        const alvo=(pv||[]).find(o=>[o.produto,...((o.produtos_op||[]).map(x=>x&&x.produto))].some(x=>meus.includes(nn(x))));
+        if(alvo){ _eL=alvo.id; lid=alvo.id; dados.op_numero=alvo.op_numero; _opNumAtual=alvo.op_numero;
+          if(String(dados.obs||'').startsWith('PROVISÓRIA')) dados.obs=null;
+          toast(`Havia a OP provisória ${alvo.op_numero} (criada pelo laboratório). A produção foi gravada nela.`,'info'); }
+      }catch(e){ console.warn('[OP provisória]',e); }
+    }
     if(_eL){await db(_supabase.from('producao').update(dados).eq('id',_eL),'atualizar OP');await addLog('UPDATE','PRODUCAO',_eL,`${linha} ${data}`);toast('OP atualizada!','success');}
     else{const{data:d,error:ie}=await _supabase.from('producao').insert(dados).select().single();if(ie)throw ie;lid=d.id;await addLog('CREATE','PRODUCAO',d.id,`${linha} ${data} — ${totSacos} sacos`);toast('OP registrada!','success');}
     _salvou=true;   // gravou: daqui para baixo é ajuste (pallets, horímetro, insumos)
