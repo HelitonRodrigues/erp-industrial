@@ -931,3 +931,5 @@ fábrica específica. Não generalizar.
   tryHarder em vários tamanhos + nitidez/limiar por região `fotoCanvas(modo 'nitido'|'adapt'|'pb')` e, se não achar, procura em **pedaços**
   da imagem ampliados). Só depois o OCR, em 6 versões da imagem, casando também por pedaços do código (`casarPorPartes`: data 2026MMDD +
   nº do pallet) e priorizando os rótulos dos produtos da carga. Teste: foto com desfoque médio lida em ~0,5 s no PC.
+- (17/11, migração 140) Chamado 📣: a portaria responde **"✅ VI — VOU CHAMAR"** ou **"🚫 MOTORISTA NÃO ESTÁ NO PÁTIO"** (`vouChamar(id,'ausente')`,
+  `portaria_chamados.resposta`); o pátio mostra a faixa vermelha e quem chamou recebe aviso vermelho.
