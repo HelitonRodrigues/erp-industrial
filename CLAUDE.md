@@ -972,3 +972,4 @@ fábrica específica. Não generalizar.
 - (17/11) Granel: o silo pode ter material de **vários dias** (ex.: sábado, DSM não veio). DSM (`dsmCarregarLotes`): opções = hoje + dias com produção
   da Longa Vida nos últimos 15 dias (até 8), com dia da semana e ✅ quando o laudo já foi liberado. Laboratório (`_grDias`): hoje + os últimos
   3 dias com análise OK da Longa Vida.
+- (17/11) certificados.js: o quadro "Fornecimento (esta remessa)" mostra também a **NF** quando a ligação tem `nota_fiscal` (DSM).
