@@ -880,6 +880,39 @@ function _planoDoMes(planos){
   const n=(p,k)=>Number(p.totais[k])||0;
   return ok.find(p=>n(p,'total')>0&&n(p,'custoPorTon')>0&&n(p,'faturamento')>0)||ok.find(p=>n(p,'total')>0)||ok[0]||(planos||[])[0];
 }
+/* (17/11) REALIZADO ATÉ HOJE no cartão do custo: a foto que a aba Planejado × Realizado grava (totais.real — exata);
+   sem foto do mês, uma ESTIMATIVA: custo do plano × dias úteis com produção ÷ dias úteis do mês, toneladas apontadas e o
+   faturamento pelo preço médio por tonelada do plano. */
+function _custoRealHtml(plano,prodMes,c){
+  const t=plano.totais||{}, est=plano.estado||{}, r=t.real;
+  let d=null, exato=false;
+  if(r&&Number(r.mes)===Number(plano.mes)&&Number(r.ano)===Number(plano.ano)){ d=r; exato=true; }
+  else{
+    const ano=Number(plano.ano), mes=Number(plano.mes); if(!ano||!mes) return '';
+    const dias=new Date(ano,mes,0).getDate(), cal=est.calendario||{}, uteis=new Set();
+    for(let i=1;i<=dias;i++){ const k=`${ano}-${String(mes).padStart(2,'0')}-${String(i).padStart(2,'0')}`; if((cal[k]||'trabalha')!=='folga') uteis.add(k); }
+    const cob=new Set((prodMes||[]).map(o=>o.data).filter(x=>uteis.has(x))).size, f=uteis.size?Math.min(1,cob/uteis.size):0;
+    const tonR=_agg(prodMes).t||0, pTon=c.tonPlan>0?c.fat/c.tonPlan:0;
+    d={uteis:uteis.size,cobertos:cob,tonR,tonP:c.tonPlan*f,custoR:c.custo*f,custoP:c.custo*f,fatR:tonR*pTon,fatP:c.fat*f};
+    d.alvoR=d.fatR>0?d.custoR/d.fatR:null;
+  }
+  if(!d.uteis) return '';
+  const alvo=d.alvoR!=null?d.alvoR*100:null, teto=Number(d.teto)||c.alvoPct, ok=alvo!=null&&alvo<=teto;
+  const cor=alvo==null?'var(--ink-3)':ok?'#15803d':'var(--bad)';
+  const dif=(r,p)=>{ if(!(p>0)) return ''; const v=(r/p-1)*100; return `<span style="color:${v>=0?'#15803d':'var(--bad)'};font-weight:700;">${v>=0?'+':''}${v.toLocaleString('pt-BR',{maximumFractionDigits:1})}%</span>`; };
+  const difC=(r,p)=>{ if(!(p>0)) return ''; const v=(r/p-1)*100; return `<span style="color:${v<=0?'#15803d':'var(--bad)'};font-weight:700;">${v>=0?'+':''}${v.toLocaleString('pt-BR',{maximumFractionDigits:1})}%</span>`; };
+  const quando=exato&&d.em?' · atualizado '+new Date(d.em).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'';
+  return `<div style="margin-top:10px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--bg-2,#f8fafc);">
+    <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:baseline;">
+      <div class="ca-m-label" style="margin:0;">⚖️ Realizado até hoje — ${d.cobertos} de ${d.uteis} dias úteis</div>
+      <div style="font-size:11px;color:var(--ink-3);">${exato?'da aba Planejado × Realizado'+quando:'estimado — abra o Custo para o número exato'}</div></div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin-top:6px;font-size:12.5px;">
+      <div>Tonelagem<br><b>${(d.tonR||0).toLocaleString('pt-BR',{maximumFractionDigits:0})} t</b> <span style="color:var(--ink-3);">/ ${(d.tonP||0).toLocaleString('pt-BR',{maximumFractionDigits:0})} t</span> ${dif(d.tonR,d.tonP)}</div>
+      <div>Custo<br><b title="${c.rsFull(d.custoR)}">${c.rsCurto(d.custoR)}</b> <span style="color:var(--ink-3);">/ ${c.rsCurto(d.custoP)}</span> ${exato?difC(d.custoR,d.custoP):''}</div>
+      <div>Faturamento<br><b title="${c.rsFull(d.fatR)}">${c.rsCurto(d.fatR)}</b> <span style="color:var(--ink-3);">/ ${c.rsCurto(d.fatP)}</span> ${dif(d.fatR,d.fatP)}</div>
+      <div>Alvo realizado<br><b style="color:${cor};font-size:15px;">${alvo==null?'—':c.pct(alvo)}</b> <span style="color:var(--ink-3);">meta até ${teto}%</span></div>
+    </div></div>`;
+}
 function renderCustoAlvo(planos, prodMes){
   const el = document.getElementById('custo-alvo-el');
   if(!el) return;
@@ -938,6 +971,7 @@ function renderCustoAlvo(planos, prodMes){
     ${!dentro&&fat>0?`<div class="ca-acao">
       Para chegar no alvo: cortar <b>${rsFull(falta)}</b> de custo <span style="color:#a8a29e;">ou</span> somar <b>${rsFull(receitaNec)}</b> de faturamento.
       <a href="custo-precificacao.html" onclick="event.stopPropagation()" style="color:var(--primary);font-weight:700;white-space:nowrap;">ver o plano \u2192</a></div>`:''}
+    ${_custoRealHtml(plano,prodMes,{custo,fat,tonPlan,alvoPct,rsCurto,rsFull,pct})}
     <div class="ca-foot">
       <span>Plano: <b>${plano.codigo||'\u2014'}</b>${plano.nome&&plano.nome!==plano.codigo?' \u2014 '+plano.nome:''}</span>
       <span>Produ\u00e7\u00e3o apontada no m\u00eas: <b>${fQ(qReal)}</b></span>

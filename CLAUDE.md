@@ -986,3 +986,7 @@ fábrica específica. Não generalizar.
 - (17/11) portaria.html: ao **salvar a ordem importada**, se já existe caminhão na fila **sem ordem** com a mesma placa (ou placa2) ou o mesmo motorista, a ordem é **vinculada sozinha** (confirmarVinculo); mais de um candidato → aviso para usar 📄 Vincular. "Salvar e registrar chegada" não abre chegada nova nesse caso.
 - (17/11) dashboard.html: CUIDADO com nomes globais — a função do carregado chamava _qtdItem e sobrescreveu a _qtdItem da produção (produção aparecia 0 sacos). Renomeadas para _carrTipo/_carrQtd; conferido sem nomes duplicados.
 - (17/11) dashboard.html: cartão/detalhe do Custo usa `_planoDoMes` — o plano do mês COMPLETO (custo/t e faturamento > 0), não o mais recente; excluídos fora (um CP-0018 em branco passava na frente do CP-0014 de novembro).
+- (17/11, migração 148) **Realizado no cartão "Custo do mês" do dashboard**: a aba Planejado × Realizado grava a foto do total da fábrica
+  "até hoje" (`_realFotoDashboard` → RPC `custo_salvar_real` → `planejamentos_custo.totais.real`: tonR/tonP, custoR/custoP, fatR/fatP,
+  alvoR, uteis/cobertos), só quando muda e de novo depois de salvar o plano. Dashboard `_custoRealHtml`: usa a foto (exata, com a hora);
+  sem foto do mês, estimativa (custo × dias úteis com produção ÷ dias úteis, toneladas apontadas, faturamento pelo preço médio/t do plano).

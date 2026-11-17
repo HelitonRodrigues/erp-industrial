@@ -3160,6 +3160,23 @@ const REAL_FONTE_COMPART = {
   arrend:      { fonte: null,         desc: 'contrato: o realizado é o planejado' },
 };
 
+/* (17/11) FOTO DO REALIZADO para o dashboard: total da fábrica, "até hoje" pelos dias úteis (o mesmo número desta aba, com o
+   proporcional ligado). Gravado em planejamentos_custo.totais.real pela RPC custo_salvar_real — só quando muda. */
+let _realFotoUlt = '';
+function _realFotoDashboard(cons, cob) {
+  if (!state._planejamentoAtualId || !state._real || state._real.erro || !cons || !cons.kpi) return;
+  const k = cons.kpi['__TOTAL__'] || {}; if (!k) return;
+  const f = (!cob.fechado && cob.uteis > 0) ? cob.fracao : 1;
+  // a foto é sempre com o proporcional (itens sem fonte já entram rateados quando a chave está ligada — padrão)
+  if (!_realProRataOn() && !cob.fechado) return;
+  const foto = { em: new Date().toISOString(), mes: state.mes, ano: state.ano, uteis: cob.uteis, cobertos: cob.cobertos, fechado: !!cob.fechado,
+    tonR: +((k.tonR || 0).toFixed(3)), tonP: +(((k.tonP || 0) * f).toFixed(3)), custoR: Math.round(k.custoR || 0), custoP: Math.round((k.custoP || 0) * f),
+    fatR: Math.round(k.fatR || 0), fatP: Math.round((k.fatP || 0) * f), alvoR: k.alvoR != null ? +k.alvoR.toFixed(4) : null, alvoP: k.alvoP != null ? +k.alvoP.toFixed(4) : null,
+    teto: Number(state.alvoMaximoPct) || 38 };
+  const chave = JSON.stringify(Object.assign({}, foto, { em: '' }));
+  if (chave === _realFotoUlt) return; _realFotoUlt = chave;
+  _supabase.rpc('custo_salvar_real', { p_id: state._planejamentoAtualId, p_real: foto }).then(({ error }) => { if (error) { console.warn('[realizado → dashboard]', error.message); _realFotoUlt = ''; } });
+}
 /* Quantos dias úteis do mês já têm produção lançada. Sem isso o Alvo realizado
    vira armadilha: os itens SEM FONTE assumem o valor cheio do mês (arrendamento,
    folha, manutenção) enquanto a produção é de poucos dias — o custo fica de mês
@@ -4088,6 +4105,7 @@ function renderPlanRealizado(r) {
   };
   const alvoTexto = (v) => v == null ? '—' : fmtPct(v, 2);
   const dentro = k.alvoR != null && k.alvoR <= (Number(state.alvoMaximoPct) || 0) / 100;
+  try { _realFotoDashboard(cons, cob); } catch (e) { console.warn('[realizado → dashboard]', e); }
 
   // (17/11) plano até hoje = plano do mês × dias úteis com produção ÷ dias úteis do mês (padrão com o mês em aberto)
   const fDU = (real && _realProRataOn() && !cob.fechado && cob.uteis > 0) ? cob.fracao : 1;
@@ -7742,6 +7760,7 @@ async function atualizarPlanejamentoAtual() {
   try {
     const { error } = await _supabase.from(TABELA_PLANEJAMENTOS).update(registro).eq('id', state._planejamentoAtualId);
     if (error) throw error;
+    _realFotoUlt = '';   // (17/11) o salvar troca totais inteiro: a foto do realizado é regravada no próximo cálculo
     state._totaisGravados = registro.totais; state._gravadoEm = registro.atualizado_em;
     if (typeof addLog === 'function') await addLog('UPDATE', 'CUSTO_PRECIFICACAO', state._planejamentoAtualId, `Atualizado: ${state._planejamentoAtualCodigo}`);
     if (typeof toast === 'function') toast(`Planejamento ${state._planejamentoAtualCodigo} atualizado.`, 'success');
