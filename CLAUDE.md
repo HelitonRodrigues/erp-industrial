@@ -939,3 +939,8 @@ fábrica específica. Não generalizar.
 - (17/11) **"Sair" só deste aparelho**: `signOut()` do Supabase é GLOBAL por padrão — o "Sair" de um usuário em um PC derrubava a sessão do mesmo
   usuário em todos os outros (central de rótulos, estações de impressão, celular) → "Refresh Token Not Found" nos logs. Agora
   `signOut({scope:'local'})` em js/utils.js (`doLogout`) e index.html.
+- (17/11) **custo-precificacao.html** (pedido do dono): saiu o "📊 Programado no mês — por linha" (`renderTotaisLinhas` não é mais chamado;
+  junto saiu o "E se a linha parar"). **Pessoas do plano** no layout A: 1 linha por pessoa (`.cp-pes`), nome curto 1º+último em Title Case
+  (completo no mouse), função em cinza, custo, ⇄ (select pequeno) e ✕; motivo do "fora" vira campo discreto "motivo ✎". **Arrastar** pessoa
+  (inclusive do "Para decidir") para outro grupo (`cpArrasta/cpSobre/cpSolta`). Grupos em `.cp-grupos` (grid dense): grupo com mais de
+  6 pessoas ocupa 2–3 faixas (`grid-row:span`) e os outros se alinham ao lado.

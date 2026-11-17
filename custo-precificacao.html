@@ -4493,6 +4493,28 @@ function renderTotaisLinhas(r) {
   </div>`;
 }
 
+// arrastar pessoa entre grupos (Pessoas do plano)
+let _cpArrastando = null;
+function cpArrasta(ev, fid) { _cpArrastando = fid; try { ev.dataTransfer.setData('text/plain', fid); ev.dataTransfer.effectAllowed = 'move'; } catch (e) {} document.body.classList.add('cp-arrastando'); }
+function cpArrastaFim() { _cpArrastando = null; document.body.classList.remove('cp-arrastando'); document.querySelectorAll('.cp-alvo').forEach((e) => e.classList.remove('cp-alvo')); }
+function cpSobre(ev, el) { if (!_cpArrastando) return; ev.preventDefault(); el.classList.add('cp-alvo'); }
+function cpSolta(ev, gid, el) { ev.preventDefault(); el.classList.remove('cp-alvo'); const fid = _cpArrastando || (ev.dataTransfer && ev.dataTransfer.getData('text/plain')); cpArrastaFim(); if (fid && state.pessoaGrupo[fid] !== gid) setPessoaGrupo(fid, gid); }
+(function () { if (document.getElementById('css-cp-pes')) return; const st = document.createElement('style'); st.id = 'css-cp-pes'; st.textContent = `
+  .cp-grupos{display:grid;grid-template-columns:repeat(auto-fill,minmax(400px,1fr));grid-auto-flow:row dense;align-items:stretch;gap:10px;margin-top:10px}
+  .cp-grupo{display:flex;flex-direction:column;transition:box-shadow .15s,background .15s}
+  .cp-grupo-nome{flex:1;min-width:110px;font-weight:700;border-color:transparent!important;background:transparent!important;padding:4px 6px!important;font-size:14px!important}
+  .cp-grupo-nome:hover,.cp-grupo-nome:focus{border-color:var(--border)!important;background:#fff!important}
+  .cp-grupo .badge{white-space:nowrap}.cp-grupo strong{white-space:nowrap}
+  .cp-grupo.cp-alvo{background:#ecfdf5;box-shadow:0 0 0 3px #86efac}
+  body.cp-arrastando .cp-grupo{outline:2px dashed #cbd5e1;outline-offset:-2px}
+  .cp-pes{display:grid;grid-template-columns:minmax(0,1fr) auto 46px 22px;gap:6px;align-items:center;padding:3px 0;border-bottom:1px dotted var(--border);font-size:12.5px;cursor:grab}
+  .cp-pes:active{cursor:grabbing}.cp-pes:hover{background:#f8fafc}
+  .cp-pes-n{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.cp-pes-n b{font-weight:600}
+  .cp-pes-m{color:#cbd5e1;font-size:11px;margin-right:4px;letter-spacing:-2px}
+  .cp-pes-mv{width:46px;padding:2px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:#fff;cursor:pointer}
+  .cp-motivo{width:120px;border:1px solid transparent;border-radius:6px;padding:2px 6px;font-size:11.5px;font-style:italic;color:#64748b;background:transparent}
+  .cp-motivo:hover,.cp-motivo:focus{border-color:var(--border);background:#fff;font-style:normal;color:#0f172a;outline:none}`; document.head.appendChild(st); })();
+
 // 👥 Pessoas do plano: quadro + grupos + fora do custo + para decidir + férias
 function renderPessoasPlano(r) {
   _pessoasNorm();
@@ -4507,36 +4529,42 @@ function renderPessoasPlano(r) {
   const optsGrupos = (atual) => state.grupos.map((g) => `<option value="${g.id}" ${g.id === atual ? 'selected' : ''}>${esc(g.nome)}</option>`).join('');
   const nTurno = [...emTurno].filter((fid) => F.some((f) => f.id === fid)).length;
   const ferias = F.filter((f) => _feriasNoMes(f.id).length);
+  /* (17/11) layout A: 1 linha por pessoa, nome curto (completo no mouse), arrastar para outro grupo */
+  const cap = (w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
+  const curto = (n) => { const p = String(n || '').split(/\s+/).filter((x) => x && !/^(de|da|do|dos|das|e)$/i.test(x)).map(cap); return p.length > 1 ? p[0] + ' ' + p[p.length - 1] : (p[0] || ''); };
   const pessoaRow = (fid, g) => {
     const custo = custoMensalFuncionario(fid, state.mes, state.ano);
     const semDados = g.regra !== 'fora' && !registroFolhaDoFuncionario(fid, state.mes, state.ano);
-    return `<div style="display:grid;grid-template-columns:minmax(0,1.3fr) ${g.regra === 'fora' ? 'minmax(0,1fr)' : 'auto'} 150px 24px;gap:8px;align-items:center;padding:4px 0;border-bottom:1px dotted var(--border);font-size:12.5px;">
-      <span>${esc(nome(fid))}${funcao(fid) ? ` <span class="cp-muted">— ${esc(funcao(fid))}</span>` : ''}${_feriasBadge(fid)}</span>
-      ${g.regra === 'fora' ? `<input class="form-input cp-input-tabela" style="width:100%!important;" placeholder="motivo (ex.: escritório, portaria)" value="${esc(state.foraMotivo[fid] || '')}" onchange="setForaMotivo('${fid}', this.value)">`
-        : (semDados ? '<span class="badge badge-warning">⚠️ sem dados na Folha</span>' : `<strong>${fmtBRL(custo)}</strong>`)}
-      <select class="form-input cp-input-tabela" style="width:150px!important;" title="Mudar de grupo" onchange="setPessoaGrupo('${fid}', this.value)">${optsGrupos(g.id)}<option value="">↩ tirar (para decidir)</option></select>
+    const meio = g.regra === 'fora'
+      ? `<input class="cp-motivo" placeholder="motivo ✎" value="${esc(state.foraMotivo[fid] || '')}" title="Motivo de ficar fora do custo (clique para escrever)" onchange="setForaMotivo('${fid}', this.value)">`
+      : (semDados ? '<span class="badge badge-warning" title="Sem lançamento na Folha">⚠️ sem Folha</span>' : `<strong>${fmtBRL(custo)}</strong>`);
+    return `<div class="cp-pes" draggable="true" ondragstart="cpArrasta(event,'${fid}')" ondragend="cpArrastaFim()" title="${esc(nome(fid))}${funcao(fid) ? ' — ' + esc(funcao(fid)) : ''} · arraste para outro grupo">
+      <span class="cp-pes-n"><span class="cp-pes-m">⋮⋮</span><b>${esc(curto(nome(fid)))}</b>${funcao(fid) ? ` <span class="cp-muted">· ${esc(funcao(fid))}</span>` : ''}${_feriasBadge(fid)}</span>
+      ${meio}
+      <select class="cp-pes-mv" title="Mudar de grupo" onchange="if(this.value!=='__')setPessoaGrupo('${fid}', this.value)"><option value="__">⇄</option>${state.grupos.filter((x) => x.id !== g.id).map((x) => `<option value="${x.id}">${esc(x.nome)}</option>`).join('')}<option value="">↩ tirar (para decidir)</option></select>
       <button class="cp-fechar-btn" title="Tirar do grupo (volta para 'Para decidir')" onclick="setPessoaGrupo('${fid}','')">✕</button>
     </div>`;
   };
   const grupoBox = (g) => {
     const m = membros(g.id);
     const total = g.regra === 'fora' ? 0 : m.reduce((a, fid) => a + custoMensalFuncionario(fid, state.mes, state.ano), 0);
-    return `<div class="cp-box" style="padding:10px 12px;border-left:4px solid ${g.cor || '#94a3b8'};">
-      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:4px;">
-        <input class="form-input" style="flex:1;min-width:180px;font-weight:700;" value="${esc(g.nome)}" title="Clique para renomear" onchange="renomearGrupo('${g.id}', this.value)">
-        <span class="badge ${g.regra === 'fora' ? 'badge-gray' : 'badge-info'}">${g.regra === 'fora' ? 'não entra no custo' : 'rateado por tonelagem'}</span>
+    const alto = m.length > 6 ? Math.min(3, Math.ceil(m.length / 6)) : 1;   // grupo grande ocupa mais de uma faixa e os outros se alinham ao lado
+    return `<div class="cp-box cp-grupo" style="padding:10px 12px;border-left:4px solid ${g.cor || '#94a3b8'};grid-row:span ${alto};" ondragover="cpSobre(event,this)" ondragleave="this.classList.remove('cp-alvo')" ondrop="cpSolta(event,'${g.id}',this)">
+      <div style="display:flex;gap:6px;align-items:center;margin-bottom:4px;">
+        <input class="form-input cp-grupo-nome" value="${esc(g.nome)}" title="Clique para renomear" onchange="renomearGrupo('${g.id}', this.value)">
+        <span class="badge ${g.regra === 'fora' ? 'badge-gray' : 'badge-info'}" title="${g.regra === 'fora' ? 'não entra no custo' : 'rateado por tonelagem'}">${g.regra === 'fora' ? 'fora do custo' : 'por tonelagem'}</span>
         <span class="badge badge-gray">${m.length}</span>
         ${g.regra === 'fora' ? '' : `<strong style="font-size:12.5px;">${fmtBRL(total)}</strong>`}
         <button class="btn btn-ghost btn-sm" style="color:var(--danger);" title="Apagar grupo (as pessoas vão para outro grupo do mesmo tipo)" onclick="removerGrupo('${g.id}')">🗑</button>
       </div>
-      ${m.map((fid) => pessoaRow(fid, g)).join('') || '<p class="cp-ajuda" style="margin:4px 0;">Ninguém neste grupo.</p>'}
+      ${m.map((fid) => pessoaRow(fid, g)).join('') || '<p class="cp-ajuda" style="margin:4px 0;">Ninguém neste grupo — arraste alguém para cá.</p>'}
       ${livres.length ? `<select class="form-input" style="margin-top:6px;width:100%;" onchange="setPessoaGrupo(this.value,'${g.id}'); this.value='';"><option value="">+ Adicionar pessoa…</option>${optsLivres}</select>` : ''}
     </div>`;
   };
   const kp = (rot, n, cor, sub) => `<div style="border:1px solid var(--border);border-radius:10px;padding:8px 10px;"><div style="font-size:10.5px;font-weight:700;color:#64748b;text-transform:uppercase;">${rot}</div><div style="font-size:20px;font-weight:800;color:${cor};">${n}</div><div style="font-size:10.5px;color:#64748b;">${sub}</div></div>`;
   const decidirHtml = livres.length ? `<div class="cp-box" style="padding:10px 12px;border-left:4px solid #dc2626;">
       <div style="font-weight:700;color:#b91c1c;margin-bottom:4px;">⚠️ Para decidir — ${livres.length} pessoa(s) sem lugar neste plano</div>
-      ${livres.map((f) => `<div style="display:grid;grid-template-columns:minmax(0,1fr) 220px;gap:8px;align-items:center;padding:3px 0;border-bottom:1px dotted var(--border);font-size:12.5px;">
+      ${livres.map((f) => `<div draggable="true" ondragstart="cpArrasta(event,'${f.id}')" ondragend="cpArrastaFim()" title="Arraste para um grupo" style="cursor:grab;display:grid;grid-template-columns:minmax(0,1fr) 220px;gap:8px;align-items:center;padding:3px 0;border-bottom:1px dotted var(--border);font-size:12.5px;">
         <span>${esc(f.nome)}${f.funcao ? ` <span class="cp-muted">— ${esc(f.funcao)}${f.setor ? ' · ' + esc(f.setor) : ''}</span>` : ''}${_feriasBadge(f.id)}</span>
         <select class="form-input cp-input-tabela" style="width:220px!important;" onchange="setPessoaGrupo('${f.id}', this.value)"><option value="">Colocar em…</option>${optsGrupos(null)}</select></div>`).join('')}
       <p class="cp-ajuda" style="margin:6px 0 0;">Para pôr numa linha, use "+ Adicionar funcionário" no turno, mais abaixo.</p></div>` : '';
@@ -4550,7 +4578,7 @@ function renderPessoasPlano(r) {
       ${kp('Férias no mês', ferias.length, '#b45309', 'continuam no custo')}
     </div>
     ${decidirHtml}
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(460px,1fr));gap:10px;margin-top:10px;">${state.grupos.map(grupoBox).join('')}</div>
+    <div class="cp-grupos">${state.grupos.map(grupoBox).join('')}</div>
     <div class="cp-field-row" style="margin-top:10px;gap:8px;flex-wrap:wrap;align-items:center;">
       <input class="form-input" id="cp-novo-grupo-nome" style="min-width:240px;" placeholder="Nome do novo grupo (ex.: Feristas)">
       <select class="form-input" id="cp-novo-grupo-regra" style="width:220px;"><option value="tonelagem">Entra no custo · rateio por tonelagem</option><option value="fora">Não entra no custo</option></select>
@@ -4895,7 +4923,7 @@ function renderConfig(r) {
     return renderCalendario() + renderPessoasPlano(r) + lenhaFiltroCard + `<div class="card"><div class="empty-state"><div class="empty-icon">🏭</div><h3>Nenhuma linha de produção carregada</h3><p>Cadastre em <strong>Cadastros → Linhas de Produção</strong> e <strong>Cadastros → Turnos</strong>, e recarregue a página.</p></div></div>` + renderMapeamentoProdutos();
   }
   const blocosHtml = state.blocos.map((b) => renderBloco(b, r)).join('');
-  return renderCalendario() + renderTotaisLinhas(r) + renderPessoasPlano(r) + lenhaFiltroCard + `
+  return renderCalendario() + renderPessoasPlano(r) + lenhaFiltroCard + `   // (17/11) saiu o "Programado no mês — por linha" (renderTotaisLinhas)
   <div class="cp-plano-secao">
     <div class="cp-plano-secao-cab">
       <h3 class="cp-h3" style="margin:0;">🏭 Linhas, turnos e produtos deste plano</h3>
