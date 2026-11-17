@@ -1253,7 +1253,7 @@ function extrasNaCarga(nome,exceto){
   Object.keys(_alloc).forEach(k=>(_alloc[k]||[]).forEach(id=>{
     if(id===exceto)return;
     const p=_pallets.find(x=>x.id===id);
-    if(p&&normNome(p.produto)===normNome(nome))t+=sacosExtra(id);
+    if(p&&normNome(p.produto)===normNome(nome))t+=Math.max(0,sacosExtra(id));
   }));
   return t;
 }
@@ -2996,7 +2996,7 @@ function iniciarCarregamento(opt){
   _carrPreIds=new Set();
   _alloc={};_allocSet=new Set();_extra={};_qtdInf={};_qtdUlt={};_avulsos={};_linhasCarr=[];_linhaAtiva=null;_keySeq=0;
   Object.keys(_libEnc).forEach(k=>delete _libEnc[k]);
-  _doa={};_doaPre={};_modoDoa=false;_doaAuto={};_ptGranel=null;
+  _doa={};_doaPre={};_modoDoa=false;_doaAuto={};_ptGranel=null;_semRotuloPerguntado=false;
   if(rom){
     _carrOrdem={numero:rom.numero,transportadora:rom.transportadora,motorista:rom.motorista,placa:rom.placa,
       data_emissao:rom.data_emissao,status:rom.status||'recebido',romId:rom.id,atualizado_em:rom.atualizado_em||null};
@@ -5776,7 +5776,7 @@ function renderPatio(){
       const est=palletPadraoDoProduto(x.produto);
       const feito=bag?it.sc:(it.pp?it.pal:it.sc), alvo=bag?it.need:(it.pp?it.palNeed:it.need);
       const un=bag?'bags':(it.pp?'pallets':'sacos');
-      const tam=bag?'':`Pallet de ${it.pp?n0(it.pp):'?'} sacos`+(it.pp&&est&&it.pp>est?` · no estoque é ${n0(est)}: os +${n0(it.pp-est)} já entram sozinhos`:'');
+      const tam=bag?'':`Pallet de ${it.pp?n0(it.pp):'?'} sacos`+(it.pp&&est&&it.pp>est?` · no estoque é ${n0(est)}: os +${n0(it.pp-est)} já entram sozinhos`:it.pp&&est&&it.pp<est?` · no estoque é ${n0(est)}: sai com ${n0(it.pp)} e ${n0(est-it.pp)} voltam ao estoque`:'');
       const semqr=avulsosDe(x.key).filter(a=>a.motivo===ROT_ANTIGO);
       return `<div style="background:${it.ok?'#f0fdf4':'#f8fafc'};border:2px solid ${it.ok?'#86efac':'#e2e8f0'};border-radius:12px;padding:9px 10px;margin-top:6px;">
         <div style="display:flex;align-items:center;gap:10px;">
@@ -5966,10 +5966,15 @@ function patioIncluir(p,l){
     dif=alvoPal-base;
     _extra[p.id]={qtd:dif,obs:`Completado para pallet de ${n0(alvoPal)}`};
     lido.txt+=` +${n0(dif)}`;
+  }else if(alvoPal>0&&alvoPal<base&&!ehBagNome(p.produto)){
+    /* (16/11) caminhão leva pallet de 140 e o do estoque é de 180: sai com 140, os 40 voltam ao estoque (ao salvar) */
+    dif=alvoPal-base;
+    _extra[p.id]={qtd:dif,obs:`Pallet de ${n0(alvoPal)} no caminhão — ${n0(-dif)} sacos ficaram no estoque`};
+    lido.txt+=` −${n0(-dif)}`;
   }
   renderPatio();
   const inf=patioLinhaInfo(l);
-  patioFlash('ok','✅','OK',`${esc(l.produto)}<br>${esc(codCurto(p))} · ${dif?`${n0(base)} + ${n0(dif)} = ${n0(base+dif)}`:n0(base)} ${ehBagNome(p.produto)?'':'sacos'}`+(inf.ok?'<br><b>PRODUTO COMPLETO!</b>':(inf.pp?`<br>Faltam ${n0(inf.faltaPal)} ${nomePallets(inf.faltaPal).toLowerCase()}`:'')));
+  patioFlash('ok','✅','OK',`${esc(l.produto)}<br>${esc(codCurto(p))} · ${dif>0?`${n0(base)} + ${n0(dif)} = ${n0(base+dif)}`:dif<0?`${n0(base)} − ${n0(-dif)} = ${n0(base+dif)} <small>(${n0(-dif)} ficam no estoque)</small>`:n0(base)} ${ehBagNome(p.produto)?'':'sacos'}`+(inf.ok?'<br><b>PRODUTO COMPLETO!</b>':(inf.pp?`<br>Faltam ${n0(inf.faltaPal)} ${nomePallets(inf.faltaPal).toLowerCase()}`:'')));
   return 'ok';
 }
 /* +N sacos colocados: tira sozinho do pallet que está aberto; se não tem
@@ -6344,10 +6349,34 @@ function patioMotivoMenos(m){
   if(m==='__outro'){m=(document.getElementById('pm-outro')?.value||'').trim();if(!m){beep('err');return;}}
   linhasIncompletas().forEach(l=>l.motivoMenos=m);patioFlashFechar();salvarRascunho();patioSalvar();
 }
+/* (16/11) a carga tem que fechar com a ORDEM: se o caminhão levou tudo e faltou bipar (pallet/bag sem rótulo),
+   o que falta entra como "sem QR" — pallets do tamanho do caminhão + sacos soltos */
+let _semRotuloPerguntado=false;
+function patioCompletarSemRotulo(){
+  linhasIncompletas().filter(l=>!l.felis&&!l.granel).forEach(l=>{
+    const falta=Math.round(l.sacksNeed-allocSacks(l.key)); if(falta<=0)return;
+    const bag=ehBagNome(l.produto), pp=bag?1:(Number(l.palPedido)||palletPadraoDoProduto(l.produto)||0);
+    const pal=pp?Math.floor(falta/pp):0, so=bag?0:(pp?falta%pp:falta);
+    (_avulsos[l.key]=_avulsos[l.key]||[]).push({id:'av'+(++_keySeq),sacos:falta,ton:0,unidade:'sc',motivo:ROT_ANTIGO,pallets:pal,soltos:so,lote:'',obs:'Sem rótulo — completado no TERMINEI'});
+    l.motivoMenos=null;
+  });
+  try{salvarRascunho();}catch(e){}
+  patioFlashFechar(); patioTerminar();
+  patioFlash('ok','🏷️','COMPLETADO','O que faltou entrou como <b>sem rótulo</b>. Confira e toque em SALVAR CARGA.');
+}
 async function patioSalvar(){
   const felPend=_linhasCarr.filter(l=>l.felis&&!felResp(l));
   if(felPend.length){patioFlash('warn','🏪','RESPONDA A FELISBINA',`Toque em ✔ ou ✕ em:<br><b>${felPend.map(l=>esc(String(l.produto||'').replace(/\s*\(Felisbina\)\s*$/i,''))).join('<br>')}</b>`,{botao:'OK'});return;}
   const semMot=linhasIncompletas().filter(l=>!l.motivoMenos);
+  if(semMot.length&&!_semRotuloPerguntado){
+    const fal=semMot.filter(l=>!l.felis&&!l.granel);
+    if(fal.length){
+      patioFlash('warn','✋','FALTOU BIPAR?',
+        `${fal.map(l=>`<b>${esc(l.produto)}</b>: bipou ${n0(allocSacks(l.key))} de ${n0(l.sacksNeed)}`).join('<br>')}<br><br><b>O caminhão levou a ordem inteira?</b>`,
+        {botao:'✅ SIM, FOI TUDO — TINHA SEM RÓTULO',depois:()=>patioCompletarSemRotulo(),botao2:'NÃO, SAIU MENOS MESMO',depois2:()=>{_semRotuloPerguntado=true;patioSalvar();}});
+      return;
+    }
+  }
   if(semMot.length){
     patioFlash('warn','✋','SAIU MENOS QUE A ORDEM',
       `${semMot.map(l=>`<b>${esc(l.produto)}</b>: ${n0(allocSacks(l.key))} de ${n0(l.sacksNeed)}`).join('<br>')}<br><br><b>POR QUÊ?</b>
@@ -6521,7 +6550,11 @@ async function _gravarAssinaturaCarga(ordem){
     if(!opts.silencioso&&!tem&&!opts._assinado){
       return await new Promise(res=>{ window._assCancel=()=>res(false); abrirAssinaturaCarga(async()=>{ window._assCancel=null; res(await gravarCarregamento(Object.assign({},opts,{_assinado:true}))); }); });
     }
+    const sobras={};
+    Object.values(_alloc).flat().forEach(id=>{const ex=sacosExtra(id);if(ex<0&&!_carrPreIds.has(id)){const p=_pallets.find(x=>x.id===id);if(p)sobras[p.produto]=(sobras[p.produto]||0)-ex;}});
     const ok=await _gc.apply(this,[opts]);
+    if(ok&&Object.keys(sobras).length){try{await _supabase.from('estoque_sem_qr').insert(Object.entries(sobras).map(([produto,sacos])=>({produto,sacos,tipo:'acerto',data:hojeISO(),
+      obs:`Carga ${ordem}: pallet do caminhão menor que o do estoque — sobraram ${sacos} sacos`,criado_por:operadorAtual()})));}catch(e){console.warn('[carregamento] sobras:',e);}}
     if(ok) await _gravarAssinaturaCarga(ordem);
     return ok;
   };

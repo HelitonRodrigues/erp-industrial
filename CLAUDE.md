@@ -865,6 +865,10 @@ fábrica específica. Não generalizar.
 - (16/11) **Lote de pallet sem OP**: bag/pallet do totem ainda sem produção lançada não tinha lote na carga ("—"). `loteDe` agora cai no lote do
   rótulo (`rotulos_impressos.lote` via `rotulo_id`, cache `_rotLote`, buscado em `garantirLotesRotulo` no início de `gravarCarregamento`).
   Cargas de 10–16/11 corrigidas no banco.
+- (16/11) **A carga fecha com a ORDEM** (pátio): pallet do caminhão MENOR que o do estoque (ordem 140, estoque 180) → item sai com 140
+  (`sacos_extra` negativo) e, ao salvar, a sobra volta ao estoque em `estoque_sem_qr` (acerto). No SALVAR com menos que a ordem, a 1ª pergunta
+  é "FALTOU BIPAR? O caminhão levou a ordem inteira?" → SIM completa com itens sem QR (`patioCompletarSemRotulo`: pallets do tamanho do caminhão
+  + soltos); NÃO cai no motivo de "saiu menos". Caso real: 028515 (corrigida no banco).
 
 ### Granel no Estoque do carregamento (16/11/2026)
 - `renderSaldoGranel` novo: por produto, "FICOU NO ESTOQUE" em destaque, produzido/carregado hoje e no mês, e tabela dia a dia do mês
