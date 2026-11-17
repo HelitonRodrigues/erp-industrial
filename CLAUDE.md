@@ -908,3 +908,10 @@ fábrica específica. Não generalizar.
 ### Portaria DSM — Histórico com líquido (16/11/2026)
 - portaria-dsm.html aba 📚 Histórico: coluna **Líquido (balança)** = `peso_saida − peso_entrada` (kg + t; cancelado não conta, `liqH`) e linha TOTAL
   do que está filtrado; PDF/impressão do histórico com a coluna e o KPI "Líquido total".
+
+### Menos peso no banco (17/11/2026 — o banco Nano travou às 10:31, memória ~100% a semana toda)
+- `estacao-impressao.html`: a fila AVISA pelo realtime (INSERT em `impressao_fila`, filtro do destino) → `ciclo()`; consulta de segurança 15 s
+  (era 3 s) e o "estou ligada" (`impressao_estacoes`) só a cada 20 s. `_deNovo` refaz o ciclo se o aviso chegar no meio de outro.
+- Chamados (📣): portaria e pátio recebem pelo realtime (`portaria_chamados`); consulta de segurança 30 s (era 5 s).
+- totem.html lê as estações a cada 30 s (era 10 s) e só com a tela visível; aferidor 30 s, "ligada" = visto há < 60 s.
+- Migration 137: `impressao_fila` e `portaria_chamados` na publicação `supabase_realtime`.
