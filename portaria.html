@@ -1355,6 +1355,7 @@ async function arquivoEscolhido(f){
   try{
     const pecas=ehPdf?await pecasDoPdf(f):await pecasDaImagem(f);
     const r=lerOrdemDeTexto(pecas);
+    try{converterToneladaParaSacos(r);}catch(e){console.warn('[portaria] t→sacos:',e);}
     r.via=pecas._via||(ehPdf?'pdf':'ocr');
     _imp=r; _impArq=f; if(_impUrl)URL.revokeObjectURL(_impUrl); _impUrl=URL.createObjectURL(f);
     renderConferencia();
@@ -1630,6 +1631,25 @@ async function gravarOrdem(registrar){
    Entrada: lista de pedaços de texto com posição {s,x,y,w,h} (y cresce para baixo).
    Vem do pdf.js (frases) ou do OCR (palavras) — o leitor trata os dois.
    Saída: {numero,emissao,transportadora,motorista,placa,caminhao,paletes,bags,itens[],mapa[],avisos[]} */
+/* (16/11) número da ordem: "1.260" = mil duzentos e sessenta; "20.10000038147" ou "20,1" = decimal (toneladas) */
+function numOrdem(t){
+  t=String(t||'').trim().replace(/[^\d.,]/g,''); if(!t)return '';
+  if(t.includes(','))return t.replace(/\./g,'').replace(',','.');
+  const pts=t.split('.'); if(pts.length===2&&pts[1].length!==3)return t;   // um ponto e não são 3 dígitos → decimal
+  return t.replace(/\./g,'');
+}
+/* produto em SACO com peso (25 kg) e a ordem trouxe TONELADA (número quebrado, ex. 20,1): sacos = t × 1000 ÷ peso */
+function converterToneladaParaSacos(r){
+  (r.itens||[]).forEach(i=>{
+    const q=parseFloat(i.quantidade); if(!(q>0)||Number.isInteger(q))return;
+    const m=casarTudo(i.produto), p=m&&m.produto&&!m.produto.felis?_prodErp.find(x=>x.id===m.produto.id):null;
+    const kg=p&&Number(p.peso_unidade_kg)>0?Number(p.peso_unidade_kg):(prodPeso(i.produto)||0);
+    if(!kg||/granel/i.test(i.produto)||(p&&!/saco/i.test(p.unidade||'')&&!prodPeso(i.produto)))return;
+    const sc=Math.round(q*1000/kg);
+    r.avisos.push(`${i.produto}: a ordem trouxe ${nf(q,2)} t → ${nf(q,2)} t ÷ ${kg} kg = ${nf(sc)} sacos. Confira.`);
+    i.quantidade=String(sc);
+  });
+}
 function lerOrdemDeTexto(pecas){
   const P=pecas.filter(p=>p&&String(p.s||'').trim()).map(p=>({s:String(p.s).replace(/\s+/g,' ').trim(),x:p.x,y:p.y,w:p.w||0,h:p.h||8}));
   const avisos=[];
@@ -1705,7 +1725,7 @@ function lerOrdemDeTexto(pecas){
       const pls=prodL.filter(l=>l.y>=y0&&l.y<y1);
       let ult=null;
       pls.forEach(l=>{
-        const q=naLinha(qtdL,l.y).replace(/\./g,'').replace(',','.');
+        const q=numOrdem(naLinha(qtdL,l.y));
         if(q&&/^\d+(\.\d+)?$/.test(q)){
           ult={ordem_entrega:c.ordem,cliente,cidade,pedido,produto:l.t.replace(/[,;]$/,''),quantidade:q,frete:naLinha(freL,l.y).toUpperCase(),unidades:naLinha(unL,l.y).replace(/^(\d+)\s*p\W?[il1|]\W?t\.?$/i,'$1 plt')};
           itens.push(ult);
@@ -1740,9 +1760,10 @@ function lerOrdemDeTexto(pecas){
       const xQ=hQ?hQ.x-H*3.5:Infinity;
       linhaDe(resto.filter(p=>p.y>hdr.y+H*0.4)).forEach((l,k)=>{
         const nm=l.p.filter(p=>p.x<xQ).map(p=>p.s).join(' ').trim();
-        const q=l.p.map(p=>p.s).join(' ').match(/(\d[\d.,]*)\s*(un|und|unid|sc|sacos?|bags?|t|ton|kg|cx)\b/i);
+        const qTxt=(isFinite(xQ)?l.p.filter(p=>p.x>=xQ):l.p).map(p=>p.s).join(' ');
+        const q=qTxt.match(/(\d[\d.,]*)\s*(un|und|unid|sc|sacos?|bags?|t|ton|kg|cx)\b/i)||(isFinite(xQ)?qTxt.match(/(\d[\d.,]*)/):null);
         const fr=(l.p.find(p=>/^(CIF|FOB)$/i.test(p.s))||{}).s;
-        if(nm&&q)itens.push({ordem_entrega:parseInt(an.s),cliente,cidade,pedido,produto:nm.replace(/[,;]$/,''),quantidade:q[1].replace(/\./g,'').replace(',','.'),
+        if(nm&&q)itens.push({ordem_entrega:parseInt(an.s),cliente,cidade,pedido,produto:nm.replace(/[,;]$/,''),quantidade:numOrdem(q[1]),
           frete:(fr||(pFrCli&&pFrCli.s)||'').toUpperCase(),unidades:k===0&&pPlt?pPlt.s.replace(/\s+/g,' '):''});
       });
     });

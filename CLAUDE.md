@@ -869,6 +869,9 @@ fábrica específica. Não generalizar.
   (`sacos_extra` negativo) e, ao salvar, a sobra volta ao estoque em `estoque_sem_qr` (acerto). No SALVAR com menos que a ordem, a 1ª pergunta
   é "FALTOU BIPAR? O caminhão levou a ordem inteira?" → SIM completa com itens sem QR (`patioCompletarSemRotulo`: pallets do tamanho do caminhão
   + soltos); NÃO cai no motivo de "saiu menos". Caso real: 028515 (corrigida no banco).
+- (16/11) **Ordem em tonelada × saco** (portaria.html): a quantidade vem só da coluna QTD (o "25 Kg" do nome virava quantidade — 028517/028519);
+  `numOrdem` separa milhar (1.260) de decimal (20.1 / 20,1); `converterToneladaParaSacos`: produto em saco com peso e quantidade quebrada →
+  sacos = t × 1000 ÷ kg, com aviso na conferência.
 
 ### Granel no Estoque do carregamento (16/11/2026)
 - `renderSaldoGranel` novo: por produto, "FICOU NO ESTOQUE" em destaque, produzido/carregado hoje e no mês, e tabela dia a dia do mês
