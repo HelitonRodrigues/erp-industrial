@@ -19,7 +19,8 @@
   };
   const ST_SEM = { cor: '#64748b', ic: '❓', som: 'sino', txt: 'SEM ANÁLISE' };
   const LS_SOM = 'erp_alerta_som';             // 'off' = som desligado nesta tela
-  const POLL_MS = 15000, REPETE_MS = 10000, REPETE_MAX_MS = 5 * 60 * 1000, VALIDADE_MS = 15 * 60 * 1000;
+  /* (17/11) o aviso chega na hora pelo canal; a conferência de reserva passou de 15 s para 60 s e só com a tela visível (banco Nano) */
+  const POLL_MS = 60000, REPETE_MS = 10000, REPETE_MAX_MS = 5 * 60 * 1000, VALIDADE_MS = 15 * 60 * 1000;
 
   let ctx = null, master = null, ativos = [];
   let ultimoId = null, opts = {}, rt = null, canal = null, buscando = false;
@@ -460,7 +461,8 @@
       if (opts.faixa) { desenharFaixa(); setInterval(() => { if (!document.hidden) desenharFaixa(); }, 60000); }   // análise nova com o mesmo status não gera evento
       buscarNovos();
       ligarCanal();
-      setInterval(buscarNovos, POLL_MS);
+      setInterval(() => { if (!document.hidden) buscarNovos(); }, POLL_MS);
+      document.addEventListener('visibilitychange', () => { if (!document.hidden) buscarNovos(); });   // voltou para a tela: confere na hora
     };
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', go); else go();
   }
