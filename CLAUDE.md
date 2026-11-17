@@ -925,3 +925,5 @@ fábrica específica. Não generalizar.
   depois (bipados, rótulo, OP) já nascem aprovados; laudo sai finalizado na hora (`_lauDiaFechado`), mas ainda depende da OP lançada.
   Tela: faixa `#pal-modo` com o liga/desliga (ADM/SADM/ENG/DIR ou laboratorio:aprovar) e `#pal-rotulos` com os rótulos impressos sem pallet
   (últimos 3 dias) → "Analisar o nº 1" cria o pallet pela RPC `lab_rotulo_pallet` (não marca o rótulo como lido) e abre o ensaio.
+- (17/11, migração 139) O modo provisório do laboratório vale **só para Big Bag, Caulim 25 kg e Caulim Granel** (`lab_produto_pelo_primeiro` no
+  banco, `labProdPrimeiro` na tela — rótulos sem pallet e laudo na hora também só desses). Concentrados e o resto seguem a regra completa.

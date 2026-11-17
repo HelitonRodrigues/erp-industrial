@@ -2228,6 +2228,9 @@ function trocarAbaPallet(k){ _palAba=k; renderPallets(); }
    todos os pallets/bags dele (gatilho no banco, inclusive os bipados depois), o laudo já sai finalizado, e os rótulos impressos que
    ainda não viraram pallet (produção não lançada) aparecem aqui para analisar o 1º. */
 const labRegraCompleta=()=>!(_empresa&&_empresa.lab_regra_completa===false);
+/* o modo provisório só vale para Big Bag, Caulim 25 kg e Caulim Granel (migração 139: lab_produto_pelo_primeiro) */
+const labNormP=n=>String(n||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-zA-Z0-9]/g,'').toLowerCase();
+const labProdPrimeiro=n=>{const x=labNormP(n);return x.startsWith('bigbag')||x.startsWith('caulim25kg')||x.startsWith('caulimgranel');};
 function podeTrocarRegraLab(){ const u=(typeof getUser==='function'&&getUser())||{}; return ['ADM','SADM','ENG','DIR'].includes(String(u.perfil||'').toUpperCase())||(typeof checkPerm==='function'&&checkPerm('laboratorio','aprovar')); }
 let _palRotulos=[], _palRotulosEm=0;
 function renderPalModo(){
@@ -2238,14 +2241,14 @@ function renderPalModo(){
         <span style="padding:5px 10px;border-radius:999px;background:#f1f5f9;border:1.5px solid #cbd5e1;font-weight:700;">🔒 Regra completa: <b style="color:#15803d;">LIGADA</b> — cada pallet é analisado; laudo quando o dia fecha</span>
         ${pode?`<button class="btn btn-ghost btn-sm" onclick="trocarRegraLab(false)">Desligar (aprovar pelo 1º)</button>`:''}</div>`
     :`<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:0 0 10px;padding:10px 14px;border-radius:12px;background:#fffbeb;border:2px solid #f59e0b;color:#92400e;font-size:13px;">
-        <span style="flex:1;min-width:240px;">⚡ <b>Modo provisório — regra completa DESLIGADA.</b> A 1ª aprovação de um produto no dia (na linha) vale para <b>todos</b> os pallets/bags dele, inclusive os que forem bipados depois, e o laudo sai na hora.</span>
+        <span style="flex:1;min-width:240px;">⚡ <b>Modo provisório — regra completa DESLIGADA.</b> Para <b>Big Bag, Caulim 25 kg e Caulim Granel</b>, a 1ª aprovação do produto no dia (na linha) vale para <b>todos</b> os pallets/bags dele, inclusive os que forem bipados depois, e o laudo sai na hora. Os demais produtos seguem a regra completa.</span>
         ${pode?`<button class="btn btn-secondary btn-sm" onclick="trocarRegraLab(true)">🔒 Ligar regra completa</button>`:''}</div>`;
   renderPalRotulos();
 }
 async function trocarRegraLab(ligar){
   if(!podeTrocarRegraLab()){ toast('Só o responsável do laboratório ou o administrador troca a regra.','warning'); return; }
   const ok=await erpConfirm(ligar?'Voltar para a REGRA COMPLETA? Cada pallet volta a ser analisado e o laudo só sai quando o dia fecha.'
-      :'Desligar a regra completa? A 1ª aprovação de cada produto no dia vai valer para todos os pallets/bags dele, e o laudo sai na hora.',
+      :'Desligar a regra completa? Para Big Bag, Caulim 25 kg e Caulim Granel, a 1ª aprovação de cada produto no dia vai valer para todos os pallets/bags dele, e o laudo sai na hora.',
     {titulo:ligar?'Ligar regra completa':'Modo provisório',ok:ligar?'Ligar':'Desligar',cancelar:'Voltar'});
   if(!ok) return;
   const r=_empresa&&_empresa.id?await _supabase.from('empresa_config').update({lab_regra_completa:!!ligar}).eq('id',_empresa.id).select().single()
@@ -2268,7 +2271,7 @@ async function renderPalRotulos(){
   }
   const k=(d,l,p)=>d+'|'+l+'|'+Regras.normalizarNome(p);
   const temPallet=new Set((_pallets||[]).map(p=>k(p.data,p.linha,p.produto)));
-  const g={}; _palRotulos.forEach(x=>{const kk=k(x.dia,x.linha,x.produto); if(temPallet.has(kk))return; (g[kk]=g[kk]||{dia:x.dia,linha:x.linha,produto:x.produto,lote:x.lote,itens:[]}).itens.push(x);});
+  const g={}; _palRotulos.forEach(x=>{const kk=k(x.dia,x.linha,x.produto); if(temPallet.has(kk)||!labProdPrimeiro(x.produto))return; (g[kk]=g[kk]||{dia:x.dia,linha:x.linha,produto:x.produto,lote:x.lote,itens:[]}).itens.push(x);});
   const gs=Object.values(g).sort((a,b)=>String(b.dia).localeCompare(String(a.dia)));
   el.innerHTML=gs.length?`<div style="margin:0 0 12px;padding:10px 12px;border-radius:12px;background:#eff6ff;border:1.5px solid #93c5fd;">
     <div style="font-weight:800;color:#1e3a8a;font-size:13px;margin-bottom:6px;">🏷️ Rótulos impressos sem produção lançada — analise o 1º e o resto do produto fica aprovado</div>
@@ -5708,7 +5711,7 @@ function _lauAprovadorPallets(op){ return _lauAprovadoresPallets(op).map(x=>x.no
 // Não finaliza (fica rascunho com o motivo) quando: veredito não APROVADO, falta ensaio,
 // sem química externa assinada, análise externa vencida, RT não configurado ou RT = quem aprovou.
 // Não mexe em laudo finalizado nem em rascunho que alguém editou à mão.
-const _lauDiaFechado=g=>!labRegraCompleta()||String(g.dataFim||'')<hoje();   // (17/11) modo provisório: o laudo sai finalizado na 1ª aprovação
+const _lauDiaFechado=g=>(!labRegraCompleta()&&(g.prods||[]).length&&(g.prods||[]).every(labProdPrimeiro))||String(g.dataFim||'')<hoje();   // (17/11) modo provisório: o laudo sai finalizado na 1ª aprovação
 // (nov/2026, pedido do dono) lotes ANTES de 01/10/2026 = histórico em papel: o laudo sai finalizado só
 // para fechar as pendências — sem exigir umidade, granulometria, química ou análise externa.
 // Os laudos que valem são de outubro/2026 em diante.
