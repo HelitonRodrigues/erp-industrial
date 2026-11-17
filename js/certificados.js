@@ -136,7 +136,7 @@
   <table class="cab"><colgroup><col style="width:23.85%"><col style="width:26.19%"><col style="width:23.83%"><col style="width:26.13%"></colgroup>
     <tr class="z"><td class="rot">Cliente</td><td colspan="3">${E(x.cliente||'—')}</td></tr>
     <tr><td class="rot">Quantidade deste lote</td><td class="cz"><b>${E(q)}</b></td><td class="rot">Data de expedição</td><td>${E(d)}</td></tr>
-    <tr class="z"><td class="rot">Ordem de carregamento</td><td>${E(x.ordem_numero||'—')}${x.pedido_numero?' · pedido '+E(x.pedido_numero):''}</td><td class="rot">Placa</td><td>${E(x.placa||'—')}</td></tr>
+    <tr class="z"><td class="rot">Ordem de carregamento</td><td>${E(x.ordem_numero||'—')}${x.pedido_numero?' · pedido '+E(x.pedido_numero):''}${x.nota_fiscal?' · NF '+E(String(x.nota_fiscal).replace(/^0+/,'')):''}</td><td class="rot">Placa</td><td>${E(x.placa||'—')}</td></tr>
   </table>
   `;
   }
