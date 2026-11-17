@@ -880,6 +880,8 @@ fábrica específica. Não generalizar.
   interno). Com mais de um, não preenche sozinho: aparecem botões 👤 (`miMotChips`) — ex.: BWI3A29 = PABLO e WILLIAN.
 - (17/11) **Filito Intercement — motorista com nome repetido** (portaria-filito.html): `salvarMotorista` não trava mais com "já existe" (o
   porteiro achava que não salvou); pergunta se atualiza placa/transportadora/celular do cadastro existente e usa ele.
+- (17/11) **Data da carga = dia LOCAL** (carregamento.html): `p_carga.data` era `agora.slice(0,10)` (UTC) — carga salva depois das 21h caía
+  no dia seguinte (028517/18/19 corrigidas para 16/11). Agora `hojeISO()`.
 
 ### Granel no Estoque do carregamento (16/11/2026)
 - `renderSaldoGranel` novo: por produto, "FICOU NO ESTOQUE" em destaque, produzido/carregado hoje e no mês, e tabela dia a dia do mês
