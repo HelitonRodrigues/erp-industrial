@@ -898,7 +898,9 @@ async function abrirPesagem(id,tipo){
     <div id="pz-lido" class="mini" style="margin-top:4px;font-size:14px;">Pode digitar em toneladas (17,980) ou em kg (17980) — o sistema entende.</div>
     ${!ent?`<div class="pz-pesos"><div><span>TARA (ENTRADA)</span><b>${c.peso_entrada!=null?nf(c.peso_entrada/1000,3)+' t':'—'}</b><small>caminhão vazio</small></div>
       <div><span>BRUTO (SAÍDA)</span><b id="pz-bru">—</b><small>caminhão carregado</small></div>
-      <div class="liq"><span>LÍQUIDO DA CARGA</span><b id="pz-liq">—</b><small>bruto − tara</small></div></div>`:''}
+      <div class="liq"><span>LÍQUIDO DA CARGA</span><b id="pz-liq">—</b><small>bruto − tara</small></div></div>
+      ${!/granel.*branco.*02/i.test(c.nf_produto||'')?`<div class="pz-step"><span>2</span><b>Qual lote foi carregado? <small style="font-weight:600;color:#64748b;">(pergunte ao operador)</small></b></div>
+      <div class="pz-uns">${dsmLotes().map((l,i)=>`<button type="button" class="pz-un pz-lt" data-l="${l}" onclick="document.querySelectorAll('.pz-lt').forEach(b=>b.classList.toggle('on',b===this))">🧪 ${i===0?'Hoje':'Ontem'}<small>lote ${l}</small></button>`).join('')}</div>`:''}`:''}
     ${ent?`<div class="pz-step"><span>2</span><b>Em qual unidade ele vai carregar?</b></div>
       <div class="pz-uns">${uns.map(u=>`<button type="button" class="pz-un" data-u="${esc(u)}" onclick="document.querySelectorAll('.pz-un').forEach(b=>b.classList.toggle('on',b===this))">🏭 ${esc(u)}${ocup(u).length?`<small>${ocup(u).length} carregando</small>`:''}</button>`).join('')}</div>`:''}
     <div id="pz-erro" class="alert alert-danger" style="display:none;margin-top:10px;"></div>
@@ -935,10 +937,12 @@ async function pzSalvar(id,tipo){
   const un=ent?(document.querySelector('.pz-un.on')||{}).dataset?.u:null;
   if(ent&&!un)return er('Escolha a unidade de carregamento.');
   if(!ent&&c.peso_entrada&&t*1000<=c.peso_entrada)return er('O bruto precisa ser maior que a tara.');
+  const temLote=!ent&&document.querySelector('.pz-lt'), lt=temLote?(document.querySelector('.pz-lt.on')||{}).dataset?.l:null;
+  if(temLote&&!lt)return er('Escolha o lote que foi carregado (hoje ou ontem) — pergunte ao operador.');
   const b=document.getElementById('pz-ok');b.disabled=true;
   const quando=new Date().toISOString();   // o banco grava a hora do SERVIDOR (gatilho dsm_tempos_servidor)
   const upd=ent?{inicio_em:quando,inicio_por:quem(),peso_entrada:Math.round(t*1000),unidade:un,status:'carregando'}
-               :{fim_em:quando,fim_por:quem(),peso_saida:Math.round(t*1000),status:'aguardando_nf'};
+               :Object.assign({fim_em:quando,fim_por:quem(),peso_saida:Math.round(t*1000),status:'aguardando_nf'},lt?{lote_granel:lt}:{});
   const {error}=await _supabase.from('dsm_caminhoes').update(upd).eq('id',id);
   b.disabled=false;
   if(error)return er(error.message);

@@ -966,3 +966,6 @@ fábrica específica. Não generalizar.
   **● Usar este lote agora** (`empresa_config.granel_lote_atual`). portaria-dsm.html: cada caminhão tem `lote_granel` (vem do lote atual;
   o porteiro troca entre ontem/hoje) e **📜 Certificado** (`dsmCert` → `certImprimir` com o quadro da remessa: placa, NF, líquido) ou
   "aguardando laboratório"; laudo finalizado liga sozinho os caminhões do lote. Granel Branco 02 fica fora (não recebe lote).
+- (17/11, migração 147 — substitui o "saindo agora" da 146) Quem escolhe o lote do granel é o **porteiro**, na **⬆️ Dar saída** da DSM:
+  passo 2 "Qual lote foi carregado? (pergunte ao operador)" — Hoje/Ontem, obrigatório (grava `lote_granel`). O laboratório só libera o laudo
+  de cada dia (o botão "Usar este lote agora" saiu). O caminhão nasce com o lote de hoje; o porteiro ainda pode trocar no cartão.
