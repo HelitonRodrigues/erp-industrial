@@ -927,3 +927,7 @@ fábrica específica. Não generalizar.
   (últimos 3 dias) → "Analisar o nº 1" cria o pallet pela RPC `lab_rotulo_pallet` (não marca o rótulo como lido) e abre o ensaio.
 - (17/11, migração 139) O modo provisório do laboratório vale **só para Big Bag, Caulim 25 kg e Caulim Granel** (`lab_produto_pelo_primeiro` no
   banco, `labProdPrimeiro` na tela — rótulos sem pallet e laudo na hora também só desses). Concentrados e o resto seguem a regra completa.
+- (17/11) **📸 Foto do rótulo — embaçada** (carregamento.html `patioLerFoto`): 1º lê o **QR da própria foto** (`qrDaFoto`: BarcodeDetector/ZXing
+  tryHarder em vários tamanhos + nitidez/limiar por região `fotoCanvas(modo 'nitido'|'adapt'|'pb')` e, se não achar, procura em **pedaços**
+  da imagem ampliados). Só depois o OCR, em 6 versões da imagem, casando também por pedaços do código (`casarPorPartes`: data 2026MMDD +
+  nº do pallet) e priorizando os rótulos dos produtos da carga. Teste: foto com desfoque médio lida em ~0,5 s no PC.

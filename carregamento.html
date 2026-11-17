@@ -6142,18 +6142,96 @@ function casarOcr(texto,cands){
     const lim=Math.max(2,Math.floor(K.length*0.15)),d=distDentro(K2,T2);if(d<=lim)res.push({...c,d});});
   return res.sort((a,b)=>a.d-b.d||(b.daCarga-a.daCarga));
 }
+/* (17/11) foto embaçada: 1º tenta LER O QR DA PRÓPRIA FOTO (foto parada lê melhor que a câmera ao vivo; ZXing com
+   tryHarder em vários tamanhos e com nitidez reforçada); só se não achar QR vai para o texto (OCR) em várias versões da imagem
+   (contraste, preto-e-branco, nitidez, ampliada) e casa também por PEDAÇOS do código (data 2026MMDD + nº do pallet). */
+function fotoCanvas(img,larg,graus,modo){
+  const esc=Math.min(1,larg/Math.max(img.naturalWidth,1)), W=Math.round(img.naturalWidth*(larg>img.naturalWidth?larg/img.naturalWidth:esc)),
+        H=Math.round(img.naturalHeight*W/img.naturalWidth);
+  const rot=(graus||0)%180!==0, cv=document.createElement('canvas'); cv.width=rot?H:W; cv.height=rot?W:H;
+  const c=cv.getContext('2d',{willReadFrequently:true}); c.fillStyle='#fff'; c.fillRect(0,0,cv.width,cv.height);
+  c.imageSmoothingQuality='high'; c.translate(cv.width/2,cv.height/2); c.rotate((graus||0)*Math.PI/180); c.drawImage(img,-W/2,-H/2,W,H);
+  if(!modo) return cv;
+  const d=c.getImageData(0,0,cv.width,cv.height), p=d.data, n=cv.width*cv.height, g=new Float32Array(n);
+  let mn=255,mx=0; for(let i=0;i<n;i++){const v=0.299*p[i*4]+0.587*p[i*4+1]+0.114*p[i*4+2];g[i]=v;if(v<mn)mn=v;if(v>mx)mx=v;}
+  const amp=mx>mn?255/(mx-mn):1; for(let i=0;i<n;i++) g[i]=(g[i]-mn)*amp;            // estica o contraste
+  if(modo==='nitido'||modo==='pb'){                                                   // nitidez (máscara de desfoque 3×3)
+    const w=cv.width, o=new Float32Array(n);
+    for(let y=1;y<cv.height-1;y++)for(let x=1;x<w-1;x++){const i=y*w+x;
+      const m=(g[i-w-1]+g[i-w]+g[i-w+1]+g[i-1]+g[i]+g[i+1]+g[i+w-1]+g[i+w]+g[i+w+1])/9; o[i]=Math.max(0,Math.min(255,g[i]+1.6*(g[i]-m)));}
+    for(let i=0;i<n;i++) if(o[i]) g[i]=o[i];
+  }
+  if(modo==='adapt'){                                                                 // preto e branco por região (foto com sombra/embaçada)
+    const w=cv.width,h=cv.height,r=Math.max(8,Math.round(Math.min(w,h)/40)),I=new Float64Array((w+1)*(h+1));
+    for(let y=0;y<h;y++){let lin=0;for(let x=0;x<w;x++){lin+=g[y*w+x];I[(y+1)*(w+1)+x+1]=I[y*(w+1)+x+1]+lin;}}
+    const o=new Float32Array(n);
+    for(let y=0;y<h;y++)for(let x=0;x<w;x++){const x0=Math.max(0,x-r),y0=Math.max(0,y-r),x1=Math.min(w,x+r+1),y1=Math.min(h,y+r+1);
+      const m=(I[y1*(w+1)+x1]-I[y0*(w+1)+x1]-I[y1*(w+1)+x0]+I[y0*(w+1)+x0])/((x1-x0)*(y1-y0)); o[y*w+x]=g[y*w+x]<m-4?0:255;}
+    for(let i=0;i<n;i++) g[i]=o[i];
+  }
+  if(modo==='pb'){                                                                    // preto e branco pelo limiar de Otsu
+    const h=new Array(256).fill(0); for(let i=0;i<n;i++) h[g[i]|0]++;
+    let sum=0; for(let t=0;t<256;t++) sum+=t*h[t]; let sB=0,wB=0,best=0,lim=128;
+    for(let t=0;t<256;t++){wB+=h[t]; if(!wB)continue; const wF=n-wB; if(!wF)break; sB+=t*h[t]; const mB=sB/wB, mF=(sum-sB)/wF, v=wB*wF*(mB-mF)*(mB-mF); if(v>best){best=v;lim=t;}}
+    for(let i=0;i<n;i++) g[i]=g[i]>lim?255:0;
+  }
+  for(let i=0;i<n;i++){p[i*4]=p[i*4+1]=p[i*4+2]=g[i];} c.putImageData(d,0,0); return cv;
+}
+async function qrDaFoto(img){
+  const tentar=async cv=>{
+    try{ if('BarcodeDetector' in window){ const bd=new BarcodeDetector({formats:['qr_code']}); const r=await bd.detect(cv); if(r&&r[0]&&r[0].rawValue) return r[0].rawValue; } }catch(e){}
+    try{ if(typeof ZXingWASM!=='undefined'){ const c=cv.getContext('2d'), id=c.getImageData(0,0,cv.width,cv.height);
+      const r=await ZXingWASM.readBarcodes(id,{formats:['QRCode'],tryHarder:true,tryRotate:true,tryInvert:true,tryDownscale:true,maxNumberOfSymbols:1});
+      if(r&&r[0]&&r[0].text) return r[0].text; } }catch(e){}
+    return null;
+  };
+  for(const [larg,modo] of [[1600,null],[1000,null],[1600,'nitido'],[1000,'adapt'],[700,'nitido']]){
+    const t=await tentar(fotoCanvas(img,larg,0,modo)); if(t) return t;
+  }
+  // QR pequeno na foto: procura em PEDAÇOS da imagem (janelas que se sobrepõem), ampliados
+  const base=fotoCanvas(img,1600,0,null), W=base.width, H=base.height;
+  for(const fr of [0.5,0.4,0.65]){
+    const tw=Math.round(W*fr), th=Math.round(H*fr), passoX=Math.max(1,Math.round(tw/2)), passoY=Math.max(1,Math.round(th/2));
+    for(let y=0;y+th<=H+1;y+=passoY)for(let x=0;x+tw<=W+1;x+=passoX){
+      for(const modo of [null,'nitido','adapt']){
+        const cv=document.createElement('canvas'); cv.width=900; cv.height=Math.round(900*th/tw);
+        const c=cv.getContext('2d',{willReadFrequently:true}); c.imageSmoothingQuality='high'; c.drawImage(base,x,y,tw,th,0,0,cv.width,cv.height);
+        const im2=modo?fotoCanvas(await new Promise(ok=>{const i=new Image();i.onload=()=>ok(i);i.src=cv.toDataURL('image/png');}),900,0,modo):cv;
+        const t=await tentar(im2); if(t) return t;
+      }
+    }
+  }
+  return null;
+}
+/* casa por pedaços: data (2026MMDD) + nº do pallet (P036) que aparecem no texto, mesmo com o resto ilegível */
+function casarPorPartes(texto,cands){
+  const T=chaveCodigo(texto).replace(/[A-Z]/g,ch=>OCR_TROCA[ch]||ch);
+  const datas=[...new Set(T.match(/20\d{6}/g)||[])];
+  const brutoN=chaveCodigo(texto), nums=[...new Set((brutoN.match(/[PFR][0-9OQDILSBZG]{2,3}/g)||[]).map(x=>parseInt(x.slice(1).replace(/[A-Z]/g,ch=>OCR_TROCA[ch]||ch),10)).filter(n=>n>0))];
+  if(!datas.length||!nums.length) return [];
+  return cands.filter(c=>{const K=chaveCodigo(c.codigo); return datas.some(d=>K.includes(d))&&nums.includes(Number(c.numero));}).map(c=>({...c,d:1.5}));
+}
 async function patioLerFoto(f){
-  patioFlash('info','📸','LENDO O RÓTULO…','Aguarde — reconhecendo o código da foto.<br><small>Na primeira vez demora um pouco mais.</small>');
+  patioFlash('info','📸','LENDO O RÓTULO…','Aguarde — procurando o QR e o código na foto.<br><small>Na primeira vez demora um pouco mais.</small>');
   try{
     const img=await new Promise((ok,err)=>{const i=new Image();i.onload=()=>ok(i);i.onerror=()=>err(new Error('foto inválida'));i.src=URL.createObjectURL(f);});
+    // 1) o QR da própria foto
+    const qr=await qrDaFoto(img);
+    if(qr){ URL.revokeObjectURL(img.src); patioFlashFechar(); _patioLidos.unshift({ic:'📸',txt:'foto (QR)'}); beep(patioLeitura(qr)); if(_patioCamQuer&&!_camOn)setTimeout(()=>iniciarCam(),300); return; }
+    // 2) o texto do código (OCR) em várias versões da imagem
     const [w,cands]=await Promise.all([ocrWorker(),candidatosOcr()]);
-    let achou=[],lido='';
-    for(const g of [0,90,270]){
-      const {data}=await w.recognize(ocrCanvas(img,g));lido=data.text||'';
-      achou=casarOcr(lido,cands);if(achou.length&&achou[0].d<=1)break;
+    const daCarga=cands.filter(c=>c.daCarga), base=daCarga.length?daCarga:cands;
+    let achou=[],textos=[];
+    const versoes=[[1800,0,'nitido'],[1800,0,'pb'],[2400,0,'nitido'],[1800,90,'nitido'],[1800,270,'nitido'],[1800,0,null]];
+    for(const [larg,g,modo] of versoes){
+      const {data}=await w.recognize(fotoCanvas(img,larg,g,modo)); textos.push(data.text||'');
+      achou=casarOcr(data.text||'',base);
+      if(!achou.length) achou=casarPorPartes(data.text||'',base);
+      if(achou.length&&achou[0].d<=1&&(achou.length===1||achou[1].d>achou[0].d)) break;
     }
+    if(!achou.length){ const tudo=textos.join(' '); achou=casarOcr(tudo,base); if(!achou.length) achou=casarPorPartes(tudo,base); }
     URL.revokeObjectURL(img.src);
-    if(!achou.length){beep('err');patioFlash('err','📸','NÃO CONSEGUI LER O CÓDIGO','Tire outra foto <b>mais de perto</b>, com o código do rótulo <b>reto e bem iluminado</b>.<br>Ou toque em DIGITAR.',{botao:'TIRAR OUTRA FOTO',depois:()=>patioFoto(),botao2:'FECHAR',depois2:()=>{if(_patioCamQuer&&!_camOn)iniciarCam();}});return;}
+    if(!achou.length){beep('err');patioFlash('err','📸','NÃO CONSEGUI LER O CÓDIGO','Tire outra foto <b>mais de perto</b>, só do <b>QR e do código</b>, com o celular <b>parado</b> e com luz (lanterna).<br>Ou toque em DIGITAR.',{botao:'TIRAR OUTRA FOTO',depois:()=>patioFoto(),botao2:'FECHAR',depois2:()=>{if(_patioCamQuer&&!_camOn)iniciarCam();}});return;}
     const melhor=achou[0],empate=achou.filter(x=>x.d===melhor.d);
     if(empate.length===1&&(achou.length===1||achou[1].d>melhor.d)){
       patioFlashFechar();_patioLidos.unshift({ic:'📸',txt:'foto: '+codigoDigitavel(melhor.codigo)});
