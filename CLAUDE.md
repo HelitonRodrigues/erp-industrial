@@ -933,3 +933,6 @@ fábrica específica. Não generalizar.
   nº do pallet) e priorizando os rótulos dos produtos da carga. Teste: foto com desfoque médio lida em ~0,5 s no PC.
 - (17/11, migração 140) Chamado 📣: a portaria responde **"✅ VI — VOU CHAMAR"** ou **"🚫 MOTORISTA NÃO ESTÁ NO PÁTIO"** (`vouChamar(id,'ausente')`,
   `portaria_chamados.resposta`); o pátio mostra a faixa vermelha e quem chamou recebe aviso vermelho.
+- (17/11) **Rodotrem — pesagem em 2 partes** (portaria.html, `rodoMontar/rodoLigar/rodoSoma/rodoRefazer/rodoReset`): nos campos tara da chegada
+  (`ch-tara`), tara do início (`in-tara`) e bruto da saída (`sa-bruto`) tem "🚛🚛 Rodotrem". Marcado: 1ª e 2ª parte, cada uma com o quadrinho da
+  balança; a 1ª trava quando vem da balança e libera a 2ª; a soma vai para o campo (que fica travado). Zera ao abrir outro caminhão.

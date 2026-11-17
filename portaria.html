@@ -1814,7 +1814,7 @@ function abrirChegada(opt){
   document.getElementById('ch-veiculo').innerHTML='<option value="">—</option>'+VEICULOS.map(x=>`<option>${x}</option>`).join('');
   const set=(id,val)=>document.getElementById(id).value=val??'';
   set('ch-motorista',v?.nome_motorista); set('ch-placa',v?.placa); set('ch-placa2',v?.placa2); set('ch-celular',v?.celular); set('ch-cpf',v?.cpf);
-  set('ch-transp',v?.transportadora); set('ch-veiculo',v?.modelo_veiculo||''); set('ch-carga',v?.tipo_carga||'com_stretch'); set('ch-tara',v?.peso_tara);
+  set('ch-transp',v?.transportadora); set('ch-veiculo',v?.modelo_veiculo||''); set('ch-carga',v?.tipo_carga||'com_stretch'); set('ch-tara',v?.peso_tara); rodoReset('ch-tara');
   set('ch-obs',v?.observacao); set('ch-hora',localInput(v?new Date(v.hora_chegada):new Date())); set('ch-busca','');
   _ch.horaIni=document.getElementById('ch-hora').value;   // se ninguém mexer, grava a hora exata (com segundos)
   document.getElementById('ch-salvar-mot').checked=true;
@@ -2119,7 +2119,7 @@ function abrirIniciar(portId){
     ${o.motorista&&!mesmoNome(o.motorista,v.nome_motorista)?`<div class="aviso">⚠️ A ordem é para <b>${esc(o.motorista)}</b>, mas quem chegou foi <b>${esc(v.nome_motorista)}</b>.</div>`:''}
     ${o.placa&&normPlaca(o.placa)!==normPlaca(v.placa)?`<div class="aviso">⚠️ A ordem é para a placa <b>${esc(o.placa)}</b>, e o caminhão é <b>${esc(v.placa)}</b>.</div>`:''}`;
   // tara: a que já foi lançada na chegada; senão, dica da última tara desta placa
-  document.getElementById('in-tara').value=v.peso_tara??'';
+  document.getElementById('in-tara').value=v.peso_tara??''; rodoReset('in-tara');
   document.getElementById('in-tara-dica').textContent='';
   _supabase.from('portaria').select('peso_tara,hora_chegada').eq('placa',v.placa).not('peso_tara','is',null).neq('id',v.id).order('hora_chegada',{ascending:false}).limit(1)
     .then(({data})=>{const u=data&&data[0]; if(u&&_in.portId===v.id)document.getElementById('in-tara-dica').innerHTML=`Última tara desta placa: <b>${nf(u.peso_tara,2)} t</b> (${dtBr(u.hora_chegada)}) — pese de novo, o tanque e a lona mudam.`;});
@@ -2255,7 +2255,7 @@ async function abrirSaida(portId){
   const r=o?resumoOrdem(o):null, pc=o?palletsCarregados(o):0;
   document.getElementById('sa-resumo').innerHTML=`<div class="peso-box"><div class="v-placa">${esc(v.placa)}<small>${esc(doisNomes(v.nome_motorista))}</small></div>
     <div style="font-size:13px;color:#475569;margin-top:4px;">${v.unidade_carregamento?'🏭 <b>'+esc(v.unidade_carregamento)+'</b> · ':''}chegou ${hmDia(v.hora_chegada)} · carregando desde ${hmDia(v.inicio_carregamento)}</div></div>${blocoOrdem(o)}`;
-  document.getElementById('sa-tara').value=v.peso_tara??''; document.getElementById('sa-bruto').value=v.peso_bruto??'';
+  document.getElementById('sa-tara').value=v.peso_tara??''; document.getElementById('sa-bruto').value=v.peso_bruto??''; rodoReset('sa-bruto');
   document.getElementById('sa-npal').value=v.qtd_pallets??''; document.getElementById('sa-ppal').value=v.peso_pallet_kg??_pesoPallet;
   document.getElementById('sa-conf').innerHTML=!o?'':o.status==='carregado'
     ?`<div class="aviso ok">✅ Carregamento salvo no ERP${r.plt?` · ${pc} de ${r.plt} pallets`:''}.</div>`
@@ -3777,6 +3777,49 @@ async function init(){
 init();
 </script>
 <script src="js/balanca.js"></script>
-<script>Balanca.ligar({'ch-tara':'t','in-tara':'t','sa-bruto':'t','mi-f-tara':'kg','mi-bru-in':'kg'});</script>
+<script>Balanca.ligar({'ch-tara':'t','in-tara':'t','sa-bruto':'t','mi-f-tara':'kg','mi-bru-in':'kg'});
+/* (17/11) RODOTREM: pesa em 2 partes. Marcou "Rodotrem", aparecem 1ª e 2ª parte, cada uma com a balança; a 1ª trava quando
+   registrada e só então libera a 2ª; a soma vai para o campo de peso (tara na chegada/início, bruto na saída). */
+function rodoGrp(id){const inp=document.getElementById(id);return inp?(inp.closest('.form-group,.peso-box')||inp.parentElement):null;}
+function rodoMontar(id){
+  const inp=document.getElementById(id); if(!inp||document.getElementById(id+'-rodo'))return;
+  const box=document.createElement('div'); box.id=id+'-rodo'; box.style.marginTop='8px';
+  const parte=(n,dica)=>`<div id="${id}-p${n}-box" style="${n===2?'margin-top:10px;':''}"><div style="font-weight:800;color:#042D4D;margin-bottom:4px;">${n}ª parte ${dica?`<small style="font-weight:600;color:#64748b;">${dica}</small>`:''}<span id="${id}-p${n}-ok" style="margin-left:6px;color:#15803d;"></span></div>
+    <div style="display:flex;gap:8px;align-items:center;"><input id="${id}-p${n}" type="number" step="0.001" min="0" class="form-input" style="max-width:180px;font-weight:800;" placeholder="toneladas" oninput="rodoSoma('${id}')"><span>t</span></div></div>`;
+  box.innerHTML=`<label style="display:flex;gap:8px;align-items:center;font-size:13.5px;font-weight:800;color:#475569;cursor:pointer;"><input type="checkbox" id="${id}-rodo-on" onchange="rodoLigar('${id}',this.checked)" style="width:18px;height:18px;"> 🚛🚛 Rodotrem — pesar em 2 partes</label>
+    <div id="${id}-rodo-p" style="display:none;margin-top:6px;padding:10px 12px;border:2px dashed #94a3b8;border-radius:12px;background:#f8fafc;">
+      ${parte(1,'')}${parte(2,'(depois da 1ª)')}
+      <div style="display:flex;align-items:center;gap:10px;margin-top:10px;flex-wrap:wrap;"><div id="${id}-rodo-tot" style="font-size:16px;font-weight:900;color:#042D4D;flex:1;"></div>
+      <button type="button" class="btn btn-ghost btn-sm" onclick="rodoRefazer('${id}')">↺ Pesar de novo</button></div></div>`;
+  const g=rodoGrp(id); g.appendChild(box);
+  Balanca.ligar({[id+'-p1']:'t',[id+'-p2']:'t'});
+}
+function rodoLigar(id,on){
+  const inp=document.getElementById(id), g=rodoGrp(id), w=g&&g.querySelector(':scope > .bal-w');
+  document.getElementById(id+'-rodo-p').style.display=on?'':'none';
+  if(w) w.style.display=on?'none':'';
+  inp.readOnly=on||inp.classList.contains('bal-lock');
+  if(on){ rodoRefazer(id); } else { ['p1','p2'].forEach(p=>{const e=document.getElementById(id+'-'+p);if(e)e.value='';}); }
+}
+function rodoRefazer(id){
+  ['p1','p2'].forEach(p=>{const e=document.getElementById(id+'-'+p); if(!e)return; e.value=''; e.readOnly=e.classList.contains('bal-lock');
+    const w=e.closest('[id$="-box"]').querySelector('.bal-w'); if(w) w.style.display='';});
+  rodoSoma(id);
+}
+function rodoSoma(id){
+  const n=x=>parseFloat(String((document.getElementById(id+'-'+x)||{}).value||'').replace(',','.'))||0, p1=n('p1'), p2=n('p2');
+  const b2=document.getElementById(id+'-p2-box'); b2.style.opacity=p1>0?'1':'.45'; b2.style.pointerEvents=p1>0?'':'none';
+  const trava=(x,v)=>{const e=document.getElementById(id+'-'+x); const ok=document.getElementById(id+'-'+x+'-ok');
+    if(v>0&&e.dataset.balKg){ e.readOnly=true; const w=e.closest('[id$="-box"]').querySelector('.bal-w'); if(w) w.style.display='none'; }
+    ok.textContent=v>0?'✓ '+v.toLocaleString('pt-BR',{minimumFractionDigits:3,maximumFractionDigits:3})+' t':''; };
+  trava('p1',p1); trava('p2',p2);
+  const inp=document.getElementById(id), tot=p1>0&&p2>0?p1+p2:0;
+  inp.value=tot?tot.toFixed(3):''; if(tot) inp.dataset.balKg=String(Math.round(tot*1000)); else delete inp.dataset.balKg;
+  inp.dispatchEvent(new Event('input',{bubbles:true})); inp.dispatchEvent(new Event('change',{bubbles:true}));
+  document.getElementById(id+'-rodo-tot').textContent=tot?'Total: '+tot.toLocaleString('pt-BR',{minimumFractionDigits:3,maximumFractionDigits:3})+' t':(p1>0?'Agora pese a 2ª parte':'Pese a 1ª parte');
+}
+function rodoReset(id){ const c=document.getElementById(id+'-rodo-on'); if(c&&c.checked){ c.checked=false; rodoLigar(id,false); } }
+['ch-tara','in-tara','sa-bruto'].forEach(rodoMontar);
+</script>
 </body>
 </html>
