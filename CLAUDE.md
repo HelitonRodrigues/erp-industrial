@@ -973,3 +973,13 @@ fábrica específica. Não generalizar.
   da Longa Vida nos últimos 15 dias (até 8), com dia da semana e ✅ quando o laudo já foi liberado. Laboratório (`_grDias`): hoje + os últimos
   3 dias com análise OK da Longa Vida.
 - (17/11) certificados.js: o quadro "Fornecimento (esta remessa)" mostra também a **NF** quando a ligação tem `nota_fiscal` (DSM).
+- (17/11) **dashboard.html**: Carregado = cargas salvas (`carregamentos.itens`, sem doador) + DSM (`granel_saidas_dsm`) — `_carrDia(dia)`:
+  ensacado em **sacos**, bag em **bags**, granel em **t**, nº de caminhões; detalhe igual ao fechamento da portaria (por produto, Felisbina,
+  por caminhão com "saiu menos", estoque completo de `estoque_atual_produto` com QR + sem QR). Pallets pelo **dia da produção** (`data`,
+  não `created_at`). Alertas novos (`_confDados`/`detConf`): cargas sem certificado (7 dias, inclui DSM), granel sem laudo, OP provisória,
+  cargas com menos que o pedido, pallets a conferir, pendentes do laboratório (30 dias), estação de impressão sem sinal (>2 min),
+  chamados do pátio sem resposta, Felisbina do dia. Portaria agora: 4º quadro "📣 Chamados sem resposta".
+- (17/11) **custo-precificacao.html** Planejado × Realizado: com o mês em aberto o padrão é o **plano até hoje** (plano × dias úteis com
+  produção ÷ dias úteis do mês — `_realCobertura`), itens sem fonte na mesma proporção e o Alvo já comparável ("dentro/estourou (até
+  hoje)"); link "Ver o mês cheio" (`toggleRealProRata`, `state._realProRata=false`).
+- (17/11) portaria.html "O produto está certo?": ordem **sem número** (ex.: "CAULIM BIG BAG – BRANCO") não é mais "número diferente" (vermelho) — fica amarelo "a ordem não diz o número, confira"; depois de confirmado uma vez (apelido em produto_aliases), passa verde.
