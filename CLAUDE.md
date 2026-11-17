@@ -947,3 +947,9 @@ fábrica específica. Não generalizar.
 - (17/11, migração 141) **Laudo liberado depois que o caminhão saiu**: gatilho `tg_lab_laudo_liga_cargas` em `lab_laudos` — finalizou, liga o laudo
   (`lab_laudo_carregamentos`) a toda carga que levou aquele lote+produto e ainda não tinha o vínculo (`lab_laudo_liga_cargas`). Casos de 16–17/11
   (028512, 028517, 028518, 028524) ligados na hora.
+- (17/11) **Laudo: Bag e Ensacado 25 kg do mesmo lote e linha = laudos separados** (`_lauMontarGrupos`: chave lote+linha+embalagem). Antes o
+  laudo do Bag (LAU-0212) "fechava" o lote e o do 25 kg (carga 028523) não saía.
+- (17/11, migração 142) Análise feita no pallet do totem antes da OP ficava sem `lancamento_id` e o laudo (que busca por OP) dava "falta granulometria
+  e umidade". Gatilho `tg_analise_segue_op`: pallet ganhou OP → a análise ganha a mesma OP.
+- (17/11) OP PROVISÓRIA `OP-LIN-20261117-4127` (Linha 2, 17/11 manhã, Caulim 25 kg Branco 01, 720 sc) aberta só para liberar o laudo LAU-2026-0215 —
+  atualizar com a planilha (não criar outra).
