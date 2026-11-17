@@ -589,7 +589,7 @@ async function doLogin() {
     if (authErr || !auth?.user) throw new Error('Senha incorreta. Tente de novo.');
     const { data: u, error } = await _supabase.from('usuarios')
       .select('*').eq('auth_id', auth.user.id).eq('status', 'ativo').maybeSingle();
-    if (error || !u) { await _supabase.auth.signOut(); throw new Error('Usuário sem cadastro ativo no sistema.'); }
+    if (error || !u) { await _supabase.auth.signOut({scope:'local'}); throw new Error('Usuário sem cadastro ativo no sistema.'); }
     const user = u;
     try { await _supabase.from('usuarios').update({ultimo_acesso:new Date().toISOString()}).eq('id',u.id); } catch(e){}
     try{await _supabase.from('auditoria').insert({acao:'LOGIN',modulo:'AUTH',registro_id:user.id,descricao:'Login realizado',usuario_email:email});}catch(e){}
@@ -639,11 +639,11 @@ async function trocarSenha(){
     const {data:auth,error:e2}=await _supabase.auth.signInWithPassword({email,password:atual});
     if(e2||!auth?.user) throw new Error('Senha atual incorreta.');
     const {data:u}=await _supabase.from('usuarios').select('id,nome,status').eq('auth_id',auth.user.id).maybeSingle();
-    if(!u||u.status!=='ativo'){ await _supabase.auth.signOut(); throw new Error('Usuário sem cadastro ativo no sistema.'); }
+    if(!u||u.status!=='ativo'){ await _supabase.auth.signOut({scope:'local'}); throw new Error('Usuário sem cadastro ativo no sistema.'); }
     const {error:e3}=await _supabase.auth.updateUser({password:nova});
-    if(e3){ await _supabase.auth.signOut(); throw new Error(/weak|short|least/i.test(e3.message)?'Senha muito fraca. Use pelo menos 6 caracteres.':'Não foi possível trocar: '+e3.message); }
+    if(e3){ await _supabase.auth.signOut({scope:'local'}); throw new Error(/weak|short|least/i.test(e3.message)?'Senha muito fraca. Use pelo menos 6 caracteres.':'Não foi possível trocar: '+e3.message); }
     try{ await _supabase.from('auditoria').insert({acao:'UPDATE',modulo:'AUTH',registro_id:u.id,descricao:'Senha trocada pelo próprio usuário',usuario_email:email}); }catch(e){}
-    await _supabase.auth.signOut();
+    await _supabase.auth.signOut({scope:'local'});
     fecharTrocaSenha();
     document.getElementById('login-email').value=ident; const s=document.getElementById('login-senha'); s.value=''; s.focus();
     const ok=document.getElementById('login-error'); ok.textContent='✅ Senha trocada! Agora entre com a nova senha.';

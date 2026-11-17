@@ -936,3 +936,6 @@ fábrica específica. Não generalizar.
 - (17/11) **Rodotrem — pesagem em 2 partes** (portaria.html, `rodoMontar/rodoLigar/rodoSoma/rodoRefazer/rodoReset`): nos campos tara da chegada
   (`ch-tara`), tara do início (`in-tara`) e bruto da saída (`sa-bruto`) tem "🚛🚛 Rodotrem". Marcado: 1ª e 2ª parte, cada uma com o quadrinho da
   balança; a 1ª trava quando vem da balança e libera a 2ª; a soma vai para o campo (que fica travado). Zera ao abrir outro caminhão.
+- (17/11) **"Sair" só deste aparelho**: `signOut()` do Supabase é GLOBAL por padrão — o "Sair" de um usuário em um PC derrubava a sessão do mesmo
+  usuário em todos os outros (central de rótulos, estações de impressão, celular) → "Refresh Token Not Found" nos logs. Agora
+  `signOut({scope:'local'})` em js/utils.js (`doLogout`) e index.html.
