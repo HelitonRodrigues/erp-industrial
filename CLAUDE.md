@@ -876,6 +876,8 @@ fábrica específica. Não generalizar.
   info; reprovar = avise a Expedição), igual ao ensaio de um pallet. O laudo do lote que saiu depende disso.
 - (16/11) **Troca de número na 🔄 Mudar a carga** usa `rpc trocar_numero_ordem` (migration 136, security definer, desliga `pallet_guarda_estado`
   só na transação) — o update direto em `producao_pallets.ordem_numero` era barrado pelo gatilho.
+- (17/11) **Minério: vários motoristas na mesma placa** (portaria.html): `_miUlt.mp[placa]` junta os motoristas do histórico (+ o do cadastro
+  interno). Com mais de um, não preenche sozinho: aparecem botões 👤 (`miMotChips`) — ex.: BWI3A29 = PABLO e WILLIAN.
 
 ### Granel no Estoque do carregamento (16/11/2026)
 - `renderSaldoGranel` novo: por produto, "FICOU NO ESTOQUE" em destaque, produzido/carregado hoje e no mês, e tabela dia a dia do mês

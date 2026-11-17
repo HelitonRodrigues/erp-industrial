@@ -832,7 +832,7 @@ tr.mi-sel td{background:#f0fdf4;}
         <div class="mi-form">
           <div class="form-group" style="margin:0;"><label class="form-label">Data</label><input type="date" class="form-input" id="mi-f-data"></div>
           <div class="form-group" style="margin:0;"><label class="form-label">Placa <span class="req">*</span></label><input class="form-input" id="mi-f-placa" list="mi-dl-placas" autocomplete="off" placeholder="ABC1D23" oninput="this.value=this.value.toUpperCase().replace(/[^A-Z0-9]/g,'')" onchange="miPlaca()"><div id="mi-f-interno" style="display:none;margin-top:4px;font-size:12.5px;font-weight:800;color:#166534;"></div></div>
-          <div class="form-group" style="margin:0;"><label class="form-label">Motorista</label><input class="form-input" id="mi-f-mot" list="mi-dl-mot" autocomplete="off" oninput="this.value=this.value.toUpperCase()"></div>
+          <div class="form-group" style="margin:0;"><label class="form-label">Motorista</label><input class="form-input" id="mi-f-mot" list="mi-dl-mot" autocomplete="off" oninput="this.value=this.value.toUpperCase();miMotChips()"><div id="mi-f-mot-chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;"></div></div>
           <div class="form-group" style="margin:0;"><label class="form-label">Unidade</label><select class="form-input" id="mi-f-uni"><option value="PATIO">Pátio</option><option value="FABRICA">Fábrica</option><option value="BRITADOR">Britador</option></select></div>
           <div class="form-group" style="margin:0;"><label class="form-label">Frente</label><input class="form-input" id="mi-f-frente" list="mi-dl-frentes" autocomplete="off" oninput="this.value=this.value.toUpperCase()"></div>
           <div class="form-group" style="margin:0;"><label class="form-label" id="mi-f-tara-lb">Tara (kg) <span class="req">*</span></label><input type="number" inputmode="numeric" min="0" step="10" class="form-input" id="mi-f-tara" oninput="miLiq()"></div>
@@ -3061,11 +3061,13 @@ async function carregarMinerio(){
   const nIds=[...new Set(_miHoje.map(v=>v.nota_id).filter(Boolean))].filter(id=>!_miNotas.some(n=>n.id===id));
   if(nIds.length){const {data:nn}=await _supabase.from('minerio_notas').select('id,nf_numero,origem').in('id',nIds);_miNotasHoje=nn||[];}else _miNotasHoje=[];
   // sugestões: última viagem de cada placa (motorista, tara, unidade, frente)
-  _miUlt={placa:{},frentes:[],mots:[]};
+  _miUlt={placa:{},frentes:[],mots:[],mp:{}};
   (d.data||[]).forEach(v=>{ if(!_miUlt.placa[v.placa])_miUlt.placa[v.placa]=v;
+    /* (17/11) a mesma placa pode ter mais de um motorista (ex.: BWI3A29 = PABLO e WILLIAN) */
+    if(v.placa&&v.motorista){const l=_miUlt.mp[v.placa]=_miUlt.mp[v.placa]||[];if(!l.includes(v.motorista))l.push(v.motorista);}
     if(v.frente&&!_miUlt.frentes.includes(v.frente))_miUlt.frentes.push(v.frente);
     if(v.motorista&&!_miUlt.mots.includes(v.motorista))_miUlt.mots.push(v.motorista); });
-  document.getElementById('mi-dl-placas').innerHTML=Object.keys(_miUlt.placa).map(p=>`<option value="${esc(p)}">${esc(_miUlt.placa[p].motorista||'')}</option>`).join('');
+  document.getElementById('mi-dl-placas').innerHTML=Object.keys(_miUlt.placa).map(p=>`<option value="${esc(p)}">${esc((_miUlt.mp[p]||[_miUlt.placa[p].motorista||'']).join(' / '))}</option>`).join('');
   document.getElementById('mi-dl-mot').innerHTML=_miUlt.mots.map(m=>`<option value="${esc(m)}">`).join('');
   document.getElementById('mi-dl-frentes').innerHTML=_miUlt.frentes.map(f=>`<option value="${esc(f)}">`).join('');
   // a seleção da nota só guarda viagens que continuam sem nota
@@ -3311,11 +3313,19 @@ function miPlaca(){
   if(!_miEdit) miMarcarInterno(p);
   if(!u||_miEdit)return;
   const f=id=>document.getElementById(id);
-  if(!f('mi-f-mot').value)f('mi-f-mot').value=u.motorista||'';
+  const mots=miMotsDaPlaca(p);
+  if(!f('mi-f-mot').value&&mots.length===1)f('mi-f-mot').value=mots[0];   // mais de um motorista: escolhe no botão
+  miMotChips();
   if(u.unidade)f('mi-f-uni').value=u.unidade;
   if(!f('mi-f-frente').value&&u.frente)f('mi-f-frente').value=u.frente;
   if(_miFModo==null&&!_miInterno)miModoForm(!!u.chegou_carregado);   // o peso NÃO vem da última viagem: só da balança
   miLiq();
+}
+function miMotsDaPlaca(p){p=String(p||'').toUpperCase();const l=[...(_miUlt.mp&&_miUlt.mp[p]||[])];const c=_miInternos[p];if(c&&c.motorista&&!l.includes(c.motorista))l.push(c.motorista);return l;}
+function miMotChips(){
+  const box=document.getElementById('mi-f-mot-chips'); if(!box)return;
+  const p=document.getElementById('mi-f-placa').value, mots=miMotsDaPlaca(p), atual=document.getElementById('mi-f-mot').value;
+  box.innerHTML=mots.length>1?mots.map(m=>`<button type="button" class="btn btn-sm ${m===atual?'btn-primary':'btn-secondary'}" onclick="document.getElementById('mi-f-mot').value='${esc(m)}';miMotChips()">👤 ${esc(m)}</button>`).join(''):'';
 }
 function miMarcarInterno(placa){
   const c=_miInternos[String(placa||'').toUpperCase()];
@@ -3349,6 +3359,7 @@ function miRotuloPeso(){
 }
 function miLimpar(){
   _miEdit=null; ['mi-f-placa','mi-f-mot','mi-f-frente','mi-f-tara','mi-f-bruto'].forEach(id=>document.getElementById(id).value='');
+  {const b=document.getElementById('mi-f-mot-chips');if(b)b.innerHTML='';}
   document.getElementById('mi-f-data').value=hojeISO(); document.getElementById('mi-f-uni').value='PATIO';
   _miFMat=null; document.querySelectorAll('#mi-f-mat button[data-m]').forEach(b=>b.classList.remove('on')); document.getElementById('mi-f-mat').classList.remove('erro');
   document.getElementById('mi-f-salvar').textContent='➡️ Registrar entrada';
