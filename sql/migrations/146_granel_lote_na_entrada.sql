@@ -1,0 +1,2 @@
+-- (17/11/2026) lote do granel na DSM: 'saindo agora' só vale se for de hoje/ontem (senão o de hoje); repega na ENTRADA na balança.
+-- granel_lote_vigente() + tg_dsm_lote_granel (before insert or update of inicio_em). Aplicada no Supabase (146_granel_lote_na_entrada).

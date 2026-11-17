@@ -1,0 +1,2 @@
+-- (17/11/2026) o PORTEIRO escolhe o lote do granel (hoje/ontem) na pesagem de saída da DSM; o caminhão nasce com o lote de hoje.
+-- tg_dsm_lote_granel só no insert (lote de hoje). Aplicada no Supabase (147_granel_lote_porteiro).
