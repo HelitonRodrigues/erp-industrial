@@ -873,10 +873,17 @@ function renderQualidadeLinhas(linhas, analises, afericoes){
   }).join('');
 }
 
+/* (17/11) plano de custo do mês: o COMPLETO (custo/t e faturamento calculados), não o mais recente — um plano novo ainda em branco
+   (ex.: CP-0018) passava na frente do de novembro. Excluído nunca entra. */
+function _planoDoMes(planos){
+  const ok=(planos||[]).filter(p=>p&&p.status!=='excluido'&&p.totais);
+  const n=(p,k)=>Number(p.totais[k])||0;
+  return ok.find(p=>n(p,'total')>0&&n(p,'custoPorTon')>0&&n(p,'faturamento')>0)||ok.find(p=>n(p,'total')>0)||ok[0]||(planos||[])[0];
+}
 function renderCustoAlvo(planos, prodMes){
   const el = document.getElementById('custo-alvo-el');
   if(!el) return;
-  const plano = (planos||[]).find(p=>p && p.totais && Number(p.totais.total)>0) || (planos||[])[0];
+  const plano = _planoDoMes(planos);
   if(!plano || !plano.totais || !Number(plano.totais.total)){
     el.innerHTML = `<div class="ca-card" style="text-align:center;color:var(--ink-3);">
       <div style="font-size:26px;">\u{1F4B0}</div>
@@ -1321,7 +1328,7 @@ async function init(opts){
       safe(selectTodos(_supabase.from('producao_pallets').select('id,lancamento_id,status,linha,produto,numero,data').gte('data',mIni).lte('data',ref))),   // (17/11) pelo DIA DA PRODUÇÃO
       safe(_supabase.from('planejamentos').select('secoes,mes').eq('mes',mes)),
       safe(_supabase.from('laboratorio').select('id,linha,data,hora,status,produto,turno,responsavel,umidade,massa,separador,obs,peneiramento').order('data',{ascending:false}).order('hora',{ascending:false}).limit(300)),
-      safe(_supabase.from('planejamentos_custo').select('codigo,nome,mes,ano,totais,estado,status,atualizado_em').eq('mes',m).eq('ano',ano).order('atualizado_em',{ascending:false}).limit(5)),
+      safe(_supabase.from('planejamentos_custo').select('codigo,nome,mes,ano,totais,estado,status,atualizado_em').eq('mes',m).eq('ano',ano).neq('status','excluido').order('atualizado_em',{ascending:false}).limit(10)),
       safe(selectTodos(_supabase.from('producao_pallets').select('id,status,created_at,linha,data').gte('data',pIni).lte('data',pFim))),
       safe(_supabase.from('aferidor_aditivacao').select('numero,data,hora,linha,itens').order('data',{ascending:false}).limit(60)),
       // carregados: janela com 1 dia de folga — o dia é contado no fuso local
@@ -2302,7 +2309,7 @@ function detConf(tipo){
 
 /* ── CUSTO: planejado × realizado ── */
 function detCusto(){
-  const plano=(_PLANO_CUSTO||[]).find(p=>p&&p.totais&&Number(p.totais.total)>0)||(_PLANO_CUSTO||[])[0];
+  const plano=_planoDoMes(_PLANO_CUSTO);
   if(!plano||!plano.totais) return abrirDet('💰 Custo da fábrica',_vazio('Sem planejamento de custo para este mês.'),'custo-precificacao.html','Abrir Custo & Precificação');
   const t=plano.totais, custo=Number(t.total)||0, fat=Number(t.faturamento)||0, cpt=Number(t.custoPorTon)||0;
   const alvo=(plano.estado&&Number(plano.estado.alvoMaximoPct))||Number(t.alvoPct)||38;
