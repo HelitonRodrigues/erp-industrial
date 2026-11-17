@@ -958,3 +958,5 @@ fábrica específica. Não generalizar.
   `tg_analise_pega_op` + `tg_analise_segue_op` ligam a análise; laboratorio.html gera o laudo logo após aprovar (`_lauGerarMes`), e o laudo
   finalizado se liga às cargas (141). **producao.html**: ao lançar uma OP nova, se existe OP PROVISÓRIA do mesmo dia/linha/produto, grava
   EM CIMA dela (mantém nº e laudo, não duplica).
+- (17/11, migração 144) **📝 Anotações na fila da portaria** (`portaria.anotacoes` jsonb [{txt,por,em}]): botão 📝 em cada caminhão (fila e
+  carregando) → `anotar`; faixa amarela `.f-notas` embaixo do cartão com quem/hora e ✕ (`apagarNota`); a observação da chegada vira a 1ª linha.
