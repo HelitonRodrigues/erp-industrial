@@ -402,7 +402,8 @@ details.pl-recolhe.pl-rt{margin-top:8px;}
         </div>
       </div>
     </div>
-    <div id="lau-aviso"></div>
+    <div id="lau-granel"></div>
+<div id="lau-aviso"></div>
       <div id="lau-kpis" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-bottom:14px;"></div>
     <div class="table-wrap">
       <table><thead><tr>
@@ -4703,7 +4704,64 @@ const _lauGK=g=>esc(encodeURIComponent(g.k));
 const _lauDeGK=s=>{ try{ return decodeURIComponent(s); }catch(e){ return s; } };
 function _lauOpsTxt(g){ return g.ops.map(o=>o.op_numero||'—').join(' / '); }
 
+/* (17/11) 🧪 LAUDO DO CAULIM GRANEL CINZA — hoje e ontem (sem QR). O laboratório LIBERA o laudo de cada dia (RPC lab_granel_liberar:
+   garante a OP — provisória se a produção não foi lançada — e o registro de granel aprovado; o laudo sai com as análises da linha
+   Longa Vida do dia) e marca qual lote está SAINDO AGORA (empresa_config.granel_lote_atual) — a DSM pega esse lote, e o certificado
+   se liga sozinho a cada caminhão (migração 145). */
+const _grLote=d=>String(d).replace(/-/g,'')+'C';
+function _grDias(){ const h=hoje(), o=new Date(h+'T12:00:00'); o.setDate(o.getDate()-1); return [h,o.toISOString().slice(0,10)]; }
+function _grLaudo(lote){ return (_lauLaudos||[]).filter(l=>l.lote===lote&&/granel/i.test(l.produto||'')).sort((a,b)=>(a.status==='finalizado'?0:1)-(b.status==='finalizado'?0:1))[0]||null; }
+function renderGranelPainel(){
+  const el=document.getElementById('lau-granel'); if(!el) return;
+  const pode=typeof checkPerm!=='function'||checkPerm('laboratorio','edit');
+  const atual=(_empresa&&_empresa.granel_lote_atual)||_grLote(hoje());
+  const dia=(d,rot)=>{
+    const lote=_grLote(d), l=_grLaudo(lote), an=(_analises||[]).filter(a=>a.linha==='Longa Vida'&&a.data===d&&String(a.status||'').toUpperCase()==='OK');
+    const um=an.length?(an.reduce((s,a)=>s+(Number(a.umidade)||0),0)/an.length):null, uso=atual===lote;
+    const st=l?(l.status==='finalizado'?`<span class="badge badge-success">✅ ${esc(l.numero)} liberado</span>`:`<span class="badge badge-warning">📝 ${esc(l.numero)} em rascunho</span>`):'<span class="badge badge-warning">aguardando liberação</span>';
+    return `<div style="border:2px solid ${uso?'#16a34a':'#e2e8f0'};background:${uso?'#f0fdf4':'#fff'};border-radius:12px;padding:10px 12px;flex:1;min-width:280px;">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;"><b style="font-size:15px;">${rot} · ${d.split('-').reverse().slice(0,2).join('/')}</b><span class="badge badge-info">lote ${lote}</span>${st}${uso?'<span class="badge badge-success" style="margin-left:auto;">● SAINDO AGORA</span>':''}</div>
+      <div style="font-size:12.5px;color:#475569;margin-top:6px;">${an.length?`${an.length} análise(s) OK · umidade média ${um.toLocaleString('pt-BR',{maximumFractionDigits:2})}%`:'nenhuma análise OK da Longa Vida neste dia'}</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+        ${pode&&(!l||l.status!=='finalizado')?`<button class="btn btn-primary btn-sm" onclick="granelLiberar('${d}')" ${an.length?'':'disabled title="Lance a análise da Longa Vida deste dia primeiro"'}>✅ Liberar laudo do granel deste dia</button>`:''}
+        ${pode&&l&&l.status==='finalizado'?`<button class="btn btn-ghost btn-sm" onclick="granelLiberar('${d}')">🔄 Atualizar laudo com as análises</button>`:''}
+        ${l?`<button class="btn btn-ghost btn-sm" onclick="granelAbrir('${lote}',${l.status==='finalizado'})">🖨 Ver laudo</button>`:''}
+        ${pode&&!uso?`<button class="btn btn-secondary btn-sm" onclick="granelUsar('${lote}')">● Usar este lote agora</button>`:''}
+      </div></div>`;
+  };
+  const [h,o]=_grDias();
+  el.innerHTML=`<div class="card" style="margin-bottom:12px;padding:12px 14px;"><div style="font-weight:800;color:var(--primary,#042D4D);font-size:15px;">🧪 Caulim Granel Cinza — laudo de hoje e de ontem</div>
+    <div style="font-size:12px;color:#64748b;margin:2px 0 8px;">Libere o laudo de cada dia e marque o lote que está saindo agora: os caminhões da DSM pegam esse lote e o certificado aparece na portaria.</div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;">${dia(h,'Hoje')}${dia(o,'Ontem')}</div></div>`;
+}
+async function granelLiberar(d){
+  if(!guardAction('laboratorio','edit')) return;
+  const u=(typeof getUser==='function'&&getUser())||{};
+  const r=await _supabase.rpc('lab_granel_liberar',{p_dia:d,p_usuario:u.nome||'Laboratório'});
+  if(r.error){ toast('Não liberou: '+r.error.message,'danger'); return; }
+  toast(r.data&&r.data.criada?`OP provisória ${r.data.op_numero} criada — gerando o laudo…`:'Gerando o laudo…','info');
+  await _lauEnfileirar(()=>_lauGerarMes(d.slice(0,7)));
+  if(d.slice(0,7)!==hoje().slice(0,7)) await carregarLaudos();
+  const lote=_grLote(d), l=_grLaudo(lote);
+  renderGranelPainel();
+  if(l) granelAbrir(lote,false); else toast('O laudo não foi gerado — confira se há análise OK da Longa Vida no dia.','warning');
+}
+function granelAbrir(lote,imprimir){
+  if(!_lauGrupos.length) _lauMontarGrupos();
+  const g=_lauGrupos.find(x=>x.lote===lote&&(x.prods||[]).some(p=>/granel/i.test(p)));
+  if(!g){ toast('Lote '+lote+' não está na lista do mês — troque o mês na aba Laudo.','warning'); return; }
+  abrirLaudo(g.k,!!imprimir);
+}
+async function granelUsar(lote){
+  if(!guardAction('laboratorio','edit')) return;
+  const u=(typeof getUser==='function'&&getUser())||{};
+  const patch={granel_lote_atual:lote,granel_lote_em:new Date().toISOString(),granel_lote_por:u.nome||null};
+  const r=_empresa&&_empresa.id?await _supabase.from('empresa_config').update(patch).eq('id',_empresa.id):await _supabase.from('empresa_config').update(patch).not('id','is',null);
+  if(r.error){ toast('Não salvou: '+r.error.message,'danger'); return; }
+  _empresa=Object.assign({},_empresa,patch); addLog('UPDATE','LABORATORIO','granel',`Granel: lote saindo agora = ${lote}`); toast(`Lote ${lote} marcado como saindo agora — a DSM passa a usar este lote.`,'success'); renderGranelPainel();
+}
 function renderLaudoTab(){
+  try{ renderGranelPainel(); }catch(e){ console.warn('[granel]',e); }
   const tb=document.getElementById('lau-tbody'); if(!tb) return;
   const filtro=(document.getElementById('lau-filtro')||{}).value||'';
   _lauMontarGrupos();

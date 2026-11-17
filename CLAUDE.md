@@ -960,3 +960,9 @@ fábrica específica. Não generalizar.
   EM CIMA dela (mantém nº e laudo, não duplica).
 - (17/11, migração 144) **📝 Anotações na fila da portaria** (`portaria.anotacoes` jsonb [{txt,por,em}]): botão 📝 em cada caminhão (fila e
   carregando) → `anotar`; faixa amarela `.f-notas` embaixo do cartão com quem/hora e ✕ (`apagarNota`); a observação da chegada vira a 1ª linha.
+- (17/11, migração 145) **Laudo do Caulim Granel Cinza para a DSM** (sem QR): laboratorio.html aba Laudo, quadro `#lau-granel`
+  (`renderGranelPainel`): hoje e ontem (lote AAAAMMDD+C), análises OK da Longa Vida, **✅ Liberar laudo do granel deste dia** (RPC
+  `lab_granel_liberar` → OP provisória se não houver + registro granel aprovado → `_lauGerarMes` → abre o laudo para revisar/finalizar),
+  **● Usar este lote agora** (`empresa_config.granel_lote_atual`). portaria-dsm.html: cada caminhão tem `lote_granel` (vem do lote atual;
+  o porteiro troca entre ontem/hoje) e **📜 Certificado** (`dsmCert` → `certImprimir` com o quadro da remessa: placa, NF, líquido) ou
+  "aguardando laboratório"; laudo finalizado liga sozinho os caminhões do lote. Granel Branco 02 fica fora (não recebe lote).
