@@ -2075,9 +2075,23 @@ let _palGrupos=[];              // grupos renderizados — a seleção usa ÍNDI
 let _palLimite=500000;          // sem teto: a Análise de Pallets traz TODOS os registros (nov/2026)
 // Todos os pallets + o produtos_op de cada OP buscado UMA vez por OP (antes vinha repetido em
 // cada pallet do join e pesava muitas vezes mais).
+/* (17/11) o banco Nano travou: abrir a tela baixava os 10 mil pallets toda vez. Agora abre com os ÚLTIMOS 60 DIAS +
+   tudo que ainda não foi aprovado (pendente/reprovado/em decisão de qualquer data). O histórico completo vem no botão
+   "📚 Histórico completo" (_palTudo), igual era antes. */
+let _palTudo=false; const PAL_JANELA_DIAS=60;
 async function _carregarTodosPallets(){
-  const r=await selectTodos(_supabase.from('producao_pallets')
-    .select('*,producao(id,data,linha,turno,encarregado,op_numero)').order('created_at',{ascending:false}));
+  const SEL='*,producao(id,data,linha,turno,encarregado,op_numero)';
+  let r;
+  if(_palTudo){
+    r=await selectTodos(_supabase.from('producao_pallets').select(SEL).order('created_at',{ascending:false}));
+  }else{
+    const desde=new Date(Date.now()-PAL_JANELA_DIAS*864e5).toISOString();
+    const [a,b]=await Promise.all([
+      selectTodos(_supabase.from('producao_pallets').select(SEL).gte('created_at',desde).order('created_at',{ascending:false})),
+      selectTodos(_supabase.from('producao_pallets').select(SEL).lt('created_at',desde).neq('status','aprovado').order('created_at',{ascending:false}))]);
+    if(a.error) return a; if(b.error) return b;
+    r={data:[...(a.data||[]),...(b.data||[])],error:null};
+  }
   if(r.error) return r;
   const ids=[...new Set((r.data||[]).map(p=>p.lancamento_id||(p.producao&&p.producao.id)).filter(Boolean))], ops={};
   for(let k=0;k<ids.length;k+=200){
@@ -2174,6 +2188,8 @@ function buscarPalletAgora(){
     // código completo lido pelo bico casa exato, mesmo com mais de um resultado
     const exato=(_pallets||[]).filter(p=>codigoDoPallet(p).toLowerCase()===termo);
     if(exato.length===1) _palAchado=exato[0].id;
+    // não achou nos últimos dias: busca no histórico completo (1 vez) e procura de novo
+    if(!achados.length&&!_palTudo){ carregarMaisPallets().then(()=>buscarPalletAgora()); return; }
   }
   renderPallets();
   if(_palAchado){
@@ -2218,10 +2234,13 @@ function pintarAbasPallet(base){
   }).join('')
   +`<div style="display:flex;align-items:center;gap:7px;padding:9px 16px;border-radius:11px;border:1.8px dashed #e2e8f0;
       font-size:13px;font-weight:700;color:${comEnsaio<base.length?'#dc2626':'#16a34a'};">
-      🔬 Com ensaio <span class="pal-aba-n">${comEnsaio}/${base.length}</span></div>`;
+      🔬 Com ensaio <span class="pal-aba-n">${comEnsaio}/${base.length}</span></div>`
+  +(_palTudo?'':`<button class="pal-aba" title="A tela abre com os últimos ${PAL_JANELA_DIAS} dias + tudo que não foi aprovado" onclick="carregarMaisPallets()">
+      <span>📚</span><span>Histórico completo</span><span class="pal-aba-n" style="color:#64748b;">${PAL_JANELA_DIAS} dias</span></button>`);
 }
 
 function renderPallets(){
+  { const fdj=gv('fp-data'); if(fdj&&!_palTudo&&fdj<new Date(Date.now()-PAL_JANELA_DIAS*864e5).toISOString().slice(0,10)){ carregarMaisPallets(); return; } }   // data antiga: histórico
   const fd=gv('fp-data'), fl=gv('fp-linha'), ft=gv('fp-turno'), fpr=gv('fp-produto');
   // popular o filtro de produto a partir do que existe nos pallets
   const selP=document.getElementById('fp-produto');
@@ -2384,7 +2403,8 @@ function cartaoPallet(p,gi){
   </div>`;
 }
 
-async function carregarMaisPallets(){   // mantido por compatibilidade: a lista já vem completa
+async function carregarMaisPallets(){   // 📚 histórico completo (todos os pallets, como antes)
+  _palTudo=true; toast('Carregando o histórico completo dos pallets…','info');
   const{data:pal}=await db(_carregarTodosPallets(),'carregar pallets');
   _pallets=pal||_pallets; renderPallets();
 }

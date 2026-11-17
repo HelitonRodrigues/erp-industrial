@@ -915,3 +915,8 @@ fábrica específica. Não generalizar.
 - Chamados (📣): portaria e pátio recebem pelo realtime (`portaria_chamados`); consulta de segurança 30 s (era 5 s).
 - totem.html lê as estações a cada 30 s (era 10 s) e só com a tela visível; aferidor 30 s, "ligada" = visto há < 60 s.
 - Migration 137: `impressao_fila` e `portaria_chamados` na publicação `supabase_realtime`.
+- (17/11) `js/alerta-linhas.js`: conferência de reserva 60 s (era 15 s) e só com a tela visível; ao voltar para a tela confere na hora (o aviso já
+  chega pelo canal broadcast `linhas-status`).
+- (17/11) laboratorio.html — Análise de Pallets abre com os **últimos 60 dias + tudo não aprovado** (`_carregarTodosPallets`, `PAL_JANELA_DIAS`),
+  em vez dos ~10 mil pallets. Botão "📚 Histórico completo" (`carregarMaisPallets` → `_palTudo`) traz tudo como antes; busca que não acha e
+  filtro de data mais antigo que a janela puxam o histórico sozinhos.
