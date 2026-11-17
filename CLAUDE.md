@@ -859,7 +859,7 @@ fábrica específica. Não generalizar.
   Tesseract (eng, só A–Z/0–9/-, psm 11; 0°/90°/270°) lê o código impresso; `casarOcr` compara com pallets não carregados + `rotulos_impressos`
   (10 dias, produtos da carga) tolerando O×0, I×1, S×5… (`OCR_TROCA`, `distDentro`). Um só → `patioLeitura` como bipado; empate → botões.
 - (16/11) **📣 Chamar caminhão** (migration 135, `portaria_chamados`): na FILA do pátio, cada caminhão esperando tem "CHAMAR ESTE CAMINHÃO"
-  (`chamarCaminhao`/`chamadoHtml`, leitura a cada 5 s `lerChamados`). A portaria (`vigiarChamados` a cada 5 s) mostra aviso em tela cheia com
+  (`chamarCaminhao`/`chamadoHtml`, leitura a cada 5 s `lerChamados`) — só caminhão COM ordem. A portaria (`vigiarChamados` a cada 5 s) mostra aviso em tela cheia com
   som repetido até "VI — VOU CHAMAR" (`vouChamar` grava `visto_por/visto_em`); o pátio mostra "Portaria viu: nome às hh:mm" e quem chamou
   recebe aviso verde com som.
 - (16/11) **Lote de pallet sem OP**: bag/pallet do totem ainda sem produção lançada não tinha lote na carga ("—"). `loteDe` agora cai no lote do
