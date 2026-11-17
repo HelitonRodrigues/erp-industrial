@@ -1646,6 +1646,15 @@ async function gravarOrdem(registrar){
     addLog(ja?'UPDATE':'CREATE','PORTARIA',numero,`Ordem ${numero} ${ja?'atualizada':'importada'} (${row.origem}) — ${itens.length} itens, ${nf(sacos)} un.`);
     toast(`Ordem ${numero} ${ja?'atualizada':'salva'}.`,'success');
     cancelarImportacao(); await carregarTudo();
+    // (17/11) caminhão JÁ na fila sem ordem, com a mesma placa ou o mesmo motorista: liga a ordem nele sozinho
+    //         (antes o porteiro salvava e precisava de alguém para vincular; "registrar chegada" abria uma chegada nova)
+    if(!portDaOrdem(rom)){
+      const pl=x=>String(x||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
+      const esp=_veic.filter(v=>!v.romaneio_id&&['sem_ordem','aguardando'].includes(v.status)&&
+        ((rom.placa&&(pl(v.placa)===pl(rom.placa)||pl(v.placa2)===pl(rom.placa)))||(rom.motorista&&mesmoNome(rom.motorista,v.nome_motorista))));
+      if(esp.length===1){ _vi={portId:esp[0].id,ordemId:rom.id}; await confirmarVinculo(); return; }
+      if(esp.length>1){ toast(`Mais de um caminhão na fila pode ser desta ordem (${esp.map(v=>v.placa).join(', ')}) — use 📄 Vincular no caminhão certo.`,'warning'); return; }
+    }
     if(registrar){const v=portDaOrdem(rom); if(v)toast('Essa ordem já está com o caminhão '+v.placa+' na fila.','info'); else abrirChegada({ordemId:rom.id});}
   }finally{bts.forEach(b=>{if(b)b.disabled=false;});}
 }

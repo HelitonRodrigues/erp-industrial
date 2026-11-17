@@ -983,3 +983,4 @@ fábrica específica. Não generalizar.
   produção ÷ dias úteis do mês — `_realCobertura`), itens sem fonte na mesma proporção e o Alvo já comparável ("dentro/estourou (até
   hoje)"); link "Ver o mês cheio" (`toggleRealProRata`, `state._realProRata=false`).
 - (17/11) portaria.html "O produto está certo?": ordem **sem número** (ex.: "CAULIM BIG BAG – BRANCO") não é mais "número diferente" (vermelho) — fica amarelo "a ordem não diz o número, confira"; depois de confirmado uma vez (apelido em produto_aliases), passa verde.
+- (17/11) portaria.html: ao **salvar a ordem importada**, se já existe caminhão na fila **sem ordem** com a mesma placa (ou placa2) ou o mesmo motorista, a ordem é **vinculada sozinha** (confirmarVinculo); mais de um candidato → aviso para usar 📄 Vincular. "Salvar e registrar chegada" não abre chegada nova nesse caso.
