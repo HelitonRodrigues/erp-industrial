@@ -997,3 +997,4 @@ fábrica específica. Não generalizar.
   `acerto_nao_existe`). Impressão: cópia fiel do rótulo do totem.html isolada em `window.RotuloPallet` (se o rótulo do totem mudar,
   copiar de novo) → `impressao_fila` destino laser, ou "Imprimir neste computador". Tudo na Auditoria (módulo ACERTO_PALLETS).
 - (18/11) portaria.html Romaneio de saída: item da Felisbina (não é bipado) conta como carregado = pedido (`carregadoDe` → `felDaOrdem`), sem o aviso "saiu a menos".
+- (18/11) portaria.html Saída: carga só de bag/granel trava 'Pallets' em 0 (`_sa.semPallet`) — 028526 tinha 39 × 28 kg descontados (corrigido no banco). Romaneio: linhas da ordem com o mesmo produto/pedido/cliente (ex.: 37 + 2) dividem o carregado em vez de repetir o total (`_carregadoTot` + `carregadoDe`).

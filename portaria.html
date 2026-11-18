@@ -2399,6 +2399,9 @@ async function contarCarga(o,v){
   if(!c.itens.length)return;
   _sa.nPal=c.nPal; _sa.esperadoKg=c.esperadoKg; _sa.semPeso=c.semPeso;
   const np=document.getElementById('sa-npal'); if(v.qtd_pallets==null&&!np.value)np.value=c.nPal;
+  // (18/11) só bag/granel: não vai pallet — trava em 0 (antes dava para digitar e o peso do produto saía errado: 39 × 28 kg)
+  _sa.semPallet=c.nPal===0&&c.grupos.length&&c.grupos.every(x=>x.tipo==='bag'||x.tipo==='granel');
+  if(_sa.semPallet){ np.value=0; np.disabled=true; np.title='Bag e granel não vão em pallet'; } else { np.disabled=false; np.title=''; }
   calcLiquido();
   // certificado: liga de novo os lotes bipados ao laudo (pega laudo que o laboratório finalizou depois da carga)
   if(window.certVincularCarga&&c.cargas[0]&&c.itens.some(i=>certEhProduto(i.produto))){
@@ -2409,10 +2412,10 @@ async function contarCarga(o,v){
 }
 function calcLiquido(){
   const t=parseFloat(document.getElementById('sa-tara').value), b=parseFloat(document.getElementById('sa-bruto').value);
-  const n=parseInt(document.getElementById('sa-npal').value)||0, pk=parseFloat(document.getElementById('sa-ppal').value)||0;
+  const n=_sa.semPallet?0:(parseInt(document.getElementById('sa-npal').value)||0), pk=parseFloat(document.getElementById('sa-ppal').value)||0;
   const liq=!isNaN(t)&&!isNaN(b)&&b>=t?b-t:null, palT=n*pk/1000, prod=liq!=null?liq-palT:null;
   document.getElementById('sa-liq').textContent=liq!=null?nf(liq,3)+' t':'—';
-  document.getElementById('sa-pal-txt').textContent=n?`− ${nf(n*pk,0)} kg${_sa.nPal!=null?` · carga tem ${_sa.nPal} pallet(s) de sacaria`:''}`:(_sa.nPal!=null?`carga tem ${_sa.nPal} pallet(s) de sacaria`:'nº de pallets × peso');
+  document.getElementById('sa-pal-txt').textContent=n?`− ${nf(n*pk,0)} kg${_sa.nPal!=null?` · carga tem ${_sa.nPal} pallet(s) de sacaria`:''}`:(_sa.semPallet?'bag/granel — não vai pallet':_sa.nPal!=null?`carga tem ${_sa.nPal} pallet(s) de sacaria`:'nº de pallets × peso');
   document.getElementById('sa-prod').textContent=prod!=null?nf(prod,3)+' t':'—';
   const el=document.getElementById('sa-esp');
   const box=document.getElementById('sa-prod').parentElement; box.classList.remove('ok','erro');
@@ -2481,7 +2484,15 @@ async function imprimirSaida(portId,soVer){
     const a=(fa.data||[])[0], b=(mi.data||[])[0];
     assP=a&&(!b||Date.parse(a.fechado_em)>=Date.parse(b.bruto_em))?a.assinatura_img:(b?b.bruto_assinatura:null);}catch(e){}}
   /* pedido × carregado por item da ordem (a carga grava o motivo quando saiu menos) */
-  const carregadoDe=i=>{ if(!carga||!carga.itens||!carga.itens.length)return null;
+  const _usado={};   // (18/11) duas linhas do mesmo produto/pedido (ex.: 37 + 2) repetiam o total carregado (39 e 39)
+  const carregadoDe=i=>{ const c=_carregadoTot(i); if(!c||c.fel)return c;
+    const k=normNome(i.produto_erp||i.produto)+'|'+String(i.pedido||'').toUpperCase().trim()+'|'+normNome(i.cliente||'');
+    const irmaos=(r&&r.it||[]).filter(x=>normNome(x.produto_erp||x.produto)+'|'+String(x.pedido||'').toUpperCase().trim()+'|'+normNome(x.cliente||'')===k);
+    if(irmaos.length<2)return c;
+    const ped=parseFloat(String(i.quantidade||'').replace(',','.'))||0, ja=_usado[k]||0, ultimo=irmaos[irmaos.length-1]===i;
+    const q=ultimo?Math.max(0,c.q-ja):Math.min(ped,Math.max(0,c.q-ja)); _usado[k]=ja+q;
+    return {q,m:c.m}; };
+  const _carregadoTot=i=>{ if(!carga||!carga.itens||!carga.itens.length)return null;
     // (18/11) produto da Felisbina não é bipado no Carregamento: sai o que está na ordem (não é "saiu a menos")
     if(felDaOrdem(i)) return {q:parseFloat(String(i.quantidade||'').replace(',','.'))||0,m:'',fel:true};
     const alvo=normNome(i.produto_erp||i.produto), U=x=>String(x||'').toUpperCase().trim();
