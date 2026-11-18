@@ -1,0 +1,2 @@
+-- (18/11/2026) lab_granel_preparar(dia, usuario): OP do granel do dia (provisória se não houver) + registro de granel PENDENTE para o
+-- laboratório lançar o resultado na Análise de Pallets; aprovado, o laudo sai sozinho. Aplicada no Supabase (153_lab_granel_preparar).
