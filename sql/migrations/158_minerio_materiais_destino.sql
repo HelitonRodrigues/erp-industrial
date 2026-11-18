@@ -1,0 +1,7 @@
+-- (18/11/2026) Portaria › Caulim e Grafitoso — aplicada no Supabase (158 + 158b):
+-- minerio_materiais: + insumo_nome, selecionavel. Novos: Caulim Branco 01/02/03, Creme 01/02/03, Cinza, Marguerita, Brasil Minas
+--   (+ Grafitoso). Antigos CAULIM / CAULIM_BRANCO_2 / CAULIM_CREME_2 ficam só para consulta (histórico e notas emitidas).
+-- minerio_viagens: + tipo_mp (tipo real da MP) e linha_fabrica (EMITEC | LINHA_2_3 | LONGA_VIDA). Pátio virou Fábrica.
+-- Reclassificação do histórico (material vale; frente BAUMIN/CAULIM/vazio = Branco 01; BRANCO 2 = Branco 02; CREME 2 = Creme 02;
+--   AMARELO = Brasil Minas; BRITADOR, CREME, F.T CREME, F.E, F.T VERMELHO = 'A_IDENTIFICAR', fora do saldo). Notas não mudam.
+-- Gatilho tg_minerio_tipo_mp: tipo_mp = material nas viagens novas; PATIO → FABRICA; linha só quando FABRICA.
