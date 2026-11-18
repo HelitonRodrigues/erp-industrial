@@ -990,3 +990,4 @@ fábrica específica. Não generalizar.
   "até hoje" (`_realFotoDashboard` → RPC `custo_salvar_real` → `planejamentos_custo.totais.real`: tonR/tonP, custoR/custoP, fatR/fatP,
   alvoR, uteis/cobertos), só quando muda e de novo depois de salvar o plano. Dashboard `_custoRealHtml`: usa a foto (exata, com a hora);
   sem foto do mês, estimativa (custo × dias úteis com produção ÷ dias úteis, toneladas apontadas, faturamento pelo preço médio/t do plano).
+- (17/11) portaria.html Felisbina: `casarFelis` reconhece o nome da ordem com a marca na frente ("ORIGINAL PRO LIGA AD 18L" → LIGA AD 18L: sem ORIGINAL/ORIGINAL PRO, ou o nome do cadastro no fim, se único). Fechamento do dia: com carga salva, os itens da Felisbina da ORDEM entram também (não são bipados) — `felDaOrdem`.

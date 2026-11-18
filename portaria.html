@@ -1236,7 +1236,14 @@ function casarProduto(texto,produtos,aliases){
 }
 // produto do ERP de um item de ordem: o gravado na ordem, senão o apelido/nome igual (sem chute)
 const felCompacto=t=>String(t||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().replace(/\bL[IÍ]QUIDO\b|\bLIQ\.?\b/g,'').replace(/[^A-Z0-9,]/g,'').replace(/,/g,'.');
-function casarFelis(texto){const c=felCompacto(texto);if(!c)return null;const f=_prodFel.find(x=>felCompacto(x.nome)===c);return f?{produto:f,seguro:true,via:'felisbina'}:null;}
+/* (17/11) a ordem escreve a marca na frente ("ORIGINAL PRO LIGA AD 18L"); o cadastro da Felisbina é "LIGA AD 18L":
+   igual, ou sem o prefixo ORIGINAL / ORIGINAL PRO, ou o nome do cadastro no FIM do texto da ordem (só se for um único) */
+const felSemMarca=c=>String(c||'').replace(/^ORIGINALPRO|^ORIGINAL/,'');
+function casarFelis(texto){const c=felCompacto(texto);if(!c)return null;
+  let f=_prodFel.find(x=>felCompacto(x.nome)===c)||_prodFel.find(x=>felSemMarca(felCompacto(x.nome))===felSemMarca(c));
+  if(!f){const fs=_prodFel.filter(x=>{const k=felCompacto(x.nome);return k.length>=6&&c.endsWith(k);}).sort((a,b)=>felCompacto(b.nome).length-felCompacto(a.nome).length);
+    if(fs.length&&(fs.length===1||felCompacto(fs[0].nome).length>felCompacto(fs[1].nome).length))f=fs[0];}
+  return f?{produto:f,seguro:true,via:'felisbina'}:null;}
 function casarTudo(texto){const m=casarProduto(texto,_prodErp,_aliases);if(m&&m.seguro)return m;return casarFelis(texto)||m;}
 function produtoErpDoItem(i){
   if(i.felis_item_id){const f=_prodFel.find(x=>x.felis_id===i.felis_item_id); if(f)return f;}
@@ -2668,8 +2675,10 @@ async function carregarFechamento(){
       let fel=false; if(ehFelisNome(nome)){nome=felNome(nome);un='FL';sem=false;fel=true;}
       const p=prods[nome]=prods[nome]||{qtd:0,un:un||unProduto(nome)||'UN',sem:!!sem,fel}; p.qtd+=q;};
     let fonte='carga';
-    if(carga.length) carga.forEach(i=>{const t=window.certTipoProduto?certTipoProduto(i.produto):'saco';
+    if(carga.length){ carga.forEach(i=>{const t=window.certTipoProduto?certTipoProduto(i.produto):'saco';
       if(i.unidade==='t'||t==='granel')add(i.produto,Number(i.ton)||0,'T'); else add(i.produto,t==='bag'?(Number(i.sacos)||1):(Number(i.sacos)||0));});
+      // (17/11) Felisbina não é bipada no Carregamento: vem da ordem (ex.: ORIGINAL PRO LIGA AD 18L na 028530)
+      its.filter(i=>String(i.numero)===String(num)).forEach(i=>{const pe=felDaOrdem(i); if(pe) add(pe.nome+' (Felisbina)',parseFloat(i.quantidade)||0,'FL');}); }
     else{fonte='ordem'; its.filter(i=>String(i.numero)===String(num)).forEach(i=>{const pe=produtoErpDoItem(i); add(pe?(pe.felis?pe.nome+' (Felisbina)':pe.nome):i.produto,parseFloat(i.quantidade)||0,pe?null:'UN',!pe);});}
     const rom=roms.find(r=>String(r.numero)===String(num));
     return {n:k+1,id:v.id,placa:v.placa,motorista:v.nome_motorista,ordem:num,veiculo:v.modelo_veiculo,unidade:v.unidade_carregamento,
@@ -2698,6 +2707,7 @@ async function carregarFechamento(){
   renderFechamento();
 }
 function ehFelisNome(n){n=String(n||'');return /\(Felisbina\)\s*$/i.test(n)||_prodFel.some(f=>normNome(f.nome)===normNome(n));}
+function felDaOrdem(i){const pe=produtoErpDoItem(i);return pe&&pe.felis?pe:null;}
 function felNome(n){return String(n||'').replace(/\s*\(Felisbina\)\s*$/i,'').trim();}
 /* produto da NF da DSM → produto do ERP (a NF às vezes traz o texto inteiro; vale o último "CAULIM GRANEL - X") */
 function produtoDsm(txt){
