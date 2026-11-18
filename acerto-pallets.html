@@ -423,7 +423,7 @@ async function carregar(){
   const d0=_addD(_hojeSP(),-Number(document.getElementById('ap-dias').value||30));
   const [pa,ro,op,sa,hi]=await Promise.all([
     selectTodos(_supabase.from('producao_pallets').select('id,data,linha,numero,codigo,status,estoque_status,fora_estoque_em,fora_estoque_motivo,sacos_pallet,ordem_numero,rotulo_id,lancamento_id,a_conferir').eq('produto',_P).gte('data',d0)),
-    selectTodos(_supabase.from('rotulos_impressos').select('id,dia,linha,numero,codigo,lote,validade,pallet_id').eq('produto',_P).gte('dia',d0)),
+    selectTodos(_supabase.from('rotulos_impressos').select('id,dia,linha,numero,codigo,lote,validade,pallet_id,lido,avulso,descartado_em').eq('produto',_P).gte('dia',d0)),
     _supabase.from('producao').select('id,data,linha,op_numero,obs,produtos_op').gte('data',d0).limit(2000),
     _supabase.from('estoque_sem_qr_saldo').select('saldo').eq('produto',_P).maybeSingle(),
     _supabase.from('auditoria').select('criado_em,usuario_email,descricao').eq('modulo','ACERTO_PALLETS').order('criado_em',{ascending:false}).limit(15)]);
@@ -474,10 +474,29 @@ function render(){
       ${ab?subLinhas(g):''}`; }).join('')}</tbody></table>
   <div style="padding:8px 12px;font-size:12px;color:#64748b;">Clique no dia para ver cada ${_ehBag(_P)?'bag':'pallet'} com <b>🖨 Reimprimir</b> e <b>🚫 Não existe no barracão</b>. "Fora da contagem" = remontados com sacos do saldo sem QR ou que não existem.</div>`;
 }
+function _faixas(ns){ns=ns.slice().sort((a,b)=>a-b);const o=[];for(let i=0;i<ns.length;i++){let j=i;while(j+1<ns.length&&ns[j+1]===ns[j]+1)j++;o.push(i===j?String(ns[i]):ns[i]+' a '+ns[j]);i=j;}return o.join(', ');}
+function rotulosSoltos(g){
+  const rs=_rots.filter(r=>r.dia===g.data&&r.linha===g.linha&&!r.pallet_id&&!r.lido&&!r.descartado_em&&!r.avulso), ds=_rots.filter(r=>r.dia===g.data&&r.linha===g.linha&&r.descartado_em);
+  if(!rs.length&&!ds.length) return '';
+  return `<tr class="sub"><td></td><td colspan="9" style="font-size:12.5px;">${rs.length?`🏷️ <b>${rs.length} rótulo(s) impresso(s) sem pallet</b>: nº ${_faixas(rs.map(r=>r.numero))} <span style="color:#64748b;">— ainda não viraram pallet (entram quando a produção for lançada)</span>
+    ${checkPerm(MOD,'edit')?` <button class="bt vm" onclick="descartarSoltos('${g.data}','${g.linha}')">🗑 Descartar (jogados fora)</button>`:''}`:''}
+    ${ds.length?`<div style="color:#94a3b8;margin-top:3px;">🗑 Descartados: nº ${_faixas(ds.map(r=>r.numero))} — não viram pallet nem estoque</div>`:''}</td></tr>`;
+}
+async function descartarSoltos(dia,linha){
+  if(!guardAction(MOD,'edit')) return;
+  const rs=_rots.filter(r=>r.dia===dia&&r.linha===linha&&!r.pallet_id&&!r.lido&&!r.descartado_em&&!r.avulso); if(!rs.length) return;
+  const ns=rs.map(r=>r.numero).sort((a,b)=>a-b);
+  const m=await erpPrompt(`Descartar os rótulos nº ${_faixas(ns)} de ${_P} (${_dBR(dia)}, ${linha})?\nEles nunca viram pallet nem estoque, mesmo quando a produção for lançada. Motivo:`,{titulo:'🗑 Descartar rótulos',ok:'Descartar'});
+  if(!m||!String(m).trim()) return;
+  const {data,error}=await _supabase.rpc('acerto_descartar_rotulos',{p_dia:dia,p_linha:linha,p_produto:_P,p_de:ns[0],p_ate:ns[ns.length-1],p_motivo:String(m).trim(),p_usuario:_quem()});
+  if(error) return toast('Não descartou: '+error.message,'danger');
+  addLog('UPDATE','ACERTO_PALLETS',_P,`Descartou ${data} rótulo(s) nº ${_faixas(ns)} · ${_P} · ${_dBR(dia)} ${linha} — ${m}`);
+  toast(`${data} rótulo(s) descartado(s).`,'success'); const ab=_aberto; await carregar(); _aberto=ab; render();
+}
 function subLinhas(g){
   const ps=g.pals.slice().sort((a,b)=>a.numero-b.numero), pode=checkPerm(MOD,'edit');
-  if(!ps.length) return `<tr class="sub"><td colspan="10" style="color:#94a3b8;">Nenhum ${_ehBag(_P)?'bag':'pallet'} com QR neste dia.</td></tr>`;
-  return ps.map(p=>{ const sit=p.estoque_status!=='estoque'?`<span class="b az">carregado${p.ordem_numero?' · '+_e(p.ordem_numero):''}</span>`
+  if(!ps.length) return `<tr class="sub"><td colspan="10" style="color:#94a3b8;">Nenhum ${_ehBag(_P)?'bag':'pallet'} com QR neste dia.</td></tr>`+rotulosSoltos(g);
+  return rotulosSoltos(g)+ps.map(p=>{ const sit=p.estoque_status!=='estoque'?`<span class="b az">carregado${p.ordem_numero?' · '+_e(p.ordem_numero):''}</span>`
       :p.fora_estoque_em?(/^NÃO EXISTE/i.test(p.fora_estoque_motivo||'')?`<span class="b vm" title="${_e(p.fora_estoque_motivo)}">não existe</span>`:`<span class="b cz" title="${_e(p.fora_estoque_motivo||'')}">fora da contagem</span>`)
       :'<span class="b ok">no estoque</span>';
     return `<tr class="sub"><td></td><td>nº <b>${p.numero}</b></td><td colspan="2" style="font-family:ui-monospace,monospace;font-size:12px;">${_e(p.codigo||'—')}</td>
@@ -492,19 +511,20 @@ function novoPallet(k){
   if(!guardAction(MOD,'create')) return;
   const g=_grupos.find(x=>x.data+'|'+x.linha===k); if(!g) return;
   const prox=Math.max(0,...g.pals.map(p=>p.numero||0),..._rots.filter(r=>r.dia===g.data&&r.linha===g.linha).map(r=>r.numero||0))+1;
-  _form={k,g,sacos:g.cap||'',origem:_saldo>0?'sem_qr':'nova',prox}; renderForm();
+  _form={k,g,sacos:g.cap||'',origem:_saldo>0?'sem_qr':'nova',prox,qtd:1}; renderForm();
   document.getElementById('ap-form').scrollIntoView({behavior:'smooth',block:'start'});
 }
 function renderForm(){
   const el=document.getElementById('ap-form'); if(!el) return;
   if(!_form){ el.innerHTML='<div style="font-weight:900;color:var(--primary);font-size:16px;">＋ Criar pallet com rótulo</div><div class="ap-vazio" style="padding:12px 0;">Clique em <b>＋ Pallet</b> no dia do lote.</div>'; return; }
-  const f=_form, g=f.g, s=Number(f.sacos)||0, un=_ehBag(_P)?'un':'sc';
+  const f=_form, g=f.g, q=Math.max(1,parseInt(f.qtd,10)||1), s=(Number(f.sacos)||0)*q, un=_ehBag(_P)?'un':'sc';
   const okSaldo=f.origem!=='sem_qr'||s<=_saldo, lab=g.laudo&&g.laudo.status==='finalizado'||g.aprov;
   el.innerHTML=`<div style="font-weight:900;color:var(--primary);font-size:16px;">＋ Criar ${_ehBag(_P)?'bag':'pallet'} com rótulo</div>
     <div style="font-size:12px;color:#64748b;">${_e(_P)} · <b>${_dBR(g.data)}</b> · ${_e(g.linha)}</div>
     <label>Lote</label><input class="in ro" value="${_e(g.lote)}" readonly>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;"><div><label>${_ehBag(_P)?'Unidades':'Sacos no pallet'}</label><input class="in" id="ap-sacos" type="number" min="1" value="${_e(f.sacos)}" oninput="_form.sacos=this.value;renderForm();const i=document.getElementById('ap-sacos');if(i){i.focus();const v=i.value;i.value='';i.value=v;}"></div>
-      <div><label>Número</label><input class="in ro" value="#${f.prox} (próximo livre)" readonly></div></div>
+      <div><label>Número</label><input class="in ro" value="#${f.prox}${q>1?' a #'+(f.prox+q-1):''} (próximo livre)" readonly></div></div>
+    <label>Quantos ${_ehBag(_P)?'bags':'pallets'} iguais criar de uma vez?</label><input class="in" id="ap-qtd" type="number" min="1" max="40" value="${q}" oninput="_form.qtd=this.value;renderForm();const i=document.getElementById('ap-qtd');if(i){i.focus();const v=i.value;i.value='';i.value=v;}">
     <label>De onde vêm os ${_ehBag(_P)?'bags':'sacos'}?</label>
     <div class="ap-op ${f.origem==='sem_qr'?'on':''}" onclick="_form.origem='sem_qr';renderForm()"><input type="radio" ${f.origem==='sem_qr'?'checked':''}><div><b>Do saldo sem QR</b> (sobras / pallet sem rótulo) — baixa ${_n(s)} ${un} do saldo (${_n(_saldo)} → ${_n(_saldo-s)})</div></div>
     <div class="ap-op ${f.origem==='nova'?'on':''}" onclick="_form.origem='nova';renderForm()"><input type="radio" ${f.origem==='nova'?'checked':''}><div><b>Produção nova ainda não lançada</b> — entra no estoque normal (lance a produção depois)</div></div>
@@ -514,19 +534,25 @@ function renderForm(){
       ${g.laudo?`${g.laudo.status==='finalizado'?'✅':'📝'} Laudo <b>${_e(g.laudo.numero)}</b>${g.laudo.status==='finalizado'?' — sai no certificado da carga':' (rascunho)'}`:'<span class="x">— Sem laudo do lote ainda (liga sozinho quando sair)</span>'}<br>
       ${okSaldo?'':'<span style="color:#b91c1c;font-weight:800;">✖ O saldo sem QR não tem essa quantidade.</span>'}
     </div>
-    <button class="ap-go" id="ap-go" ${s>0&&okSaldo?'':'disabled'} onclick="criar()">🖨 Criar e imprimir na LaserJet</button>
+    <button class="ap-go" id="ap-go" ${s>0&&okSaldo&&q<=40?'':'disabled'} onclick="criar()">🖨 Criar ${q>1?q+' '+(_ehBag(_P)?'bags':'pallets')+' ':''}e imprimir na LaserJet</button>
     <button class="bt" style="width:100%;margin-top:8px;" onclick="_form=null;renderForm()">Cancelar</button>`;
 }
 async function criar(){
   if(!guardAction(MOD,'create')||!_form) return;
-  const f=_form, g=f.g, s=parseInt(f.sacos,10);
+  const f=_form, g=f.g, s=parseInt(f.sacos,10), q=Math.max(1,Math.min(40,parseInt(f.qtd,10)||1));
   if(!(s>0)) return toast('Informe a quantidade.','warning');
-  if(!(await erpConfirm(`Criar o ${_ehBag(_P)?'bag':'pallet'} nº ${f.prox} de ${_P} (${_dBR(g.data)}, ${g.linha}, lote ${g.lote}) com ${s} ${_ehBag(_P)?'un':'sacos'}${f.origem==='sem_qr'?' tirados do saldo sem QR':''} e imprimir o rótulo?`,{titulo:'🏷️ Criar pallet',ok:'Criar e imprimir',cancelar:'Voltar'}))) return;
+  // (18/11) vários de uma vez: um RPC por pallet (nº seguidos), um único envio para a impressora
+  if(!(await erpConfirm(`Criar ${q>1?q+' '+(_ehBag(_P)?'bags':'pallets')+' (nº '+f.prox+' a '+(f.prox+q-1)+')':'o '+(_ehBag(_P)?'bag':'pallet')+' nº '+f.prox} de ${_P} (${_dBR(g.data)}, ${g.linha}, lote ${g.lote}) com ${s} ${_ehBag(_P)?'un':'sacos'} cada${f.origem==='sem_qr'?' tirados do saldo sem QR':''} e imprimir?`,{titulo:'🏷️ Criar pallet',ok:'Criar e imprimir',cancelar:'Voltar'}))) return;
   const bt=document.getElementById('ap-go'); if(bt){bt.disabled=true;bt.textContent='Criando…';}
-  const {data,error}=await _supabase.rpc('acerto_criar_pallet',{p_produto:_P,p_dia:g.data,p_linha:g.linha,p_sacos:s,p_origem:f.origem,p_usuario:_quem()});
-  if(error){ toast('Não criou: '+error.message,'danger'); if(bt){bt.disabled=false;bt.textContent='🖨 Criar e imprimir na LaserJet';} return; }
-  addLog('CREATE','ACERTO_PALLETS',data.codigo,`Criou ${_ehBag(_P)?'bag':'pallet'} nº ${data.numero} · ${_P} · ${_dBR(g.data)} ${g.linha} · lote ${data.lote} · ${s} ${_ehBag(_P)?'un':'sc'} (${f.origem==='sem_qr'?'saldo sem QR':'produção nova'}) · ${data.status}`);
-  await imprimir([{numero:data.numero,codigo:data.codigo,lote:data.lote,validade:data.validade,dia:g.data,linha:g.linha,produto:_P}],'Rótulo criado — nº '+data.numero);
+  const rows=[];
+  for(let i=0;i<q;i++){
+    const {data,error}=await _supabase.rpc('acerto_criar_pallet',{p_produto:_P,p_dia:g.data,p_linha:g.linha,p_sacos:s,p_origem:f.origem,p_usuario:_quem()});
+    if(error){ toast(`Parou no ${i+1}º: `+error.message,'danger'); break; }
+    addLog('CREATE','ACERTO_PALLETS',data.codigo,`Criou ${_ehBag(_P)?'bag':'pallet'} nº ${data.numero} · ${_P} · ${_dBR(g.data)} ${g.linha} · lote ${data.lote} · ${s} ${_ehBag(_P)?'un':'sc'} (${f.origem==='sem_qr'?'saldo sem QR':'produção nova'}) · ${data.status}`);
+    rows.push({numero:data.numero,codigo:data.codigo,lote:data.lote,validade:data.validade,dia:g.data,linha:g.linha,produto:_P});
+  }
+  if(!rows.length){ if(bt){bt.disabled=false;bt.textContent='🖨 Criar e imprimir na LaserJet';} return; }
+  await imprimir(rows,rows.length>1?`${rows.length} rótulos criados — nº ${rows[0].numero} a ${rows[rows.length-1].numero}`:'Rótulo criado — nº '+rows[0].numero);
   _form=null; await carregar(); _aberto=g.data+'|'+g.linha; render();
 }
 
