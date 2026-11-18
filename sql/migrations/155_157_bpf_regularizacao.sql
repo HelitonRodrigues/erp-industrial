@@ -1,0 +1,9 @@
+-- (18/11/2026) REGULARIZAÇÃO DOS REGISTROS BPF (jun–nov/2026) — aplicadas no Supabase:
+-- 155: bpf_registros.regularizacao (jsonb: carimbo, turno, linha, slots[{id,label,nomes[],assinados[{nome,ref,em}]}] ou pendente/responsavel);
+--      bpf_reg_assinaturas (imagem da assinatura UMA vez por pessoa; registros guardam a referência); bpf_esc/bpf_esc_linha/bpf_esc_encar.
+-- 156: bpf_regularizar_aplicar(): 1.986 registros 'regularizacao' (nomes conforme escala/regras do Heliton; checklist sim/não no valor
+--      conforme; POP18-01 com a faixa de peso sem leitura), 65 REG-POP18-02 cancelados como não aplicável (gatilho g_bigbag desligado),
+--      210 pendentes de verdade (calibração 200, fossa 4, caixa d'água 1, simulado de recall 1, fornecedores em análise 2, reclamações em tratativa 2).
+-- 157: bpf_reg_assinar(nome, img, usuario, declaracao) — assinatura real (data real) de uma pessoa em todos os registros dela;
+--      bpf_reg_concluir(ids, nome, img, usuario, declaracao) — conclusão pela gerência (João Paulo) dos registros com todas as assinaturas.
+-- Designação: Ryan Almeida da Silva (coleta/digitação das fichas, pragas).
