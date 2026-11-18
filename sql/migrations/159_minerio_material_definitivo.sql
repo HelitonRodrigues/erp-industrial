@@ -1,0 +1,4 @@
+-- (18/11/2026) aplicada no Supabase: viagens com o MATERIAL CERTO (material = tipo_mp; antigos CAULIM / CAULIM_BRANCO_2 /
+-- CAULIM_CREME_2 desativados). Nota fica com o material da maior parte das viagens; a tela lista a nota em todo material
+-- que tem viagem nela (22 notas têm mais de um tipo). 'A identificar' = material CAULIM (51 viagens) até ser classificado.
+-- Gatilho tg_minerio_tipo_mp: tipo_mp = material ('A_IDENTIFICAR' para CAULIM); PATIO/vazio → FABRICA.
