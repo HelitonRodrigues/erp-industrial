@@ -443,6 +443,9 @@ async function init() {
       _supabase.from('funcionarios').select('id,nome,cpf,email,funcao,setor,foto,status').order('nome'),
       _supabase.from('linhas_producao').select('id,nome,status').order('nome'),
     ]);
+    // (18/11) quem pode entrar na escala: classificação de pessoas do Custo & Precificação (plano do mês da escala ou o mais próximo)
+    try { const pl = await _supabase.from('planejamentos_custo').select('codigo,mes,ano,status,grupos:estado->grupos,pg:estado->pessoaGrupo').eq('status','ativo');
+      _planosPessoas = (pl.data || []).filter(p => p.pg && Object.keys(p.pg).length); } catch (e) { _planosPessoas = []; }
     _empresa = emp.data || {};
     _turnos = (turnos.data || []).filter(t => !t.status || t.status === 'ativo');
     _funcionarios = (funcs.data || []).filter(f => !f.status || f.status === 'ativo');
@@ -1004,6 +1007,36 @@ function alvoArray() {
   return null; // slots únicos
 }
 
+/* (18/11) A ESCALA só lista encarregados, operadores e serviços gerais da produção. Quem decide é a classificação de pessoas
+   do Custo & Precificação (plano do mês da escala; sem classificação nesse mês, o mês mais próximo — ex.: dezembro):
+   fica de fora quem está em "Fora deste custo", "Administrativos", "Mecânicos" e "Eletricista". Quem não está em grupo
+   (turno das linhas) entra se a função for serviços gerais, operador ou encarregado. Quem já está na escala (qualquer turno,
+   linha, limpeza, férias ou ausência) some da lista — tira-se pelo ✕ do próprio nome. */
+let _planosPessoas = [];
+const _FUNC_ESCALA = /servi[cç]os?\s*gerais|operador|encarregad/i;
+const _GRUPO_FORA = /fora|admin|mec[aâ]nic|eletric/i;
+function _planoPessoasDaEscala() {
+  if (!_planosPessoas.length) return null;
+  const v = (document.getElementById('esc-inicio') || {}).value || new Date().toISOString().slice(0, 10);
+  const alvo = Number(v.slice(0, 4)) * 12 + Number(v.slice(5, 7));
+  return _planosPessoas.slice().sort((a, b) => { const da = Math.abs(a.ano * 12 + a.mes - alvo), db = Math.abs(b.ano * 12 + b.mes - alvo);
+    return da - db || (b.ano * 12 + b.mes) - (a.ano * 12 + a.mes); })[0];
+}
+function elegivelEscala(u) {
+  const pl = _planoPessoasDaEscala();
+  if (pl) { const gid = pl.pg[u.id];
+    if (gid) { const g = (pl.grupos || []).find(x => x.id === gid) || { id: gid, nome: gid };
+      return !(g.regra === 'fora' || _GRUPO_FORA.test(g.nome || '') || gid === 'fora'); } }
+  return _FUNC_ESCALA.test(u.funcao || u.setor || '');
+}
+function idsNaEscala() {
+  const ids = new Set(); if (!_draft) return ids;
+  const add = m => { if (m && m.funcionario_id) ids.add(String(m.funcionario_id)); };
+  const turno = d => { if (!d) return; add(d.encarregado); add(d.operador); (d.linhas || []).forEach(l => (l.membros || []).forEach(add));
+    ['limpeza', 'ferias', 'ausencias'].forEach(k => (d[k] || []).forEach(add)); };
+  turno(_draft); if (_draft.doisTurnos) turno(_draft.t2); if (_draft.tresTurnos) turno(_draft.t3);
+  return ids;
+}
 function jaAdicionado(uid) {
   const t = _pickerCtx.type;
   const d = tD(_pickerCtx.tk);
@@ -1014,9 +1047,11 @@ function jaAdicionado(uid) {
 
 function renderPicker() {
   const busca = norm(document.getElementById('picker-busca')?.value);
-  const lista = _funcionarios.filter(u => !busca || norm(u.nome).includes(busca) || norm(u.email).includes(busca) || norm(u.funcao).includes(busca));
+  const naEscala = idsNaEscala();
+  const lista = _funcionarios.filter(u => elegivelEscala(u) && !naEscala.has(String(u.id)))
+    .filter(u => !busca || norm(u.nome).includes(busca) || norm(u.email).includes(busca) || norm(u.funcao).includes(busca));
   const cont = document.getElementById('picker-list');
-  if (!lista.length) { cont.innerHTML = '<div style="padding:16px;text-align:center;color:#94a3b8;font-size:13px;">Nenhum funcionário encontrado.</div>'; return; }
+  if (!lista.length) { cont.innerHTML = '<div style="padding:16px;text-align:center;color:#94a3b8;font-size:13px;">'+(busca?'Nenhum funcionário encontrado.':'Todos os encarregados, operadores e serviços gerais já estão nesta escala.')+'</div>'; return; }
   cont.innerHTML = lista.map(u => {
     const added = jaAdicionado(u.id);
     return `<div class="esc-pick-row ${added ? 'added' : ''}" onclick="pickFuncionario('${u.id}')">
