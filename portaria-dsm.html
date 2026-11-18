@@ -275,7 +275,22 @@ const minEntre=(a,b)=>a&&b?Math.round((Date.parse(b)-Date.parse(a))/60000):null;
 function carregarScript(src){return new Promise((ok,er)=>{const s=document.createElement('script');s.src=src;s.onload=ok;s.onerror=er;document.head.appendChild(s);});}
 // limites de alerta da fila (minutos): espera e permanência
 const SLA={espera_alerta:60,espera_critico:120,perm_alerta:180,perm_critico:300};
-let _sete=[],_cam=[],_hoje=[],_fat=[],_hist=[],_res=null,_aba='fila',_graf={},_histCert={};
+let _sete=[],_cam=[],_hoje=[],_fat=[],_hist=[],_res=null,_aba='fila',_graf={},_histCert={},_histLote={};
+/* (18/11) Histórico: o porteiro pode TROCAR O LOTE (e com ele o laudo) de um caminhão que já saiu — lista os lotes do silo
+   (✅ = laudo liberado). Troca → o certificado religa sozinho (gatilho da 145). */
+function histLoteHtml(x){
+  const atual=_histLote[x.id]||'', ls=[...new Set([atual,...(_dsmLotesDisp||[]).map(y=>y.lote)].filter(Boolean))];
+  const lib=l=>(_dsmLotesDisp.find(y=>y.lote===l)||{}).lib, rot=l=>{const y=_dsmLotesDisp.find(z=>z.lote===l);return y?y.rot.replace('Hoje','hoje'):l.slice(6,8)+'/'+l.slice(4,6);};
+  const sel=`<select title="Lote do granel deste caminhão (✅ = laudo liberado)" style="font-size:11.5px;padding:3px 4px;border-radius:7px;border:1px solid #cbd5e1;max-width:150px;" onchange="dsmSetLoteHist('${x.id}',this.value)">${atual?'':'<option value="">— lote —</option>'}${ls.map(l=>`<option value="${l}" ${l===atual?'selected':''}>${lib(l)?'✅ ':'⏳ '}${rot(l)} · ${l}</option>`).join('')}</select>`;
+  return `<span style="display:inline-flex;gap:4px;align-items:center;">${sel}${_histCert[x.id]?`<button class="btn btn-ghost btn-sm" title="Certificado do granel" onclick="dsmCert('${x.id}')">📜</button>`:`<span title="O laudo deste lote ainda não foi liberado — escolha um lote com ✅ ou peça ao laboratório" style="font-size:10.5px;font-weight:800;background:#fef3c7;color:#92400e;border-radius:99px;padding:2px 7px;white-space:nowrap;">aguardando lab</span>`}</span>`;
+}
+async function dsmSetLoteHist(id,lote){
+  if(!lote) return;
+  if(!(await erpConfirm(`Trocar o lote deste caminhão para ${lote}? O certificado passa a ser o laudo desse lote.`,{titulo:'🧪 Lote do granel',ok:'Trocar',cancelar:'Voltar'}))){ renderHist(); return; }
+  const {error}=await _supabase.from('dsm_caminhoes').update({lote_granel:lote}).eq('id',id);
+  if(error){toast('Não trocou o lote: '+error.message,'danger');return;}
+  toast('Lote trocado para '+lote,'success'); await carregarHist();
+}
 
 /* ═══ CARGA E ABAS ═══ */
 async function carregarPatio(){
@@ -1265,8 +1280,10 @@ async function carregarHist(){
   const {data,error}=await _supabase.from('dsm_faturamento').select('*').gte('recepcao_em',ini+'T00:00:00-03:00').lte('recepcao_em',fim+'T23:59:59-03:00').order('recepcao_em',{ascending:false}).limit(5000);
   if(error){toast(error.message,'danger');return;}_hist=data||[];
   // (18/11) quais caminhões do histórico já têm certificado ligado (📜) — os outros mostram "aguardando laboratório"
-  _histCert={}; try{ const ids=_hist.filter(x=>x.status==='saiu').map(x=>'dsm:'+x.id);
-    for(let k=0;k<ids.length;k+=150){ const {data:lk}=await _supabase.from('lab_laudo_carregamentos').select('obs').in('obs',ids.slice(k,k+150)); (lk||[]).forEach(r=>_histCert[r.obs.slice(4)]=1); } }catch(e){}
+  _histCert={}; _histLote={}; try{ const sai=_hist.filter(x=>x.status==='saiu'), ids=sai.map(x=>'dsm:'+x.id);
+    for(let k=0;k<ids.length;k+=150){ const {data:lk}=await _supabase.from('lab_laudo_carregamentos').select('obs').in('obs',ids.slice(k,k+150)); (lk||[]).forEach(r=>_histCert[r.obs.slice(4)]=1); }
+    for(let k=0;k<sai.length;k+=150){ const {data:lt}=await _supabase.from('dsm_caminhoes').select('id,lote_granel').in('id',sai.slice(k,k+150).map(x=>x.id)); (lt||[]).forEach(r=>_histLote[r.id]=r.lote_granel); }
+    if(!_dsmLotesDisp.length) await dsmCarregarLotes(); }catch(e){}
   renderHist();
 }
 const SIT={patio:['Na fila','badge-warning'],carregando:['Carregando','badge-success'],aguardando_nf:['Aguardando NF','badge-info'],saiu:['Saiu','badge-gray'],cancelado:['Cancelado','badge-danger']};
@@ -1278,7 +1295,7 @@ function renderHist(){
   document.getElementById('h-b').innerHTML=l.length?l.map(x=>{const s=SIT[x.status]||[x.status,'badge-gray'];return `<tr><td>${dh(x.recepcao_em)}</td><td><b>${esc(x.placa)}</b><div class="mini">${esc(x.modelo||'')}</div></td><td>${esc(x.motorista)}<div class="mini">${esc(x.celular||'')}</div></td>
     <td>${esc(x.ordem||'—')}<div class="mini">${x.nf_numero?'NF '+esc(x.nf_numero):''}</div></td><td><span class="badge ${s[1]}">${s[0]}</span>${x.correcoes?` <span class="mini" style="color:#b45309;">🕘 ${x.correcoes}</span>`:''}</td>
     <td class="num">${(lq=>lq!=null?`<b>${nf(lq)} kg</b><div class="mini">${nf(lq/1000,2)} t</div>`:'—')(liqH(x))}</td>
-    <td class="num">${hmin(x.min_total)}</td><td class="mini">${esc(x.recepcao_por||'')}</td><td style="white-space:nowrap;"><button class="btn btn-ghost btn-sm" onclick="detalhe('${x.id}')">👁️</button>${x.status==='saiu'?(_histCert[x.id]?`<button class="btn btn-ghost btn-sm" title="Certificado do granel" onclick="dsmCert('${x.id}')">📜</button>`:`<span title="O laboratório ainda não liberou o laudo do lote deste caminhão" style="font-size:10.5px;font-weight:800;background:#fef3c7;color:#92400e;border-radius:99px;padding:2px 7px;white-space:nowrap;">aguardando lab</span>`):''}</td></tr>`;}).join('')+
+    <td class="num">${hmin(x.min_total)}</td><td class="mini">${esc(x.recepcao_por||'')}</td><td style="white-space:nowrap;"><button class="btn btn-ghost btn-sm" onclick="detalhe('${x.id}')">👁️</button>${x.status==='saiu'?histLoteHtml(x):''}</td></tr>`;}).join('')+
     (()=>{const t=l.reduce((a,x)=>a+(liqH(x)||0),0),n=l.filter(x=>liqH(x)!=null).length;return n?`<tr style="background:#eef6ff;font-weight:800;"><td colspan="5">TOTAL · ${n} caminhão(ões) pesado(s)</td><td class="num">${nf(t)} kg<div class="mini">${nf(t/1000,2)} t</div></td><td colspan="3"></td></tr>`:'';})()
     :'<tr><td colspan="9" style="text-align:center;color:#94a3b8;padding:18px;">Nada no período.</td></tr>';
 }
