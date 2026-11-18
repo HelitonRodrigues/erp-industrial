@@ -261,7 +261,8 @@
       w.document.write('<p style="font-family:sans-serif;padding:20px;">Abrindo certificado '+E(l.numero||'')+'…</p>');
       const [{data:blob,error},lk]=await Promise.all([_supabase.storage.from('documentos').download(l.arquivo_path),
         linkId?_supabase.from('lab_laudo_carregamentos').select('*').eq('id',linkId).single():Promise.resolve({data:null})]);
-      if(error||!blob){w.close();toast('Não consegui abrir o arquivo do certificado: '+(error&&error.message||''),'danger');return;}
+      if(error||!blob){ if(w0){ w.document.open(); w.document.write('<p style="font-family:sans-serif;padding:24px;font-size:16px;">Não consegui abrir o arquivo do certificado '+E(l.numero||'')+': '+E(error&&error.message||'arquivo vazio')+'</p>'); w.document.close(); }
+        else { w.close(); toast('Não consegui abrir o arquivo do certificado: '+(error&&error.message||''),'danger'); } return; }
       let html=await blob.text();
       if(lk&&lk.data){
         const marca='<div class="sec">Identificação do produto</div>';
