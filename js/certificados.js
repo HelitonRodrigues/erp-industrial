@@ -252,10 +252,12 @@
       const sm=el.querySelector('summary'); if(sm&&us.length)sm.textContent=`📦 ${us.length} ${us[0].tipo==='bag'?(us.length===1?'bag':'bags'):(us.length===1?'pallet':'pallets')} deste certificado — ${UNI(us[0].tipo).toLowerCase()} ${certFaixas(us.map(u=>u.n))}`;
     }catch(e){ el.dataset.ok=''; box.textContent='Não consegui carregar a lista: '+(e.message||e); }
   };
-  window.certImprimir=async function(laudoId,linkId){
+  // (18/11) w0 = janela aberta NO CLIQUE (antes de qualquer await): depois de um await o navegador bloqueia o pop-up e
+  // "nada acontecia" (portaria DSM). Sem w0 continua como antes.
+  window.certImprimir=async function(laudoId,linkId,w0){
     const {data:l}=await _supabase.from('lab_laudos').select('id,numero,arquivo_path,status,lote,produto').eq('id',laudoId).single();
     if(l&&l.arquivo_path){
-      const w=window.open('','_blank'); if(!w){toast('Permita pop-ups para imprimir o certificado.','warning');return;}
+      const w=w0||window.open('','_blank'); if(!w){toast('Permita pop-ups para imprimir o certificado.','warning');return;}
       w.document.write('<p style="font-family:sans-serif;padding:20px;">Abrindo certificado '+E(l.numero||'')+'…</p>');
       const [{data:blob,error},lk]=await Promise.all([_supabase.storage.from('documentos').download(l.arquivo_path),
         linkId?_supabase.from('lab_laudo_carregamentos').select('*').eq('id',linkId).single():Promise.resolve({data:null})]);
@@ -279,8 +281,13 @@
       setTimeout(()=>{try{w.certFit&&w.certFit();w.focus();w.print();}catch(e){}},900);
       return;
     }
-    // laudo sem arquivo (finalizado antes da 051): o laboratório monta e grava na hora
-    window.open('laboratorio.html?laudo='+encodeURIComponent(laudoId)+'&imprimir=1','_blank');
+    // laudo sem arquivo (finalizado antes da 051): o laboratório monta e grava na hora — só quem tem acesso ao Laboratório;
+    // os demais (portaria) recebem o aviso (o laboratório grava as folhas que faltam sozinho ao abrir a aba Laudo)
+    const temLab=typeof checkPerm!=='function'||checkPerm('laboratorio','view');
+    if(!temLab){ const msg='O certificado '+E((l&&l.numero)||'')+' ainda não tem a folha pronta para imprimir. Peça ao laboratório para abrir a aba Laudo (ela grava sozinha) e tente de novo.';
+      if(w0){ w0.document.open(); w0.document.write('<p style="font-family:sans-serif;padding:24px;font-size:16px;line-height:1.5;">⏳ '+msg+'</p>'); w0.document.close(); } else toast(msg,'warning'); return; }
+    const url='laboratorio.html?laudo='+encodeURIComponent(laudoId)+'&imprimir=1';
+    if(w0) w0.location.href=url; else window.open(url,'_blank');
   };
 
   /* bloco pronto para telas: um certificado por lote, com a quantidade dele nesta carga */
