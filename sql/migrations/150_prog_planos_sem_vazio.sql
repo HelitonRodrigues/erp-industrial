@@ -1,0 +1,3 @@
+-- (18/11/2026) prog_planos: só planos ativos COM linhas (blocos) e o completo (custo/t > 0) primeiro — um plano em branco do mês
+-- (CP-0018) fazia a Programação de Cargas mostrar 'linha parada' em todos os dias. Aplicada no Supabase (150_prog_planos_sem_vazio).
+-- (18/11/2026) prog_publico (link dos representantes): mesmo filtro da 150 — só plano ativo com linhas (blocos). Aplicado no Supabase.
