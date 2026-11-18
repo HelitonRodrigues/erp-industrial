@@ -451,6 +451,7 @@ body.bpf-op [onclick*="togGatilho"],body.bpf-op [onclick*="alternarTrava"]{displ
     <button class="bx-area" data-area="docs" id="tab-documentos" onclick="ir('documentos')">📁 POPs &amp; Documentos</button>
     <button class="bx-area" data-area="regs" onclick="ir('registros')">📝 Registros</button>
     <button class="bx-area" data-area="assin" id="btn-assin" onclick="ir('assinaturas')">✍️ Assinaturas <span class="bx-bd" id="bx-bd-assin"></span></button>
+    <button class="bx-area" data-area="regul" onclick="ir('regularizacao')">🧾 Regularização</button>
     <button class="bx-area" data-area="oco" id="tab-ncs" onclick="ir('ncs')">⚠️ NCs</button>
     <button class="bx-area" data-area="pes" id="tab-treinamentos" onclick="ir('treinamentos')">🎓 Treinamentos</button>
     <div class="bx-mais-wrap">
@@ -997,6 +998,10 @@ async function carregar(){
   const todosRegs=await selectTodos(_supabase.from('bpf_registros').select('*').order('data',{ascending:false}),{max:50000}).then(r=>r.data||[]).catch(()=>[]);
   const m=new Map();todosRegs.forEach(r=>m.set(r.id,r));
   _regs=[...m.values()].sort((a,b)=>String(b.data).localeCompare(String(a.data)));
+  // (18/11) regularização: a imagem da assinatura fica uma vez só em bpf_reg_assinaturas; o registro guarda a referência
+  try{ const refs=[...new Set(_regs.flatMap(r=>(r.assinaturas||[]).filter(a=>a&&a.ref&&!a.img).map(a=>a.ref)))];
+    if(refs.length){ const mp={}; for(let k=0;k<refs.length;k+=100){ const {data}=await _supabase.from('bpf_reg_assinaturas').select('id,img').in('id',refs.slice(k,k+100)); (data||[]).forEach(x=>mp[x.id]=x.img); }
+      _regs.forEach(r=>(r.assinaturas||[]).forEach(a=>{ if(a&&a.ref&&mp[a.ref]) a.img=mp[a.ref]; })); } }catch(e){ console.warn('[regularização] imagens',e); }
 
   // Camada de fila (002_bpf_fila.sql). Se as tabelas ainda não existem, o
   // módulo continua funcionando exatamente como antes — só sem fila.
@@ -1311,12 +1316,12 @@ function ir(sec){
   ({painel:renderPainel,registros:renderRegistros,documentos:renderDocs,travas:renderTravas,
     ncs:renderNCs,auditorias:renderAuditorias,treinamentos:renderTreinamentos,
     assinaturas:renderAssinaturas,fichas:renderFichas,canal:()=>renderCanal(),
-    fila:renderFila,gatilhos:renderGatilhos,dossie:renderDossie}[sec]||renderPainel)();
+    fila:renderFila,gatilhos:renderGatilhos,dossie:renderDossie,regularizacao:renderRegularizacao}[sec]||renderPainel)();
   marcarArea(sec);
 }
 // Área do menu de cima que corresponde à tela aberta — antes nenhuma ficava marcada.
 const AREA_DA_SECAO={painel:'inicio',fila:'inicio',documentos:'docs',doc:'docs',pop:'docs',registros:'regs',
-  assinaturas:'assin',ncs:'oco',treinamentos:'pes'};
+  assinaturas:'assin',ncs:'oco',treinamentos:'pes',regularizacao:'regul'};
 const NOME_MAIS={auditorias:'Auditorias',fichas:'Fichas',dossie:'Dossiê',canal:'Canal',gatilhos:'Gatilhos',travas:'Travas',ent:'Cadastros'};
 function marcarArea(sec){
   const area=AREA_DA_SECAO[sec]||'mais';
@@ -1637,6 +1642,7 @@ function nomeUsuarioLogado(){ const u=getUser()||{}; return u.nome||u.usuario||u
 function regLancado(r){ return !!r.lancado_em||['aguardando_assinatura','nao_conforme','concluido'].includes(r.status); }
 function etapaReg(r){
   if(r.cancelado_em||r.status==='cancelado')return 'cancelado';
+  if(r.status==='regularizacao')return 'regularizacao';   // (18/11) fora da fila do Ryan: aguarda as assinaturas da regularização
   if(r.status==='concluido')return 'concluido';
   if(!regLancado(r))return (r.ficha_impressa_em||r.status==='rascunho'||r.status==='a_digitar')?'a_digitar':'a_preencher';
   if(!r.foto_ficha&&!formSemPapel(r.formulario_cod)&&concluiComAnexo(r.formulario_cod))return 'falta_foto';   // foto só é obrigatória aqui
@@ -1646,7 +1652,7 @@ function etapaReg(r){
 function abrirReg(id){
   const r=_regs.find(x=>x.id===id);if(!r)return;
   const e=etapaReg(r);
-  if(e==='concluido'||e==='cancelado')verRegistro(id);else abrirRegistroFluxo(id);
+  if(e==='concluido'||e==='cancelado'||e==='regularizacao')verRegistro(id);else abrirRegistroFluxo(id);
 }
 function resumoReg(r){
   const c=r.campos||{};
@@ -2181,6 +2187,7 @@ async function verRegistro(id){
   document.getElementById('m-ver-body').innerHTML=`
     ${r.cancelado_em?`<div class="alerta al-dang"><strong>Registro cancelado</strong> em ${fmtDH(r.cancelado_em)} por ${esc(r.cancelado_por||'—')}.<br>
       Motivo: ${esc(r.cancelado_motivo||'—')}<div style="margin-top:4px;font-size:11px;">Preservado por 4 anos (SYS-003). Cancelar não apaga.</div></div>`:''}
+    ${regBannerHtml(r)}
     ${desvios.length?`<div class="alerta al-dang"><strong>${desvios.length} desvio(s):</strong>
       ${desvios.map(d=>`<div>• ${esc(d.campo)} — esperado <strong>${esc(d.esperado)}</strong>, obtido <strong>${esc(d.obtido)}</strong></div>`).join('')}</div>`:''}
     <div class="sec-card"><h3>${esc(f?.titulo||r.formulario_cod)}</h3>
@@ -2389,6 +2396,99 @@ function podeAssinar(pend){
     (!d.pop_cod||d.pop_cod===pend.reg.pop_cod)&&d.funcionario_nome===u.nome&&
     (!d.data_fim||d.data_fim>=hoje()));
 }
+/* ═══ REGULARIZAÇÃO DOS REGISTROS (18/11/2026) ════════════════════════════════════════════════════════════════
+   Registros de jun–nov/2026 que não foram feitos na época: preenchidos conforme a escala (migração 156), status
+   'regularizacao'. Cada responsável confirma com a PRÓPRIA assinatura (data real) todos os registros dele de uma vez
+   (RPC bpf_reg_assinar); por último a gerência (João Paulo) confere e conclui (RPC bpf_reg_concluir). Pendentes de
+   verdade (calibração, fossa, caixa d'água, simulado de recall, fornecedores em análise, reclamações em tratativa)
+   seguem a_preencher com o motivo em regularizacao.pendente. */
+const _ehGerenteReg=()=>{ const u=getUser()||{}; return /jo[aã]o\s*paulo/i.test(u.nome||'')||/joaopaulo@/i.test(u.email||''); };
+function regBannerHtml(r){
+  const g=r.regularizacao; if(!g) return '';
+  if(g.pendente) return `<div class="alerta al-warn"><strong>⏳ Pendente de verdade</strong> — ${esc(g.pendente)}<div style="font-size:11.5px;margin-top:3px;">Responsável: ${esc(g.responsavel||'—')}</div></div>`;
+  const sl=(g.slots||[]).map(s=>`<div style="margin-top:3px;"><b>${esc(s.label||s.id)}:</b> ${(s.nomes||[]).length?(s.nomes||[]).map(n=>{const a=(s.assinados||[]).find(x=>x.nome===n);return a?`✅ ${esc(n)} <span style="color:#64748b;">(confirmou em ${fmtDH(a.em)})</span>`:`⏳ ${esc(n)}`;}).join(' · '):'<span style="color:#94a3b8;">sem responsável na escala</span>'}</div>`).join('');
+  return `<div class="alerta al-info"><strong>🧾 Regularização</strong> — ${esc(g.carimbo||'')}
+    ${g.concluido_por?`<div style="margin-top:4px;"><b>Concluído pela gerência:</b> ${esc(g.concluido_por)} em ${fmtDH(g.concluido_em)}</div>`:''}
+    <div style="font-size:12px;margin-top:6px;">${sl}</div></div>`;
+}
+function _regPessoas(){
+  const mp={};
+  _regs.filter(r=>r.status==='regularizacao'&&r.regularizacao).forEach(r=>(r.regularizacao.slots||[]).forEach(s=>(s.nomes||[]).forEach(n=>{
+    const p=mp[n]=mp[n]||{nome:n,falta:[],feito:0}; if((s.assinados||[]).some(a=>a.nome===n)) p.feito++; else if(!p.falta.includes(r)) p.falta.push(r); })));
+  return Object.values(mp).sort((a,b)=>b.falta.length-a.falta.length||a.nome.localeCompare(b.nome));
+}
+const _regPronto=r=>r.status==='regularizacao'&&!(r.regularizacao?.slots||[]).some(s=>(s.nomes||[]).some(n=>!(s.assinados||[]).some(a=>a.nome===n)));
+function renderRegularizacao(){
+  cab('BPF / SGQ','🧾 Regularização dos registros (jun–nov/2026)','');
+  const em=_regs.filter(r=>r.status==='regularizacao'), prontos=em.filter(_regPronto),
+    concl=_regs.filter(r=>r.status==='concluido'&&r.regularizacao&&r.regularizacao.concluido_por),
+    pend=_regs.filter(r=>r.status!=='concluido'&&!r.cancelado_em&&r.regularizacao&&r.regularizacao.pendente),
+    pes=_regPessoas(), fNome=c=>(_forms.find(x=>x.codigo===c)||{}).titulo||c;
+  const porMes={}; [...em,...concl].forEach(r=>{const k=String(r.data).slice(0,7); const o=porMes[k]=porMes[k]||{a:0,p:0,c:0}; if(r.status==='concluido')o.c++; else if(_regPronto(r))o.p++; else o.a++;});
+  const pendF={}; pend.forEach(r=>{const k=r.formulario_cod; (pendF[k]=pendF[k]||{n:0,mot:r.regularizacao.pendente,resp:r.regularizacao.responsavel}).n++;});
+  document.getElementById('conteudo').innerHTML=`
+  <div class="alerta al-info">Registros que <b>não foram feitos na época</b> foram preenchidos conforme a escala, com o carimbo da regularização. Agora <b>cada responsável confirma com a própria assinatura</b> (uma vez, para todos os registros dele) e, por último, a <b>gerência (João Paulo)</b> confere e conclui. As datas das assinaturas são as reais.</div>
+  <div class="kpis">
+    <div class="kpi warn"><div class="v">${em.length-prontos.length}</div><div class="l">Aguardando assinaturas</div></div>
+    <div class="kpi ${prontos.length?'warn':'ok'}"><div class="v">${prontos.length}</div><div class="l">Prontos para a gerência</div></div>
+    <div class="kpi ok"><div class="v">${concl.length}</div><div class="l">Concluídos</div></div>
+    <div class="kpi"><div class="v">${pend.length}</div><div class="l">Pendentes de verdade</div></div>
+  </div>
+  ${prontos.length?`<div class="sec-card" style="border:2px solid #16a34a;"><h3>✅ Conclusão pela gerência</h3>
+    <div class="sub">${prontos.length} registro(s) com todas as assinaturas dos responsáveis — prontos para o João Paulo conferir e concluir.</div>
+    <div style="margin-top:8px;">${_ehGerenteReg()?`<button class="btn btn-primary" onclick="regConcluirGerencia()">✍️ Conferir e concluir (${prontos.length})</button>`:'<span class="badge badge-warning">aguardando o login do João Paulo</span>'}</div></div>`:''}
+  <div class="sec-card"><h3>✍️ Quem precisa assinar</h3><div class="sub">Cada pessoa assina uma vez para todos os registros dela. Imprima a lista para ir chamando.</div>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Pessoa</th><th style="text-align:right;">Falta assinar</th><th style="text-align:right;">Já assinou</th><th></th></tr></thead><tbody>
+    ${pes.map(p=>`<tr><td><b>${esc(p.nome)}</b></td><td style="text-align:right;">${p.falta.length?`<b style="color:#b45309;">${p.falta.length}</b>`:'—'}</td><td style="text-align:right;">${p.feito||'—'}</td>
+      <td style="white-space:nowrap;text-align:right;">${p.falta.length?`<button class="btn btn-primary btn-sm" onclick="regAssinarPessoa('${esc(p.nome).replace(/'/g,"\\'")}')">✍️ Assinar</button> <button class="btn btn-secondary btn-sm" onclick="regImprimirLista('${esc(p.nome).replace(/'/g,"\\'")}')">🖨️ Lista</button>`:'<span class="badge badge-success">em dia</span>'}</td></tr>`).join('')||'<tr><td colspan="4" style="color:#94a3b8;">Ninguém pendente.</td></tr>'}
+    </tbody></table></div>
+    <div style="margin-top:8px;"><button class="btn btn-secondary btn-sm" onclick="regImprimirLista('')">🖨️ Imprimir a lista de todos</button></div></div>
+  <div class="sec-card"><h3>📅 Por mês</h3><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Mês</th><th style="text-align:right;">Aguardando assinaturas</th><th style="text-align:right;">Prontos p/ gerência</th><th style="text-align:right;">Concluídos</th></tr></thead><tbody>
+    ${Object.keys(porMes).sort().map(k=>`<tr><td>${k.slice(5)}/${k.slice(0,4)}</td><td style="text-align:right;">${porMes[k].a}</td><td style="text-align:right;">${porMes[k].p}</td><td style="text-align:right;">${porMes[k].c}</td></tr>`).join('')}</tbody></table></div></div>
+  <div class="sec-card"><h3>⏳ Pendentes de verdade (não regularizados — precisam ser feitos)</h3><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Formulário</th><th style="text-align:right;">Qtd</th><th>Motivo</th><th>Responsável</th></tr></thead><tbody>
+    ${Object.entries(pendF).map(([k,o])=>`<tr><td><b>${esc(fNome(k))}</b><div class="bx-mu" style="font-size:10.5px;">${esc(k)}</div></td><td style="text-align:right;">${o.n}</td><td>${esc(o.mot)}</td><td>${esc(o.resp||'—')}</td></tr>`).join('')||'<tr><td colspan="4" style="color:#94a3b8;">Nenhum.</td></tr>'}</tbody></table></div></div>`;
+}
+function _regLinhasHtml(lst){
+  const fNome=c=>(_forms.find(x=>x.codigo===c)||{}).titulo||c;
+  return lst.slice().sort((a,b)=>String(a.data).localeCompare(String(b.data))).map(r=>`<tr><td style="white-space:nowrap;">${fmtD(r.data)}</td><td>${esc(r.regularizacao?.turno||'')}</td><td>${esc(r.regularizacao?.linha||'')}</td><td>${esc(fNome(r.formulario_cod))}</td><td>${esc(r.numero)}</td><td>✅ conforme</td></tr>`).join('');
+}
+async function regAssinarPessoa(nome){
+  if(!guardAction('bpf','edit'))return;
+  const p=_regPessoas().find(x=>x.nome===nome); if(!p||!p.falta.length)return;
+  const decl=`Eu, ${nome}, confirmo que executei/acompanhei as atividades dos ${p.falta.length} registro(s) listados, nas datas e turnos indicados em cada um, e que estavam conformes (sem avarias ou ocorrências). Assino hoje, na regularização dos registros BPF.`;
+  const ok=await uiConfirma(`<div style="font-size:13px;margin-bottom:8px;"><b>${esc(nome)}</b> — ${p.falta.length} registro(s) para confirmar:</div>
+    <div style="max-height:46vh;overflow:auto;border:1px solid #e2e8f0;border-radius:8px;"><table class="tbl" style="font-size:12px;"><thead><tr><th>Data</th><th>Turno</th><th>Linha</th><th>Formulário</th><th>Nº</th><th>Checklist</th></tr></thead><tbody>${_regLinhasHtml(p.falta)}</tbody></table></div>
+    <div class="alerta al-info" style="margin-top:10px;font-size:12.5px;">${esc(decl)}</div>
+    <div style="font-size:11.5px;color:#64748b;">A assinatura é gravada com a data e hora de agora. Assine só se for <b>${esc(nome)}</b> assinando.</div>`,{titulo:'✍️ Confirmar registros',ok:'Li e confirmo — assinar'});
+  if(!ok)return;
+  const img=await padAssinatura({titulo:'Regularização BPF — '+nome,quem:nome,funcao:p.falta.length+' registro(s)'}); if(!img)return;
+  const u=getUser()||{};
+  const {data,error}=await _supabase.rpc('bpf_reg_assinar',{p_nome:nome,p_img:img,p_usuario:u.nome||u.email||'',p_declaracao:decl});
+  if(error){ await uiAlerta('Não gravou: '+esc(error.message),{titulo:'Erro',tipo:'dang'}); return; }
+  toast(`${nome}: ${data.registros} registro(s) assinados.`,'success'); await carregar(); ir('regularizacao');
+}
+async function regConcluirGerencia(){
+  if(!_ehGerenteReg()){ await uiAlerta('A conclusão é da gerência (João Paulo), com o login dele.',{titulo:'Gerência',tipo:'warn'}); return; }
+  const prontos=_regs.filter(_regPronto); if(!prontos.length)return;
+  const u=getUser()||{}, nome=u.nome||'João Paulo';
+  const porF={}; prontos.forEach(r=>{const k=(_forms.find(x=>x.codigo===r.formulario_cod)||{}).titulo||r.formulario_cod; porF[k]=(porF[k]||0)+1;});
+  const decl=`Eu, ${nome}, responsável pela empresa, conferi os ${prontos.length} registro(s) regularizados (com a confirmação dos responsáveis) e declaro que as atividades foram realizadas e estavam conformes no período. Conclusão em ${new Date().toLocaleDateString('pt-BR')}.`;
+  const ok=await uiConfirma(`<div style="max-height:40vh;overflow:auto;"><table class="tbl" style="font-size:12px;"><tbody>${Object.entries(porF).map(([k,n])=>`<tr><td>${esc(k)}</td><td style="text-align:right;"><b>${n}</b></td></tr>`).join('')}</tbody></table></div>
+    <div class="alerta al-info" style="margin-top:10px;font-size:12.5px;">${esc(decl)}</div>`,{titulo:'✅ Conclusão pela gerência',ok:'Conferi — assinar e concluir'});
+  if(!ok)return;
+  const img=await padAssinatura({titulo:'Conclusão da regularização BPF',quem:nome,funcao:'Gerência'}); if(!img)return;
+  const {data,error}=await _supabase.rpc('bpf_reg_concluir',{p_ids:prontos.map(r=>r.id),p_nome:nome,p_img:img,p_usuario:u.email||nome,p_declaracao:decl});
+  if(error){ await uiAlerta('Não concluiu: '+esc(error.message),{titulo:'Erro',tipo:'dang'}); return; }
+  toast(`${data.concluidos} registro(s) concluídos.`,'success'); await carregar(); ir('regularizacao');
+}
+function regImprimirLista(nome){
+  const ps=_regPessoas().filter(p=>p.falta.length&&(!nome||p.nome===nome)); if(!ps.length)return;
+  const w=window.open('','_blank'); if(!w){toast('Permita pop-ups para imprimir.','warning');return;}
+  w.document.write(`<html><head><meta charset="utf-8"><title>Regularização BPF — lista</title><style>body{font-family:Arial,sans-serif;font-size:12px;margin:18mm}h2{margin:0 0 4px}table{width:100%;border-collapse:collapse;margin:6px 0 18px}td,th{border:1px solid #ccc;padding:4px 6px;text-align:left}th{background:#042D4D;color:#fff}.pg{page-break-after:always}</style></head><body>
+    ${ps.map(p=>`<div class="pg"><h2>Regularização BPF — ${esc(p.nome)}</h2><div>${p.falta.length} registro(s) para confirmar no tablet (BPF › 🧾 Regularização › ✍️ Assinar).</div>
+      <table><thead><tr><th>Data</th><th>Turno</th><th>Linha</th><th>Formulário</th><th>Nº</th><th>Checklist</th></tr></thead><tbody>${_regLinhasHtml(p.falta)}</tbody></table></div>`).join('')}
+    </body></html>`); w.document.close(); setTimeout(()=>{w.focus();w.print();},500);
+}
 function renderAssinaturas(){
   cab('BPF / SGQ','Assinaturas pendentes','');
   // quem não é Qualidade só vê as assinaturas da própria função
@@ -2539,7 +2639,7 @@ function badgeEtapa(r){
   return `<span class="bx-tg" style="background:${m.cor}22;color:${m.cor};">${m.t}</span>${r.conforme===false?' <span class="badge badge-danger">NC</span>':''}`;
 }
 function badgeStatus(s){
-  const m={rascunho:['gray','rascunho'],aguardando_assinatura:['warning','aguard. assinatura'],
+  const m={rascunho:['gray','rascunho'],aguardando_assinatura:['warning','aguard. assinatura'],regularizacao:['info','regularização'],
     concluido:['success','concluído'],nao_conforme:['danger','não conforme'],cancelado:['gray','cancelado']};
   const [c,t]=m[s]||['gray',s||'—'];
   return `<span class="badge badge-${c}">${t}</span>`;
