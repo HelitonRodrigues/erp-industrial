@@ -4454,6 +4454,18 @@ async function carregarLaudos(mesForcado){
   else renderLaudoTab();
   // abriu o mês na aba: lote já todo aprovado e ainda sem laudo → gera agora (na fila, um de cada vez)
   if(!forcado&&!_todasFalhas.length) _lauEnfileirar(()=>_lauGerarMes(mes));
+  // (18/11) laudo FINALIZADO sem a folha no Storage (antes da 051, ex.: granel da DSM): grava agora — a portaria só imprime dela
+  if(!forcado&&!_todasFalhas.length) _lauEnfileirar(()=>_lauArquivarPendentes());
+}
+async function _lauArquivarPendentes(){
+  try{
+    if(!_lauGrupos.length) _lauMontarGrupos();
+    const pend=_lauGrupos.filter(g=>g.laudo&&g.laudo.status==='finalizado'&&!g.laudo.arquivo_path).slice(0,15);
+    for(const g of pend){
+      try{ const c=await montarCertificado(g.rep,g.laudo); c.assinado_em=g.laudo.assinado_em; c.assinatura_hash=g.laudo.assinatura_hash;
+        await _lauGravarArquivo(g.laudo,c); }catch(e){ console.warn('[laudo] arquivar',g.laudo&&g.laudo.numero,e); }
+    }
+  }catch(e){ console.warn('[laudo] arquivar pendentes',e); }
 }
 let _lauGerando=false;
 // FILA do laudo automático: uma geração por vez. Antes, a varredura de outubro trocava os
