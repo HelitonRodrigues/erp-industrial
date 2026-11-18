@@ -996,3 +996,4 @@ fábrica específica. Não generalizar.
   laboratório, laudo, saldo sem QR); ＋ Pallet (RPC `acerto_criar_pallet`) e, no detalhe do dia, 🖨 Reimprimir e 🚫 Não existe (RPC
   `acerto_nao_existe`). Impressão: cópia fiel do rótulo do totem.html isolada em `window.RotuloPallet` (se o rótulo do totem mudar,
   copiar de novo) → `impressao_fila` destino laser, ou "Imprimir neste computador". Tudo na Auditoria (módulo ACERTO_PALLETS).
+- (18/11) portaria.html Romaneio de saída: item da Felisbina (não é bipado) conta como carregado = pedido (`carregadoDe` → `felDaOrdem`), sem o aviso "saiu a menos".
