@@ -1,0 +1,3 @@
+-- (18/11/2026) rotulos_impressos.avulso (criado no Acerto — fora da distribuição da OP) e descartado_em/descartado_motivo
+-- (rótulo jogado fora — nunca vira pallet). totem_alocar ignora os dois; acerto_criar_pallet cria avulso; RPC acerto_descartar_rotulos.
+-- Bag 18/11 Linha 2 nº 56 a 90: descartados e restaurados no mesmo dia (a linha voltou para bag). Aplicada no Supabase (154_rotulos_avulso_descartado).
