@@ -215,7 +215,10 @@ tr.mi-sel td{background:#f0fdf4;}
 .mi-chk{width:22px;height:22px;accent-color:#16a34a;cursor:pointer;}
 .mi-viagens td{font-size:12.5px;padding:6px 8px;}
 /* material: escolha grande e clara (selecionado = verde) */
-.mi-matsel{display:flex;gap:8px;}
+.mi-matsel{display:flex;gap:8px;flex-wrap:wrap;}
+/* (18/11) muitos materiais: quebram linha em vez de passar da tela; os de histórico ficam menores, no fim */
+.mi-matsel button.hist{flex:0 0 auto;min-width:0;font-size:12.5px;padding:7px 12px;border-style:dashed;color:#64748b;}
+#mi-mat-sel button:not(.hist){min-width:120px;font-size:14px;padding:8px 12px;}
 .mi-matsel button{flex:1;min-width:130px;border:2.5px solid #cbd5e1;background:#fff;color:#334155;border-radius:12px;padding:10px 16px;font-weight:800;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;}
 .mi-matsel button .dot{width:16px;height:16px;border-radius:50%;border:2px solid #94a3b8;flex:0 0 16px;}
 .mi-matsel button.on{background:#16a34a;border-color:#16a34a;color:#fff;box-shadow:0 2px 8px rgba(22,163,74,.35);}
@@ -444,7 +447,7 @@ tr.mi-sel td{background:#f0fdf4;}
         <button id="mi-b-ind" onclick="miSec('ind')" style="display:none;">📊 Indicadores</button>
       </div>
       <div class="mi-filtro" id="mi-filtro-mat"><span>Material</span>
-        <input type="hidden" id="mi-mat" value="CAULIM">
+        <input type="hidden" id="mi-mat" value="CAULIM_BRANCO_01">
         <div class="mi-matsel" id="mi-mat-sel"></div></div>
       <div class="mi-mesbox" id="mi-mesbox" style="display:none;"><input type="month" class="form-input" id="mi-mes" onchange="carregarMinerio()" style="max-width:170px;">
         <button class="btn btn-secondary btn-sm" data-perm="portaria:view" onclick="miPdfMes()">📄 PDF do mês</button>
@@ -453,6 +456,7 @@ tr.mi-sel td{background:#f0fdf4;}
       <button class="btn btn-secondary" id="mi-btn-int" onclick="miInternosAbrir()" style="min-height:46px;display:none;">🚚 Caminhões internos</button>
       <button class="btn btn-primary" id="mi-btn-ent" data-perm="portaria:create" onclick="miNovaEntrada()" style="min-height:46px;">＋ Registrar entrada</button>
     </div>
+    <div id="mi-aident"></div>
     <div class="kpis" id="mi-kpis"></div>
 
     <!-- PÁTIO (lista do dia) -->
@@ -3039,11 +3043,12 @@ const miNomesMats=()=>{const n=_miMats.map(k=>k.nome); return n.length<2?(n[0]||
 async function miCarregarMateriais(){
   const {data,error}=await _supabase.from('minerio_materiais').select('codigo,nome,ordem,selecionavel,insumo_nome').eq('ativo',true).order('ordem').order('nome');
   if(!error&&data&&data.length)_miMats=data;
+  { const el=document.getElementById('mi-mat'); if(el&&!_miMats.some(m=>m.codigo===el.value)) el.value=(_miMats[0]||{}).codigo||''; }
   const t=document.getElementById('tbtn-minerio'); if(t)t.textContent='⛏️ Caulim e Grafitoso';   // (18/11) nome fixo — os materiais ficam dentro
   miMontarSeletores();
 }
 function miMontarSeletores(){
-  const atual=miMat(), b=(m,fn,on)=>`<button type="button" data-m="${esc(m.codigo)}" class="${on?'on':''}" onclick="${fn}('${esc(m.codigo)}')"><i class="dot"></i>${esc(m.nome.toUpperCase())}</button>`;
+  const atual=miMat(), b=(m,fn,on)=>`<button type="button" data-m="${esc(m.codigo)}" class="${on?'on':''} ${m.selecionavel===false?'hist':''}" onclick="${fn}('${esc(m.codigo)}')"><i class="dot"></i>${esc(m.selecionavel===false?m.nome:m.nome.toUpperCase())}</button>`;
   document.getElementById('mi-mat-sel').innerHTML=_miMats.map(m=>b(m,'miTrocarMat',m.codigo===atual)).join('');
   document.getElementById('mi-f-mat').innerHTML=_miMats.filter(m=>m.selecionavel!==false).map(m=>b(m,'miMatForm',m.codigo===_miFMat)).join('');
 }
@@ -3070,6 +3075,38 @@ const miUni={PATIO:'Fábrica',FABRICA:'Fábrica',BRITADOR:'Britador'};
 const MI_LIN={EMITEC:'Emitec',LINHA_2_3:'Linha 2/3',LONGA_VIDA:'Longa Vida'};
 const miDest=v=>v.unidade==='BRITADOR'?'Britador':(v.unidade==='FABRICA'||v.unidade==='PATIO')?'Fábrica'+(v.linha_fabrica?' · '+(MI_LIN[v.linha_fabrica]||v.linha_fabrica):''):(v.unidade||'—');
 const miTipoNome=v=>v.tipo_mp==='A_IDENTIFICAR'?'a identificar':miMatNome(v.tipo_mp||v.material);
+/* (18/11) viagens de caulim sem tipo (britador, Creme sem nº, F.T, F.E): ficam fora do saldo até alguém dizer o material */
+let _miAId=[];
+async function miAvisoIdentificar(){
+  const el=document.getElementById('mi-aident'); if(!el) return;
+  const {data}=await _supabase.from('minerio_viagens').select('id,ticket,data,placa,motorista,unidade,linha_fabrica,frente,liquido_kg,nota_id').eq('material','CAULIM').order('data').limit(500);
+  _miAId=data||[];
+  el.innerHTML=_miAId.length?`<div class="aviso" style="background:#fffbeb;border:1.5px solid #fcd34d;color:#92400e;border-radius:12px;padding:10px 14px;margin-bottom:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+    ⚠️ <b>${_miAId.length} viagem(ns) de caulim sem tipo</b> (${miT(_miAId.reduce((t,v)=>t+Number(v.liquido_kg||0),0))}) — ficam fora do saldo até dizer qual material é.
+    ${miPodeCorr()?`<button class="btn btn-sm btn-secondary" style="margin-left:auto;" onclick="miIdentificarAbrir()">Identificar</button>`:''}</div>`:'';
+}
+function miIdentificarAbrir(){
+  const ops=_miMats.filter(m=>m.selecionavel!==false&&/^CAULIM_/.test(m.codigo)).map(m=>`<option value="${esc(m.codigo)}">${esc(m.nome)}</option>`).join('');
+  const w=document.createElement('div'); w.className='modal-overlay'; w.id='m-mi-aid';
+  w.innerHTML=`<div class="modal" style="max-width:860px;width:96vw;"><div class="modal-header"><div class="modal-title">⚠️ Caulim sem tipo — identificar</div><button class="modal-close" onclick="document.getElementById('m-mi-aid').remove()">✕</button></div>
+    <p style="font-size:12.5px;color:#64748b;margin:-4px 0 10px;">Escolha o material de cada viagem (ou marque várias e use “aplicar às marcadas”). A antiga “frente” aparece só para ajudar.</p>
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;"><select id="mi-aid-todos" class="form-input" style="max-width:230px;"><option value="">— material —</option>${ops}</select><button class="btn btn-sm btn-secondary" onclick="miAidMarcadas()">Aplicar às marcadas</button></div>
+    <div style="max-height:56vh;overflow:auto;"><table class="mi-viagens" style="width:100%;"><thead><tr><th><input type="checkbox" onchange="document.querySelectorAll('.mi-aid-ck').forEach(c=>c.checked=this.checked)"></th><th>Data</th><th>Placa</th><th>Motorista</th><th>Destino</th><th>Antiga frente</th><th class="num">Líquido</th><th>Material</th></tr></thead><tbody>
+    ${_miAId.map(v=>`<tr><td><input type="checkbox" class="mi-aid-ck" value="${v.id}"></td><td>${miData(v.data)}</td><td><b>${esc(v.placa)}</b></td><td>${esc(v.motorista||'—')}</td><td>${esc(miDest(v))}</td><td>${esc(v.frente||'—')}</td><td class="num">${miT(v.liquido_kg)}</td>
+      <td><select class="form-input mi-aid-sel" data-id="${v.id}" style="min-width:170px;"><option value="">—</option>${ops}</select></td></tr>`).join('')}</tbody></table></div>
+    <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:12px;"><button class="btn btn-secondary" onclick="document.getElementById('m-mi-aid').remove()">Cancelar</button><button class="btn btn-primary" onclick="miAidSalvar()">💾 Salvar</button></div></div>`;
+  document.body.appendChild(w);
+}
+function miAidMarcadas(){ const m=document.getElementById('mi-aid-todos').value; if(!m) return toast('Escolha o material.','warning');
+  document.querySelectorAll('.mi-aid-ck:checked').forEach(c=>{const s=document.querySelector(`.mi-aid-sel[data-id="${c.value}"]`); if(s) s.value=m;}); }
+async function miAidSalvar(){
+  if(!miPodeCorr()) return;
+  const sel=[...document.querySelectorAll('.mi-aid-sel')].filter(s=>s.value); if(!sel.length) return toast('Nada escolhido.','warning');
+  const por={}; sel.forEach(s=>(por[s.value]=por[s.value]||[]).push(s.dataset.id));
+  for(const [m,ids] of Object.entries(por)){ const {error}=await _supabase.from('minerio_viagens').update({material:m}).in('id',ids); if(error) return toast('Não salvou: '+error.message,'error');
+    addLog('UPDATE','PORTARIA',m,`Minério: ${ids.length} viagem(ns) de caulim sem tipo identificadas como ${miMatNome(m)}`); }
+  document.getElementById('m-mi-aid').remove(); toast(`${sel.length} viagem(ns) identificadas.`,'success'); carregarMinerio();
+}
 function miUniTroca(){ const u=document.getElementById('mi-f-uni').value, g=document.getElementById('mi-f-lin-g'); if(g) g.style.display=u==='FABRICA'?'':'none'; }
 
 function miSec(s){
@@ -3117,13 +3154,18 @@ async function carregarMinerio(){
   const [a,b,c,d,e,hj]=await Promise.all([
     _supabase.from('minerio_viagens').select('id,ticket,data,material,motorista,placa,unidade,linha_fabrica,frente,tipo_mp,tara_kg,bruto_kg,liquido_kg,nota_id,origem,status,entrada_em,bruto_em,bruto_por,criado_por,criado_em').eq('material',mat).eq('status','pesado').gte('data',ini).lte('data',fim).order('data').order('criado_em').limit(3000),
     _supabase.from('minerio_viagens').select('id,data,motorista,placa,unidade,linha_fabrica,frente,tipo_mp,liquido_kg,criado_em').eq('material',mat).eq('status','pesado').is('nota_id',null).order('data').order('criado_em').limit(3000),
-    _supabase.from('minerio_notas').select('*').eq('material',mat).order('data',{ascending:false}).order('criado_em',{ascending:false}).limit(600),
+    (async()=>{ const {data:vn}=await _supabase.from('minerio_viagens').select('nota_id').eq('material',mat).not('nota_id','is',null).limit(5000);
+      const ids=[...new Set((vn||[]).map(x=>x.nota_id))];
+      let q=_supabase.from('minerio_notas').select('*').order('data',{ascending:false}).order('criado_em',{ascending:false}).limit(600);
+      q=ids.length?q.or(`material.eq.${mat},id.in.(${ids.join(',')})`):q.eq('material',mat);
+      return await q; })(),
     _supabase.from('minerio_viagens').select('placa,motorista,unidade,linha_fabrica,frente,tipo_mp,tara_kg,material,data,chegou_carregado').order('data',{ascending:false}).order('criado_em',{ascending:false}).limit(800),
     _supabase.from('minerio_viagens').select('*').eq('status','aguardando_bruto').order('entrada_em').limit(200),
     _supabase.from('minerio_viagens').select('id,ticket,data,material,motorista,placa,unidade,linha_fabrica,frente,tipo_mp,tara_kg,bruto_kg,liquido_kg,nota_id,origem,status,entrada_em,bruto_em,bruto_por,criado_por,criado_em,chegou_carregado').eq('status','pesado').eq('data',hojeISO()).order('bruto_em',{ascending:false}).limit(500)]);
   const er=a.error||b.error||c.error||e.error;
   if(er){toast('Não carregou o minério: '+er.message,'error');return;}
   _miMes=a.data||[]; _miPend=b.data||[]; _miNotas=c.data||[]; _miAg=e.data||[];
+  miAvisoIdentificar();
   _miHoje=hj.data||[];
   const nIds=[...new Set(_miHoje.map(v=>v.nota_id).filter(Boolean))].filter(id=>!_miNotas.some(n=>n.id===id));
   if(nIds.length){const {data:nn}=await _supabase.from('minerio_notas').select('id,nf_numero,origem').in('id',nIds);_miNotasHoje=nn||[];}else _miNotasHoje=[];
