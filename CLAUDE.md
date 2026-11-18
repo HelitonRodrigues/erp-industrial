@@ -999,3 +999,4 @@ fábrica específica. Não generalizar.
 - (18/11) portaria.html Romaneio de saída: item da Felisbina (não é bipado) conta como carregado = pedido (`carregadoDe` → `felDaOrdem`), sem o aviso "saiu a menos".
 - (18/11) portaria.html Saída: carga só de bag/granel trava 'Pallets' em 0 (`_sa.semPallet`) — 028526 tinha 39 × 28 kg descontados (corrigido no banco). Romaneio: linhas da ordem com o mesmo produto/pedido/cliente (ex.: 37 + 2) dividem o carregado em vez de repetir o total (`_carregadoTot` + `carregadoDe`).
 - (18/11, migração 150) Programação de Cargas: `prog_planos` ignora plano sem linhas — o CP-0018 (em branco, nov/2026) passava na frente do CP-0014 e todo dia aparecia "linha parada".
+- (18/11) `prog_publico` (link dos representantes da Programação) com o mesmo filtro: só plano ativo com linhas.
