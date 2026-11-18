@@ -348,6 +348,7 @@ details.pl-recolhe.pl-rt{margin-top:8px;}
     </div>
     <div id="pal-busca-info"></div>
     <div id="pal-modo"></div>
+    <div id="pal-granel"></div>
     <div id="pal-rotulos"></div>
     <div id="pal-abas" class="pal-abas"></div>
     <div id="pal-aviso"></div>
@@ -2235,6 +2236,7 @@ const labProdPrimeiro=n=>{const x=labNormP(n);return x.startsWith('bigbag')||x.s
 function podeTrocarRegraLab(){ const u=(typeof getUser==='function'&&getUser())||{}; return ['ADM','SADM','ENG','DIR'].includes(String(u.perfil||'').toUpperCase())||(typeof checkPerm==='function'&&checkPerm('laboratorio','aprovar')); }
 let _palRotulos=[], _palRotulosEm=0;
 function renderPalModo(){
+  try{ renderGranelPallets(); }catch(e){ console.warn('[granel]',e); }
   const el=document.getElementById('pal-modo'); if(!el) return;
   const on=labRegraCompleta(), pode=podeTrocarRegraLab();
   el.innerHTML=on
@@ -3887,7 +3889,8 @@ async function salvarStatusPallet(){
     _palSel.clear();
     await recarregarPallets();
     // (17/11) modo provisório: aprovou → o banco já ligou/criou a OP; gera o laudo agora (sem esperar abrir a aba Laudo)
-    if(v.aprovado&&!labRegraCompleta()&&labProdPrimeiro(p.produto)){ setTimeout(()=>{ try{ _lauEnfileirar(()=>_lauGerarMes(hoje().slice(0,7))).then(()=>toast('Laudo do lote atualizado.','success')); }catch(e){ console.warn('[laudo auto]',e); } },800); }
+    // (18/11) granel: o laudo do dia sai SOZINHO com o resultado (sem botão liberar), com regra completa ou não
+    if(v.aprovado&&((!labRegraCompleta()&&labProdPrimeiro(p.produto))||/granel/i.test(p.produto||''))){ setTimeout(()=>{ try{ _lauEnfileirar(()=>_lauGerarMes(String(p.data||hoje()).slice(0,7))).then(()=>{ toast('Laudo do lote atualizado.','success'); try{ if(/granel/i.test(p.produto||'')) carregarLaudos(); }catch(_){} }); }catch(e){ console.warn('[laudo auto]',e); } },800); }
   }catch(e){
     const msg=(e&&e.message)||String(e);
     if(/justificativa|anexos/i.test(msg)&&/column|schema cache|42703|PGRST204/i.test(msg)){
@@ -4733,20 +4736,48 @@ function renderGranelPainel(){
   const dia=(d,rot)=>{
     const lote=_grLote(d), l=_grLaudo(lote), an=(_analises||[]).filter(a=>a.linha==='Longa Vida'&&a.data===d&&String(a.status||'').toUpperCase()==='OK');
     const um=an.length?(an.reduce((s,a)=>s+(Number(a.umidade)||0),0)/an.length):null, uso=atual===lote;
-    const st=l?(l.status==='finalizado'?`<span class="badge badge-success">✅ ${esc(l.numero)} liberado</span>`:`<span class="badge badge-warning">📝 ${esc(l.numero)} em rascunho</span>`):'<span class="badge badge-warning">aguardando liberação</span>';
+    const st=l?(l.status==='finalizado'?`<span class="badge badge-success">✅ ${esc(l.numero)} gerado</span>`:`<span class="badge badge-warning">📝 ${esc(l.numero)} em rascunho</span>`):'<span class="badge badge-warning">aguardando resultado</span>';
     return `<div style="border:2px solid #e2e8f0;background:#fff;border-radius:12px;padding:10px 12px;flex:1;min-width:280px;">
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;"><b style="font-size:15px;">${rot} · ${d.split('-').reverse().slice(0,2).join('/')}</b><span class="badge badge-info">lote ${lote}</span>${st}</div>
       <div style="font-size:12.5px;color:#475569;margin-top:6px;">${an.length?`${an.length} análise(s) OK · umidade média ${um.toLocaleString('pt-BR',{maximumFractionDigits:2})}%`:'nenhuma análise OK da Longa Vida neste dia'}</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
-        ${pode&&(!l||l.status!=='finalizado')?`<button class="btn btn-primary btn-sm" onclick="granelLiberar('${d}')" ${an.length?'':'disabled title="Lance a análise da Longa Vida deste dia primeiro"'}>✅ Liberar laudo do granel deste dia</button>`:''}
+        ${pode&&!l?`<button class="btn btn-primary btn-sm" onclick="showTab('pallets');granelResultado('${d}')">🔬 Lançar resultado do granel</button>`:''}
         ${pode&&l&&l.status==='finalizado'?`<button class="btn btn-ghost btn-sm" onclick="granelLiberar('${d}')">🔄 Atualizar laudo com as análises</button>`:''}
         ${l?`<button class="btn btn-ghost btn-sm" onclick="granelAbrir('${lote}',${l.status==='finalizado'})">🖨 Ver laudo</button>`:''}
       </div></div>`;
   };
   const ds=_grDias(), _sem=['dom','seg','ter','qua','qui','sex','sáb'];
   el.innerHTML=`<div class="card" style="margin-bottom:12px;padding:12px 14px;"><div style="font-weight:800;color:var(--primary,#042D4D);font-size:15px;">🧪 Caulim Granel Cinza — laudo dos dias no silo</div>
-    <div style="font-size:12px;color:#64748b;margin:2px 0 8px;">Libere o laudo de cada dia de produção. O porteiro informa na saída de cada caminhão da DSM qual lote foi carregado e o certificado aparece na portaria.</div>
+    <div style="font-size:12px;color:#64748b;margin:2px 0 8px;">O laudo de cada dia sai <b>sozinho</b> quando o resultado do granel é lançado na Análise de Pallets. O porteiro informa na saída de cada caminhão da DSM qual lote foi carregado e o certificado aparece na portaria.</div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;">${ds.map((d,i)=>dia(d,i===0?'Hoje':_sem[new Date(d+'T12:00:00').getDay()])).join('')}</div></div>`;
+}
+/* (18/11) Análise de Pallets: o granel do dia (sem QR) para lançar o resultado — aprovou, o laudo sai sozinho */
+function _grDiasPal(){
+  const h=hoje(), ds=new Set([...(_analises||[]).filter(a=>a.linha==='Longa Vida').map(a=>a.data),...(_pallets||[]).filter(p=>p.linha==='Longa Vida'&&/granel/i.test(p.produto||'')).map(p=>p.data)].filter(d=>d&&d<h));
+  return [h,...[...ds].sort().reverse().slice(0,3)];
+}
+function renderGranelPallets(){
+  const el=document.getElementById('pal-granel'); if(!el) return;
+  const pode=typeof checkPerm!=='function'||checkPerm('laboratorio','edit');
+  const card=(d,rot)=>{
+    const lote=_grLote(d), p=(_pallets||[]).find(x=>x.data===d&&x.linha==='Longa Vida'&&/granel/i.test(x.produto||'')), l=_grLaudo(lote);
+    const st=!p?'<span class="badge badge-gray">sem resultado</span>':p.status==='aprovado'?'<span class="badge badge-success">✅ aprovado</span>':p.status==='reprovado'?'<span class="badge badge-danger">❌ reprovado</span>':'<span class="badge badge-warning">aguardando resultado</span>';
+    return `<div style="border:1.5px solid ${p&&p.status==='aprovado'?'#86efac':'#e2e8f0'};background:${p&&p.status==='aprovado'?'#f0fdf4':'#fff'};border-radius:12px;padding:9px 12px;flex:1;min-width:230px;">
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;"><b>${rot} · ${d.split('-').reverse().slice(0,2).join('/')}</b><span class="badge badge-info">lote ${lote}</span>${st}${l&&l.status==='finalizado'?`<span class="badge badge-success">📜 ${esc(l.numero)}</span>`:''}</div>
+      <div style="margin-top:7px;">${pode&&(!p||p.status!=='aprovado')?`<button class="btn btn-primary btn-sm" onclick="granelResultado('${d}')">🔬 Lançar resultado</button>`:p?`<button class="btn btn-ghost btn-sm" onclick="granelResultado('${d}')">🔬 Ver / refazer</button>`:''}</div></div>`;
+  };
+  const ds=_grDiasPal(), sem=['dom','seg','ter','qua','qui','sex','sáb'];
+  el.innerHTML=`<div class="card" style="margin:0 0 12px;padding:10px 14px;"><div style="font-weight:800;color:var(--primary,#042D4D);">🧪 Caulim Granel Cinza — dias no silo <span style="font-weight:500;font-size:12px;color:#64748b;">· lance o resultado; aprovado, o laudo do lote sai sozinho</span></div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px;">${ds.map((d,i)=>card(d,i===0?'Hoje':sem[new Date(d+'T12:00:00').getDay()])).join('')}</div></div>`;
+}
+async function granelResultado(d){
+  if(!guardAction('laboratorio','edit')) return;
+  const u=(typeof getUser==='function'&&getUser())||{};
+  const r=await _supabase.rpc('lab_granel_preparar',{p_dia:d,p_usuario:u.nome||'Laboratório'});
+  if(r.error){ toast('Não preparou o granel do dia: '+r.error.message,'danger'); return; }
+  if(r.data&&r.data.criada) toast(`OP provisória ${r.data.op_numero} criada para o granel de ${d.split('-').reverse().slice(0,2).join('/')}.`,'info');
+  await recarregarPallets();
+  abrirPalletLab(r.data.pallet_id);
 }
 async function granelLiberar(d){
   if(!guardAction('laboratorio','edit')) return;
@@ -5786,7 +5817,7 @@ function _lauAprovadorPallets(op){ return _lauAprovadoresPallets(op).map(x=>x.no
 // Não finaliza (fica rascunho com o motivo) quando: veredito não APROVADO, falta ensaio,
 // sem química externa assinada, análise externa vencida, RT não configurado ou RT = quem aprovou.
 // Não mexe em laudo finalizado nem em rascunho que alguém editou à mão.
-const _lauDiaFechado=g=>(!labRegraCompleta()&&(g.prods||[]).length&&(g.prods||[]).every(labProdPrimeiro))||String(g.dataFim||'')<hoje();   // (17/11) modo provisório: o laudo sai finalizado na 1ª aprovação
+const _lauDiaFechado=g=>((g.prods||[]).length&&(g.prods||[]).every(x=>/granel/i.test(x||'')))||(!labRegraCompleta()&&(g.prods||[]).length&&(g.prods||[]).every(labProdPrimeiro))||String(g.dataFim||'')<hoje();   // (17/11) modo provisório: o laudo sai finalizado na 1ª aprovação
 // (nov/2026, pedido do dono) lotes ANTES de 01/10/2026 = histórico em papel: o laudo sai finalizado só
 // para fechar as pendências — sem exigir umidade, granulometria, química ou análise externa.
 // Os laudos que valem são de outubro/2026 em diante.
