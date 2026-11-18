@@ -37,6 +37,7 @@ const MODULO_MAP = [
   { id:'desgaste',       page:'desgaste.html',        label:'Controle de Desgaste', group:'producao',     icon:'🔨' },
   { id:'aferidor',       page:'aferidor.html',        label:'Aferidor',             group:'producao',     icon:'🏷️' },
   { id:'central_rotulos', page:'totem.html',         label:'Central de Rótulos',   group:'producao',     icon:'🖨️' },
+  { id:'acerto_pallets', page:'acerto-pallets.html', label:'Acerto de Pallets',    group:'producao',     icon:'🏷️' },
   { id:'ensacadeiras',   page:'ensacadeiras.html',    label:'Ensacadeiras',         group:'producao',     icon:'⚖️' },
   { id:'custo_precificacao', page:'custo-precificacao.html', label:'Custo & Precificação', group:'producao', icon:'💵' },
   { id:'felisbina',      page:'felisbina.html',       label:'Felisbina',            group:'producao',     icon:'🏪' },
