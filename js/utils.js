@@ -681,6 +681,8 @@ async function initSidebar(paginaAtiva) {
   // de exemplo do partial em vez do usuário de verdade.
   await _esperarSidebar();
   try{ AvisosQualidade.iniciar(); }catch(e){}
+  // (18/11) escala PROGRAMADA vira ATIVA quando o período começa — 1× por dia por navegador (produção/laboratório usam só as ativas)
+  try{ const k='esc_promovida_'+new Date().toLocaleDateString('en-CA'); if(!localStorage.getItem(k)){ localStorage.setItem(k,'1'); _supabase.rpc('escalas_promover').then(()=>{},()=>{}); } }catch(e){}
 
   // Dados do usuário na topbar e no rodapé da sidebar.
   // Nada de default 'Super Admin'/'SADM': se o dado faltar, mostra '—' e não
