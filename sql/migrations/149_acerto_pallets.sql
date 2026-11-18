@@ -1,0 +1,8 @@
+-- (17/11/2026) MÓDULO ACERTO DE PALLETS — aplicada no Supabase (149_acerto_pallets).
+-- acerto_criar_pallet(produto, dia, linha, sacos, origem 'sem_qr'|'nova', usuario) → jsonb {pallet_id, rotulo_id, numero, codigo, lote, validade, status, laudo, op}
+--   nº = maior entre rótulos emitidos e pallets do dia/linha/produto + 1; código no padrão da central (prefixo do dia, senão L##-AAAAMMDD-TAG-);
+--   lote/validade da OP (não provisória primeiro) ou dos rótulos do dia; status aprovado se o lote já tem laudo finalizado ou pallet aprovado;
+--   'sem_qr' confere o saldo (estoque_sem_qr_saldo) e cria fora da contagem; sem OP → a_conferir.
+-- acerto_nao_existe(pallet, motivo, usuario): pallet em estoque sai da contagem (fora_estoque_em) com "NÃO EXISTE NO BARRACÃO — motivo".
+-- Permissão acerto_pallets para SADM e SGR (os demais pelo cadastro de perfis).
+-- Definições completas: histórico de migrações do Supabase.
