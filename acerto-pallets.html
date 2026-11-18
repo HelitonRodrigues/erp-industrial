@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Acerto de Pallets · ERP Industrial</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/supabase.js"></script>
+<script src="js/utils.js"></script>
+<script src="js/qrcode.min.js"></script>
+<!-- ═══════════════════════════════════════════════════════════════════
+     ACERTO DE PALLETS (17/11/2026) — módulo próprio (fora da Central de Rótulos)
+     Disponibilidade por produto/dia/lote (produção, pallets com QR, remontados/fora da contagem, carregados, laboratório, laudo,
+     saldo sem QR) e as ações que antes eram feitas na mão:
+       ＋ Criar pallet com rótulo  → RPC acerto_criar_pallet (nº livre, lote/validade da OP ou dos rótulos, status do lab do lote,
+                                     sacos do saldo sem QR = fora da contagem; ou produção nova = conta normal) + impressão na LaserJet
+       🖨 Reimprimir rótulo         → mesmo nº, mesmo QR (fila da LaserJet)
+       🚫 Não existe no barracão    → RPC acerto_nao_existe (sai da contagem com motivo; não vai para o saldo sem QR)
+     Rótulo = cópia fiel do totem.html (window.RotuloPallet). Tudo registrado na Auditoria (módulo ACERTO_PALLETS).
+     Migração: sql/migrations/149_acerto_pallets.sql
+     ═══════════════════════════════════════════════════════════════════ -->
+<style>
+:root{--ln:#e2e8f0;--mu:#64748b}
+.ap-hd{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+.ap-hd h1{font-size:24px;font-weight:800;color:var(--primary);margin:0}
+.ap-hd p{color:var(--mu);font-size:13px;margin:2px 0 0}
+.ap-sel{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.ap-sel select{font-size:15px;font-weight:700;padding:9px 12px;border-radius:10px;border:1.5px solid #cbd5e1;min-width:280px;font-family:inherit}
+.ap-wrap{display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:16px;align-items:start}
+@media(max-width:1100px){.ap-wrap{grid-template-columns:1fr}}
+.ap-card{background:#fff;border:1px solid var(--ln);border-radius:14px;padding:14px 16px;margin-bottom:14px}
+.ap-kp{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:0 0 12px}
+@media(max-width:800px){.ap-kp{grid-template-columns:1fr 1fr}}
+.ap-k{border:1px solid var(--ln);border-radius:12px;padding:10px 12px;background:#fff}
+.ap-k .r{font-size:10.5px;font-weight:800;color:var(--mu);text-transform:uppercase}.ap-k .v{font-size:22px;font-weight:900;color:var(--primary)}.ap-k .s{font-size:11px;color:#94a3b8}
+.ap-tb{width:100%;border-collapse:collapse;font-size:13px}
+.ap-tb th{background:var(--primary);color:var(--accent);text-align:left;padding:8px;font-size:11.5px;white-space:nowrap}
+.ap-tb td{padding:8px;border-bottom:1px solid #eef2f7;vertical-align:middle}
+.ap-tb tr.dia{cursor:pointer}.ap-tb tr.dia:hover td{background:#f8fafc}
+.ap-tb tr.aberto td{background:#f1f5f9}
+.ap-tb tr.sub td{background:#fbfdff;font-size:12.5px}
+.b{display:inline-block;font-size:11px;font-weight:800;border-radius:99px;padding:2px 8px;white-space:nowrap}
+.b.ok{background:#dcfce7;color:#166534}.b.am{background:#fef3c7;color:#92400e}.b.az{background:#e0f2fe;color:#075985}.b.cz{background:#f1f5f9;color:#475569}.b.vm{background:#fee2e2;color:#991b1b}
+.bt{border:1px solid #cbd5e1;background:#fff;border-radius:8px;padding:5px 9px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;font-family:inherit}
+.bt.g{background:#c9ff64;border-color:#a3e635;color:#042D4D}.bt.vm{color:#b91c1c;border-color:#fecaca}
+.bt:disabled{opacity:.5;cursor:not-allowed}
+.ap-f label{font-size:11.5px;font-weight:800;color:#475569;display:block;margin:10px 0 4px}
+.ap-f .in{width:100%;box-sizing:border-box;border:1.5px solid #cbd5e1;border-radius:9px;padding:8px 10px;font-size:14px;font-family:inherit}
+.ap-f .ro{background:#f1f5f9}
+.ap-op{display:flex;gap:8px;align-items:flex-start;font-size:12.5px;padding:8px 10px;border-radius:9px;background:#f8fafc;border:1.5px solid var(--ln);margin-top:6px;cursor:pointer}
+.ap-op.on{border-color:#16a34a;background:#f0fdf4}
+.ap-chk{margin-top:10px;font-size:12.5px;line-height:1.7;border-radius:10px;padding:8px 10px;background:#f0fdf4;border:1px solid #bbf7d0}
+.ap-chk .x{color:#b45309}
+.ap-go{width:100%;margin-top:14px;background:#16a34a;color:#fff;border:0;border-radius:11px;padding:12px;font-size:15px;font-weight:900;cursor:pointer;font-family:inherit}
+.ap-go:disabled{opacity:.5;cursor:not-allowed}
+.ap-hist div{font-size:12px;padding:6px 0;border-bottom:1px dotted var(--ln);color:#334155}
+.ap-vazio{text-align:center;color:#94a3b8;font-size:13px;padding:22px 6px}
+.ap-ov{position:fixed;inset:0;background:rgba(2,20,40,.5);z-index:20000;display:flex;align-items:center;justify-content:center;padding:12px}
+.ap-mod{background:#fff;border-radius:16px;max-width:520px;width:100%;max-height:92vh;overflow:auto;padding:18px 20px;box-shadow:0 20px 60px rgba(0,0,0,.3)}
+.ap-mod h3{margin:0 0 10px;color:var(--primary);font-size:17px}
+</style>
+</head>
+<body>
+<div id="sidebar-container"></div>
+<header class="topbar" id="topbar">
+  <button class="topbar-open-sidebar" onclick="toggleSidebar()">☰</button>
+  <div class="topbar-title">🏷️ Acerto de Pallets</div>
+  <div class="topbar-right">
+    <div class="topbar-user">
+      <div class="topbar-avatar" id="top-avatar">?</div>
+      <div><div class="topbar-user-name" id="top-user-name">—</div><div class="topbar-user-profile" id="top-user-perfil">—</div></div>
+    </div>
+  </div>
+</header>
+<main class="main-content" id="main-content">
+  <div class="ap-hd">
+    <div><h1>🏷️ Acerto de Pallets</h1>
+      <p>Disponibilidade por lote · criar pallet com rótulo · reimprimir · tirar do estoque — já ligado à produção, laboratório, carregamento e portaria</p></div>
+    <div class="ap-sel">
+      <select id="ap-prod" onchange="carregar()"><option value="">Carregando produtos…</option></select>
+      <select id="ap-dias" onchange="carregar()" style="min-width:130px;"><option value="15">últimos 15 dias</option><option value="30" selected>últimos 30 dias</option><option value="60">últimos 60 dias</option></select>
+    </div>
+  </div>
+  <div class="ap-wrap">
+    <div>
+      <div class="ap-kp" id="ap-kpis"></div>
+      <div class="ap-card" style="padding:0;overflow:auto;"><div id="ap-tab"><div class="ap-vazio">Escolha o produto.</div></div></div>
+    </div>
+    <div>
+      <div class="ap-card ap-f" id="ap-form"><div style="font-weight:900;color:var(--primary);font-size:16px;">＋ Criar pallet com rótulo</div>
+        <div class="ap-vazio" style="padding:12px 0;">Clique em <b>＋ Pallet</b> no dia do lote.</div></div>
+      <div class="ap-card ap-hist"><div style="font-weight:900;color:var(--primary);margin-bottom:4px;">Últimos acertos</div><div id="ap-hist"><div class="ap-vazio">—</div></div></div>
+    </div>
+  </div>
+</main>
+<script>
+/* ═══ RÓTULO DO PALLET — cópia fiel do totem.html (Central de Rótulos), isolada para não colidir com o utils.js ═══
+   Mesmo layout, mesmo QR, mesmo código. Se o rótulo mudar no totem, copiar de novo (linhas 217-245, 279-296, 310-544, 738-741). */
+window.RotuloPallet=(function(){
+const pad=(n,k=2)=>String(n).padStart(k,'0');
+// data/hora sempre no horário de Brasília (o fuso do tablet pode estar errado)
+const _spParts=d=>{try{const o={};new Intl.DateTimeFormat('en-GB',{timeZone:'America/Sao_Paulo',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(d).forEach(x=>o[x.type]=x.value);return o;}catch(e){return {day:pad(d.getDate()),month:pad(d.getMonth()+1),year:d.getFullYear(),hour:pad(d.getHours()),minute:pad(d.getMinutes())};}};
+const fData=d=>{const o=_spParts(d);return o.day+'/'+o.month+'/'+o.year;};
+const fHora=d=>{const o=_spParts(d);return o.hour+':'+o.minute;};
+const iso=d=>d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());
+const fD=s=>{if(!s)return '—';const[y,m,d]=String(s).slice(0,10).split('-');return d+'/'+m+'/'+y;};
+const esc_=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const norm=s=>String(s||'').toLowerCase().replace(/\s/g,'');
+// "hoje" sempre no horário de Brasília — tablet com fuso errado não pode mudar o dia dos rótulos
+const _fmtSP=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Sao_Paulo',year:'numeric',month:'2-digit',day:'2-digit'});
+const isoSP=d=>{try{return _fmtSP.format(d);}catch(e){return iso(d);}};
+const hojeIso=()=>isoSP(new Date()), ontemIso=()=>isoSP(new Date(Date.now()-864e5));
+const usuario=()=>{try{return (JSON.parse(sessionStorage.getItem('erp_user')||localStorage.getItem('erp_user')||'{}').nome)||'Central de rótulos';}catch(e){return 'Central de rótulos';}};
+const lsGet=(k,d)=>{try{const v=localStorage.getItem(k);return v==null?d:v;}catch(e){return d;}};
+const lsSet=(k,v)=>{try{localStorage.setItem(k,v);}catch(e){}};
+
+/* ═══ regras (iguais ao aferidor) ═══ */
+const isFicha=lp=>{lp=norm(lp);return lp.includes('25kg')||lp.includes('bag')||lp.includes('granel')||lp.includes('bigbag');};
+const ehBag=p=>/big\s*-?\s*bag|\bbags?\b/i.test((p.nome||'')+' '+(p.linhaProduto||''));
+// validade em ANOS (mesmo dia e mês): 02/11/2026 + 3 anos = 02/11/2029.
+// (contar 1095 dias errava 1 dia quando passava por ano bissexto)
+// lote data+cor e 3 anos: 25 kg, bag, granel e CAULIM 20 kg (GeoPlus/Liga 20 kg = como concentrado). Igual à producao.html (_ehFichaLote).
+// isFicha continua só para o layout do rótulo e das amostras.
+const fichaLote=p=>isFicha(p.linhaProduto)||(norm((p.linhaProduto||'')+' '+(p.nome||'')).includes('20kg')&&/caulim/i.test(p.nome||''));
+// AMOSTRA (DYMO): caulim 25 kg, 20 kg, big bag e granel → só o nº 01 e de 10 em 10 (10, 20, 30…):
+// 20 rótulos (01 a 20) = 3 amostras (01, 10, 20). Concentrado 10 kg, GeoPlus/Liga 20 kg e demais → 1 por pallet.
+const amostraDe10=p=>fichaLote(p);
+const levaAmostra=(p,n)=>!amostraDe10(p)||n===1||n%10===0;
+let EMP={}, LINHAS=[], PRODUTOS=[], _emHoje=[];
+const prodPorNome=n=>PRODUTOS.find(p=>norm(p.nome)===norm(n))||{nome:n,linhaProduto:'',tag:'XXX'};
+const prodPorId=id=>PRODUTOS.find(p=>p.id===id);
+async function carregarCadastros(){
+  const [e,l,p]=await Promise.all([
+    _supabase.from('empresa_config').select('nome_fantasia,razao_social,cnpj,ie,rua,numero,bairro,cidade,uf,cep,telefone,logo').limit(1).maybeSingle(),
+    _supabase.from('linhas_producao').select('nome,barracao,produtos,status,foto').eq('status','ativo').order('nome'),
+    _supabase.from('produtos').select('id,nome,linhas,unidade,status,foto').eq('status','ativo').order('nome')]);
+  if(l.error||p.error) throw (l.error||p.error);
+  EMP=e.data||{};
+  PRODUTOS=(p.data||[]).filter(x=>String(x.unidade||'').toLowerCase()!=='toneladas'&&(x.linhas||[]).length)
+    .map(x=>({id:x.id,nome:x.nome,linhaProduto:x.linhas[0],tag:String(x.id).replace(/-/g,'').slice(0,3).toUpperCase(),foto:/^https?:\/\//.test(x.foto||'')?x.foto:''}));
+  LINHAS=(l.data||[]).map(x=>({nome:x.nome,barracao:x.barracao||'',foto:/^https?:\/\//.test(x.foto||'')?x.foto:'',
+    sub:(Array.isArray(x.produtos)?x.produtos:[]).filter(s=>String(s.unidade||'').toLowerCase()!=='toneladas').map(s=>s.nome)}))
+    .filter(x=>x.sub.some(s=>PRODUTOS.some(p=>norm(p.linhaProduto)===norm(s))));
+  if(EMP.logo){ const li=document.getElementById('logo-img'), lt=document.getElementById('logo-top'); if(li&&lt){ li.src=EMP.logo; lt.hidden=false; } }
+  { const st=document.createElement('style');
+    st.textContent=`.lg{background:url(${LOGO_SIMBOLO}) center/contain no-repeat;-webkit-print-color-adjust:exact;print-color-adjust:exact;}`; document.head.appendChild(st); }
+}
+const palDe=r=>({numero:r.numero,codigo:r.codigo,lote:r.lote,validade:r.validade,data:r.dia,linha:r.linha,produto:r.produto});
+
+/* ═══ QR em SVG (igual ao aferidor) ═══ */
+/* QR mais resistente que cabe com módulo legível (16/11):
+   correção H (30%) na versão 7 — tem 6 marcas de alinhamento, o leitor acompanha o papel ondulado
+   (simulado: ondulação de 1/2 quadradinho lia 0/8 na versão 5 e 6/8 na versão 7).
+   Só usa a versão 7 se o quadradinho ficar com 0,75 mm ou mais; senão H automático; senão Q. */
+function qrResistente(texto,ladoMaxMm){
+  const tenta=o=>{try{return QRCode.create(texto,o);}catch(e){return null;}}, mod=q=>ladoMaxMm/(q.modules.size+8);
+  let q=tenta({errorCorrectionLevel:'H',version:7}); if(q&&mod(q)>=0.75) return q;
+  q=tenta({errorCorrectionLevel:'H'}); if(q&&mod(q)>=0.6) return q;
+  return QRCode.create(texto,{errorCorrectionLevel:'Q'});
+}
+function qrSvg(texto,ladoMaxMm,dpmm){
+  if(typeof QRCode==='undefined'||!QRCode.create) return `<div style="width:${ladoMaxMm}mm;height:${ladoMaxMm}mm;border:0.5mm solid #000;display:flex;align-items:center;justify-content:center;font:700 7pt Arial;">QR NÃO GERADO</div>`;
+  const qr=qrResistente(texto,ladoMaxMm), n=qr.modules.size, d=qr.modules.data, b=4, tot=n+b*2;
+  dpmm=dpmm||8; const dm=Math.max(3,Math.floor((ladoMaxMm*dpmm)/tot)), lado=(tot*dm)/dpmm;
+  let r=''; for(let y=0;y<n;y++){let x=0;while(x<n){if(d[y*n+x]){const x0=x;while(x<n&&d[y*n+x])x++;r+=`<rect x="${x0+b}" y="${y+b}" width="${x-x0}" height="1"/>`;}else x++;}}
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${tot} ${tot}" width="${lado}mm" height="${lado}mm" shape-rendering="crispEdges" style="display:block;"><rect width="${tot}" height="${tot}" fill="#fff"/><g fill="#000">${r}</g></svg>`;
+}
+// link curto em MAIÚSCULAS: o QR usa o modo alfanumérico (menos quadradinhos, maiores)
+const urlRastreio=c=>'HTTPS://ERP-INDUSTRIAL-THETA.VERCEL.APP/R/'+String(c).toUpperCase();
+
+/* ═══ RÓTULOS — layout do aferidor, sem turno/encarregado/equipe/OP ═══ */
+/* ECONOMIA DE TONER: no rótulo vai só o SÍMBOLO da Silicate em traço preto, sem o fundo
+   (gerado a partir do ícone do sistema, transparente). O QR continua sólido — é o que precisa ler. */
+const LOGO_SIMBOLO='data:image/png;base64,'+
+  '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'+
+  'rkJggg==';
+/* dados da empresa (Configurações) para o cabeçalho dos rótulos — sem nome fantasia */
+function empDados(){
+  const E=EMP||{}, l=[];
+  const doc=[E.cnpj?'CNPJ '+E.cnpj:'',E.ie?'IE '+E.ie:''].filter(Boolean).join(' · '); if(doc) l.push(doc);
+  const end=[[E.rua,E.numero].filter(Boolean).join(', '),E.bairro,[E.cidade,E.uf].filter(Boolean).join('/'),E.cep?'CEP '+E.cep:''].filter(Boolean).join(' · '); if(end) l.push(end);
+  if(E.telefone) l.push('SAC '+E.telefone);
+  return l;
+}
+function cabecalhoEmpresa(sub){
+  const logo=`<div class="lg" style="width:44px;height:48px;flex-shrink:0;"></div>`;
+  return `<div style="display:flex;align-items:center;gap:12px;border-bottom:1px solid #042D4D;padding-bottom:10px;margin-bottom:12px;">${logo}
+    <div style="flex:1;"><div style="font-size:15px;font-weight:800;color:#042D4D;line-height:1.2;">${esc_(EMP.razao_social||EMP.nome_fantasia||'ERP Industrial')}</div>
+    ${empDados().map(t=>`<div style="font-size:9px;color:#64748b;line-height:1.35;">${esc_(t)}</div>`).join('')}
+    <div style="font-size:10px;font-weight:700;color:#475569;letter-spacing:.5px;margin-top:3px;text-transform:uppercase;">${esc_(sub)}</div></div></div>`;
+}
+function rotuloCompleto(pal,p){
+  const bag=ehBag(p), lp=norm(p.linhaProduto);
+  const pesoLiq=lp.includes('bag')?'1.000 kg':(lp.includes('25kg')?'25 kg/unidade':'');
+  const ficha=`<div style="margin-bottom:12px;border:1px solid #1e293b;border-radius:6px;overflow:hidden;">
+    ${[['COMPOSIÇÃO','SILICATO DE ALUMÍNIO'],['UMIDADE','MÁXIMO 1%'],
+      ['INDICAÇÃO DE USO','VEÍCULO/EXCIPIENTE DE ORIGEM MINERAL PARA INCORPORAÇÃO EM PRODUTOS DESTINADOS À ALIMENTAÇÃO ANIMAL — RAÇÕES, CONCENTRADOS, SUPLEMENTOS, PREMIXES E NÚCLEOS — DE TODAS AS ESPÉCIES ANIMAIS. PRODUTO DE USO INDUSTRIAL, NÃO DESTINADO AO FORNECIMENTO DIRETO AO ANIMAL.'],
+      ['ESPÉCIE / CATEGORIA','TODAS AS ESPÉCIES ANIMAIS, OBSERVADA A LISTA DE INGREDIENTES E VEÍCULOS AUTORIZADOS PARA USO NA ALIMENTAÇÃO ANIMAL, PUBLICADA PELO MAPA (IN MAPA Nº 110/2020 E ATUALIZAÇÕES). CATEGORIA E FASE DEFINIDAS PELA FORMULAÇÃO DO PRODUTO FINAL.'],
+      ['MODO DE USAR','INCORPORAR À FORMULAÇÃO COMO VEÍCULO/EXCIPIENTE, NO PERCENTUAL DEFINIDO PELO FABRICANTE DO PRODUTO FINAL, CONFORME A FÓRMULA POR ELE ESTABELECIDA.'],
+      ['MODO DE CONSERVAR','LOCAL VENTILADO E SECO, PROTEGIDO CONTRA PRAGAS URBANAS, ANIMAIS DOMÉSTICOS E CRIANÇAS.'],['CLASSIFICAÇÃO','VEÍCULO MINERAL']].map(([r,v])=>`<div style="display:grid;grid-template-columns:160px 1fr;border-bottom:1px solid #1e293b;"><div style="padding:5px 8px;border-right:1px solid #1e293b;font-size:9px;font-weight:800;color:#1e293b;">${r}</div><div style="padding:5px 8px;font-size:9px;color:#1e293b;text-align:center;">${v}</div></div>`).join('')}
+    <div style="display:grid;grid-template-columns:160px 1fr;"><div style="padding:7px 8px;border-right:1px solid #1e293b;font-size:9px;font-weight:800;color:#1e293b;">PESO LÍQUIDO (Kg)</div><div style="padding:7px 8px;font-size:10px;font-weight:700;color:#1e293b;text-align:center;">${pesoLiq}</div></div></div>`;
+  // (nov/2026) sem o nome do produto (Branco 01, Creme 02…): o rótulo diz só CAULIM; o produto fica no sistema (QR)
+  const dados=[['Linha de Produção',pal.linha],['Data de Fabricação',fD(pal.data)],['Lote',pal.lote],['Validade',fD(pal.validade)],[bag?'Código do Bag':'Código Pallet',pal.codigo]];
+  return `<div style="width:190mm;min-height:130mm;padding:14mm;box-sizing:border-box;font-family:Arial,sans-serif;background:#fff;color:#000;">
+    ${cabecalhoEmpresa('Controle de Qualidade')}
+    <div style="display:flex;justify-content:space-between;align-items:flex-end;gap:10px;margin-bottom:8px;">
+      <div><div style="font-size:22px;font-weight:800;color:#042D4D;letter-spacing:1px;line-height:1;">CAULIM</div>
+        <div style="font-size:9px;font-weight:700;color:#475569;letter-spacing:.8px;margin-top:3px;">SILICATO DE ALUMÍNIO · VEÍCULO MINERAL PARA ALIMENTAÇÃO ANIMAL</div></div>
+      <div style="font-size:22px;font-weight:800;color:#042D4D;white-space:nowrap;">${bag?'Bag':'Pallet'} #${pal.numero}</div></div>
+    ${ficha}
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px;">
+      ${dados.map(([l,v],i)=>`<div style="padding:7px 10px;border-radius:6px;border:1px solid #cbd5e1;${i===dados.length-1&&dados.length%2?'grid-column:1/-1;':''}"><div style="font-size:9px;color:#94a3b8;font-weight:700;text-transform:uppercase;letter-spacing:.5px;">${l}</div><div style="font-size:12px;font-weight:700;color:#042D4D;margin-top:2px;">${esc_(v)}</div></div>`).join('')}
+    </div>
+    <div style="border:1px solid #042D4D;border-radius:10px;padding:14px;display:flex;align-items:center;justify-content:center;gap:18px;">
+      <div style="width:60mm;">${qrSvg(urlRastreio(pal.codigo),60,23.6)}</div>
+      <div><div style="font-size:9px;color:#94a3b8;font-weight:700;text-transform:uppercase;margin-bottom:4px;">Rastreabilidade</div>
+      <div style="font-size:13px;font-weight:800;color:#042D4D;font-family:monospace;letter-spacing:1px;">${esc_(pal.codigo)}</div>
+      <div style="font-size:10px;color:#64748b;margin-top:4px;">Escaneie o QR Code para rastrear</div></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px;font-size:8px;line-height:1.35;color:#1e293b;font-weight:700;">
+      <div style="border-left:2px solid #1e293b;padding-left:7px;">"PRODUTO ISENTO DE REGISTRO NO MINISTÉRIO DA AGRICULTURA E PECUÁRIA"</div>
+      <div style="border-left:2px solid #1e293b;padding-left:7px;">"ESTABELECIMENTO DISPENSADO DE REGISTRO NO MINISTÉRIO DA AGRICULTURA E PECUÁRIA POR TRATAR-SE DE FABRICAÇÃO DE VEÍCULO PARA RAÇÃO ANIMAL, NÍVEL DE RISCO I, CONFORME PORTARIA SDA/MAPA Nº 196, DE 08/01/2021 — ART. 2º, INC. I, C/C ANEXO I ITEM 19"</div>
+    </div>
+    <div style="display:flex;justify-content:space-between;margin-top:8px;padding-top:5px;border-top:1px solid #1e293b;font-size:9px;font-weight:800;letter-spacing:1.5px;color:#1e293b;">
+      <span>INDÚSTRIA BRASILEIRA</span><span style="letter-spacing:.5px;">www.silicate.com.br</span></div></div>`;
+}
+function rotuloSimples(pal,p){
+  const bag=ehBag(p), L='0.25mm solid #000', nomeEmp=String(EMP.razao_social||'ERP INDUSTRIAL').toUpperCase(), prod=p.nome.toUpperCase();
+  const prodPt=prod.length>34?17:prod.length>24?20:24;
+  const rot=t=>`<div style="font-size:6.5pt;font-weight:700;letter-spacing:.7px;color:#555;">${t}</div>`;
+  const pt=String(pal.codigo).split('-'), c1=pt.slice(0,2).join('-'), c2=pt.slice(2).join('-');
+  return `<div style="width:210mm;height:148mm;padding:9mm;box-sizing:border-box;background:#fff;color:#000;display:flex;flex-direction:column;overflow:hidden;font-family:Arial,Helvetica,sans-serif;">
+    <div style="display:flex;align-items:center;gap:3mm;padding-bottom:1.5mm;border-bottom:${L};">
+      <div class="lg" style="width:12mm;height:13mm;flex-shrink:0;"></div>
+      <div style="flex:1;min-width:0;"><div style="font-size:9.5pt;font-weight:700;line-height:1.1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc_(nomeEmp)}</div>
+      ${empDados().map(t=>`<div style="font-size:6.5pt;color:#555;margin-top:.3mm;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc_(t)}</div>`).join('')}</div>
+      <div style="text-align:right;flex-shrink:0;"><div style="font-size:8.5pt;font-weight:700;letter-spacing:.6px;">SCQ · CONTROLE DE QUALIDADE</div>
+      <div style="font-size:6.8pt;color:#555;margin-top:.4mm;">Rastreabilidade de ${bag?'bag':'pallet'}</div></div>
+    </div>
+    <div style="flex:1;display:flex;gap:6mm;align-items:stretch;padding:2.5mm 0 2mm;min-height:0;">
+      <div style="flex:1;min-width:0;display:flex;flex-direction:column;">
+        ${rot('PRODUTO')}<div style="font-size:${prodPt}pt;font-weight:800;line-height:1.05;margin-top:.6mm;">${esc_(prod)}</div>
+        <div style="display:flex;gap:7mm;margin-top:3.5mm;align-items:flex-end;">
+          <div>${rot('LOTE')}<div style="font-size:15pt;font-weight:800;line-height:1.1;">${esc_(pal.lote||'—')}</div></div>
+          <div>${rot('LINHA')}<div style="font-size:15pt;font-weight:800;line-height:1.1;">${esc_(pal.linha)}</div></div>
+        </div>
+        <div style="margin-top:auto;">${rot(bag?'BAG Nº':'PALLET Nº')}
+          <div style="font-size:80pt;font-weight:900;line-height:.84;letter-spacing:-1px;color:transparent;-webkit-text-stroke:0.5mm #000;">${pad(pal.numero,3)}</div></div>
+      </div>
+      <div style="width:62mm;flex-shrink:0;display:flex;flex-direction:column;align-items:center;">
+        <div style="width:62mm;display:flex;justify-content:center;">${qrSvg(urlRastreio(pal.codigo),60,23.6)}</div>
+        <div style="font-family:'Courier New',monospace;font-size:9.5pt;font-weight:700;line-height:1.2;text-align:center;margin-top:1mm;">${esc_(c1)}<br>${esc_(c2)}</div>
+        <div style="font-size:6.5pt;color:#555;text-align:center;margin-top:.8mm;line-height:1.25;">Aponte a câmera do celular:<br>mostra lote, validade e a situação atual</div>
+      </div>
+    </div>
+    <div style="border:${L};display:grid;grid-template-columns:repeat(2,1fr);">
+      <div style="padding:1.6mm 2.5mm;border-right:${L};">${rot('FABRICAÇÃO')}<div style="font-size:17pt;font-weight:800;line-height:1.1;margin-top:.4mm;">${fD(pal.data)}</div></div>
+      <div style="padding:1.6mm 2.5mm;">${rot('VALIDADE')}<div style="font-size:17pt;font-weight:800;line-height:1.1;margin-top:.4mm;">${fD(pal.validade)}</div></div>
+    </div>
+    <div style="display:flex;align-items:center;gap:9mm;margin-top:2.5mm;font-size:13pt;font-weight:800;">
+      <span style="color:#555;font-size:7pt;letter-spacing:.7px;font-weight:700;">QUALIDADE</span>
+      <span style="display:flex;align-items:center;gap:2mm;"><span style="display:inline-flex;align-items:center;justify-content:center;width:6mm;height:6mm;border:0.35mm solid #000;font-size:13pt;line-height:1;">X</span>APROVADO</span>
+      <span style="display:flex;align-items:center;gap:2mm;"><span style="display:inline-block;width:6mm;height:6mm;border:0.35mm solid #000;"></span>REPROVADO</span>
+    </div></div>`;
+}
+const rotulo=(pal,p)=>isFicha(p.linhaProduto)?rotuloCompleto(pal,p):rotuloSimples(pal,p);
+function faixas(nums){ const n=[...nums].sort((a,b)=>a-b), out=[]; let i=0;
+  while(i<n.length){ let j=i; while(j+1<n.length&&n[j+1]===n[j]+1) j++;
+    out.push(j-i>=2?pad(n[i],3)+' a '+pad(n[j],3):(j>i?pad(n[i],3)+', '+pad(n[j],3):pad(n[i],3))); i=j+1; }
+  return out.join(', '); }
+  function html(pals,p){
+    const ficha=isFicha(p.linhaProduto);
+    const estilo=`<style>.lg{background:url(${LOGO_SIMBOLO}) center/contain no-repeat;-webkit-print-color-adjust:exact;print-color-adjust:exact;}</style>`;
+    return estilo+pals.map(x=>ficha
+      ?`<div style="page-break-after:always;padding-top:8mm;display:flex;justify-content:center;">${rotulo(x,p)}</div>`
+      :`<div style="page-break-after:always;width:210mm;height:296mm;display:flex;flex-direction:column;justify-content:flex-end;overflow:hidden;">${rotulo(x,p)}</div>`).join('');
+  }
+  return {carregar:carregarCadastros, html, prodPorNome:n=>prodPorNome(n), faixas, palDe};
+})();
+/* ═══ ACERTO DE PALLETS ═══ */
+const MOD='acerto_pallets';
+const _e=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const _n=v=>(Number(v)||0).toLocaleString('pt-BR');
+const _dBR=d=>{if(!d)return '—';const[y,m,dd]=String(d).slice(0,10).split('-');return dd+'/'+m;};
+const _sem=['dom','seg','ter','qua','qui','sex','sáb'];
+const _hojeSP=()=>new Intl.DateTimeFormat('en-CA',{timeZone:'America/Sao_Paulo',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+const _addD=(d,n)=>{const x=new Date(d+'T12:00:00');x.setDate(x.getDate()+n);return x.toISOString().slice(0,10);};
+const _quem=()=>{try{return (getUser()||{}).nome||'';}catch(e){return '';}};
+const _ehBag=p=>/big\s*-?\s*bag|\bbags?\b/i.test(p||'');
+let _prods=[], _P='', _pals=[], _rots=[], _ops=[], _laudos=[], _saldo=0, _grupos=[], _aberto='', _form=null;
+
+async function carregarProdutos(){
+  const {data,error}=await _supabase.from('produtos').select('id,nome,unidade,status,linhas').eq('status','ativo').order('nome');
+  if(error){toast('Não carregou os produtos: '+error.message,'danger');return;}
+  _prods=(data||[]).filter(p=>String(p.unidade||'').toLowerCase()!=='toneladas'&&!/granel/i.test(p.nome));
+  const sel=document.getElementById('ap-prod'), ult=(()=>{try{return localStorage.getItem('ap_prod')||'';}catch(e){return '';}})();
+  sel.innerHTML='<option value="">— escolha o produto —</option>'+_prods.map(p=>`<option ${p.nome===ult?'selected':''}>${_e(p.nome)}</option>`).join('');
+}
+
+async function carregar(){
+  _P=document.getElementById('ap-prod').value; _aberto=''; _form=null; renderForm();
+  try{localStorage.setItem('ap_prod',_P);}catch(e){}
+  const tab=document.getElementById('ap-tab');
+  if(!_P){ tab.innerHTML='<div class="ap-vazio">Escolha o produto.</div>'; document.getElementById('ap-kpis').innerHTML=''; return; }
+  tab.innerHTML='<div class="ap-vazio">Carregando…</div>';
+  const d0=_addD(_hojeSP(),-Number(document.getElementById('ap-dias').value||30));
+  const [pa,ro,op,sa,hi]=await Promise.all([
+    selectTodos(_supabase.from('producao_pallets').select('id,data,linha,numero,codigo,status,estoque_status,fora_estoque_em,fora_estoque_motivo,sacos_pallet,ordem_numero,rotulo_id,lancamento_id,a_conferir').eq('produto',_P).gte('data',d0)),
+    selectTodos(_supabase.from('rotulos_impressos').select('id,dia,linha,numero,codigo,lote,validade,pallet_id').eq('produto',_P).gte('dia',d0)),
+    _supabase.from('producao').select('id,data,linha,op_numero,obs,produtos_op').gte('data',d0).limit(2000),
+    _supabase.from('estoque_sem_qr_saldo').select('saldo').eq('produto',_P).maybeSingle(),
+    _supabase.from('auditoria').select('criado_em,usuario_email,descricao').eq('modulo','ACERTO_PALLETS').order('criado_em',{ascending:false}).limit(15)]);
+  if(pa.error||ro.error||op.error){ tab.innerHTML=`<div class="ap-vazio" style="color:#b91c1c;">Erro ao carregar: ${_e((pa.error||ro.error||op.error).message)}</div>`; return; }
+  _pals=pa.data||[]; _rots=ro.data||[]; _saldo=Number(sa.data&&sa.data.saldo)||0;
+  _ops=(op.data||[]).map(o=>{const it=(Array.isArray(o.produtos_op)?o.produtos_op:[]).find(i=>i&&i.produto===_P);return it?{id:o.id,data:o.data,linha:o.linha,op:o.op_numero,prov:/^PROVIS/i.test(o.obs||''),lote:it.lote,validade:it.validade,total:Number(it.total_sacos)||0,cap:((it.pallets||[])[0]||{}).cap}:null;}).filter(Boolean);
+  const lotes=[...new Set([..._rots.map(r=>r.lote),..._ops.map(o=>o.lote)].filter(Boolean))];
+  _laudos=[]; for(let k=0;k<lotes.length;k+=100){ const {data}=await _supabase.from('lab_laudos').select('numero,lote,status,produto').in('lote',lotes.slice(k,k+100)); _laudos=_laudos.concat(data||[]); }
+  montarGrupos(); render(); renderHist(hi.data||[]);
+}
+
+function loteDe(g){ const r=_rots.find(x=>x.dia===g.data&&x.linha===g.linha&&x.lote); if(r) return {lote:r.lote,validade:r.validade};
+  const o=g.ops.find(x=>x.lote&&!x.prov)||g.ops.find(x=>x.lote); return o?{lote:o.lote,validade:o.validade}:{lote:'',validade:''}; }
+function montarGrupos(){
+  const m={}, k=(d,l)=>d+'|'+l;
+  _pals.forEach(p=>{(m[k(p.data,p.linha)]=m[k(p.data,p.linha)]||{data:p.data,linha:p.linha,pals:[],ops:[]}).pals.push(p);});
+  _ops.forEach(o=>{(m[k(o.data,o.linha)]=m[k(o.data,o.linha)]||{data:o.data,linha:o.linha,pals:[],ops:[]}).ops.push(o);});
+  _grupos=Object.values(m).map(g=>{ const L=loteDe(g), ld=_laudos.filter(x=>x.lote===L.lote&&(x.produto===_P||!x.produto)).sort((a,b)=>(a.status==='finalizado'?0:1)-(b.status==='finalizado'?0:1))[0]||null;
+    const est=g.pals.filter(p=>p.estoque_status==='estoque'&&!p.fora_estoque_em), fora=g.pals.filter(p=>p.estoque_status==='estoque'&&p.fora_estoque_em),
+      carr=g.pals.filter(p=>p.estoque_status!=='estoque'), pend=g.pals.filter(p=>p.estoque_status==='estoque'&&p.status!=='aprovado');
+    const caps=g.pals.map(p=>Number(p.sacos_pallet)).filter(Boolean), cap=(g.ops.find(o=>o.cap)||{}).cap||caps.sort((a,b)=>caps.filter(v=>v===b).length-caps.filter(v=>v===a).length)[0]||'';
+    return Object.assign(g,L,{laudo:ld,est,fora,carr,pend,cap,prod:g.ops.reduce((s,o)=>s+o.total,0),prov:g.ops.some(o=>o.prov),
+      aprov:g.pals.some(p=>p.status==='aprovado'),naoExiste:fora.filter(p=>/^NÃO EXISTE/i.test(p.fora_estoque_motivo||''))}); })
+    .sort((a,b)=>b.data.localeCompare(a.data)||a.linha.localeCompare(b.linha));
+}
+
+function render(){
+  const un=_ehBag(_P)?'bags':'pallets', est=_grupos.reduce((s,g)=>s+g.est.length,0), sc=_grupos.reduce((s,g)=>s+g.est.reduce((t,p)=>t+(Number(p.sacos_pallet)||0),0),0),
+    pend=_grupos.reduce((s,g)=>s+g.pend.length,0), carr=_grupos.reduce((s,g)=>s+g.carr.length,0);
+  document.getElementById('ap-kpis').innerHTML=`
+    <div class="ap-k"><div class="r">${un} com QR no estoque</div><div class="v">${_n(est)}</div><div class="s">${_n(sc)} ${_ehBag(_P)?'un':'sacos'}</div></div>
+    <div class="ap-k"><div class="r">Saldo sem QR</div><div class="v">${_n(_saldo)}${_ehBag(_P)?'':' sc'}</div><div class="s">sobras e pallets sem rótulo</div></div>
+    <div class="ap-k"><div class="r">Aguardando laboratório</div><div class="v" style="${pend?'color:#b45309':''}">${_n(pend)}</div><div class="s">${pend?'no estoque':'tudo aprovado'}</div></div>
+    <div class="ap-k"><div class="r">Carregados no período</div><div class="v">${_n(carr)}</div><div class="s">${un}</div></div>`;
+  const tab=document.getElementById('ap-tab');
+  if(!_grupos.length){ tab.innerHTML='<div class="ap-vazio">Nada deste produto no período.</div>'; return; }
+  const pode=checkPerm(MOD,'create');
+  tab.innerHTML=`<table class="ap-tb"><thead><tr><th>Dia</th><th>Linha</th><th>Lote</th><th>Produção</th><th>No estoque (QR)</th><th>Fora da contagem</th><th>Carregados</th><th>Laboratório</th><th>Laudo</th><th></th></tr></thead><tbody>
+  ${_grupos.map((g,i)=>{ const k=g.data+'|'+g.linha, ab=_aberto===k;
+    return `<tr class="dia ${ab?'aberto':''}" onclick="abrir('${k}')">
+      <td><b>${_dBR(g.data)}</b> <span style="color:#94a3b8;font-size:11px;">${_sem[new Date(g.data+'T12:00:00').getDay()]}</span></td><td>${_e(g.linha)}</td>
+      <td>${g.lote?_e(g.lote):'<span class="b vm">sem lote</span>'}</td>
+      <td>${g.ops.length?(g.prov?'<span class="b am">OP provisória</span> ':'')+_n(g.prod)+(_ehBag(_P)?' un':' sc'):'<span class="b cz">sem OP</span>'}</td>
+      <td>${g.est.length}</td><td>${g.fora.length}${g.naoExiste.length?` <span class="b vm" title="não existem no barracão">${g.naoExiste.length} não existe</span>`:''}</td><td>${g.carr.length}</td>
+      <td>${g.pend.length?`<span class="b am">${g.pend.length} pendente(s)</span>`:g.aprov?'<span class="b ok">aprovado</span>':'<span class="b cz">—</span>'}</td>
+      <td>${g.laudo?`<span class="b ${g.laudo.status==='finalizado'?'ok':'am'}">${_e(String(g.laudo.numero||'').replace('LAU-2026-','LAU-'))}</span>`:'<span class="b cz">—</span>'}</td>
+      <td style="white-space:nowrap;">${pode&&g.lote?`<button class="bt g" onclick="event.stopPropagation();novoPallet('${k}')">＋ ${_ehBag(_P)?'Bag':'Pallet'}</button>`:''} <span style="color:#94a3b8;">${ab?'▾':'▸'}</span></td></tr>
+      ${ab?subLinhas(g):''}`; }).join('')}</tbody></table>
+  <div style="padding:8px 12px;font-size:12px;color:#64748b;">Clique no dia para ver cada ${_ehBag(_P)?'bag':'pallet'} com <b>🖨 Reimprimir</b> e <b>🚫 Não existe no barracão</b>. "Fora da contagem" = remontados com sacos do saldo sem QR ou que não existem.</div>`;
+}
+function subLinhas(g){
+  const ps=g.pals.slice().sort((a,b)=>a.numero-b.numero), pode=checkPerm(MOD,'edit');
+  if(!ps.length) return `<tr class="sub"><td colspan="10" style="color:#94a3b8;">Nenhum ${_ehBag(_P)?'bag':'pallet'} com QR neste dia.</td></tr>`;
+  return ps.map(p=>{ const sit=p.estoque_status!=='estoque'?`<span class="b az">carregado${p.ordem_numero?' · '+_e(p.ordem_numero):''}</span>`
+      :p.fora_estoque_em?(/^NÃO EXISTE/i.test(p.fora_estoque_motivo||'')?`<span class="b vm" title="${_e(p.fora_estoque_motivo)}">não existe</span>`:`<span class="b cz" title="${_e(p.fora_estoque_motivo||'')}">fora da contagem</span>`)
+      :'<span class="b ok">no estoque</span>';
+    return `<tr class="sub"><td></td><td>nº <b>${p.numero}</b></td><td colspan="2" style="font-family:ui-monospace,monospace;font-size:12px;">${_e(p.codigo||'—')}</td>
+      <td>${_n(p.sacos_pallet)} ${_ehBag(_P)?'un':'sc'}</td><td colspan="2">${sit}</td><td>${p.status==='aprovado'?'<span class="b ok">aprovado</span>':`<span class="b am">${_e(p.status||'pendente')}</span>`}${p.a_conferir?' <span class="b am">a conferir</span>':''}</td>
+      <td colspan="2" style="white-space:nowrap;">${p.codigo&&checkPerm(MOD,'view')?`<button class="bt" onclick="reimprimir('${p.id}')">🖨 Reimprimir</button>`:''}
+        ${pode&&p.estoque_status==='estoque'&&!p.fora_estoque_em?` <button class="bt vm" onclick="naoExiste('${p.id}')">🚫 Não existe</button>`:''}</td></tr>`; }).join('');
+}
+function abrir(k){ _aberto=_aberto===k?'':k; render(); }
+
+/* ── criar pallet ── */
+function novoPallet(k){
+  if(!guardAction(MOD,'create')) return;
+  const g=_grupos.find(x=>x.data+'|'+x.linha===k); if(!g) return;
+  const prox=Math.max(0,...g.pals.map(p=>p.numero||0),..._rots.filter(r=>r.dia===g.data&&r.linha===g.linha).map(r=>r.numero||0))+1;
+  _form={k,g,sacos:g.cap||'',origem:_saldo>0?'sem_qr':'nova',prox}; renderForm();
+  document.getElementById('ap-form').scrollIntoView({behavior:'smooth',block:'start'});
+}
+function renderForm(){
+  const el=document.getElementById('ap-form'); if(!el) return;
+  if(!_form){ el.innerHTML='<div style="font-weight:900;color:var(--primary);font-size:16px;">＋ Criar pallet com rótulo</div><div class="ap-vazio" style="padding:12px 0;">Clique em <b>＋ Pallet</b> no dia do lote.</div>'; return; }
+  const f=_form, g=f.g, s=Number(f.sacos)||0, un=_ehBag(_P)?'un':'sc';
+  const okSaldo=f.origem!=='sem_qr'||s<=_saldo, lab=g.laudo&&g.laudo.status==='finalizado'||g.aprov;
+  el.innerHTML=`<div style="font-weight:900;color:var(--primary);font-size:16px;">＋ Criar ${_ehBag(_P)?'bag':'pallet'} com rótulo</div>
+    <div style="font-size:12px;color:#64748b;">${_e(_P)} · <b>${_dBR(g.data)}</b> · ${_e(g.linha)}</div>
+    <label>Lote</label><input class="in ro" value="${_e(g.lote)}" readonly>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;"><div><label>${_ehBag(_P)?'Unidades':'Sacos no pallet'}</label><input class="in" id="ap-sacos" type="number" min="1" value="${_e(f.sacos)}" oninput="_form.sacos=this.value;renderForm();const i=document.getElementById('ap-sacos');if(i){i.focus();const v=i.value;i.value='';i.value=v;}"></div>
+      <div><label>Número</label><input class="in ro" value="#${f.prox} (próximo livre)" readonly></div></div>
+    <label>De onde vêm os ${_ehBag(_P)?'bags':'sacos'}?</label>
+    <div class="ap-op ${f.origem==='sem_qr'?'on':''}" onclick="_form.origem='sem_qr';renderForm()"><input type="radio" ${f.origem==='sem_qr'?'checked':''}><div><b>Do saldo sem QR</b> (sobras / pallet sem rótulo) — baixa ${_n(s)} ${un} do saldo (${_n(_saldo)} → ${_n(_saldo-s)})</div></div>
+    <div class="ap-op ${f.origem==='nova'?'on':''}" onclick="_form.origem='nova';renderForm()"><input type="radio" ${f.origem==='nova'?'checked':''}><div><b>Produção nova ainda não lançada</b> — entra no estoque normal (lance a produção depois)</div></div>
+    <div class="ap-chk">
+      ${g.ops.length?`✅ Produção (OP) de ${_dBR(g.data)} encontrada${g.prov?' — <span class="x">provisória</span>':''}`:'<span class="x">⚠ Sem OP neste dia — o pallet fica "a conferir" até lançar a produção</span>'}<br>
+      ${lab?'✅ Laboratório: lote <b>aprovado</b> → nasce aprovado':'<span class="x">⏳ Laboratório: lote ainda não aprovado → nasce pendente</span>'}<br>
+      ${g.laudo?`${g.laudo.status==='finalizado'?'✅':'📝'} Laudo <b>${_e(g.laudo.numero)}</b>${g.laudo.status==='finalizado'?' — sai no certificado da carga':' (rascunho)'}`:'<span class="x">— Sem laudo do lote ainda (liga sozinho quando sair)</span>'}<br>
+      ${okSaldo?'':'<span style="color:#b91c1c;font-weight:800;">✖ O saldo sem QR não tem essa quantidade.</span>'}
+    </div>
+    <button class="ap-go" id="ap-go" ${s>0&&okSaldo?'':'disabled'} onclick="criar()">🖨 Criar e imprimir na LaserJet</button>
+    <button class="bt" style="width:100%;margin-top:8px;" onclick="_form=null;renderForm()">Cancelar</button>`;
+}
+async function criar(){
+  if(!guardAction(MOD,'create')||!_form) return;
+  const f=_form, g=f.g, s=parseInt(f.sacos,10);
+  if(!(s>0)) return toast('Informe a quantidade.','warning');
+  if(!(await erpConfirm(`Criar o ${_ehBag(_P)?'bag':'pallet'} nº ${f.prox} de ${_P} (${_dBR(g.data)}, ${g.linha}, lote ${g.lote}) com ${s} ${_ehBag(_P)?'un':'sacos'}${f.origem==='sem_qr'?' tirados do saldo sem QR':''} e imprimir o rótulo?`,{titulo:'🏷️ Criar pallet',ok:'Criar e imprimir',cancelar:'Voltar'}))) return;
+  const bt=document.getElementById('ap-go'); if(bt){bt.disabled=true;bt.textContent='Criando…';}
+  const {data,error}=await _supabase.rpc('acerto_criar_pallet',{p_produto:_P,p_dia:g.data,p_linha:g.linha,p_sacos:s,p_origem:f.origem,p_usuario:_quem()});
+  if(error){ toast('Não criou: '+error.message,'danger'); if(bt){bt.disabled=false;bt.textContent='🖨 Criar e imprimir na LaserJet';} return; }
+  addLog('CREATE','ACERTO_PALLETS',data.codigo,`Criou ${_ehBag(_P)?'bag':'pallet'} nº ${data.numero} · ${_P} · ${_dBR(g.data)} ${g.linha} · lote ${data.lote} · ${s} ${_ehBag(_P)?'un':'sc'} (${f.origem==='sem_qr'?'saldo sem QR':'produção nova'}) · ${data.status}`);
+  await imprimir([{numero:data.numero,codigo:data.codigo,lote:data.lote,validade:data.validade,dia:g.data,linha:g.linha,produto:_P}],'Rótulo criado — nº '+data.numero);
+  _form=null; await carregar(); _aberto=g.data+'|'+g.linha; render();
+}
+
+/* ── impressão: mesmo rótulo da Central, na fila da LaserJet (ou neste computador) ── */
+async function imprimir(rows,titulo){
+  let html='';
+  try{ await RotuloPallet.carregar(); html=RotuloPallet.html(rows.map(RotuloPallet.palDe),RotuloPallet.prodPorNome(_P)); }
+  catch(e){ toast('Não montou o rótulo: '+(e.message||e),'danger'); return; }
+  const r=await _supabase.from('impressao_fila').insert({destino:'laser',tipo:'rotulo',titulo:'Rótulos · '+_P+' · nº '+RotuloPallet.faixas(rows.map(x=>x.numero))+' (acerto)',tamanho:'A4',qtd:rows.length,criado_por:_quem()||'Acerto de pallets',html});
+  const ov=document.createElement('div'); ov.className='ap-ov';
+  ov.innerHTML=`<div class="ap-mod"><h3>${r.error?'⚠️':'✅'} ${_e(titulo)}</h3>
+    <div style="font-size:13.5px;color:#334155;line-height:1.6;">${r.error?'Não consegui mandar para a LaserJet: '+_e(r.error.message)+'.<br>Imprima neste computador:':`Enviado para a <b>LaserJet</b> (estação de impressão). Se a estação estiver desligada, imprima neste computador.`}</div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;flex-wrap:wrap;">
+      <button class="bt" id="ap-aqui">🖨 Imprimir neste computador</button><button class="bt g" onclick="this.closest('.ap-ov').remove()">OK</button></div></div>`;
+  document.body.appendChild(ov);
+  ov.querySelector('#ap-aqui').onclick=()=>{ const w=window.open('','_blank'); if(!w) return toast('O navegador bloqueou a janela de impressão.','warning');
+    w.document.write('<html><head><meta charset="utf-8"><title>Rótulo</title><style>@page{size:A4;margin:0}body{margin:0}</style></head><body>'+html+'</body></html>'); w.document.close(); setTimeout(()=>{w.focus();w.print();},600); };
+}
+async function reimprimir(id){
+  const p=_pals.find(x=>x.id===id); if(!p) return;
+  const r=_rots.find(x=>x.id===p.rotulo_id)||_rots.find(x=>x.codigo===p.codigo);
+  const g=_grupos.find(x=>x.data===p.data&&x.linha===p.linha)||{};
+  const lote=(r&&r.lote)||g.lote, val=(r&&r.validade)||g.validade;
+  if(!lote) return toast('Este pallet não tem lote para o rótulo.','warning');
+  if(!(await erpConfirm(`Reimprimir o rótulo nº ${p.numero} (${p.codigo})? Sai igual ao original: mesmo número e mesmo QR.`,{titulo:'🖨 Reimprimir',ok:'Reimprimir',cancelar:'Voltar'}))) return;
+  addLog('UPDATE','ACERTO_PALLETS',p.codigo,`Reimprimiu nº ${p.numero} · ${_P} · ${_dBR(p.data)} ${p.linha}`);
+  await imprimir([{numero:p.numero,codigo:p.codigo,lote,validade:val,dia:p.data,linha:p.linha,produto:_P}],'Reimpressão — nº '+p.numero);
+  carregarHist();
+}
+async function naoExiste(id){
+  if(!guardAction(MOD,'edit')) return;
+  const p=_pals.find(x=>x.id===id); if(!p) return;
+  const m=await erpPrompt(`O ${_ehBag(_P)?'bag':'pallet'} nº ${p.numero} (${p.codigo}) aparece no estoque mas NÃO existe no barracão?\nEle sai da contagem (não vai para o saldo sem QR). Informe o motivo:`,{titulo:'🚫 Não existe no barracão',ok:'Tirar do estoque'});
+  if(!m||!String(m).trim()) return;
+  const {error}=await _supabase.rpc('acerto_nao_existe',{p_pallet:id,p_motivo:String(m).trim(),p_usuario:_quem()});
+  if(error) return toast('Não tirou: '+error.message,'danger');
+  addLog('UPDATE','ACERTO_PALLETS',p.codigo,`Não existe no barracão: nº ${p.numero} · ${_P} · ${_dBR(p.data)} ${p.linha} — ${m}`);
+  toast(`Nº ${p.numero} saiu do estoque.`,'success'); const ab=_aberto; await carregar(); _aberto=ab; render();
+}
+
+/* ── histórico ── */
+function renderHist(rows){
+  document.getElementById('ap-hist').innerHTML=rows.length?rows.map(h=>`<div>${new Date(h.criado_em).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})} · <b>${_e(String(h.usuario_email||'').split('@')[0])}</b> · ${_e(h.descricao)}</div>`).join(''):'<div class="ap-vazio">Nenhum acerto ainda.</div>';
+}
+async function carregarHist(){ const {data}=await _supabase.from('auditoria').select('criado_em,usuario_email,descricao').eq('modulo','ACERTO_PALLETS').order('criado_em',{ascending:false}).limit(15); renderHist(data||[]); }
+
+async function iniciar(){
+  if(!checkPerm(MOD,'view')){ document.getElementById('main-content').innerHTML='<div class="ap-vazio">Sem acesso ao Acerto de Pallets. Peça ao administrador para liberar no perfil.</div>'; return; }
+  await carregarProdutos(); if(document.getElementById('ap-prod').value) carregar();
+  if(typeof applyActionGuards==='function') applyActionGuards();
+}
+fetch('partials/sidebar.html').then(r=>r.text()).then(h=>{document.getElementById('sidebar-container').innerHTML=h;document.querySelector('[href="acerto-pallets.html"]')?.classList.add('active');if(typeof openGroup==='function')openGroup('producao');});
+initSidebar('acerto-pallets.html').then(()=>{if(getUser())iniciar();});
+</script>
+</body>
+</html>

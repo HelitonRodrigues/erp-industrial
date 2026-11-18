@@ -991,3 +991,8 @@ fábrica específica. Não generalizar.
   alvoR, uteis/cobertos), só quando muda e de novo depois de salvar o plano. Dashboard `_custoRealHtml`: usa a foto (exata, com a hora);
   sem foto do mês, estimativa (custo × dias úteis com produção ÷ dias úteis, toneladas apontadas, faturamento pelo preço médio/t do plano).
 - (17/11) portaria.html Felisbina: `casarFelis` reconhece o nome da ordem com a marca na frente ("ORIGINAL PRO LIGA AD 18L" → LIGA AD 18L: sem ORIGINAL/ORIGINAL PRO, ou o nome do cadastro no fim, se único). Fechamento do dia: com carga salva, os itens da Felisbina da ORDEM entram também (não são bipados) — `felDaOrdem`.
+- (17/11, migração 149) **Módulo novo `acerto-pallets.html` (🏷️ Acerto de Pallets, grupo Produção, `MODULO_MAP` id `acerto_pallets`)**:
+  por produto e período, tabela por dia/linha (lote, produção/OP provisória, no estoque com QR, fora da contagem, "não existe", carregados,
+  laboratório, laudo, saldo sem QR); ＋ Pallet (RPC `acerto_criar_pallet`) e, no detalhe do dia, 🖨 Reimprimir e 🚫 Não existe (RPC
+  `acerto_nao_existe`). Impressão: cópia fiel do rótulo do totem.html isolada em `window.RotuloPallet` (se o rótulo do totem mudar,
+  copiar de novo) → `impressao_fila` destino laser, ou "Imprimir neste computador". Tudo na Auditoria (módulo ACERTO_PALLETS).
