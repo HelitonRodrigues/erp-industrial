@@ -2418,7 +2418,7 @@ const _ehGerenteReg=()=>{ const u=getUser()||{}; return /jo[aã]o\s*paulo/i.test
 function regBannerHtml(r){
   const g=r.regularizacao; if(!g) return '';
   if(g.pendente) return `<div class="alerta al-warn"><strong>⏳ Pendente de verdade</strong> — ${esc(g.pendente)}<div style="font-size:11.5px;margin-top:3px;">Responsável: ${esc(g.responsavel||'—')}</div></div>`;
-  const sl=(g.slots||[]).map(s=>`<div style="margin-top:3px;"><b>${esc(s.label||s.id)}:</b> ${(s.nomes||[]).length?(s.nomes||[]).map(n=>{const a=(s.assinados||[]).find(x=>x.nome===n);return a?`✅ ${esc(n)} <span style="color:#64748b;">(confirmou em ${fmtDH(a.em)})</span>`:`⏳ ${esc(n)}`;}).join(' · '):'<span style="color:#94a3b8;">sem responsável na escala</span>'}</div>`).join('');
+  const sl=(g.slots||[]).map(s=>`<div style="margin-top:3px;"><b>${esc(s.label||s.id)}:</b> ${(s.nomes||[]).length?(s.nomes||[]).map(n=>{const a=(s.assinados||[]).find(x=>x.nome===n);return a?(a.ausente?`🚪 ${esc(n)} <span style="color:#b45309;">(${esc(a.motivo||'não assinou — desligado')}; registrado por ${esc(a.por||'—')} em ${fmtDH(a.em)})</span>`:`✅ ${esc(n)} <span style="color:#64748b;">(confirmou em ${fmtDH(a.em)})</span>`):`⏳ ${esc(n)}`;}).join(' · '):'<span style="color:#94a3b8;">sem responsável na escala</span>'}</div>`).join('');
   return `<div class="alerta al-info"><strong>🧾 Regularização</strong> — ${esc(g.carimbo||'')}
     ${g.concluido_por?`<div style="margin-top:4px;"><b>Concluído pela gerência:</b> ${esc(g.concluido_por)} em ${fmtDH(g.concluido_em)}</div>`:''}
     <div style="font-size:12px;margin-top:6px;">${sl}</div></div>`;
@@ -2473,7 +2473,7 @@ function renderRegularizacao(){
   <div class="sec-card"><h3>✍️ Quem precisa assinar</h3><div class="sub">Cada pessoa assina uma vez para todos os registros dela. Imprima a lista para ir chamando.</div>
     <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Pessoa</th><th style="text-align:right;">Falta assinar</th><th style="text-align:right;">Já assinou</th><th></th></tr></thead><tbody>
     ${pes.map(p=>`<tr><td><b>${esc(p.nome)}</b></td><td style="text-align:right;">${p.falta.length?`<b style="color:#b45309;">${p.falta.length}</b>`:'—'}</td><td style="text-align:right;">${p.feito?`<a href="#" onclick="regVerAssinados('${esc(p.nome).replace(/'/g,"\\'")}');return false;" style="font-weight:800;color:#0284c7;">${p.feito} 👁</a>`:'—'}</td>
-      <td style="white-space:nowrap;text-align:right;">${p.falta.length?`<button class="btn btn-primary btn-sm" onclick="regAssinarPessoa('${esc(p.nome).replace(/'/g,"\\'")}')">✍️ Assinar</button> <button class="btn btn-secondary btn-sm" onclick="regImprimirLista('${esc(p.nome).replace(/'/g,"\\'")}')">🖨️ Lista</button>`:'<span class="badge badge-success">em dia</span>'}</td></tr>`).join('')||'<tr><td colspan="4" style="color:#94a3b8;">Ninguém pendente.</td></tr>'}
+      <td style="white-space:nowrap;text-align:right;">${p.falta.length?`${_podeDesligar()?`<button class="btn btn-ghost btn-sm" title="A pessoa saiu da empresa e não pode assinar" onclick="regDesligado('${esc(p.nome).replace(/'/g,"\\'")}')">🚪 Saiu</button> `:''}<button class="btn btn-primary btn-sm" onclick="regAssinarPessoa('${esc(p.nome).replace(/'/g,"\\'")}')">✍️ Assinar</button> <button class="btn btn-secondary btn-sm" onclick="regImprimirLista('${esc(p.nome).replace(/'/g,"\\'")}')">🖨️ Lista</button>`:'<span class="badge badge-success">em dia</span>'}</td></tr>`).join('')||'<tr><td colspan="4" style="color:#94a3b8;">Ninguém pendente.</td></tr>'}
     </tbody></table></div>
     <div style="margin-top:8px;"><button class="btn btn-secondary btn-sm" onclick="regImprimirLista('')">🖨️ Imprimir a lista de todos</button></div></div>
   <div class="sec-card"><h3>📅 Por mês</h3><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Mês</th><th style="text-align:right;">Aguardando assinaturas</th><th style="text-align:right;">Prontos p/ gerência</th><th style="text-align:right;">Concluídos</th></tr></thead><tbody>
@@ -2484,6 +2484,28 @@ function renderRegularizacao(){
 function _regLinhasHtml(lst){
   const fNome=c=>(_forms.find(x=>x.codigo===c)||{}).titulo||c;
   return lst.slice().sort((a,b)=>String(a.data).localeCompare(String(b.data))).map(r=>`<tr><td style="white-space:nowrap;">${fmtD(r.data)}</td><td>${esc(r.regularizacao?.turno||'')}</td><td>${esc(r.regularizacao?.linha||'')}</td><td>${esc(fNome(r.formulario_cod))}</td><td>${esc(r.numero)}</td><td>✅ conforme</td></tr>`).join('');
+}
+/* (19/11) quem SAIU da empresa não assina: gerência/qualidade registra o desligamento (não é assinatura em nome dela) */
+const _podeDesligar=()=>['SADM','ADM','DIR','GER','GIN','QLD','SGR'].includes(String((getUser()||{}).perfil||'').toUpperCase());
+async function regDesligado(nome){
+  if(!_podeDesligar()){ await uiAlerta('Só a gerência ou a qualidade registram o desligamento.',{titulo:'Sem permissão',tipo:'warn'}); return; }
+  const p=_regPessoas().find(x=>x.nome===nome); if(!p||!p.falta.length) return;
+  const {data:fu}=await _supabase.from('funcionarios').select('demissao,status').eq('nome',nome).limit(1);
+  const dem=(fu&&fu[0]&&fu[0].demissao)||'';
+  const depois=dem?p.falta.filter(r=>String(r.data)>dem):[];
+  window._dlS=dem; window._dlO='';   // a janela some ao confirmar: guarda o que foi digitado
+  const ok=await uiConfirma(`<div style="font-size:13px;"><b>${esc(nome)}</b> saiu da empresa e não pode assinar os <b>${p.falta.length}</b> registro(s) dele.</div>
+    <label style="display:block;font-size:12px;font-weight:700;margin:10px 0 4px;">Data da saída</label><input type="date" id="dl-saida" class="form-input" value="${esc(dem)}" style="max-width:200px;" oninput="window._dlS=this.value" onchange="window._dlS=this.value">
+    <label style="display:block;font-size:12px;font-weight:700;margin:10px 0 4px;">Observação (opcional)</label><input id="dl-obs" class="form-input" placeholder="ex.: confirmado pelo encarregado do turno" oninput="window._dlO=this.value">
+    ${depois.length?`<div class="alerta al-warn" style="margin-top:10px;">⚠️ ${depois.length} registro(s) dele são <b>depois da data de saída</b> (${depois.map(r=>fmtD(r.data)).join(', ')}) — a escala estava errada nesses dias. Confira quem trabalhou e corrija o registro.</div>`:''}
+    <div class="alerta al-info" style="margin-top:10px;font-size:12px;">No lugar da assinatura fica: <b>"não assinou — desligado da empresa em dd/mm/aaaa"</b>, com o seu nome e a hora. Os outros responsáveis e a gerência continuam assinando normalmente.</div>`,
+    {titulo:'🚪 Saiu da empresa',ok:'Registrar'});
+  if(!ok) return;
+  const saida=window._dlS||dem; if(!saida){ await uiAlerta('Informe a data da saída.',{titulo:'Falta a data',tipo:'warn'}); return; }
+  const u=getUser()||{};
+  const {data,error}=await _supabase.rpc('bpf_reg_desligado',{p_nome:nome,p_saida:saida,p_usuario:u.nome||u.email||'',p_obs:String(window._dlO||'').trim()||null});
+  if(error){ await uiAlerta('Não gravou: '+esc(error.message),{titulo:'Erro',tipo:'dang'}); return; }
+  toast(`${nome}: desligamento registrado em ${data.registros} registro(s).`,'success'); await carregar(); ir('regularizacao');
 }
 async function regAssinarPessoa(nome){
   if(!guardAction('bpf','edit'))return;
