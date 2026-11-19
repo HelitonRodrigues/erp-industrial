@@ -466,10 +466,15 @@ function chSugerir(tipo,digitando){
   const box=document.getElementById('ch-sug-'+tipo);
   if(!q){box.innerHTML='';chCartao();return;}
   const ini=(txt)=>String(txt||'').toUpperCase().split(/\s+/).some(w=>w.startsWith(q))||String(txt||'').toUpperCase().startsWith(q);
-  const lista=_motCad.filter(m=>m.ativo!==false&&(tipo==='placa'?[m.placa,m.placa2].some(p=>normPlaca(p).startsWith(q)):ini(m.nome)))
-    .sort((x,y)=>tipo==='placa'?String(x.placa).localeCompare(String(y.placa)):x.nome.localeCompare(y.nome)).slice(0,12).map(m=>({m,placa:m.placa,nome:m.nome,modelo:m.modelo}));
+  // (18/11) qualquer parte da placa OU do nome, nos dois campos; quem começa igual vem primeiro
+  const qn=String(inp.value||'').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim(), qp=normPlaca(inp.value);
+  const nm=x=>String(x||'').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+  const bate=m=>(qp&&[m.placa,m.placa2].some(p=>normPlaca(p).includes(qp)))||(qn.length>=2&&nm(m.nome).includes(qn));
+  const comeca=m=>tipo==='placa'?[m.placa,m.placa2].some(p=>normPlaca(p).startsWith(qp)):ini(m.nome);
+  const lista=_motCad.filter(m=>m.ativo!==false&&bate(m))
+    .sort((x,y)=>(comeca(x)?0:1)-(comeca(y)?0:1)||(tipo==='placa'?String(x.placa).localeCompare(String(y.placa)):x.nome.localeCompare(y.nome))).slice(0,12).map(m=>({m,placa:m.placa,nome:m.nome,modelo:m.modelo}));
   box._lista=lista;
-  box.innerHTML=lista.map((x,i)=>`<div class="ch-sug-it${x.m.bloqueado?' blq':''}" onclick="chEscolher(${i},'${tipo}')"><b>${esc(x.placa||'—')}</b><span>${esc(x.nome)}</span><small>${esc(x.modelo||'')}${x.m.celular?' · '+esc(x.m.celular):''}${x.m.bloqueado?' · ⛔ bloqueado':''}</small></div>`).join('')
+  box.innerHTML=lista.map((x,i)=>`<div class="ch-sug-it${x.m.bloqueado?' blq':''}" onclick="chEscolher(${i},'${tipo}')"><b>${esc(x.placa||'—')}</b><span>${esc(x.nome)}</span><small>${esc([x.m.transportadora,x.modelo].filter(Boolean).join(' · '))}${x.m.celular?' · '+esc(x.m.celular):''}${x.m.bloqueado?' · ⛔ bloqueado':''}</small></div>`).join('')
     +`<div class="ch-sug-add" onclick="chNovoMotorista('${tipo}')">＋ Não está na lista? <b>Cadastrar novo motorista</b>${q?` (${esc(q)})`:''}</div>`;
   if(digitando&&tipo==='placa'&&q.length>=7){const ex=lista.find(x=>normPlaca(x.placa)===q);if(ex){box.innerHTML='';chAplicar(ex,true);return;}}
   chCartao();
