@@ -78,6 +78,7 @@ table.mb-t td.n{text-align:right;font-weight:800;white-space:nowrap}
     <button class="mb-bt" style="min-height:42px;padding:0 14px;" onclick="carregar()">🔄 Atualizar</button>
   </div>
   <div class="mb-grid" id="mb-grid"><div class="mb-vz">Carregando…</div></div>
+  <div class="mb-card mb-ult"><h2>🧪 Lotes de MP <small>do laboratório (aba MP) · a produção usa o mais antigo com saldo, sozinha</small></h2><div id="mb-lotes" style="overflow:auto;"></div></div>
   <div class="mb-card mb-ult"><h2>🕘 Últimos lançamentos <small>ajustes e viagens</small></h2><div id="mb-ult" style="overflow:auto;"></div></div>
 </main>
 
@@ -85,7 +86,7 @@ table.mb-t td.n{text-align:right;font-weight:800;white-space:nowrap}
 const MOD='mp_barracoes';
 const BARR=[{k:'LINHA_2_3',n:'Linha 2/3',d:'Linha 2 e Linha 3 — um barracão só'},{k:'EMITEC',n:'Emitec',d:'Linha Emitec'},{k:'LONGA_VIDA',n:'Longa Vida',d:'Granel (Longa Vida)'},{k:'BRITADOR',n:'Britador',d:'Pilha do britador — sobe para os barracões'}];
 const NB=k=>(BARR.find(b=>b.k===k)||{}).n||k;
-let _S=[], _mats=[], _ult=[];
+let _S=[], _mats=[], _ult=[], _L=[], _semLote=[];
 const E=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fT=v=>(Number(v)||0).toLocaleString('pt-BR',{minimumFractionDigits:1,maximumFractionDigits:1})+' t';
 const fDH=v=>v?new Date(v).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'—';
@@ -97,12 +98,14 @@ function fechar(){ document.querySelectorAll('.mb-ov').forEach(x=>x.remove()); }
 function modal(html,lg){ fechar(); const o=document.createElement('div'); o.className='mb-ov'; o.onclick=e=>{if(e.target===o)fechar();}; o.innerHTML=`<div class="mb-mod ${lg?'lg':''}">${html}</div>`; document.body.appendChild(o); return o; }
 
 async function carregar(){
-  const [s,m,u]=await Promise.all([
+  const [s,m,u,lt,sl]=await Promise.all([
     _supabase.rpc('mp_saldos'),
     _supabase.from('minerio_materiais').select('codigo,nome,ordem').eq('ativo',true).eq('selecionavel',true).order('ordem'),
-    _supabase.from('mp_barracao_mov').select('*').is('cancelado_em',null).order('criado_em',{ascending:false}).limit(30)]);
+    _supabase.from('mp_barracao_mov').select('*').is('cancelado_em',null).order('criado_em',{ascending:false}).limit(30),
+    _supabase.rpc('mp_lotes_status'),
+    _supabase.from('mp_lote_consumo').select('material,quantidade_t,data').is('lote_id',null).gte('data',new Date(Date.now()-30*864e5).toISOString().slice(0,10)).limit(5000)]);
   if(s.error){ document.getElementById('mb-grid').innerHTML=`<div class="mb-vz">Não carregou: ${E(s.error.message)}</div>`; return; }
-  _S=s.data||[]; _mats=m.data||[]; _ult=u.data||[];
+  _S=s.data||[]; _mats=m.data||[]; _ult=u.data||[]; _L=lt.data||[]; _semLote=sl.data||[];
   render();
 }
 function render(){
@@ -116,10 +119,28 @@ function render(){
           <div class="q ${x.saldo_t<0?'neg':''}">${fT(x.saldo_t)}</div></div>`).join(''):'<div class="mb-vz">Nenhum material lançado. Comece pelo ajuste do que tem hoje.</div>'}</div>
       ${pode?`<div class="mb-bts"><button class="mb-bt g" onclick="abrirViagem('${b.k}')">🚚 Lançar viagens</button><button class="mb-bt" onclick="abrirAjuste('${b.k}')">✏️ Ajustar saldo</button></div>`:''}</div>`;
   }).join('');
+  renderLotes();
   document.getElementById('mb-ult').innerHTML=_ult.length?`<table class="mb-t"><thead><tr><th>Quando</th><th>Barracão</th><th>Material</th><th>Lançamento</th><th>Por</th><th></th></tr></thead><tbody>
     ${_ult.map(x=>`<tr><td>${fDH(x.criado_em)}</td><td>${E(NB(x.barracao))}</td><td>${E(nomeMat(x.material))}</td>
       <td>${x.tipo==='ajuste'?`<span class="tg aj">ajuste</span> saldo = <b>${fT(x.saldo_informado_t)}</b>`:`<span class="tg vi">viagens</span> ${x.viagens} × ${fT(x.peso_viagem_t)} = <b>${fT(x.quantidade_t)}</b>${x.origem==='BRITADOR'?' (do britador)':''}`}${x.obs?`<div style="color:var(--mu);font-size:12px;">${E(x.obs)}</div>`:''}</td>
       <td>${E(x.criado_por||'—')}</td><td>${podeCancelar(x)?`<button class="mb-bt" style="min-height:34px;font-size:12px;padding:0 10px;" onclick="cancelar('${x.id}')">Desfazer</button>`:''}</td></tr>`).join('')}</tbody></table>`:'<div class="mb-vz">Nenhum lançamento ainda.</div>';
+}
+/* (18/11) lotes: em uso = o mais antigo com saldo; quando zera passa para o próximo; "Acabou" encerra antes (sobrou no papel) */
+function renderLotes(){
+  const SIT={'em uso':['ba','EM USO'],'na fila':['vi','na fila'],'acabou':['co','acabou'],'encerrado':['aj','encerrado']};
+  const sem={}; _semLote.forEach(x=>{sem[x.material]=(sem[x.material]||0)+Number(x.quantidade_t||0);});
+  const mats=[...new Set([..._L.map(l=>l.material),...Object.keys(sem)])];
+  const pode=checkPerm(MOD,'edit');
+  document.getElementById('mb-lotes').innerHTML=(Object.keys(sem).length?`<div style="background:#fef2f2;border:1.5px solid #fca5a5;color:#991b1b;border-radius:12px;padding:10px 12px;margin:8px 0;font-size:13.5px;">⚠️ <b>Produção sem lote nos últimos 30 dias:</b> ${Object.entries(sem).map(([k,v])=>`${E(nomeMat(k))} <b>${fT(v)}</b>`).join(' · ')} — o laboratório precisa cadastrar o lote desse material na aba MP (com a quantidade).</div>`:'')+
+    (mats.length?`<table class="mb-t"><thead><tr><th>Material</th><th>Lote</th><th>Data</th><th style="text-align:right;">Quantidade</th><th style="text-align:right;">Usado</th><th style="text-align:right;">Saldo</th><th>Situação</th><th></th></tr></thead><tbody>
+    ${mats.map(mt=>_L.filter(l=>l.material===mt).map(l=>{const t=SIT[l.situacao]||['',l.situacao];return `<tr><td>${E(l.nome||nomeMat(mt))}</td><td><b>${E(l.numero)}</b></td><td>${fD(l.data)}</td><td class="n">${fT(l.montante_t)}</td><td class="n">${fT(l.consumido_t)}</td><td class="n">${fT(l.saldo_t)}</td><td><span class="tg ${t[0]}">${t[1]}</span></td>
+      <td>${pode&&l.situacao==='em uso'?`<button class="mb-bt" style="min-height:34px;font-size:12px;padding:0 10px;" onclick="encerrarLote('${l.lote_id}','${E(l.numero)}')">Acabou</button>`:''}</td></tr>`;}).join('')).join('')}</tbody></table>`:'<div class="mb-vz">Nenhum lote cadastrado no laboratório.</div>');
+}
+async function encerrarLote(id,num){
+  if(!(await erpConfirm(`O lote ${num} acabou no barracão? O saldo que sobrou no papel fica de lado e a produção passa para o próximo lote do mesmo material.`,{titulo:'Lote acabou',ok:'Sim, acabou'}))) return;
+  const {error}=await _supabase.rpc('mp_lote_encerrar',{p_lote:id,p_usuario:quem()});
+  if(error) return toast('Não encerrou: '+error.message,'danger');
+  addLog('UPDATE','MP_BARRACOES',num,`Lote de MP ${num} encerrado (acabou no barracão)`); toast('Lote encerrado — o próximo entrou em uso.','success'); carregar();
 }
 const podeCancelar=x=>checkPerm(MOD,'delete')||(x.criado_por===quem()&&String(x.criado_em).slice(0,10)===new Date().toISOString().slice(0,10));
 
