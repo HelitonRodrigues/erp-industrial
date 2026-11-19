@@ -321,7 +321,7 @@
       <button class="btn btn-secondary btn-sm" data-perm="portaria:view" onclick="relMot()">🖨️ Imprimir</button>
       <button class="btn btn-primary btn-sm" data-perm="portaria:create" onclick="editarMotorista()">＋ Novo motorista</button></div>
     <div class="card" style="padding:0;overflow:hidden;"><table class="tv"><colgroup><col style="width:34%"><col style="width:14%"><col style="width:20%"><col style="width:14%"><col style="width:10%"><col style="width:8%"></colgroup>
-      <thead><tr><th>Motorista</th><th>Placa</th><th>Transportadora</th><th>Filito padrão</th><th>Situação</th><th></th></tr></thead><tbody id="m-b"></tbody></table></div>
+      <thead><tr><th>Motorista</th><th>Placa</th><th>Transportadora</th><th>Filito padrão</th><th>Pedido</th><th style="text-align:right;">Caçamba (kg)</th><th>Situação</th><th></th></tr></thead><tbody id="m-b"></tbody></table></div>
   </div>
 </div></main>
 <datalist id="dl-transp"></datalist><datalist id="dl-oper"></datalist><datalist id="dl-ped"></datalist>
@@ -448,10 +448,14 @@ function renderPatio(){
 
 /* ═══ CHEGADA (tara opcional) — data e hora pelo servidor; tara, pedido e caçamba podem ficar para depois ═══ */
 let _en={id:null,mot:null,prod:'INTERCEMENT'};
+/* (19/11) pedido e caçamba ficam no CADASTRO do motorista: a viagem já vem com eles (o porteiro só confere).
+   Mudou o pedido? Atualiza na aba Motoristas. */
+const pedDoMot=v=>{ if(!v) return {}; const m=_mot.find(x=>(v.motorista_id&&x.id===v.motorista_id)||(!v.motorista_id&&norm(x.nome)===norm(v.motorista||''))); return m?{pedido:m.pedido||'',cac:m.cacamba_kg}:{}; };
 function campoPedido(v,pfx){
+  const dm=pedDoMot(v), ped=(v&&v.pedido)||dm.pedido||'', cac=v&&v.cacamba_kg!=null?v.cacamba_kg:(dm.cac!=null?dm.cac:''), doCad=!(v&&v.pedido)&&!!dm.pedido;
   return `<div class="box-ped"><div class="t">📝 Pedido e caçamba ${pfx==='en'||pfx==='ta'?'<span style="font-weight:600;color:#a16207;">— se não tiver agora, fica "colocar pedido" até o bruto</span>':'<span style="color:#b91c1c;">— obrigatórios</span>'}</div>
-    <div class="dsm-g2"><div><label class="dsm-lbl">Nº do pedido</label><input class="form-input" id="${pfx}-ped" inputmode="numeric" autocomplete="off" value="${esc(v&&v.pedido||'')}" style="font-weight:800;font-size:16px;"></div>
-      <div><label class="dsm-lbl">Peso caçamba — limite (kg)</label><input type="number" inputmode="numeric" class="form-input" id="${pfx}-cac" value="${v&&v.cacamba_kg!=null?v.cacamba_kg:''}" style="font-weight:800;font-size:16px;"></div></div></div>`;
+    <div class="dsm-g2"><div><label class="dsm-lbl">Nº do pedido</label><input class="form-input" id="${pfx}-ped" inputmode="numeric" autocomplete="off" value="${esc(ped)}" style="font-weight:800;font-size:16px;"></div>
+      <div><label class="dsm-lbl">Peso caçamba — limite (kg)</label><input type="number" inputmode="numeric" class="form-input" id="${pfx}-cac" value="${cac}" style="font-weight:800;font-size:16px;"></div></div>${doCad?'<div style="font-size:12px;color:#166534;font-weight:700;margin-top:4px;">✓ Veio do cadastro do motorista — mudou o pedido? Atualize na aba Motoristas.</div>':''}</div>`;
 }
 async function gravarPedido(n){
   if(!n||_ped.some(x=>x.numero===n))return true;
@@ -509,8 +513,9 @@ function enSugerir(){
 function enEscolher(id){
   const m=_mot.find(x=>x.id===id);if(!m)return;_en.mot=m;document.getElementById('en-sug').innerHTML='';
   const s=(i,x)=>{const e=document.getElementById(i);if(e)e.value=x==null?'':x;};
-  // do cadastro vêm só motorista, placa e transporte — pedido, caçamba e pesos são da viagem
+  // do cadastro vêm motorista, placa, transporte e (19/11) pedido + caçamba; os pesos são da viagem
   s('en-mot',m.nome);s('en-placa',m.placa);s('en-transp',m.transportadora);
+  if(m.pedido){ s('en-ped',m.pedido); } if(m.cacamba_kg!=null){ s('en-cac',m.cacamba_kg); }
   if(m.produto)_en.prod=m.produto;enProds();document.getElementById('en-ped').focus();
 }
 async function salvarEntrada(){
@@ -980,22 +985,23 @@ async function indDoc(acao){
   if(acao==='pdf')await baixarPdfHtml(html,nome,true);else abrirPrevia(html,nome,true);
 }
 
-/* ═══ MOTORISTAS (só nome, placa, transporte e filito padrão) ═══ */
+/* ═══ MOTORISTAS (nome, placa, transporte, filito padrão e — 19/11 — pedido + caçamba) ═══ */
 function renderMot(){
   const q=norm(document.getElementById('m-q').value).trim(),st=document.getElementById('m-st').value,ed=pode('edit');
   const l=_mot.filter(m=>(!st||(st==='ativo'?m.ativo:!m.ativo))&&(!q||norm([m.nome,m.placa,m.transportadora].join(' ')).includes(q)));
   document.getElementById('m-info').textContent=`${l.length} de ${_mot.length}`;
   document.getElementById('m-b').innerHTML=l.length?l.map(m=>`<tr style="${m.ativo?'':'opacity:.55;'}"><td><b style="color:var(--primary);">${esc(m.nome)}</b>${m.celular?`<small>${esc(m.celular)}</small>`:''}</td>
     <td><b>${esc(m.placa||'—')}</b></td><td>${esc(m.transportadora||'—')}</td><td>${esc(prodNome(m.produto))}</td>
+    <td>${m.pedido?'<b>'+esc(m.pedido)+'</b>':'<span style="color:#b45309;">—</span>'}</td><td style="text-align:right;">${m.cacamba_kg!=null?'<b>'+nf(m.cacamba_kg)+'</b>':'<span style="color:#b45309;">—</span>'}</td>
     <td>${m.ativo?'<span class="badge badge-success">ativo</span>':'<span class="badge badge-gray">inativo</span>'}</td>
     <td style="text-align:right;">${ed?`<button class="btn btn-ghost btn-sm" title="Editar" onclick="editarMotorista('${m.id}')">✏️</button>`:''}</td></tr>`).join('')
-    :'<tr><td colspan="6" style="text-align:center;color:#94a3b8;padding:24px;">Nenhum motorista</td></tr>';
+    :'<tr><td colspan="8" style="text-align:center;color:#94a3b8;padding:24px;">Nenhum motorista</td></tr>';
 }
 async function relMot(){
   const q=norm(document.getElementById('m-q').value).trim(),st=document.getElementById('m-st').value;
   const l=_mot.filter(m=>(!st||(st==='ativo'?m.ativo:!m.ativo))&&(!q||norm([m.nome,m.placa,m.transportadora].join(' ')).includes(q)));
   const html=relDoc(await dadosEmpresa(),{titulo:'FILITO INTERCEMENT – CAMARGO · MOTORISTAS',sub:`${l.length} motoristas${st?' · '+(st==='ativo'?'ativos':'inativos'):''}`,
-    corpo:relTab(['Motorista','Placa','Transportadora','Filito padrão','Celular','Situação'],l.map(m=>['<b>'+esc(m.nome)+'</b>',esc(m.placa||''),esc(m.transportadora||''),esc(prodNome(m.produto)),esc(m.celular||''),m.ativo?'ativo':'inativo']))});
+    corpo:relTab(['Motorista','Placa','Transportadora','Filito padrão','Pedido','Caçamba (kg)','Celular','Situação'],l.map(m=>['<b>'+esc(m.nome)+'</b>',esc(m.placa||''),esc(m.transportadora||''),esc(prodNome(m.produto)),esc(m.pedido||''),m.cacamba_kg!=null?nf(m.cacamba_kg):'',esc(m.celular||''),m.ativo?'ativo':'inativo']))});
   abrirPrevia(html,'Motoristas Filito Intercement.pdf',false);
 }
 let _mtVoltarEntrada=false;
@@ -1008,15 +1014,21 @@ function editarMotorista(id,daEntrada){
     <div class="dsm-g2"><div><label class="dsm-lbl">Placa</label><input class="form-input" id="mt-placa" value="${esc(m?m.placa||'':'')}" oninput="this.value=this.value.toUpperCase().replace(/[^A-Z0-9]/g,'')"></div>
       <div><label class="dsm-lbl">Transportadora</label><input class="form-input" id="mt-transp" list="dl-transp" value="${esc(m?m.transportadora||'':'')}" oninput="this.value=this.value.toUpperCase()"></div>
       <div><label class="dsm-lbl">Filito padrão</label><select class="form-input" id="mt-prod">${_prod.map(p=>`<option value="${esc(p.codigo)}" ${(m?m.produto:'INTERCEMENT')===p.codigo?'selected':''}>${esc(p.nome)}</option>`).join('')}</select></div>
-      <div><label class="dsm-lbl">Celular</label><input class="form-input" id="mt-cel" value="${esc(m?m.celular||'':'')}"></div></div>
+      <div><label class="dsm-lbl">Celular</label><input class="form-input" id="mt-cel" value="${esc(m?m.celular||'':'')}"></div>
+      <div><label class="dsm-lbl">Nº do pedido</label><input class="form-input" id="mt-ped" inputmode="numeric" value="${esc(m?m.pedido||'':'')}" style="font-weight:800;"></div>
+      <div><label class="dsm-lbl">Peso caçamba — limite (kg)</label><input type="number" inputmode="numeric" class="form-input" id="mt-cac" value="${m&&m.cacamba_kg!=null?m.cacamba_kg:''}" style="font-weight:800;"></div></div>
+    <div style="font-size:12px;color:#64748b;margin-top:4px;">O pedido e a caçamba vêm sozinhos na entrada deste motorista. Mudou o pedido? Troque aqui.</div>
     <label class="dsm-lbl"><input type="checkbox" id="mt-ativo" ${!m||m.ativo?'checked':''}> Ativo (aparece na entrada)</label>
     <div class="dsm-ft"><button class="btn btn-secondary" onclick="document.getElementById('ov-mt').remove()">Cancelar</button><button class="btn btn-primary" onclick="salvarMotorista('${m?m.id:''}')">💾 Salvar</button></div></div>`;
   document.body.appendChild(ov);
 }
 async function salvarMotorista(id){
   const g=i=>document.getElementById(i).value.trim();
-  const d={nome:g('mt-nome').replace(/\s+/g,' '),placa:g('mt-placa')||null,transportadora:g('mt-transp')||null,produto:g('mt-prod')||'INTERCEMENT',celular:g('mt-cel')||null,ativo:document.getElementById('mt-ativo').checked,atualizado_em:new Date().toISOString()};
+  const d={nome:g('mt-nome').replace(/\s+/g,' '),placa:g('mt-placa')||null,transportadora:g('mt-transp')||null,produto:g('mt-prod')||'INTERCEMENT',celular:g('mt-cel')||null,ativo:document.getElementById('mt-ativo').checked,atualizado_em:new Date().toISOString(),
+    pedido:g('mt-ped')||null,cacamba_kg:g('mt-cac')?Number(g('mt-cac')):null};
   if(!d.nome){toast('Informe o nome.','warning');return;}
+  if(d.cacamba_kg!=null&&d.cacamba_kg<1000){toast('Peso da caçamba em KG (ex.: 30.450). Confira.','warning');return;}
+  if(d.pedido&&!(await gravarPedido(d.pedido)))return;
   /* (17/11) nome que já existe: em vez de travar (o porteiro achava que "não salvou"), atualiza o cadastro dele */
   const ja=_mot.find(m=>norm(m.nome)===norm(d.nome)&&m.id!==id);
   if(ja){
@@ -1028,7 +1040,7 @@ async function salvarMotorista(id){
         <div class="dsm-ft"><button class="btn btn-secondary" id="ja-n">Voltar</button><button class="btn btn-primary" id="ja-s">✅ ${muda.length?'Atualizar e usar':'Usar este'}</button></div></div>`;
       document.body.appendChild(o);o.querySelector('#ja-n').onclick=()=>{o.remove();res(false);};o.querySelector('#ja-s').onclick=()=>{o.remove();res(true);};});
     if(!ok)return;
-    id=ja.id; ['placa','transportadora','celular'].forEach(k=>{if(!d[k])d[k]=ja[k]||null;}); d.nome=ja.nome;
+    id=ja.id; ['placa','transportadora','celular','pedido','cacamba_kg'].forEach(k=>{if(d[k]==null||d[k]==='')d[k]=ja[k]??null;}); d.nome=ja.nome;
   }
   const r=id?await _supabase.from('filito_motoristas').update(d).eq('id',id).select('*').single():await _supabase.from('filito_motoristas').insert(d).select('*').single();
   if(r.error){toast('Não salvou: '+r.error.message,'danger');return;}
