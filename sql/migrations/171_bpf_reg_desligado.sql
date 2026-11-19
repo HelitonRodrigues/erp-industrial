@@ -1,0 +1,2 @@
+-- (19/11/2026) aplicada no Supabase. bpf_reg_desligado(nome, saida, usuario, obs): na regularização, a pessoa que saiu da empresa
+-- fica no slot como {ausente:true, motivo:'Não assinou — desligado da empresa em dd/mm/aaaa', por, em} + trilha. Não é assinatura em nome dela.
