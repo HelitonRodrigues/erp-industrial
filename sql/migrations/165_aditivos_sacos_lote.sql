@@ -1,0 +1,5 @@
+-- (18/11/2026) aplicado no Supabase (dados):
+-- Aditivos NanoDry contados em SACOS: Aditivo 1 (pardo 25 kg) 0,02 sc/saco (Liga) · 0,04 (Sikal/Liga Original 50);
+--   Aditivo 2 Liga 0,01 sc/saco (1 saco por bag/tonelada); Aditivo 3 Sikal 0,02 sc/saco (2 sacos por tonelada). 4 OPs de nov refeitas.
+-- Inventário 18/11 (Heliton): Aditivo 1 = 210 sc; Aditivo 2 = 0; Aditivo 3 = 0; bag Cinza intermediário = 0 (ajustes INVENTARIO).
+-- Aditivo Concentrado 10kg e Aditivo 20kg: controla_lote = true. Lote 215 criado e ligado à entrada de 10/11 (1.125 kg; já consumido).

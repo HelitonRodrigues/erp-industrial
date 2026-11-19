@@ -1,0 +1,6 @@
+-- (18/11/2026) aplicada no Supabase. Formulação Linha NanoDry (1.000 kg = 100 sacos de 10 kg), confirmada pelo Heliton:
+--  Fórmula LIGA  — Liga Concentrado c/ Imp. 10kg, LigaPro c/ Imp., LigaNex c/ Imp.: 942 kg Cinza + 50 kg Aditivo 1 + 8 kg Aditivo 2 Liga
+--  Fórmula SIKAL — Sikal Concentrado c/ Imp., Liga Original c/ Imp. 50:            885 kg Cinza + 100 kg Aditivo 1 + 15 kg Aditivo 3 Sikal
+-- Insumos novos (kg, com lote): ADT-IMP-01 Aditivo 1 (saco pardo 25 kg), ADT-IMP-02 Aditivo 2 Liga (saco transp. 8 kg),
+--   ADT-IMP-03 Aditivo 3 Sikal (saco transp. 7,5 kg). Cinza = bag intermediário INT-0001 (9,42 / 8,85 kg por saco).
+-- OPs de novembro refeitas com a fórmula: OP-LIN-20261112-2640, 20261113-8085, 20261113-1329, 20261114-4529.

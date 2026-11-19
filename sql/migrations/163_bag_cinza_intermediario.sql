@@ -1,0 +1,6 @@
+-- (18/11/2026) aplicada no Supabase. Insumo INT-0001 "Bag Cinza p/ Impermeabilizante (intermediário)" (t, sem lote próprio).
+-- Gatilho tg_bag_intermediario: consumo de MP (Cinza) da OP "Big Bag Caulim Cinza c/ Impermeabilizante" gera ENTRADA do intermediário.
+-- Fichas dos ensacados c/ impermeabilizante (Liga Concentrado, Liga Original 50, LigaPro, LigaNex, Sikal): MP (Cinza) → intermediário.
+-- mp_lote_alocar_intermediario: consumo do intermediário herda os lotes de MP dos bags (FIFO das entradas; mp_lote_consumo.origem_mov),
+--   sem contar duas vezes no saldo do lote (mp_lotes_status / alocação ignoram linhas com origem_mov).
+-- OPs de novembro refeitas: OP-LIN-20261112-2640, 20261113-8085, 20261113-1329, 20261114-4529 (Cinza deixou de ser descontado em dobro).
