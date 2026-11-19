@@ -1,0 +1,7 @@
+-- (18/11/2026) LOTE DE MP EM USO — aplicada no Supabase.
+-- caulim_lotes_mp: + encerrado_em/encerrado_por. mp_material_do_lote(sigla): B/B1→Branco 01, B2, B3, CR/CR1→Creme 01, CR2, CR3, C→Cinza, A→Brasil Minas, M→Marguerita.
+-- mp_lote_consumo: cada consumo de MP da OP (insumos_movimentos 'consumo') alocado no lote mais antigo do material com saldo
+--   e com data <= data do consumo (FIFO; divide quando passa); sem lote com saldo → lote_id null ("sem lote").
+-- Gatilho tg_mp_lote_alocar (after insert em insumos_movimentos, tipo consumo); cascade ao apagar o movimento.
+-- producao.lote_mp = lotes usados pela OP (mp_lote_op_texto). mp_lotes_status(): em uso / na fila / acabou / encerrado.
+-- mp_lote_encerrar(lote, usuario): "acabou no barracão" → o próximo entra em uso. Histórico alocado desde 16/10/2026.
