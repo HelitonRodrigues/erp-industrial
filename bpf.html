@@ -2421,6 +2421,27 @@ function _regPessoas(){
     const p=mp[n]=mp[n]||{nome:n,falta:[],feito:0}; if((s.assinados||[]).some(a=>a.nome===n)) p.feito++; else if(!p.falta.includes(r)) p.falta.push(r); })));
   return Object.values(mp).sort((a,b)=>b.falta.length-a.falta.length||a.nome.localeCompare(b.nome));
 }
+/* (19/11) registros que a pessoa JÁ assinou na regularização (com o slot e a hora), mais a assinatura dela */
+function _regAssinadosDe(nome){
+  const out=[];
+  _regs.filter(r=>r.regularizacao&&(r.status==='regularizacao'||r.status==='concluido')).forEach(r=>(r.regularizacao.slots||[]).forEach(sl=>(sl.assinados||[]).forEach(a=>{
+    if(a.nome===nome) out.push({r,papel:sl.label||sl.id,em:a.em,ref:a.ref}); })));
+  return out.sort((a,b)=>String(a.r.data).localeCompare(String(b.r.data)));
+}
+async function regVerAssinados(nome){
+  const l=_regAssinadosDe(nome); if(!l.length){ toast('Nenhum registro assinado por '+nome+'.','info'); return; }
+  const refs=[...new Set(l.map(x=>x.ref).filter(Boolean))];
+  const {data:ass}=refs.length?await _supabase.from('bpf_reg_assinaturas').select('id,img,em,usuario,qtd_registros,declaracao').in('id',refs):{data:[]};
+  const fNome=c=>(_forms.find(x=>x.codigo===c)||{}).titulo||c;
+  const cab=(ass||[]).map(a=>`<div style="display:flex;gap:12px;align-items:center;border:1px solid #e2e8f0;border-radius:10px;padding:8px 10px;margin-bottom:8px;">
+      ${a.img?`<img src="${a.img}" style="height:60px;max-width:220px;object-fit:contain;background:#fff;border:1px solid #e2e8f0;border-radius:6px;">`:''}
+      <div style="font-size:12.5px;"><b>Assinou em ${fmtDH?fmtDH(a.em):new Date(a.em).toLocaleString('pt-BR')}</b> · ${a.qtd_registros||'—'} registro(s)<div class="bx-mu" style="font-size:11.5px;">coletado por ${esc(a.usuario||'—')}</div></div></div>`).join('');
+  const linhas=l.map(x=>`<tr style="cursor:pointer;" onclick="abrirReg('${x.r.id}')"><td style="white-space:nowrap;">${fmtD(x.r.data)}</td><td>${esc(x.r.regularizacao?.turno||'')}</td><td>${esc(x.r.regularizacao?.linha||'')}</td>
+      <td>${esc(fNome(x.r.formulario_cod))}</td><td><b>${esc(x.r.numero||'')}</b></td><td>${esc(x.papel)}</td><td>${x.r.status==='concluido'?'<span class="badge badge-success">concluído</span>':_regPronto(x.r)?'<span class="badge badge-warning">pronto p/ gerência</span>':'<span class="badge badge-gray">faltam outros</span>'}</td></tr>`).join('');
+  await uiAlerta(`${cab}<div style="font-size:12px;color:#64748b;margin-bottom:6px;">Toque num registro para abrir a ficha.</div>
+    <div style="max-height:55vh;overflow:auto;border:1px solid #e2e8f0;border-radius:8px;"><table class="tbl" style="font-size:12px;"><thead><tr><th>Data</th><th>Turno</th><th>Linha</th><th>Formulário</th><th>Nº</th><th>Assinou como</th><th>Situação</th></tr></thead><tbody>${linhas}</tbody></table></div>`,
+    {titulo:`✍️ ${esc(nome)} — ${l.length} registro(s) assinado(s)`});
+}
 const _regPronto=r=>r.status==='regularizacao'&&!(r.regularizacao?.slots||[]).some(s=>(s.nomes||[]).some(n=>!(s.assinados||[]).some(a=>a.nome===n)));
 function renderRegularizacao(){
   cab('BPF / SGQ','🧾 Regularização dos registros (jun–nov/2026)','');
@@ -2443,7 +2464,7 @@ function renderRegularizacao(){
     <div style="margin-top:8px;">${_ehGerenteReg()?`<button class="btn btn-primary" onclick="regConcluirGerencia()">✍️ Conferir e concluir (${prontos.length})</button>`:'<span class="badge badge-warning">aguardando o login do João Paulo</span>'}</div></div>`:''}
   <div class="sec-card"><h3>✍️ Quem precisa assinar</h3><div class="sub">Cada pessoa assina uma vez para todos os registros dela. Imprima a lista para ir chamando.</div>
     <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Pessoa</th><th style="text-align:right;">Falta assinar</th><th style="text-align:right;">Já assinou</th><th></th></tr></thead><tbody>
-    ${pes.map(p=>`<tr><td><b>${esc(p.nome)}</b></td><td style="text-align:right;">${p.falta.length?`<b style="color:#b45309;">${p.falta.length}</b>`:'—'}</td><td style="text-align:right;">${p.feito||'—'}</td>
+    ${pes.map(p=>`<tr><td><b>${esc(p.nome)}</b></td><td style="text-align:right;">${p.falta.length?`<b style="color:#b45309;">${p.falta.length}</b>`:'—'}</td><td style="text-align:right;">${p.feito?`<a href="#" onclick="regVerAssinados('${esc(p.nome).replace(/'/g,"\\'")}');return false;" style="font-weight:800;color:#0284c7;">${p.feito} 👁</a>`:'—'}</td>
       <td style="white-space:nowrap;text-align:right;">${p.falta.length?`<button class="btn btn-primary btn-sm" onclick="regAssinarPessoa('${esc(p.nome).replace(/'/g,"\\'")}')">✍️ Assinar</button> <button class="btn btn-secondary btn-sm" onclick="regImprimirLista('${esc(p.nome).replace(/'/g,"\\'")}')">🖨️ Lista</button>`:'<span class="badge badge-success">em dia</span>'}</td></tr>`).join('')||'<tr><td colspan="4" style="color:#94a3b8;">Ninguém pendente.</td></tr>'}
     </tbody></table></div>
     <div style="margin-top:8px;"><button class="btn btn-secondary btn-sm" onclick="regImprimirLista('')">🖨️ Imprimir a lista de todos</button></div></div>
