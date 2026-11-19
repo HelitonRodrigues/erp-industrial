@@ -44,7 +44,8 @@ const MODULO_MAP = [
   // QUALIDADE
   { id:'laboratorio',    page:'laboratorio.html',     label:'Laboratório',          group:'qualidade',    icon:'🧪' },
   { id:'bpf',            page:'bpf.html',             label:'BPF',                  group:'qualidade',    icon:'📋' },
-  { id:'qualidade',      page:'qualidade.html',       label:'Central da Qualidade', group:'qualidade',    icon:'🎯' },
+  // (18/11) Central da Qualidade saiu do menu (tudo no BPF: Minha fila / Assinaturas / Regularização). Os avisos com som continuam (AvisosQualidade).
+  // { id:'qualidade',      page:'qualidade.html',       label:'Central da Qualidade', group:'qualidade',    icon:'🎯' },
   // OPERAÇÕES
   { id:'manutencao',     page:'manutencao.html',      label:'Manutenção',           group:'operacoes',    icon:'🔧' },
   { id:'frota',          page:'frota.html',           label:'Frota',                group:'operacoes',    icon:'🚜' },
@@ -52,6 +53,7 @@ const MODULO_MAP = [
   { id:'terceiros',      page:'terceiros.html',       label:'Serviços de Terceiros',group:'operacoes',    icon:'🤝' },
   // SUPRIMENTOS
   { id:'insumos',        page:'insumos.html',         label:'Insumos & MP',         group:'suprimentos',  icon:'🌿' },
+  { id:'mp_barracoes',   page:'mp-barracoes.html',   label:'Saldo de MP (barracões)', group:'suprimentos', icon:'⛏️' },
   { id:'almoxarifado',   page:'almoxarifado.html',    label:'Almoxarifado',         group:'suprimentos',  icon:'📦' },
   { id:'solicitacoes',   page:'solicitacoes.html',    label:'Solicitações',         group:'suprimentos',  icon:'📝' },
   { id:'compras',        page:'compras.html',         label:'Compras',              group:'suprimentos',  icon:'🛒' },
