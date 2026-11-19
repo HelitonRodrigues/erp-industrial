@@ -141,7 +141,7 @@
 ══════════════════════════════════════════════ -->
 <div id="modal-escala" class="modal-overlay hidden">
   <div class="modal modal-lg" id="modal-escala-box" style="max-width:880px;max-height:92vh;overflow-y:auto;">
-    <div class="modal-header"><div class="modal-title" id="modal-escala-title">Nova Escala</div><button class="modal-close" onclick="closeModal('modal-escala')">✕</button></div>
+    <div class="modal-header"><div class="modal-title" id="modal-escala-title">Nova Escala</div><button type="button" class="btn btn-secondary btn-sm" style="margin-left:auto;margin-right:8px;" onclick="edTrocarEquipes()" title="Arraste a equipe de uma linha para outro turno">🔀 Trocar equipes entre turnos</button><button class="modal-close" onclick="closeModal('modal-escala')">✕</button></div>
 
     <div style="display:flex;flex-direction:column;gap:18px;">
       <!-- DADOS BÁSICOS -->
@@ -619,6 +619,52 @@ async function rvGerar(){
   else toast('Essas semanas já existiam.','info');
   await loadEscalas();
 }
+/* (19/11) EDITAR: a mesma grade de arrastar, direto no rascunho da escala aberta (sem gerar semana nova).
+   Arrastar um cartão para outro turno da mesma linha TROCA as duas equipes na hora; "Aplicar" volta para o formulário. */
+function _edTs(){ const ts=[{k:'t1',nome:(document.getElementById('esc-turno')?.selectedOptions[0]?.text)||'Turno 1',d:_draft}];
+  if(_draft.doisTurnos) ts.push({k:'t2',nome:(document.getElementById('esc-turno-2')?.selectedOptions[0]?.text)||'Turno 2',d:_draft.t2});
+  if(_draft.tresTurnos) ts.push({k:'t3',nome:(document.getElementById('esc-turno-3')?.selectedOptions[0]?.text)||'Turno 3',d:_draft.t3});
+  return ts.filter(t=>t.d); }
+function _edRows(ts){ const n=[]; ts.forEach(t=>(t.d.linhas||[]).forEach(l=>{ const x=(l.nome||'').trim(); if(x&&!n.includes(x)) n.push(x); })); return ['__lid',...n,'__limp']; }
+function _edPega(t,row){ if(row==='__lid') return {encarregado:t.d.encarregado||null,operador:t.d.operador||null,operadores:t.d.operadores||[]};
+  if(row==='__limp') return t.d.limpeza||[]; const l=(t.d.linhas||[]).find(x=>(x.nome||'').trim()===row); return l?{linha_id:l.linha_id||'',nome:row,membros:l.membros||[]}:null; }
+function _edPoe(t,row,v){
+  if(row==='__lid'){ t.d.encarregado=v&&v.encarregado||null; t.d.operador=v&&v.operador||null; t.d.operadores=v&&v.operadores||[]; return; }
+  if(row==='__limp'){ t.d.limpeza=v||[]; return; }
+  t.d.linhas=(t.d.linhas||[]).filter(x=>(x.nome||'').trim()!==row && !(!(x.nome||'').trim()&&!(x.membros||[]).length));
+  if(v&&(v.membros||[]).length) t.d.linhas.push({linha_id:v.linha_id||'',nome:row,membros:v.membros});
+  if(!t.d.linhas.length) t.d.linhas=[{linha_id:'',nome:'',membros:[]}];
+}
+function edTrocarEquipes(){
+  if(!_draft){ return; } const ts=_edTs(); if(ts.length<2){ toast('Esta escala tem só um turno — ligue o 2º/3º turno para trocar equipes.','info'); return; }
+  let ov=document.getElementById('ed-ov'); if(ov) ov.remove();
+  ov=document.createElement('div'); ov.id='ed-ov'; ov.style.cssText='position:fixed;inset:0;background:rgba(2,20,40,.55);z-index:10050;display:flex;align-items:center;justify-content:center;padding:12px;';
+  ov.innerHTML=`<div style="background:#fff;border-radius:16px;width:min(1200px,97vw);max-height:94vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.35);">
+    <div style="padding:14px 18px;border-bottom:1px solid #e2e8f0;"><h3 style="margin:0;color:#042D4D;">🔀 Trocar equipes entre turnos</h3>
+      <div style="font-size:12.5px;color:#64748b;margin-top:3px;">Arraste a equipe de uma linha para outro turno — as duas trocam de lugar. Ou use os atalhos da linha.</div></div>
+    <div id="ed-grade" style="padding:12px 18px;overflow:auto;flex:1;"></div>
+    <div style="padding:12px 18px;border-top:1px solid #e2e8f0;display:flex;justify-content:flex-end;gap:8px;"><button class="btn btn-primary" onclick="document.getElementById('ed-ov').remove();renderDraft();">✓ Aplicar no formulário</button></div></div>`;
+  document.body.appendChild(ov); edDesenhar();
+}
+function edDesenhar(){
+  const ts=_edTs(), rows=_edRows(ts);
+  const cab=`<div class="rv-l rv-c" style="background:#042D4D;color:#c9ff64;">Equipe</div>${ts.map(t=>`<div class="rv-c" style="background:#042D4D;color:#c9ff64;">${escapeHtml(t.nome)}</div>`).join('')}`;
+  const linhas=rows.map(r=>{ const rq=escapeHtml(r).replace(/'/g,"\\'");
+    const cel=ts.map((t,i)=>{ const e=_edPega(t,r), nomes=_rvNomes(r,e);
+      return `<div class="rv-c rv-drop" data-row="${escapeHtml(r)}" data-col="${i}" ondragover="event.preventDefault();this.classList.add('rv-over')" ondragleave="this.classList.remove('rv-over')" ondrop="edSoltar(event,this)">
+        ${nomes.length?`<div class="rv-card" draggable="true" ondragstart="event.dataTransfer.setData('text/plain',JSON.stringify({r:'${rq}',c:${i}}))">${nomes.map(n=>`<div>${escapeHtml(n)}</div>`).join('')}</div>`:`<div class="rv-vz">— solte aqui —</div>`}</div>`; }).join('');
+    return `<div class="rv-l rv-c"><b>${escapeHtml(_rvRotulo(r))}</b><div style="margin-top:4px;">${ts.length>=3?`<button class="btn btn-ghost btn-sm" style="padding:2px 6px;font-size:11px;" onclick="edGirar('${rq}')" title="Madrugada → Manhã → Noite → Madrugada">🔄 girar</button> `:''}<button class="btn btn-ghost btn-sm" style="padding:2px 6px;font-size:11px;" onclick="edTroca('${rq}',0,1)">🔁 ${escapeHtml((ts[0].nome||'').split(' ').pop())}↔${escapeHtml((ts[1].nome||'').split(' ').pop())}</button></div></div>${cel}`; }).join('');
+  document.getElementById('ed-grade').innerHTML=`<style>.rv-g{display:grid;grid-template-columns:190px repeat(${ts.length},minmax(0,1fr));gap:6px;}
+    .rv-c{border:1px solid #e2e8f0;border-radius:10px;padding:8px;font-size:12.5px;min-height:46px;}.rv-l{background:#f8fafc;}
+    .rv-card{background:#fff;border:1.5px solid #cbd5e1;border-radius:9px;padding:6px 8px;cursor:grab;line-height:1.45;}.rv-over{outline:2px dashed #0284c7;}.rv-vz{color:#cbd5e1;text-align:center;padding-top:8px;font-size:11.5px;}</style>
+    <div class="rv-g">${cab}${linhas}</div>`;
+}
+function edTroca(r,a,b){ const ts=_edTs(); if(!ts[a]||!ts[b]) return; const A=_edPega(ts[a],r), B=_edPega(ts[b],r); _edPoe(ts[a],r,B); _edPoe(ts[b],r,A); edDesenhar(); }
+function edGirar(r){ const ts=_edTs(); const iM=ts.findIndex(t=>/manh/i.test(t.nome)), iN=ts.findIndex(t=>/noite|tarde/i.test(t.nome)), iR=ts.findIndex(t=>/madrug/i.test(t.nome));
+  if(iM<0||iN<0||iR<0){ toast('Para girar, os turnos precisam ser Manhã, Noite/Tarde e Madrugada.','info'); return; }
+  const M=_edPega(ts[iM],r), N=_edPega(ts[iN],r), R=_edPega(ts[iR],r); _edPoe(ts[iM],r,R); _edPoe(ts[iN],r,M); _edPoe(ts[iR],r,N); edDesenhar(); }
+function edSoltar(ev,el){ ev.preventDefault(); el.classList.remove('rv-over'); let d; try{ d=JSON.parse(ev.dataTransfer.getData('text/plain')); }catch(e){ return; }
+  if(d.r!==el.dataset.row){ toast('Arraste dentro da mesma linha.','info'); return; } if(d.c!==+el.dataset.col) edTroca(d.r,d.c,+el.dataset.col); }
 async function loadEscalas() {
   const { data, error } = await _supabase.from('escalas').select('*').order('criado_em', { ascending: false });
   if (error) { console.warn('[escala] load:', error.message); _escalas = []; }
