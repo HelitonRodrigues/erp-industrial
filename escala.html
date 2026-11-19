@@ -496,45 +496,128 @@ function preencherSelectsTurno() {
     _turnos.map(t => `<option value="${t.id}">${escapeHtml(t.nome)}</option>`).join('');
 }
 
-/* (19/11) ⚡ GERAR PRÓXIMAS SEMANAS: a partir da ÚLTIMA escala (a de período mais à frente), cria N semanas seguidas
-   (segunda a sábado), revezando a equipe inteira da manhã com a da noite toda semana (encarregado, operador(es), linhas e
-   limpeza); madrugada, férias e ausências seguem iguais. Feriado da semana entra na observação. Fica "programado" para conferir. */
+/* (19/11) ⚡ GERAR PRÓXIMAS SEMANAS — planejador de REVEZAMENTO com arrastar.
+   Base = a última escala. A grade mostra, para a PRÓXIMA semana, cada equipe (encarregado/operador, cada linha e a limpeza)
+   no turno em que vai trabalhar; arrastar um cartão para outro turno TROCA os dois. O movimento que você montar vira a regra
+   e se repete nas semanas seguintes (ex.: Emitec madrugada→manhã, manhã→noite, noite→madrugada). Férias e ausências seguem
+   iguais; feriados entram na observação; tudo fica "programado" para conferir. */
 function _feriadosNac(ano){ const f={}; [[1,1,'Ano Novo'],[4,21,'Tiradentes'],[5,1,'Dia do Trabalho'],[9,7,'Independência'],[10,12,'N. Sra. Aparecida'],[11,2,'Finados'],[11,15,'Proclamação da República'],[11,20,'Consciência Negra'],[12,25,'Natal']]
   .forEach(([m,d,n])=>{f[`${ano}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`]=n;});
   const a=ano%19,b=Math.floor(ano/100),c=ano%100,d2=Math.floor(b/4),e=b%4,fi=Math.floor((b+8)/25),g=Math.floor((b-fi+1)/3),h=(19*a+b-d2-g+15)%30,i=Math.floor(c/4),k=c%4,l=(32+2*e+2*i-h-k)%7,m2=Math.floor((a+11*h+22*l)/451);
   const mp=Math.floor((h+l-7*m2+114)/31),dp=(h+l-7*m2+114)%31+1,p=new Date(ano,mp-1,dp);
   [[-47,'Carnaval'],[-2,'Sexta-feira Santa'],[60,'Corpus Christi']].forEach(([o,n])=>{const x=new Date(p);x.setDate(p.getDate()+o);f[x.toLocaleDateString('en-CA')]=n;});
   return f; }
-async function gerarSemanasSeguintes(){
+
+let _rv=null;
+const _rvTurnos=(e)=>{ const ts=[{k:0,id:e.turno_id,nome:e.turno_nome||'Turno 1',d:e}];
+  if(temT2(e)) ts.push({k:1,id:e.turno2.turno_id,nome:e.turno2.turno_nome||'Turno 2',d:e.turno2});
+  if(temT3(e)) ts.push({k:2,id:e.turno3.turno_id,nome:e.turno3.turno_nome||'Turno 3',d:e.turno3});
+  return ts; };
+function _rvLinhas(e){ const nomes=[]; _rvTurnos(e).forEach(t=>(t.d.linhas||[]).forEach(l=>{const n=l.nome||'Linha'; if(!nomes.includes(n)) nomes.push(n);})); return nomes; }
+/* equipes da escala: {linha: [equipe do turno 0, 1, 2]} */
+function _rvEquipes(e){
+  const ts=_rvTurnos(e), eq={'__lid':[], '__limp':[]};
+  _rvLinhas(e).forEach(n=>eq[n]=[]);
+  ts.forEach((t,i)=>{
+    eq['__lid'][i]={encarregado:t.d.encarregado||null,operador:t.d.operador||null,operadores:t.d.operadores||[]};
+    eq['__limp'][i]=t.d.limpeza||[];
+    _rvLinhas(e).forEach(n=>{ const l=(t.d.linhas||[]).find(x=>(x.nome||'Linha')===n); eq[n][i]=l?{linha_id:l.linha_id||'',nome:n,membros:l.membros||[]}:null; });
+  });
+  return eq;
+}
+const _rvRotulo=(row)=>row==='__lid'?'👔 Encarregado e operador':row==='__limp'?'🧹 Limpeza':'🏭 '+row;
+function _rvNomes(row,eq){ if(!eq) return []; if(row==='__lid') return [eq.encarregado&&('Enc.: '+primeiroENome(eq.encarregado.nome)),eq.operador&&('Op.: '+primeiroENome(eq.operador.nome)),...(eq.operadores||[]).map(m=>'Op.: '+primeiroENome(m.nome))].filter(Boolean);
+  if(row==='__limp') return (eq||[]).map(m=>primeiroENome(m.nome)); return (eq.membros||[]).map(m=>primeiroENome(m.nome)); }
+const _rvVazio=(row,eq)=>!_rvNomes(row,eq).length;
+function gerarSemanasSeguintes(){
   if(!guardAction('escala','create')) return;
   const base=[..._escalas].filter(e=>e.periodo_inicio).sort((a,b)=>String(b.periodo_inicio).localeCompare(String(a.periodo_inicio)))[0];
   if(!base){ toast('Monte a primeira escala antes.','warning'); return; }
-  const qtd=parseInt(prompt(`A partir da "${base.nome}" (${fmtData(base.periodo_inicio)} a ${fmtData(base.periodo_fim)}), quantas semanas criar?\n\nCada semana a equipe da MANHÃ troca com a da NOITE. Madrugada, férias e ausências seguem iguais.`,'4'),10);
-  if(!(qtd>0&&qtd<=12)) return;
-  const ini0=new Date(base.periodo_inicio+'T12:00:00'); const dSem=ini0.getDay(); ini0.setDate(ini0.getDate()+((8-dSem)%7||7));   // próxima segunda
-  const num=(n)=>{const m=String(n||'').match(/(\d+)/);return m?parseInt(m[1],10):null;};
-  let nBase=num(base.nome)||0, atual=base, criadas=[];
+  const ts=_rvTurnos(base), rows=['__lid',..._rvLinhas(base),'__limp'];
+  // regra inicial: manhã ↔ noite (o que vocês fazem hoje); madrugada parada
+  const perm={}; rows.forEach(r=>{ perm[r]=ts.map((_,i)=>i); if(ts.length>=2){ perm[r][0]=1; perm[r][1]=0; } });   // perm[r][origem]=destino
+  _rv={base,ts,rows,perm,eq:_rvEquipes(base)};
+  let ov=document.getElementById('rv-ov'); if(ov) ov.remove();
+  ov=document.createElement('div'); ov.id='rv-ov'; ov.className='modal-overlay open'; ov.style.cssText='position:fixed;inset:0;background:rgba(2,20,40,.55);z-index:9000;display:flex;align-items:center;justify-content:center;padding:12px;';
+  ov.innerHTML=`<div style="background:#fff;border-radius:16px;width:min(1200px,97vw);max-height:94vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.35);">
+    <div style="padding:14px 18px;border-bottom:1px solid #e2e8f0;display:flex;gap:10px;align-items:flex-start;"><div style="flex:1"><h3 style="margin:0;color:#042D4D;">⚡ Gerar próximas semanas — revezamento</h3>
+      <div style="font-size:12.5px;color:#64748b;margin-top:3px;">Base: <b>${escapeHtml(base.nome||'')}</b> (${fmtData(base.periodo_inicio)} a ${fmtData(base.periodo_fim)}). A grade mostra a <b>próxima semana</b>. <b>Arraste</b> um cartão para outro turno da mesma linha para trocar as equipes — o movimento se repete nas semanas seguintes.</div></div>
+      <button class="btn btn-ghost btn-sm" onclick="document.getElementById('rv-ov').remove()">✕</button></div>
+    <div style="padding:10px 18px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;border-bottom:1px solid #f1f5f9;">
+      <b style="font-size:12px;color:#64748b;">Para todas as linhas:</b>
+      <button class="btn btn-secondary btn-sm" onclick="rvTodos('troca')">🔁 Manhã ↔ Noite</button>
+      ${ts.length>=3?`<button class="btn btn-secondary btn-sm" onclick="rvTodos('gira')" title="Madrugada → Manhã → Noite → Madrugada">🔄 Girar os 3 turnos</button>`:''}
+      <button class="btn btn-secondary btn-sm" onclick="rvTodos('fixo')">📌 Ninguém muda</button>
+      <span style="flex:1"></span><label style="font-size:12.5px;font-weight:700;">Semanas: <input id="rv-n" type="number" min="1" max="12" value="4" class="form-input" style="width:70px;display:inline-block;"></label></div>
+    <div id="rv-grade" style="padding:12px 18px;overflow:auto;flex:1;"></div>
+    <div style="padding:12px 18px;border-top:1px solid #e2e8f0;display:flex;gap:8px;justify-content:flex-end;"><button class="btn btn-ghost" onclick="document.getElementById('rv-ov').remove()">Cancelar</button><button class="btn btn-primary" onclick="rvGerar()">⚡ Gerar semanas</button></div></div>`;
+  document.body.appendChild(ov); rvDesenhar();
+}
+function rvTodos(modo){ const {ts,rows}=_rv; rows.forEach(r=>{ const p=ts.map((_,i)=>i);
+  if(modo==='troca'&&ts.length>=2){ p[0]=1; p[1]=0; }
+  if(modo==='gira'&&ts.length>=3){ const iM=ts.findIndex(t=>/manh/i.test(t.nome)), iN=ts.findIndex(t=>/noite|tarde/i.test(t.nome)), iR=ts.findIndex(t=>/madrug/i.test(t.nome));
+    if(iM>=0&&iN>=0&&iR>=0){ p[iR]=iM; p[iM]=iN; p[iN]=iR; } else { p[0]=1; p[1]=2; p[2]=0; } }
+  _rv.perm[r]=p; }); rvDesenhar(); }
+function rvDesenhar(){
+  const {ts,rows,perm,eq}=_rv;
+  const cab=`<div class="rv-l rv-c" style="background:#042D4D;color:#c9ff64;">Equipe</div>${ts.map(t=>`<div class="rv-c" style="background:#042D4D;color:#c9ff64;">${escapeHtml(t.nome)}</div>`).join('')}`;
+  const linhas=rows.map(r=>{
+    const dest={}; perm[r].forEach((d,o)=>{ dest[d]=o; });   // na coluna d fica a equipe que veio de o
+    const cel=ts.map((t,d)=>{ const o=dest[d], e=eq[r][o], nomes=_rvNomes(r,e), mudou=o!==d;
+      return `<div class="rv-c rv-drop" data-row="${escapeHtml(r)}" data-col="${d}" ondragover="event.preventDefault();this.classList.add('rv-over')" ondragleave="this.classList.remove('rv-over')" ondrop="rvSoltar(event,this)">
+        ${nomes.length?`<div class="rv-card${mudou?' rv-mud':''}" draggable="true" ondragstart="event.dataTransfer.setData('text/plain',JSON.stringify({r:this.parentElement.dataset.row,c:${d}}))">
+          <div class="rv-de">${mudou?'vem da '+escapeHtml(ts[o].nome):'fica'}</div>${nomes.map(n=>`<div>${escapeHtml(n)}</div>`).join('')}</div>`:`<div class="rv-vz">—</div>`}</div>`; }).join('');
+    return `<div class="rv-l rv-c"><b>${escapeHtml(_rvRotulo(r))}</b>${ts.length>=3?`<div style="margin-top:4px;"><button class="btn btn-ghost btn-sm" style="padding:2px 6px;font-size:11px;" onclick="rvLinha('${escapeHtml(r).replace(/'/g,"\\'")}','gira')" title="Madrugada → Manhã → Noite → Madrugada">🔄 girar</button> <button class="btn btn-ghost btn-sm" style="padding:2px 6px;font-size:11px;" onclick="rvLinha('${escapeHtml(r).replace(/'/g,"\\'")}','troca')">🔁 M↔N</button></div>`:''}</div>${cel}`;
+  }).join('');
+  document.getElementById('rv-grade').innerHTML=`<style>.rv-g{display:grid;grid-template-columns:190px repeat(${ts.length},minmax(0,1fr));gap:6px;}
+    .rv-c{border:1px solid #e2e8f0;border-radius:10px;padding:8px;font-size:12.5px;min-height:46px;}.rv-l{background:#f8fafc;}
+    .rv-card{background:#fff;border:1.5px solid #cbd5e1;border-radius:9px;padding:6px 8px;cursor:grab;line-height:1.45;}.rv-card.rv-mud{border-color:#16a34a;background:#f0fdf4;}
+    .rv-de{font-size:10.5px;font-weight:800;color:#64748b;margin-bottom:2px;}.rv-mud .rv-de{color:#15803d;}.rv-over{outline:2px dashed #0284c7;}.rv-vz{color:#cbd5e1;text-align:center;padding-top:8px;}</style>
+    <div class="rv-g">${cab}${linhas}</div>
+    <div style="font-size:12px;color:#64748b;margin-top:10px;">Verde = a equipe muda de turno. Férias e ausências da ${escapeHtml(_rv.base.nome||'')} continuam iguais — ajuste depois na semana, se precisar.</div>`;
+}
+function rvLinha(r,modo){ const {ts}=_rv, p=ts.map((_,i)=>i);
+  if(modo==='troca'&&ts.length>=2){ p[0]=1; p[1]=0; }
+  if(modo==='gira'&&ts.length>=3){ const iM=ts.findIndex(t=>/manh/i.test(t.nome)), iN=ts.findIndex(t=>/noite|tarde/i.test(t.nome)), iR=ts.findIndex(t=>/madrug/i.test(t.nome)); if(iM>=0&&iN>=0&&iR>=0){ p[iR]=iM; p[iM]=iN; p[iN]=iR; } }
+  _rv.perm[r]=p; rvDesenhar(); }
+function rvSoltar(ev,el){ ev.preventDefault(); el.classList.remove('rv-over');
+  let d; try{ d=JSON.parse(ev.dataTransfer.getData('text/plain')); }catch(e){ return; }
+  const r=el.dataset.row, to=+el.dataset.col; if(d.r!==r){ toast('Arraste dentro da mesma linha (a equipe da Emitec vai para outro turno da Emitec).','info'); return; }
+  if(d.c===to) return;
+  const p=_rv.perm[r], oA=p.indexOf(d.c), oB=p.indexOf(to);   // origens que hoje caem nas colunas d.c e to
+  p[oA]=to; p[oB]=d.c; rvDesenhar(); }
+function _rvAplicar(eq,perm,rows,nT){ const out={}; rows.forEach(r=>{ out[r]=[]; for(let o=0;o<nT;o++) out[r][perm[r][o]]=eq[r][o]; }); return out; }
+async function rvGerar(){
+  const {base,ts,rows,perm}=_rv; const qtd=parseInt(document.getElementById('rv-n').value,10);
+  if(!(qtd>0&&qtd<=12)){ toast('Informe de 1 a 12 semanas.','warning'); return; }
+  const ini0=new Date(base.periodo_inicio+'T12:00:00'); ini0.setDate(ini0.getDate()+((8-ini0.getDay())%7||7));
+  const num=(n)=>{const m=String(n||'').match(/(\d+)/);return m?parseInt(m[1],10):null;}; const nBase=num(base.nome)||0;
+  const mov=rows.filter(r=>perm[r].some((d,o)=>d!==o)).map(r=>_rvRotulo(r).replace(/^\S+\s/,'')+': '+perm[r].map((d,o)=>d!==o?`${ts[o].nome}→${ts[d].nome}`:'').filter(Boolean).join(', ')).join(' | ');
+  let eq=_rvEquipes(base), criadas=[], puladas=0;
   for(let i=0;i<qtd;i++){
+    eq=_rvAplicar(eq,perm,rows,ts.length);
     const ini=new Date(ini0); ini.setDate(ini0.getDate()+7*i); const fim=new Date(ini); fim.setDate(ini.getDate()+5);
     const iniS=ini.toLocaleDateString('en-CA'), fimS=fim.toLocaleDateString('en-CA');
-    if(_escalas.some(e=>e.periodo_inicio===iniS)){ continue; }
-    const fer={..._feriadosNac(ini.getFullYear()),..._feriadosNac(fim.getFullYear())}; const fs=[];
+    if(_escalas.some(e=>e.periodo_inicio===iniS)){ puladas++; continue; }
+    const fer={..._feriadosNac(ini.getFullYear()),..._feriadosNac(fim.getFullYear())}, fs=[];
     for(let d=new Date(ini);d<=fim;d.setDate(d.getDate()+1)){ const k=d.toLocaleDateString('en-CA'); if(fer[k]) fs.push(`${k.slice(8,10)}/${k.slice(5,7)} — feriado (${fer[k]})`); }
-    const t2=atual.turno2&&typeof atual.turno2==='object'?atual.turno2:null;
-    const t1={encarregado:atual.encarregado,operador:atual.operador,operadores:atual.operadores||[],linhas:atual.linhas||[],limpeza:atual.limpeza||[]};
-    const nova={ nome:`Semana ${nBase?nBase+i+1:''}`.trim()||`Semana de ${fmtData(iniS)}`, periodo_inicio:iniS, periodo_fim:fimS, turno_id:atual.turno_id, turno_nome:atual.turno_nome, status:'programado',
-      encarregado:t2?t2.encarregado||null:t1.encarregado, operador:t2?t2.operador||null:t1.operador, operadores:t2?(t2.operadores||[]):t1.operadores,
-      linhas:t2?(t2.linhas||[]):t1.linhas, limpeza:t2?(t2.limpeza||[]):t1.limpeza, ferias:atual.ferias||[], ausencias:atual.ausencias||[],
-      observacoes:fs.length?fs.join(' · '):null, assinatura_resp_id:atual.assinatura_resp_id||null, assinatura_img:atual.assinatura_img||null,
-      turno2:t2?{...t2,...t1}:null, turno3:atual.turno3||null,
-      historico:[{em:new Date().toISOString(),por:(getUser()||{}).nome||'',acao:`criada por "Gerar próximas semanas" a partir da ${atual.nome} (manhã ↔ noite)`}] };
-    const {data,error}=await _supabase.from('escalas').insert(nova).select('*').single();
+    const turno=(k)=>{ const lid=eq['__lid'][k]||{}; return { encarregado:lid.encarregado||null, operador:lid.operador||null, operadores:lid.operadores||[],
+      linhas:rows.filter(r=>!r.startsWith('__')).map(r=>eq[r][k]).filter(l=>l&&(l.membros||[]).length).map(l=>({linha_id:l.linha_id||'',nome:l.nome,membros:l.membros})),
+      limpeza:eq['__limp'][k]||[] }; };
+    const t0=turno(0), t1=ts[1]?turno(1):null, t2=ts[2]?turno(2):null;
+    const nova={ nome:nBase?`Semana ${nBase+i+1}`:`Semana de ${fmtData(iniS)}`, periodo_inicio:iniS, periodo_fim:fimS, turno_id:base.turno_id, turno_nome:base.turno_nome, status:'programado',
+      ...t0, ferias:base.ferias||[], ausencias:base.ausencias||[], observacoes:fs.length?fs.join(' · '):null,
+      assinatura_resp_id:base.assinatura_resp_id||null, assinatura_img:base.assinatura_img||null,
+      turno2:t1?{...(base.turno2||{}),...t1}:(base.turno2||null), turno3:t2?{...(base.turno3||{}),...t2}:(base.turno3||null),
+      historico:[{em:new Date().toISOString(),por:(getUser()||{}).nome||'',acao:`criada por "Gerar próximas semanas" a partir da ${base.nome} — ${mov||'sem revezamento'}`}] };
+    const {error}=await _supabase.from('escalas').insert(nova);
     if(error){ toast('Parou na '+nova.nome+': '+error.message,'danger'); break; }
-    criadas.push(nova.nome+(fs.length?' (feriado)':'')); atual=normalizaEscala(data);
+    criadas.push(nova.nome+(fs.length?' (feriado)':''));
   }
-  if(criadas.length){ addLog('INSERT','ESCALA',criadas.join(', '),'Gerar próximas semanas: '+criadas.join(', ')); toast(`${criadas.length} semana(s) criada(s): ${criadas.join(', ')} — confira férias e ausências.`,'success'); }
+  document.getElementById('rv-ov')?.remove();
+  if(criadas.length){ addLog('INSERT','ESCALA',criadas.join(', '),'Gerar próximas semanas: '+criadas.join(', ')+' — '+mov); toast(`${criadas.length} semana(s) criada(s): ${criadas.join(', ')}${puladas?` · ${puladas} já existia(m)`:''}.`,'success'); }
   else toast('Essas semanas já existiam.','info');
-  await loadEscalas(); if(typeof render==='function') render();
+  await loadEscalas();
 }
 async function loadEscalas() {
   const { data, error } = await _supabase.from('escalas').select('*').order('criado_em', { ascending: false });
