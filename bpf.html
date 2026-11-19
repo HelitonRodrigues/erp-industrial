@@ -542,6 +542,7 @@ body.bpf-op [onclick*="togGatilho"],body.bpf-op [onclick*="alternarTrava"]{displ
 // ═══════════════════════════════════════════════════════════════════════════
 
 let _pops=[],_forms=[],_regs=[],_travas=[],_docs=[],_funcs=[],_desig=[];
+const BPF_OCULTAR_ATRASADOS=true; let _regsOcultos=[];
 let _ncs=[],_auds=[],_treins=[],_funcionarios=[];
 let _ent={},_erpCache={},_erpLinhas={},_revs=[];
 let _sec='painel',_popSel=null,_entSel=null,_formAtual=null,_anexosTmp=[],_entEditId=null,_simplesCfg=null,_origem=null;
@@ -1018,6 +1019,11 @@ async function carregar(){
   const todosRegs=await selectTodos(_supabase.from('bpf_registros').select('*').order('data',{ascending:false}),{max:50000}).then(r=>r.data||[]).catch(()=>[]);
   const m=new Map();todosRegs.forEach(r=>m.set(r.id,r));
   _regs=[...m.values()].sort((a,b)=>String(b.data).localeCompare(String(a.data)));
+  /* (19/11) até finalizar a regularização: os registros ATRASADOS criados em 19/11 pela correção do escopo (Longa Vida e
+     Linha 3, ago–18/11, ainda "a preencher") ficam fora das telas — não apagados. A fila do Ryan começa em 19/11.
+     Para voltar a mostrar: BPF_OCULTAR_ATRASADOS=false. */
+  _regsOcultos=BPF_OCULTAR_ATRASADOS?_regs.filter(r=>r.status==='a_preencher'&&!r.ficha_impressa_em&&String(r.data)<'2026-11-19'&&String(r.created_at||'')>='2026-11-19'):[];
+  if(_regsOcultos.length){ const ids=new Set(_regsOcultos.map(r=>r.id)); _regs=_regs.filter(r=>!ids.has(r.id)); }
   // (18/11) regularização: a imagem da assinatura fica uma vez só em bpf_reg_assinaturas; o registro guarda a referência
   try{ const refs=[...new Set(_regs.flatMap(r=>(r.assinaturas||[]).filter(a=>a&&a.ref&&!a.img).map(a=>a.ref)))];
     if(refs.length){ const mp={}; for(let k=0;k<refs.length;k+=100){ const {data}=await _supabase.from('bpf_reg_assinaturas').select('id,img').in('id',refs.slice(k,k+100)); (data||[]).forEach(x=>mp[x.id]=x.img); }
@@ -2471,6 +2477,7 @@ function renderRegularizacao(){
   const pendF={}; pend.forEach(r=>{const k=r.formulario_cod; (pendF[k]=pendF[k]||{n:0,mot:r.regularizacao.pendente,resp:r.regularizacao.responsavel}).n++;});
   document.getElementById('conteudo').innerHTML=`
   <div class="alerta al-info">Registros que <b>não foram feitos na época</b> foram preenchidos conforme a escala, com o carimbo da regularização. Agora <b>cada responsável confirma com a própria assinatura</b> (uma vez, para todos os registros dele) e, por último, a <b>gerência (João Paulo)</b> confere e conclui. As datas das assinaturas são as reais.</div>
+  ${_regsOcultos.length?`<div class="alerta al-warn">🙈 <b>${_regsOcultos.length} registros atrasados</b> (${fmtD(_regsOcultos.map(r=>r.data).sort()[0])} a ${fmtD(_regsOcultos.map(r=>r.data).sort().pop())} — Longa Vida e Linha 3, criados em 19/11 pela correção do escopo) estão <b>ocultos até finalizar esta regularização</b>. Não foram apagados; a fila do dia a dia começa em 19/11.</div>`:''}
   <div class="kpis">
     <div class="kpi warn"><div class="v">${em.length-prontos.length}</div><div class="l">Aguardando assinaturas</div></div>
     <div class="kpi ${prontos.length?'warn':'ok'}"><div class="v">${prontos.length}</div><div class="l">Prontos para a gerência</div></div>
@@ -4200,9 +4207,12 @@ const GATILHO_FONTES={
   // Na troca de variação ou de lote de MP em relação ao lote anterior da mesma linha, avisa o descarte de transição (6.b).
   g_linha:{tab:'producao',dias:7,async busca(g){
     const l=(await lst(_supabase.from('producao').select('*').gte('data',g._desde||'2026-10-26').order('data',{ascending:true}).order('created_at',{ascending:true}).limit(3000))).filter(noEscopo);
-    const ult={};const out=[];
+    const T=await totemLotes();
+    const ult={};const out=T.lista.map(x=>({ref:'TOT06/'+x.dia+'/'+x.linha+'/'+x.lote,id:null,quando:x.dia,
+      det:`Inspeção antes da moagem — lote ${x.lote} · ${x.linha} · ${x.produto}`,
+      pre:{unidade:x.linha,lote:x.lote,obs:`${x.produto} · produção iniciada no totem`}}));
     l.forEach(p=>{const lin=String(p.linha||'');
-      itensEscopoOP(p).forEach((it,i)=>{
+      itensEscopoOP(p).filter(it=>!_doTotem(T,p,it)).forEach((it,i)=>{
         const ant=ult[lin];const trocaVar=ant&&_normP(ant.prod)!==_normP(it.produto);const trocaMP=ant&&p.lote_mp&&ant.mp&&_normP(ant.mp)!==_normP(p.lote_mp);
         const trans=trocaVar?`troca de variação (${ant.prod} → ${it.produto})`:trocaMP?`troca de lote de MP (${ant.mp} → ${p.lote_mp})`:'';
         out.push({ref:'LOTE06/'+p.id+'/'+(it.lote||i),id:p.id,quando:p.data,
@@ -4219,6 +4229,7 @@ const GATILHO_FONTES={
     const l=(await lst(_supabase.from('producao').select('data,linha,produto,produtos_op,turno,encarregado').gte('data',g._desde||hoje()).limit(5000)))
       .filter(noEscopo).filter(p=>itensEscopoOP(p).length);
     const porDia={};l.forEach(p=>{const d=String(p.data).slice(0,10);(porDia[d]=porDia[d]||[]).push(p);});
+    (await totemLotes()).lista.filter(x=>x.dia>=(g._desde||hoje())).forEach(x=>{ (porDia[x.dia]=porDia[x.dia]||[]).push({linha:x.linha,turno:null,encarregado:null}); });
     return Object.keys(porDia).sort().map(d=>{const ps=porDia[d];
       const linhas=[...new Set(ps.map(p=>p.linha).filter(Boolean))].join(' / ');
       const turnos=[...new Set(ps.map(p=>p.turno).filter(Boolean))].join(' · ');
@@ -4271,16 +4282,23 @@ const GATILHO_FONTES={
   // e da Manutenção, dentro do escopo (Linha 2 / Longa Vida · 25 kg e Big Bag).
   g_limp_lote:{tab:'producao',dias:3,async busca(g){
     const l=await lst(_supabase.from('producao').select('*').gte('data',g._desde||'2026-10-26').order('data',{ascending:false}).limit(3000));
-    return l.filter(noEscopo).flatMap(p=>itensEscopoOP(p).map((it,i)=>({ref:'LIMP-LOTE/'+p.id+'/'+(it.lote||i),id:p.id,quando:p.data,
+    const T=await totemLotes();
+    return T.lista.map(x=>({ref:'TOT-LIMP/'+x.dia+'/'+x.linha+'/'+x.lote,id:null,quando:x.dia,det:`Limpeza — fim de lote ${x.lote} · ${x.linha}`,
+        pre:{areas:`${x.linha} — linha, silos/moinho, ensacadeira e piso`,obs:`Motivo: fim de lote · lote ${x.lote} · ${x.produto}`}}))
+     .concat(l.filter(noEscopo).flatMap(p=>itensEscopoOP(p).filter(it=>!_doTotem(T,p,it)).map((it,i)=>({ref:'LIMP-LOTE/'+p.id+'/'+(it.lote||i),id:p.id,quando:p.data,
       det:`Limpeza — fim de lote ${it.lote||''} · ${p.linha||''} · OP ${p.op_numero||''}`,
       pre:{areas:`${p.linha||''} — linha, silos/moinho, ensacadeira e piso`,
-           obs:`Motivo: fim de lote · OP ${p.op_numero||''} · lote ${it.lote||'—'} · ${it.produto||''} · ${p.turno||''}`}})));
+           obs:`Motivo: fim de lote · OP ${p.op_numero||''} · lote ${it.lote||'—'} · ${it.produto||''} · ${p.turno||''}`}}))));
   }},
   g_limp_var:{tab:'producao',dias:3,async busca(g){
     const l=(await lst(_supabase.from('producao').select('*').gte('data',g._desde||'2026-10-26').order('data',{ascending:true}).order('created_at',{ascending:true}).limit(3000))).filter(noEscopo);
     const prodOP=p=>itensEscopoOP(p).map(x=>x.produto).filter(Boolean).join(' + ');
-    const out=[];const ult={};
-    l.forEach(p=>{const lin=String(p.linha||'');const pr=prodOP(p);if(!pr)return;
+    const T=await totemLotes(); const out=[];const ult={};
+    const ultT={}; T.lista.forEach(x=>{ const a=ultT[x.linha]; if(a&&_normP(a.produto)!==_normP(x.produto)) out.push({ref:'TOT-VAR/'+x.dia+'/'+x.linha+'/'+x.lote,id:null,quando:x.dia,
+        det:`Limpeza — troca de variação na ${x.linha}: ${a.produto} → ${x.produto}`,pre:{areas:`${x.linha} — linha, silos/moinho, ensacadeira e piso`,obs:`Motivo: troca de variação · ${a.produto} (lote ${a.lote}) → ${x.produto} (lote ${x.lote})`}});
+      ultT[x.linha]=x; });
+    const linhaTotem=(p)=>String(p.data)>=BPF_CORTE_TOTEM&&T.lista.some(x=>x.dia===String(p.data).slice(0,10)&&x.linha===p.linha);
+    l.forEach(p=>{const lin=String(p.linha||'');const pr=prodOP(p);if(!pr||linhaTotem(p))return;
       const ant=ult[lin];
       if(ant&&_normP(ant.pr)!==_normP(pr))out.push({ref:'LIMP-VAR/'+p.id,id:p.id,quando:p.data,
         det:`Limpeza — troca de variação na ${lin}: ${ant.pr} → ${pr}`,
@@ -4329,20 +4347,27 @@ const GATILHO_FONTES={
   // POP-14: uma ficha por lote produzido (item da OP), propósito = conformidade
   g_amostra:{tab:'producao',dias:3,async busca(g){
     const l=await lst(_supabase.from('producao').select('*').gte('data',g._desde||'2026-10-26').order('data',{ascending:false}).limit(5000));
-    return l.filter(noEscopo).flatMap(p=>itensEscopoOP(p).map((it,i)=>({ref:'OP14/'+p.id+'/'+(it.lote||i),id:p.id,quando:p.data,
+    const T=await totemLotes();
+    return T.lista.map(x=>({ref:'TOT14/'+x.dia+'/'+x.linha+'/'+x.lote,id:null,quando:x.dia,det:`Amostragem — ${x.produto} · lote ${x.lote} · ${x.linha}`,
+        pre:{op:'',lote:x.lote,proposito:'Conformidade do lote',produto:x.produto}}))
+     .concat(l.filter(noEscopo).flatMap(p=>itensEscopoOP(p).filter(it=>!_doTotem(T,p,it)).map((it,i)=>({ref:'OP14/'+p.id+'/'+(it.lote||i),id:p.id,quando:p.data,
       det:`Amostragem — OP ${p.op_numero||p.id} · ${it.produto} · lote ${it.lote||'—'}`,
-      pre:{op:p.op_numero||'',lote:it.lote||'',proposito:'Conformidade do lote',produto:it.produto||''}})));
+      pre:{op:p.op_numero||'',lote:it.lote||'',proposito:'Conformidade do lote',produto:it.produto||''}}))));
   }},
   // POP-18: uma ficha por lote; balança e calibração vêm do cadastro de instrumentos
   g_ensaque:{tab:'producao',dias:3,async busca(g){
     const l=await lst(_supabase.from('producao').select('*').gte('data',g._desde||'2026-10-26').order('data',{ascending:false}).limit(5000));
-    return l.filter(noEscopo).flatMap(p=>itensEscopoOP(p).filter(it=>!ehGranel(it)).map((it,i)=>{
+    const T=await totemLotes();
+    const doTot=T.lista.filter(x=>!ehGranel({produto:x.produto})).map(x=>{ const bag=ehBag({produto:x.produto}); const tag=bag?'BAL-BAG':'BAL-ENS'; const cal=calibracaoVigente(tag);
+      return {ref:'TOT18/'+x.dia+'/'+x.linha+'/'+x.lote,id:null,quando:x.dia,det:`Aferição de pesagem — ${x.produto} · lote ${x.lote} · ${x.linha}`,
+        pre:{op:'',lote:x.lote,equipamento:bag?'Big Bag':'Ensacadeira — sacaria',balanca_tag:tag,balanca_calibrada:cal===null?'':(cal?'sim':'nao')}}; });
+    return doTot.concat(l.filter(noEscopo).flatMap(p=>itensEscopoOP(p).filter(it=>!ehGranel(it)&&!_doTotem(T,p,it)).map((it,i)=>{
       const bag=ehBag(it);const tag=bag?'BAL-BAG':'BAL-ENS';const cal=calibracaoVigente(tag);
       return {ref:'OP18/'+p.id+'/'+(it.lote||i),id:p.id,quando:p.data,
         det:`Aferição de pesagem — OP ${p.op_numero||p.id} · ${it.produto} · lote ${it.lote||'—'}`,
         pre:{op:p.op_numero||'',lote:it.lote||'',equipamento:bag?'Big Bag':'Ensacadeira — sacaria',
              balanca_tag:tag,balanca_calibrada:cal===null?'':(cal?'sim':'nao')}};
-    }));
+    })));
   }},
   // POP-15 / 001 — aprovação da linha pelo laboratório (tabela laboratorio).
   // Registro DIGITAL: os números vêm do laboratório, não há ficha em papel.
@@ -4496,12 +4521,15 @@ const GATILHO_FONTES={
   g_rastro:{tab:'producao',async busca(g){
     const l=(await lst(_supabase.from('producao').select('*').gte('data',g._desde||hoje()).order('data').limit(5000))).filter(noEscopo);
     let mps=[];try{mps=await lst(_supabase.from('caulim_lotes_mp').select('numero,frente_nome,frentes'));}catch(e){}
-    return l.flatMap(p=>itensEscopoOP(p).map((it,i)=>{const mp=mps.find(m=>_normP(m.numero)===_normP(p.lote_mp));
+    const T=await totemLotes();
+    const tot=T.lista.map(x=>({ref:'TOT-RASTRO/'+x.dia+'/'+x.linha+'/'+x.lote,id:null,quando:x.dia,det:`Rastreabilidade do lote ${x.lote} · ${x.linha}`,
+      pre:{lote_producao:x.lote,lote_mp:'',frente:'',unidades:null,granel:'nao',obs:`${x.produto} · ${x.linha} · produção iniciada no totem`}}));
+    return tot.concat(l.flatMap(p=>itensEscopoOP(p).filter(it=>!_doTotem(T,p,it)).map((it,i)=>{const mp=mps.find(m=>_normP(m.numero)===_normP(p.lote_mp));
       const fr=mp?((Array.isArray(mp.frentes)&&mp.frentes.length?mp.frentes.map(x=>x.nome).join(' + '):mp.frente_nome)||''):'';
       const un=Number(it.total_sacos||it.sacos||it.quantidade||0)||null;
       return {ref:'RASTRO/'+p.id+'/'+(it.lote||i),id:p.id,quando:p.data,det:`Rastreabilidade do lote ${it.lote||'—'} · ${p.linha||''} · OP ${p.op_numero||''}`,
         pre:{lote_producao:it.lote||'',lote_mp:p.lote_mp||'',frente:fr,unidades:un,granel:'nao',
-             obs:`OP ${p.op_numero||''} · ${it.produto||''} · ${p.linha||''} · ${p.turno||''}`}};}));
+             obs:`OP ${p.op_numero||''} · ${it.produto||''} · ${p.linha||''} · ${p.turno||''}`}};})));
   }},
   // ── POP-05 (item 7): laudo SABESP mensal · análise interna anual · higienização anual ·
   // e nova análise após intervenção na rede/reservatório (OS da Manutenção) — desde a vigência
@@ -4542,6 +4570,22 @@ const GATILHO_FONTES={
   }},
 };
 const lst=async q=>{const r=await q;if(r.error)throw r.error;return r.data||[];};
+/* (19/11) FICHAS DA PRODUÇÃO NASCEM DO TOTEM: a partir de BPF_CORTE_TOTEM, as fichas por lote (inspeção da linha, limpeza de fim de
+   lote, amostragem, aferição, rastreabilidade) e a limpeza de troca de variação saem da 1ª impressão do produto no totem
+   (dia + linha + lote), no mesmo dia — não esperam a OP. A OP lançada depois NÃO gera de novo esses lotes (o granel, que não
+   passa pelo totem, segue pela OP). O turno é preenchido na ficha por quem executa. */
+const BPF_CORTE_TOTEM='2026-11-20';
+let _totemCache=null,_totemCacheEm=0;
+async function totemLotes(){
+  if(_totemCache&&Date.now()-_totemCacheEm<60000) return _totemCache;
+  let l=[]; try{ l=await lst(_supabase.from('rotulos_emissoes').select('dia,linha,produto,lote,qtd,criado_em').gte('dia',BPF_CORTE_TOTEM).order('criado_em').limit(5000)); }catch(e){ console.warn('[bpf] totem',e); }
+  const g={}; l.filter(x=>x.lote&&linhaNoEscopo(x.linha)&&produtoNoEscopo(x.produto)).forEach(x=>{
+    const k=x.dia+'|'+x.linha+'|'+x.lote; const o=g[k]=g[k]||{dia:x.dia,linha:x.linha,produto:x.produto,lote:x.lote,qtd:0,em:x.criado_em}; o.qtd+=Number(x.qtd)||0; });
+  _totemCache={lista:Object.values(g).sort((a,b)=>String(a.em).localeCompare(String(b.em))),chaves:new Set(Object.keys(g))}; _totemCacheEm=Date.now();
+  return _totemCache;
+}
+// item de OP cujo lote já nasceu pelo totem (a ficha já existe): a OP não gera de novo
+const _doTotem=(T,p,it)=>String(p.data)>=BPF_CORTE_TOTEM&&it&&it.lote&&T.chaves.has(String(p.data).slice(0,10)+'|'+(p.linha||'')+'|'+it.lote);
 // Lista de códigos de item que o gatilho aceita. null = sem lista configurada,
 // e nesse caso o gatilho NÃO dispara: é mais seguro não gerar nada do que gerar
 // ficha de BPF para embalagem que não é de nutrição animal.
@@ -4625,7 +4669,7 @@ async function varrerGatilhos(silencioso){
 // Cada tarefa nova já nasce com o REGISTRO pendente (ficha "A preencher"),
 // pré-preenchido com o que o ERP trouxe. A tarefa fecha quando o registro é digitado.
 async function gerarRegistrosDasTarefas(){
-  const _regTarefa=new Set(_regs.map(r=>r.tarefa_id).filter(Boolean));
+  const _regTarefa=new Set([..._regs,..._regsOcultos].map(r=>r.tarefa_id).filter(Boolean));   // ocultos contam: não gera de novo
   const desdeImpl='2026-10-26';
   const novas=_tarefas.filter(t=>t.status==='aberta'&&!t.registro_id&&String(t.criado_em||'').slice(0,10)>=desdeImpl
     &&!_regTarefa.has(t.id));

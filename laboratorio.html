@@ -2266,26 +2266,27 @@ async function trocarRegraLab(ligar){
   toast(ligar?'Regra completa ligada.':'Modo provisório ligado: a 1ª aprovação vale para o produto do dia.','success');
   _palRotulosEm=0; renderPallets();
 }
-/* rótulos impressos que ainda não viraram pallet (produção não lançada e ninguém bipou) — só no modo provisório */
+/* rótulos impressos que ainda não viraram pallet (produção não lançada e ninguém bipou).
+   (19/11) aparece nos DOIS modos: a produção do dia chega ao laboratório pelo totem, sem esperar a OP.
+   Regra completa: botões na amostragem de 10 em 10 (nº 1, 11, 21…); modo provisório: analisa o 1º e o resto do produto fica aprovado. */
 async function renderPalRotulos(){
   const el=document.getElementById('pal-rotulos'); if(!el) return;
-  if(labRegraCompleta()){ el.innerHTML=''; return; }
   if(Date.now()-_palRotulosEm>60000){
     _palRotulosEm=Date.now();
     const desde=new Date(Date.now()-3*864e5).toISOString().slice(0,10);
-    const r=await _supabase.from('rotulos_impressos').select('id,dia,linha,produto,numero,lote').is('pallet_id',null).gte('dia',desde).order('numero').limit(2000);
+    const r=await _supabase.from('rotulos_impressos').select('id,dia,linha,produto,numero,lote,descartado_em').is('pallet_id',null).is('descartado_em',null).gte('dia',desde).order('numero').limit(2000);
     _palRotulos=r.error?[]:(r.data||[]);
   }
   const k=(d,l,p)=>d+'|'+l+'|'+Regras.normalizarNome(p);
   const temPallet=new Set((_pallets||[]).map(p=>k(p.data,p.linha,p.produto)));
-  const g={}; _palRotulos.forEach(x=>{const kk=k(x.dia,x.linha,x.produto); if(temPallet.has(kk)||!labProdPrimeiro(x.produto))return; (g[kk]=g[kk]||{dia:x.dia,linha:x.linha,produto:x.produto,lote:x.lote,itens:[]}).itens.push(x);});
+  const g={}; _palRotulos.forEach(x=>{const kk=k(x.dia,x.linha,x.produto); if((!labRegraCompleta()&&temPallet.has(kk))||!labProdPrimeiro(x.produto)||x.descartado_em)return; (g[kk]=g[kk]||{dia:x.dia,linha:x.linha,produto:x.produto,lote:x.lote,itens:[]}).itens.push(x);});
   const gs=Object.values(g).sort((a,b)=>String(b.dia).localeCompare(String(a.dia)));
   el.innerHTML=gs.length?`<div style="margin:0 0 12px;padding:10px 12px;border-radius:12px;background:#eff6ff;border:1.5px solid #93c5fd;">
-    <div style="font-weight:800;color:#1e3a8a;font-size:13px;margin-bottom:6px;">🏷️ Rótulos impressos sem produção lançada — analise o 1º e o resto do produto fica aprovado</div>
+    <div style="font-weight:800;color:#1e3a8a;font-size:13px;margin-bottom:6px;">🏷️ Produção do dia impressa no totem (ainda sem produção lançada) — ${labRegraCompleta()?'amostragem de 10 em 10':'analise o 1º e o resto do produto fica aprovado'}</div>
     <div style="display:flex;flex-wrap:wrap;gap:8px;">${gs.map(x=>{const f=x.itens[0];return `<div style="background:#fff;border:1px solid #bfdbfe;border-radius:10px;padding:8px 10px;font-size:12.5px;">
       <b>${esc(x.produto)}</b> · ${esc(x.linha)} · ${String(x.dia).split('-').reverse().join('/')}${x.lote?' · lote '+esc(x.lote):''}<br>
       <span style="color:#64748b;">${x.itens.length} rótulo(s) — nº ${x.itens[0].numero} a ${x.itens[x.itens.length-1].numero}</span>
-      <div style="margin-top:6px;"><button class="btn btn-primary btn-sm" onclick="labAnalisarRotulo('${f.id}')">🔬 Analisar o nº ${f.numero}</button></div></div>`;}).join('')}</div></div>`:'';
+      <div style="margin-top:6px;display:flex;gap:5px;flex-wrap:wrap;">${(labRegraCompleta()?x.itens.filter((it,ix)=>ix%10===0):[f]).map(it=>`<button class="btn btn-primary btn-sm" onclick="labAnalisarRotulo('${it.id}')">🔬 Analisar o nº ${it.numero}</button>`).join('')}</div></div>`;}).join('')}</div></div>`:'';
 }
 async function labAnalisarRotulo(rotId){
   if(!guardAction('laboratorio','aprovar')) return;
@@ -4760,15 +4761,35 @@ function _grDiasPal(){
   const h=hoje(), ds=new Set([...(_analises||[]).filter(a=>a.linha==='Longa Vida').map(a=>a.data),...(_pallets||[]).filter(p=>p.linha==='Longa Vida'&&/granel/i.test(p.produto||'')).map(p=>p.data)].filter(d=>d&&d<h));
   return [h,...[...ds].sort().reverse().slice(0,3)];
 }
+/* (19/11) "Não rodou": a Longa Vida não liga todo dia. O laboratório marca o dia e o card sai; se chegar carga e a linha ligar,
+   "Voltou a rodar" traz o card de volta para analisar (inclusive à noite). Tabela lab_granel_dias (migração 173). */
+let _grNaoRodou=new Set(), _grNaoRodouEm=0;
+async function _grCarregarNaoRodou(){ if(Date.now()-_grNaoRodouEm<30000) return; _grNaoRodouEm=Date.now();
+  const {data}=await _supabase.from('lab_granel_dias').select('dia,situacao').gte('dia',new Date(Date.now()-10*864e5).toISOString().slice(0,10));
+  _grNaoRodou=new Set((data||[]).filter(x=>x.situacao==='nao_rodou').map(x=>x.dia)); }
+async function granelNaoRodou(d,marcar){
+  if(!guardAction('laboratorio','edit')) return;
+  const u=(typeof getUser==='function'&&getUser())||{};
+  const r=marcar?await _supabase.from('lab_granel_dias').upsert({dia:d,situacao:'nao_rodou',por:u.nome||'',em:new Date().toISOString()})
+                :await _supabase.from('lab_granel_dias').delete().eq('dia',d);
+  if(r.error){ toast('Não gravou: '+r.error.message,'danger'); return; }
+  if(marcar) _grNaoRodou.add(d); else _grNaoRodou.delete(d);
+  if(typeof addLog==='function') addLog('UPDATE','LABORATORIO','granel '+d,marcar?'Longa Vida não rodou em '+d:'Longa Vida voltou a rodar em '+d);
+  renderGranelPallets();
+}
 function renderGranelPallets(){
   const el=document.getElementById('pal-granel'); if(!el) return;
+  if(Date.now()-_grNaoRodouEm>=30000){ _grCarregarNaoRodou().then(()=>renderGranelPallets()); }
   const pode=typeof checkPerm!=='function'||checkPerm('laboratorio','edit');
   const card=(d,rot)=>{
     const lote=_grLote(d), p=(_pallets||[]).find(x=>x.data===d&&x.linha==='Longa Vida'&&/granel/i.test(x.produto||'')), l=_grLaudo(lote);
+    if(_grNaoRodou.has(d)&&!p) return `<div style="border:1.5px dashed #cbd5e1;background:#f8fafc;border-radius:12px;padding:9px 12px;flex:1;min-width:230px;color:#64748b;">
+      <b>${rot} · ${d.split('-').reverse().slice(0,2).join('/')}</b> <span class="badge badge-gray">🚫 não rodou</span>
+      ${pode?`<div style="margin-top:7px;"><button class="btn btn-ghost btn-sm" onclick="granelNaoRodou('${d}',false)">↩ Voltou a rodar</button></div>`:''}</div>`;
     const st=!p?'<span class="badge badge-gray">sem resultado</span>':p.status==='aprovado'?'<span class="badge badge-success">✅ aprovado</span>':p.status==='reprovado'?'<span class="badge badge-danger">❌ reprovado</span>':'<span class="badge badge-warning">aguardando resultado</span>';
     return `<div style="border:1.5px solid ${p&&p.status==='aprovado'?'#86efac':'#e2e8f0'};background:${p&&p.status==='aprovado'?'#f0fdf4':'#fff'};border-radius:12px;padding:9px 12px;flex:1;min-width:230px;">
       <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;"><b>${rot} · ${d.split('-').reverse().slice(0,2).join('/')}</b><span class="badge badge-info">lote ${lote}</span>${st}${l&&l.status==='finalizado'?`<span class="badge badge-success">📜 ${esc(l.numero)}</span>`:''}</div>
-      <div style="margin-top:7px;">${pode&&(!p||p.status!=='aprovado')?`<button class="btn btn-primary btn-sm" onclick="granelResultado('${d}')">🔬 Lançar resultado</button>`:p?`<button class="btn btn-ghost btn-sm" onclick="granelResultado('${d}')">🔬 Ver / refazer</button>`:''}</div></div>`;
+      <div style="margin-top:7px;">${pode&&!p?`<button class="btn btn-ghost btn-sm" style="margin-right:6px;" onclick="granelNaoRodou('${d}',true)" title="A Longa Vida não ligou neste dia">🚫 Não rodou</button>`:''}${pode&&(!p||p.status!=='aprovado')?`<button class="btn btn-primary btn-sm" onclick="granelResultado('${d}')">🔬 Analisar</button>`:p?`<button class="btn btn-ghost btn-sm" onclick="granelResultado('${d}')">🔬 Ver / refazer</button>`:''}</div></div>`;
   };
   const ds=_grDiasPal(), sem=['dom','seg','ter','qua','qui','sex','sáb'];
   el.innerHTML=`<div class="card" style="margin:0 0 12px;padding:10px 14px;"><div style="font-weight:800;color:var(--primary,#042D4D);">🧪 Caulim Granel Cinza — dias no silo <span style="font-weight:500;font-size:12px;color:#64748b;">· lance o resultado; aprovado, o laudo do lote sai sozinho</span></div>

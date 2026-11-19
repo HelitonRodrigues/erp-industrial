@@ -322,14 +322,22 @@ let _dsmLotesDisp=[];
 const _DSEM=['dom','seg','ter','qua','qui','sex','sáb'];
 async function dsmCarregarLotes(){
   const ini=new Date(hojeISO()+'T12:00:00'); ini.setDate(ini.getDate()-15); const d0=ini.toISOString().slice(0,10);
-  const [{data:ops},{data:lds}]=await Promise.all([
-    _supabase.from('producao').select('data').eq('linha','Longa Vida').gte('data',d0).order('data',{ascending:false}).limit(200),
-    _supabase.from('lab_laudos').select('lote,status').ilike('produto','caulim granel%').gte('emitido_em',d0).limit(200)]);
+  const [{data:ops},{data:lds},{data:sai}]=await Promise.all([
+    _supabase.from('producao').select('data,produtos_op,total_sacos').eq('linha','Longa Vida').gte('data',d0).order('data',{ascending:false}).limit(200),
+    _supabase.from('lab_laudos').select('lote,status').ilike('produto','caulim granel%').gte('emitido_em',d0).limit(200),
+    _supabase.from('dsm_caminhoes').select('lote_granel,peso_entrada,peso_saida').gte('recepcao_em',d0).is('cancelado_em',null).not('lote_granel','is',null).limit(2000)]);
   const dias=[...new Set([hojeISO(),...(ops||[]).map(o=>o.data)])].sort().reverse();
   const lib=new Set((lds||[]).filter(l=>l.status==='finalizado').map(l=>l.lote));
+  // (19/11) saldo do lote no silo = produzido (granel da OP, kg) − já carregado (caminhões com esse lote)
+  const prod={}; (ops||[]).forEach(o=>{ (Array.isArray(o.produtos_op)?o.produtos_op:[]).filter(i=>/granel/i.test(i.produto||'')).forEach(i=>{ prod[o.data]=(prod[o.data]||0)+(Number(i.total_sacos)||0); }); });
+  const carr={}; (sai||[]).forEach(c=>{ if(c.peso_saida&&c.peso_entrada) carr[c.lote_granel]=(carr[c.lote_granel]||0)+(c.peso_saida-c.peso_entrada); });
   _dsmLotesDisp=dias.slice(0,8).map(d=>{const l=d.replace(/-/g,'')+'C',w=_DSEM[new Date(d+'T12:00:00').getDay()];
-    return {lote:l,dia:d,rot:(d===hojeISO()?'Hoje':d.slice(8,10)+'/'+d.slice(5,7)+' '+w),lib:lib.has(l)};});
+    const saldo=prod[d]!=null?prod[d]-(carr[l]||0):null;
+    return {lote:l,dia:d,rot:(d===hojeISO()?'Hoje':d.slice(8,10)+'/'+d.slice(5,7)+' '+w),lib:lib.has(l),saldo};});
 }
+/* (19/11) lote sugerido para a próxima carga: o MAIS ANTIGO com laudo liberado que ainda tem saldo no silo (o silo sai na ordem) */
+function dsmLoteSugerido(){ const l=[..._dsmLotesDisp].filter(x=>x.lib&&(x.saldo==null||x.saldo>1000)).sort((a,b)=>a.dia.localeCompare(b.dia));
+  return l.length?l[0].lote:null; }
 const dsmLotes=()=>_dsmLotesDisp.length?_dsmLotesDisp.map(x=>x.lote):[hojeISO().replace(/-/g,'')+'C'];
 function dsmCertHtml(c){
   const lote=_dsmLote[c.id]||c.lote_granel; if(!lote) return '';
@@ -942,7 +950,7 @@ async function abrirPesagem(id,tipo){
       <div><span>BRUTO (SAÍDA)</span><b id="pz-bru">—</b><small>caminhão carregado</small></div>
       <div class="liq"><span>LÍQUIDO DA CARGA</span><b id="pz-liq">—</b><small>bruto − tara</small></div></div>
       ${!/granel.*branco.*02/i.test(c.nf_produto||'')?`<div class="pz-step"><span>2</span><b>Qual lote foi carregado? <small style="font-weight:600;color:#64748b;">(pergunte ao operador)</small></b></div>
-      <div class="pz-uns">${(_dsmLotesDisp.length?_dsmLotesDisp:[{lote:dsmLotes()[0],rot:'Hoje'}]).map(x=>`<button type="button" class="pz-un pz-lt" data-l="${x.lote}" onclick="document.querySelectorAll('.pz-lt').forEach(b=>b.classList.toggle('on',b===this))">🧪 ${x.rot}<small>lote ${x.lote}${x.lib?' · ✅ laudo':''}</small></button>`).join('')}</div>`:''}`:''}
+      <div class="pz-uns">${(_dsmLotesDisp.length?_dsmLotesDisp:[{lote:dsmLotes()[0],rot:'Hoje'}]).map(x=>{const sug=x.lote===dsmLoteSugerido(); return `<button type="button" class="pz-un pz-lt${sug?' on':''}" data-l="${x.lote}" onclick="document.querySelectorAll('.pz-lt').forEach(b=>b.classList.toggle('on',b===this))">🧪 ${x.rot}<small>lote ${x.lote}${x.lib?' · ✅ laudo':''}${x.saldo!=null?` · silo ${(Math.max(0,x.saldo)/1000).toLocaleString('pt-BR',{maximumFractionDigits:1})} t`:''}${sug?' · <b>sugerido (mais antigo)</b>':''}</small></button>`;}).join('')}</div>`:''}`:''}
     ${ent?`<div class="pz-step"><span>2</span><b>Em qual unidade ele vai carregar?</b></div>
       <div class="pz-uns">${uns.map(u=>`<button type="button" class="pz-un" data-u="${esc(u)}" onclick="document.querySelectorAll('.pz-un').forEach(b=>b.classList.toggle('on',b===this))">🏭 ${esc(u)}${ocup(u).length?`<small>${ocup(u).length} carregando</small>`:''}</button>`).join('')}</div>`:''}
     <div id="pz-erro" class="alert alert-danger" style="display:none;margin-top:10px;"></div>

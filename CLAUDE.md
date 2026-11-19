@@ -1052,3 +1052,15 @@ fábrica específica. Não generalizar.
 - (19/11) escala.html: botão ⚡ Gerar próximas semanas (gerarSemanasSeguintes): a partir da última escala cria N semanas seg–sáb revezando a equipe inteira manhã ↔ noite (encarregado, operador(es), linhas, limpeza); madrugada, férias e ausências iguais; feriados da semana na observação; status programado. Dezembro gerado no banco: Semanas 50–53 a partir da 49 (Narcizo/Henrique de férias o mês todo; Natal e Ano Novo nas observações).
 - (19/11) escala.html: '⚡ Gerar próximas semanas' virou planejador de REVEZAMENTO com arrastar (rv*): grade linhas × turnos mostrando a próxima semana (encarregado/operador, cada linha, limpeza); arrastar troca equipes na mesma linha; botões 🔁 Manhã↔Noite, 🔄 Girar 3 turnos (madrugada→manhã→noite→madrugada) e 📌 Ninguém muda, para todas ou por linha; o movimento vira regra e se repete por N semanas; feriados na observação; histórico registra o movimento.
 - (19/11) escala.html Editar/Nova: botão '🔀 Trocar equipes entre turnos' no cabeçalho do formulário — mesma grade de arrastar (ed*), troca direto no rascunho (encarregado/operador, cada linha, limpeza), atalhos 🔄 girar e 🔁 Manhã↔Noite por linha; 'Aplicar no formulário' e depois Salvar.
+- (19/11) bpf.html: BPF_OCULTAR_ATRASADOS=true — os ~1.021 registros 'a preencher' com data < 19/11 criados em 19/11 (correção do escopo: Longa Vida/Linha 3 ago–18/11) ficam fora das telas até finalizar a regularização (_regsOcultos; não apagados; contam na deduplicação da varredura); aviso na aba Regularização. Depois: regularizar ou desligar a flag.
+- (19/11, migração 173) laboratorio.html granel: card do dia com 🚫 Não rodou / ↩ Voltou a rodar (lab_granel_dias) e '🔬 Analisar'; corrigido o erro 'kg ambíguo' nas funções lab_granel_preparar/liberar. Pendentes combinados: análise automática do que o totem imprime (padrão 10 em 10), BPF nascendo do 1º rótulo do produto, portaria pegar o lote aprovado mais antigo.
+- (19/11) PRODUÇÃO PELO TOTEM (decisão do Heliton: OP continua lançada depois; nada nasce de previsão):
+  • bpf.html: a partir de BPF_CORTE_TOTEM=2026-11-20 as fichas por lote (POP-06 inspeção, limpeza de fim de lote, POP-14 amostragem,
+    POP-18 aferição, POP-10 rastreabilidade) e a limpeza de troca de variação nascem da 1ª impressão do produto no totem
+    (rotulos_emissoes: dia+linha+lote; refs TOT06/TOT-LIMP/TOT-VAR/TOT14/TOT18/TOT-RASTRO). OP lançada depois não gera de novo o lote
+    que veio do totem (_doTotem); granel segue pela OP. Turno: preenchido na ficha por quem executa (o totem não sabe o turno).
+    Dias de produção (uniforme etc.) também contam o totem. POP-13 (controle diário) continua pela OP.
+  • laboratorio.html: rótulos impressos sem produção lançada aparecem na Análise de Pallets nos DOIS modos; regra completa = botões
+    de 10 em 10 (nº 1, 11, 21…); provisório = analisa o 1º. Rótulo descartado não aparece.
+  • portaria-dsm.html: saldo do lote no silo (produzido − carregado) e o lote aprovado MAIS ANTIGO com saldo já vem marcado na saída.
+  • dossie.html (migração 174): 🚫 Bloquear lote / 🔓 Desbloquear (SADM/ADM/DIR/GER/GIN/QLD) + faixa vermelha no resumo.

@@ -205,9 +205,22 @@ async function abrirArquivo(path){
   const {data,error}=await _supabase.storage.from('documentos').createSignedUrl(path,600); if(error||!data){ if(w) w.close(); return toast('Não abriu: '+(error&&error.message||''),'danger'); } w.location.href=data.signedUrl; }
 
 /* ─── cabeça: resumo do lote ─── */
+/* (19/11) 🚫 BLOQUEAR LOTE: trava NA HORA todas as unidades do lote que ainda não saíram (ficam "aguardando decisão" e a carga
+   não deixa bipar); unidade que nascer depois (OP lançada mais tarde) já nasce bloqueada. Desbloquear volta cada uma ao que era. */
+const _podeBloq=()=>['SADM','ADM','DIR','GER','GIN','QLD'].includes(String((getUser()||{}).perfil||'').toUpperCase());
+async function bloquearLote(bloq){
+  if(!_podeBloq()) return toast('Só Qualidade, gerência ou administração bloqueiam lote.','warning');
+  let motivo='';
+  if(bloq){ motivo=(prompt(`Bloquear o lote ${LK}?\n\nTodas as unidades que ainda estão na fábrica ficam travadas: não podem ser carregadas até desbloquear.\n\nMotivo do bloqueio (obrigatório):`)||'').trim(); if(!motivo) return; }
+  else if(!confirm(`Desbloquear o lote ${LK}? Cada unidade volta à situação de antes do bloqueio.`)) return;
+  const u=getUser()||{}; const {data,error}=await _supabase.rpc('dos_bloquear_lote',{p_lote:LK,p_motivo:motivo||null,p_usuario:u.nome||u.email||'',p_bloquear:bloq});
+  if(error) return toast('Não gravou: '+error.message,'danger');
+  toast(bloq?`🚫 Lote ${LK} bloqueado — ${data.unidades} unidade(s) travadas no estoque.`:`🔓 Lote ${LK} desbloqueado — ${data.unidades} unidade(s) liberadas.`,bloq?'warning':'success');
+  await abrirLoteCentro(LK); abrirLote();
+}
 function abrirLote(){
   const b=D.balanco, cli=[...new Set([...(D.cargas||[]).flatMap(c=>(c.itens||[]).map(x=>x.cliente)),...(D.dsm||[]).map(x=>x.cliente)].filter(Boolean))];
-  const body=`<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:8px;">${(D.mp||[]).filter(m=>m.lote!=='sem lote').map(m=>lnk('mp',m.lote,'⬅️ MP '+m.lote)).join(' ')||'<span class="tag s-pen">MP sem lote</span>'} <span>→</span> <span class="tag s-ok">Lote ${E(LK)}</span> <span>→</span> ${cli.map(c=>lnk('cliente',c,'➡️ '+c)).join(' · ')||'<span style="color:var(--mu)">sem carga ainda</span>'}</div>
+  const body=`${D._bloq&&!D._bloq.desbloqueado_em?`<div style="background:#fef2f2;border:2px solid #dc2626;color:#991b1b;border-radius:12px;padding:10px 12px;margin-bottom:10px;font-weight:700;">🚫 LOTE BLOQUEADO em ${fD(String(D._bloq.em).slice(0,10))} por ${E(D._bloq.por||'—')} — ${E(D._bloq.motivo||'')}. As unidades na fábrica não podem ser carregadas.</div>`:''}<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:8px;">${(D.mp||[]).filter(m=>m.lote!=='sem lote').map(m=>lnk('mp',m.lote,'⬅️ MP '+m.lote)).join(' ')||'<span class="tag s-pen">MP sem lote</span>'} <span>→</span> <span class="tag s-ok">Lote ${E(LK)}</span> <span>→</span> ${cli.map(c=>lnk('cliente',c,'➡️ '+c)).join(' · ')||'<span style="color:var(--mu)">sem carga ainda</span>'}</div>
     <div class="stats"><div><b>${fN(b.produzido)}</b><span>produzido (un.)</span></div><div><b>${fN(b.unidades)}</b><span>pallets/bags com QR</span></div><div><b>${fN(b.carregadas)}</b><span>carregados</span></div><div><b>${fN(b.em_estoque)}</b><span>ainda no barracão</span></div><div><b>${fN(b.fora)}</b><span>fora da contagem</span></div>${Number(b.granel_t)?`<div><b>${fN(b.granel_t,1)} t</b><span>granel expedido</span></div>`:''}</div>
     <div class="sec">PRODUÇÃO</div><table class="t"><thead><tr><th>OP</th><th>Data</th><th>Linha / turno</th><th>Produto</th><th class="n">Qtd</th><th>Lote MP</th></tr></thead><tbody>${(D.ops||[]).map(o=>`<tr><td>${E(o.op_numero)}</td><td>${fD(o.data)}</td><td>${E(o.linha)} · ${E(o.turno||'')}</td><td>${E(o.produto)}</td><td class="n">${fN(o.sacos)}</td><td>${E(o.lote_mp||'—')}</td></tr>`).join('')}</tbody></table>
     <div class="sec">LAUDOS</div>${(D.laudos||[]).length?`<table class="t"><tbody>${D.laudos.map(l=>`<tr class="cl" onclick="verLaudo(D.laudos.find(x=>x.numero==='${Q(l.numero)}'))"><td><b>${E(l.numero)}</b></td><td>${E(l.produto)}</td><td>${E(l.veredito||l.status)}</td><td>umidade ${l.umidade!=null?fN(l.umidade,2)+' %':'—'}</td></tr>`).join('')}</tbody></table>`:'<div class="vz">Sem laudo.</div>'}
@@ -216,7 +229,8 @@ function abrirLote(){
     ${!(D.cargas||[]).length&&!(D.dsm||[]).length?'<div class="vz">Nenhuma carga com este lote.</div>':''}
     <div class="sec">DOCUMENTOS</div><div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;">${(D.laudos||[]).filter(l=>l.arquivo).map(l=>`<button class="btn2" onclick="abrirArquivo('${Q(l.arquivo)}')">📜 ${E(l.numero)}</button>`).join('')}${((D.extra||{}).romaneios||[]).map(r=>`<button class="btn2" onclick="abrirArquivo('${Q(r.arquivo)}')">🧾 Ordem ${E(r.ordem)}</button>`).join('')}${((D.extra||{}).nf_granel||[]).map(r=>`<button class="btn2" onclick="abrirArquivo('${Q(r.arquivo)}')">📄 NF ${E(r.nf)} (${E(r.placa)})</button>`).join('')||''}</div>
     <div class="sec">CONTRAPROVA · RECLAMAÇÕES</div><div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;"><button class="btn2" onclick="verContraprova()">🧪 Contraprova (${((D.extra||{}).contraprova||[]).length})</button><button class="btn2" onclick="verReclamacoes((D.extra||{}).reclamacoes||[],'Lote ${Q(LK)}')">⚠️ Reclamações (${((D.extra||{}).reclamacoes||[]).length})</button>
-      ${checkPerm(MOD,'create')?`<button class="btn2 g" onclick="simuladoRecall()">🚨 Simulado de recall com este lote</button>`:''}</div>
+      ${checkPerm(MOD,'create')?`<button class="btn2 g" onclick="simuladoRecall()">🚨 Simulado de recall com este lote</button>`:''}
+      ${_podeBloq()?(D._bloq&&!D._bloq.desbloqueado_em?`<button class="btn2" onclick="bloquearLote(false)">🔓 Desbloquear lote</button>`:`<button class="btn2" style="background:#b91c1c;color:#fff;border-color:#b91c1c;" onclick="bloquearLote(true)">🚫 Bloquear lote</button>`):''}</div>
     <div class="sec">UNIDADES (PALLETS / BAGS)</div><table class="t"><thead><tr><th>Nº</th><th>Código</th><th>Produto</th><th>Situação</th><th>Carga</th></tr></thead><tbody>${(D.unidades||[]).map(u=>`<tr><td>${u.numero}</td><td style="font-family:ui-monospace,monospace;font-size:11.5px">${E(u.codigo||'')}</td><td>${E(u.produto)}</td><td>${u.fora?'<span class="tag s-pen">fora: '+E(u.fora).slice(0,30)+'</span>':E(u.estoque||'')}</td><td>${u.ordem?lnk('carga',u.ordem):'—'}</td></tr>`).join('')}</tbody></table>`;
   gav(`🐟 Lote ${E(LK)}`,'Dossiê do lote',body,`<button class="btn2" onclick="csvLote()">⬇️ CSV</button><button class="btn2 g" onclick="pdfLote()">🖨️ PDF</button>`);
 }
@@ -383,7 +397,8 @@ async function perguntar(q){ q=String(q||'').trim(); if(!q) return;
 async function abrirLoteCentro(lote){
   LK=lote; const [r1,r2]=await Promise.all([_supabase.rpc('dos_lote',{p_lote:lote}),_supabase.rpc('dos_lote_extra',{p_lote:lote})]); if(r1.error) return toast(r1.error.message,'danger');
   const data=r1.data; if(!(data.ops||[]).length) return toast('Lote '+lote+' não encontrado na produção.','warning');
-  D=data; D.extra=(r2&&r2.data)||{}; consulta('lote',lote); montarOssos(); document.getElementById('dq-lote').style.display=''; desenhar(); window.scrollTo({top:document.getElementById('dq-lote').offsetTop-70,behavior:'smooth'});
+  D=data; D.extra=(r2&&r2.data)||{};
+  try{ const {data:bl}=await _supabase.from('lotes_bloqueados').select('*').eq('lote',lote).maybeSingle(); D._bloq=bl||null; }catch(e){ D._bloq=null; } consulta('lote',lote); montarOssos(); document.getElementById('dq-lote').style.display=''; desenhar(); window.scrollTo({top:document.getElementById('dq-lote').offsetTop-70,behavior:'smooth'});
   try{ history.replaceState(null,'','#lote='+encodeURIComponent(lote)); }catch(e){}
 }
 
