@@ -44,10 +44,25 @@
   const prodTokens = s => prodNorm(s).split(' ').map(t => SIN[t] !== undefined ? SIN[t] : t).map(t => /^\d$/.test(t) ? '0' + t : t).filter(Boolean);
   const prodPeso = s => { const m = prodNorm(s).match(/\b(\d+(?:\.\d+)?)kg\b/); return m ? Number(m[1]) : null; };
   const prodTipo = s => { const n = prodNorm(s); return /granel/.test(n) ? 'granel' : /\bbag\b|big ?bag/.test(n) ? 'bag' : 'saco'; };
+/* (18/11) REGRA FIXA do SalesCode para o impermeabilizante (vale antes do apelido): o NÚMERO do texto decide.
+     "LIGA ORIGINAL COM IMPERMEABILIZANTE" (sem número) = Liga Concentrado c/ Impermeabilizante 10kg;
+     "... IMPERMEABILIZANTE 50" = Liga Original c/ Impermeabilizante 50; LigaPro / LigaNex / Sikal pelo nome. */
+  function regraImperm(texto, produtos) {
+    const n = String(texto || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    if (!/imperm|impem/.test(n) || /\bbag\b|big ?bag/.test(n)) return null;
+    const ach = f => (produtos || []).find(p => { const m = String(p.nome || '').toLowerCase(); return /c\/ ?imp/.test(m) && !/big ?bag/.test(m) && f(m); });
+    let p = null;
+    if (/sikal/.test(n)) p = ach(m => /sikal/.test(m));
+    else if (/liga ?pro/.test(n)) p = ach(m => /ligapro/.test(m));
+    else if (/liga ?nex/.test(n)) p = ach(m => /liganex/.test(m));
+    else if (/liga/.test(n)) p = /\b50\b/.test(n) ? ach(m => /liga original/.test(m) && /\b50\b/.test(m)) : ach(m => /liga concentrado/.test(m));
+    return p ? { produto: p, seguro: true, score: 1, via: 'regra' } : null;
+  }
   function casarProduto(texto) {
     const an = prodNorm(texto); if (!an) return null;
     if (_casa[an] !== undefined) return _casa[an];
-    let r = null;
+    let r = regraImperm(texto, _produtos);
+    if (r) return (_casa[an] = r);
     const al = _aliases.find(a => a.alias_norm === an);
     const pAl = al && _produtos.find(x => x.id === al.produto_id);
     if (pAl) r = { produto: pAl, seguro: true, via: 'apelido' };
