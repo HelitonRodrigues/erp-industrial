@@ -4237,7 +4237,7 @@ function renderCalendario() {
   const temDomingoEspecial = Object.values(state.calendario).includes('domingo-especial');
   return `
   <div class="card" style="margin-bottom:16px;">
-    <h3 class="cp-h3">Calendário — ${MESES_NOMES[state.mes]}/${state.ano}</h3>
+    <h3 class="cp-h3" style="display:flex;align-items:center;gap:10px;">Calendário — ${MESES_NOMES[state.mes]}/${state.ano}<button class="btn btn-secondary btn-sm" style="margin-left:auto;" onclick="imprimirCapacidade()" title="Calendário, resumo por linha, produção em sacos, pessoas e turnos">🖨️ Imprimir capacidade</button></h3>
     <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
       <div class="form-group" style="margin:0;">
         <label class="form-label">Mês</label>
@@ -8374,6 +8374,125 @@ function _printConfigLinha(r, blocoArg) {
 }
 
 // Relatório com TODAS as linhas, uma seção por linha (pra imprimir tudo de uma vez).
+
+/* ═══ (19/11) IMPRESSÃO DA ABA CAPACIDADE — A4 deitado ═══
+   Pág. 1: indicadores do mês, calendário, resumo por linha (horas disponíveis/ociosas) e produção planejada por
+   linha de custo EM SACOS (bag em unidades, granel em t). Pág. 2: pessoas do plano (nas linhas e apoio por grupo),
+   um nome por linha. Pág. 3+: cada linha → turno (horas, equipe, produtos). Mesmo cálculo da tela. */
+function _capacidadeDados() {
+  const fun = (id) => (state.funcionariosReais || []).find((x) => x.id === id) || null;
+  const blocos = (state.blocos || []).map((bloco) => {
+    const secoes = (bloco.secoes || []).map((secao) => {
+      const turno = (state.turnosReais || []).find((t) => t.nome === secao.turnoNome);
+      const paradasHoras = (secao.paradas || []).reduce((a, p) => a + (Number(p.horas) || 0), 0);
+      const h = calcHorasSecao(state.calendario, turno, secao.eficiencia, secao.extras, paradasHoras, state.horasDomingoEspecial);
+      const comSim = aplicarSimulacaoSecao(state.calendario, secao, h);
+      const ativos = (secao.produtos || []).filter((p) => p.ativo !== false);
+      const dist = distribuirHorasProdutos(ativos.map((p) => ({ id: p.id, capHora: Number(p.capHora) || 0, demanda: Number(p.demanda) || 0 })), h.dispH);
+      let usadas = 0;
+      const produtos = ativos.map((p) => {
+        const d = dist[p.id] || { horasDispProd: 0, qtdMax: 0 };
+        const demanda = Number(p.demanda) || 0, cap = Number(p.capHora) || 0;
+        const auto = p.qtdManual === null || p.qtdManual === undefined || p.qtdManual === '';
+        const qtd = !auto ? Number(p.qtdManual) : (demanda > 0 ? (comSim ? Math.min(demanda, d.qtdMax) : demanda) : d.qtdMax);
+        const horas = cap > 0 ? qtd / cap : 0; usadas += horas;
+        const situ = !auto ? 'manual' : demanda > 0 ? (d.qtdMax > 0 && demanda > d.qtdMax + 1 ? 'excede' : 'atendida') : 'sobra';
+        return { nome: p.nome, unidade: p.unidade || '', cap, demanda, qtd, horas, situ };
+      });
+      const equipe = (secao.equipe || []).map(fun).filter(Boolean).sort((a, b) => a.nome.localeCompare(b.nome));
+      const parado = !!secao.simuladoDesligado;
+      return { turno: secao.turnoNome || '—', secao, h, comSim, produtos, equipe, parado, ocioso: parado ? 0 : Math.max(0, h.dispH - usadas) };
+    });
+    const ativos = secoes.filter((x) => !x.parado);
+    return { nome: bloco.linhaNome || '—', secoes, turnosAtivos: ativos.length, parada: secoes.length > 0 && !ativos.length,
+      disp: ativos.reduce((a, x) => a + x.h.dispH, 0), ocioso: ativos.reduce((a, x) => a + x.ocioso, 0) };
+  });
+  const grupos = state.grupos || [], pg = state.pessoaGrupo || {};
+  const apoioPorGrupo = {};
+  (state.equipeAdmin || []).forEach((id) => {
+    const g = grupos.find((x) => x.id === pg[id]); if (g && g.regra === 'fora') return;
+    const nomeG = g ? g.nome : 'Sem grupo'; const f = fun(id); if (!f) return;
+    (apoioPorGrupo[nomeG] = apoioPorGrupo[nomeG] || []).push(f);
+  });
+  Object.values(apoioPorGrupo).forEach((l) => l.sort((a, b) => a.nome.localeCompare(b.nome)));
+  return { blocos, apoioPorGrupo };
+}
+function _printCapacidadeV2(r) {
+  const D = _capacidadeDados();
+  const n0 = (v) => fmtNum(v, 0), n1 = (v) => fmtNum(v, 1);
+  // calendário
+  const cal = state.calendario || {}, ano = state.ano, mes = state.mes;
+  const nDias = new Date(ano, mes, 0).getDate(), primeiro = new Date(ano, mes - 1, 1).getDay();
+  const fer = getFeriadosNacionais(ano, mes).concat(state.feriadosLocais || []);
+  const COR = { trabalha: ['#dcfce7', '#22c55e', '#166534'], folga: ['#f1f5f9', '#cbd5e1', '#94a3b8'], feriado: ['#ffe4e6', '#ff4f64', '#9f1239'], 'domingo-especial': ['#fef9c3', '#f59e0b', '#92400e'] };
+  const cont = { trabalha: 0, folga: 0, feriado: 0, 'domingo-especial': 0 }; let domFolga = 0;
+  let cel = ''; for (let i = 0; i < primeiro; i++) cel += '<div></div>';
+  for (let d = 1; d <= nDias; d++) {
+    const k = `${ano}-${String(mes).padStart(2, '0')}-${String(d).padStart(2, '0')}`, e = cal[k] || 'trabalha', c = COR[e] || COR.folga;
+    cont[e] = (cont[e] || 0) + 1; if (e === 'folga' && new Date(ano, mes - 1, d).getDay() === 0) domFolga++;
+    const nf = (fer.find((x) => x.dia === d) || {}).nome || '';
+    cel += `<div class="cap-dia" style="background:${c[0]};border-color:${c[1]};color:${c[2]}"><b>${d}</b>${nf ? `<i>${esc(nf.slice(0, 12))}</i>` : ''}</div>`;
+  }
+  const totDisp = D.blocos.reduce((a, b) => a + b.disp, 0), totOcio = D.blocos.reduce((a, b) => a + b.ocioso, 0);
+  const ferNomes = fer.filter((x) => (cal[`${ano}-${String(mes).padStart(2, '0')}-${String(x.dia).padStart(2, '0')}`] || '') === 'feriado').map((x) => x.nome);
+  const kpis = `<div class="kpis">
+    <div class="kpi"><div class="kpi-v">${cont.trabalha + (cont['domingo-especial'] || 0)}</div><div class="kpi-l">dias trabalhados${cont['domingo-especial'] ? ` (${cont['domingo-especial']} domingo especial)` : ''}</div></div>
+    <div class="kpi"><div class="kpi-v">${cont.feriado || 0}</div><div class="kpi-l">feriado(s)${ferNomes.length ? ' — ' + esc(ferNomes.join(', ')) : ''}</div></div>
+    <div class="kpi"><div class="kpi-v">${domFolga}</div><div class="kpi-l">domingos de folga</div></div>
+    <div class="kpi"><div class="kpi-v">${n0(totDisp)} h</div><div class="kpi-l">horas disponíveis (todas as linhas)</div></div>
+    <div class="kpi"><div class="kpi-v">${fmtNum(r.plano.tonelagem.tonTotal, 0)} t</div><div class="kpi-l">produção planejada</div></div>
+    <div class="kpi"><div class="kpi-v" style="color:#b45309">${n0(totOcio)} h</div><div class="kpi-l">horas ociosas</div></div></div>`;
+  const resumo = D.blocos.map((b) => `<tr><td><b>${esc(b.nome)}</b>${b.parada ? ' <span class="cap-tag cap-red">parada no mês</span>' : ''}</td><td class="num">${b.turnosAtivos} de ${b.secoes.length}</td>
+      <td class="num">${n1(b.disp)} h</td><td class="num">${n1(b.ocioso)} h</td><td class="num">${b.disp > 0 ? n0(b.ocioso / b.disp * 100) : 0}%</td></tr>`).join('');
+  const UN = { L20: 'sacos', CONC: 'sacos', CAULIM25: 'sacos', CAULIMBB: 'bags', CAULIMGRANEL: 't (granel)' };
+  const tonTot = r.plano.tonelagem.tonTotal || 0;
+  const prod = BUCKETS_CUSTO.map((b) => {
+    const q = b === 'CAULIMGRANEL' ? r.plano.tonelagem.tonCAULIMGRANEL : r.metas[b], t = r.plano.tonelagem['ton' + b] || 0, pct = tonTot > 0 ? t / tonTot : 0;
+    return `<tr><td>${DESTINOS[b]}</td><td class="num"><b>${fmtNum(q, 0)}</b> <span class="cap-mu">${UN[b]}</span></td><td class="num">${fmtNum(t, 1)} t</td><td class="num">${fmtPct(pct, 1)}</td><td><div class="cap-bar"><div style="width:${(pct * 100).toFixed(1)}%"></div></div></td></tr>`;
+  }).join('');
+  const pag1 = `${kpis}<div class="cap-g2"><div><h2>Calendário</h2><div class="cap-cal">${['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'].map((d) => `<div class="cap-h">${d}</div>`).join('')}${cel}</div>
+      <div class="cap-leg"><span><i style="background:#22c55e"></i>Trabalha</span><span><i style="background:#cbd5e1"></i>Folga</span><span><i style="background:#ff4f64"></i>Feriado</span><span><i style="background:#f59e0b"></i>Domingo especial</span></div></div>
+    <div><h2>Resumo por linha</h2><table><thead><tr><th>Linha</th><th class="num">Turnos ativos</th><th class="num">Horas disponíveis</th><th class="num">Horas ociosas</th><th class="num">% ocioso</th></tr></thead><tbody>${resumo}</tbody></table>
+      <h2>Produção planejada por linha de custo</h2><table><thead><tr><th>Linha de custo</th><th class="num">Quantidade</th><th class="num">Toneladas</th><th class="num">%</th><th style="width:26%"></th></tr></thead>
+      <tbody>${prod}<tr style="font-weight:700"><td>Total</td><td></td><td class="num">${fmtNum(tonTot, 1)} t</td><td class="num">100%</td><td></td></tr></tbody></table></div></div>`;
+  // pessoas
+  const ul = (l) => `<ul class="cap-nomes">${l.map((f) => `<li>${esc(f.nome)}</li>`).join('')}</ul>`;
+  const nasLinhas = D.blocos.flatMap((b) => b.secoes.filter((x) => x.equipe.length).map((x) => `<tr><td><b>${esc(b.nome)}</b></td><td>${esc(x.turno)}${x.parado ? ' <span class="cap-tag cap-red">parado</span>' : ''}</td><td class="num">${x.equipe.length}</td><td>${ul(x.equipe)}</td></tr>`)).join('');
+  const nLinhas = D.blocos.reduce((a, b) => a + b.secoes.reduce((s2, x) => s2 + x.equipe.length, 0), 0);
+  const gruposAp = Object.entries(D.apoioPorGrupo);
+  const nApoio = gruposAp.reduce((a, [, l]) => a + l.length, 0);
+  const ferias = gruposAp.filter(([g]) => /f[ée]rias/i.test(g)).reduce((a, [, l]) => a + l.length, 0);
+  const apoio = gruposAp.map(([g, l]) => `<tr><td><b>${esc(g)}</b></td><td class="num">${l.length}</td><td>${ul(l)}</td></tr>`).join('');
+  const parados = D.blocos.filter((b) => b.parada).map((b) => b.nome);
+  const pag2 = `<h2>Pessoas do plano — ${nLinhas + nApoio} no total</h2>
+    <div class="kpis"><div class="kpi"><div class="kpi-v">${nLinhas}</div><div class="kpi-l">nas linhas (turnos)</div></div><div class="kpi"><div class="kpi-v">${nApoio}</div><div class="kpi-l">apoio / administrativo</div></div>
+      <div class="kpi"><div class="kpi-v">${ferias}</div><div class="kpi-l">de férias no mês</div></div>${parados.length ? `<div class="kpi"><div class="kpi-v">${esc(parados.join(', '))}</div><div class="kpi-l">parada(s) no mês</div></div>` : ''}</div>
+    <div class="cap-g2b"><div><h3>Nas linhas</h3><table><thead><tr><th>Linha</th><th>Turno</th><th class="num">Qtd</th><th>Pessoas</th></tr></thead><tbody>${nasLinhas || '<tr><td colspan="4">Ninguém alocado nos turnos.</td></tr>'}</tbody></table></div>
+      <div><h3>Apoio do plano (rateado por tonelagem)</h3><table><thead><tr><th>Grupo</th><th class="num">Qtd</th><th>Pessoas</th></tr></thead><tbody>${apoio || '<tr><td colspan="3">Sem equipe de apoio.</td></tr>'}</tbody></table></div></div>`;
+  // detalhe
+  const SIT = { atendida: '<span class="cap-tag cap-ok">atendida</span>', sobra: '<span class="cap-tag cap-neu">usa a sobra</span>', excede: '<span class="cap-tag cap-red">excede a capacidade</span>', manual: '<span class="cap-tag cap-neu">manual</span>' };
+  const pag3 = D.blocos.map((b) => `<div class="secao"><h3>🏭 ${esc(b.nome)}</h3><table><thead><tr><th>Turno / produto</th><th class="num">Média/h</th><th class="num">Demanda</th><th class="num">Qtd planejada</th><th class="num">Horas</th><th>Situação</th></tr></thead><tbody>
+    ${b.secoes.map((x) => x.parado ? `<tr class="cap-parado"><td>${esc(x.turno)}</td><td colspan="5">⛔ PARADO NO MÊS — sem produção${x.equipe.length ? ` · ${x.equipe.length} pessoa(s) ainda cadastradas aqui` : ''}</td></tr>`
+      : `<tr class="cap-turno"><td colspan="6"><b>${esc(x.turno)}</b> · ${x.equipe.length} pessoa(s) · ${x.h.diasTrabalho} dias · brutas ${n1(x.h.horasBrutas)} h · perda efic. (${x.secao.eficiencia}%) ${n1(x.h.perdaH)} h · paradas ${n1(x.h.paradaH)} h · <b>disponíveis ${n1(x.h.dispH)} h</b>${x.ocioso > 0.5 ? ` · <span class="cap-ocio">ocioso ${n1(x.ocioso)} h</span>` : ''}${x.comSim ? ' · <b style="color:#b45309">simulação ligada</b>' : ''}
+          ${x.equipe.length ? `<ul class="cap-nomes cap-eq">${x.equipe.map((f) => `<li>👷 ${esc(f.nome)}</li>`).join('')}</ul>` : ''}</td></tr>
+        ${x.produtos.map((p) => `<tr><td style="padding-left:20px">${esc(p.nome)}</td><td class="num">${fmtNum(p.cap, 0)}</td><td class="num">${p.demanda ? fmtNum(p.demanda, 0) : '—'}</td><td class="num"><b>${fmtNum(p.qtd, 0)}</b></td><td class="num">${n1(p.horas)} h</td><td>${SIT[p.situ] || ''}</td></tr>`).join('') || '<tr><td colspan="6" style="padding-left:20px;color:#64748b">Sem produtos ativos</td></tr>'}`).join('')}
+    </tbody></table></div>`).join('');
+  const css = `<style>@page{size:A4 landscape;margin:10mm}
+    .kpi-v{font-size:16px;font-weight:800;color:#1e3a5f}.kpi-l{font-size:9.5px;color:#64748b}
+    .cap-g2{display:grid;grid-template-columns:330px 1fr;gap:16px;align-items:start}.cap-g2b{display:grid;grid-template-columns:1.25fr 1fr;gap:14px;align-items:start}
+    .cap-cal{display:grid;grid-template-columns:repeat(7,1fr);gap:3px}.cap-h{font-size:9px;font-weight:700;color:#64748b;text-align:center}
+    .cap-dia{border:1.5px solid;border-radius:5px;height:34px;padding:2px 4px;font-size:11px}.cap-dia i{display:block;font-size:7.5px;font-style:normal}
+    .cap-leg{font-size:9.5px;color:#64748b;margin-top:5px}.cap-leg span{margin-right:10px}.cap-leg i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:3px;vertical-align:-1px}
+    .cap-tag{font-size:9px;font-weight:700;border-radius:99px;padding:1px 7px}.cap-ok{background:#dcfce7;color:#166534}.cap-neu{background:#e0f2fe;color:#075985}.cap-red{background:#fee2e2;color:#991b1b}
+    .cap-mu{color:#64748b}.cap-ocio{color:#b45309;font-weight:700}.cap-bar{height:8px;background:#e2e8f0;border-radius:4px}.cap-bar div{height:8px;background:#1e3a5f;border-radius:4px}
+    tr.cap-turno td{background:#eef2f7}tr.cap-parado td{background:#fff1f2;color:#9f1239;font-weight:700}
+    ul.cap-nomes{list-style:none;margin:0;padding:0}ul.cap-nomes li{padding:1px 0;border-bottom:1px dotted #e2e8f0;font-size:10px;break-inside:avoid}
+    ul.cap-eq{margin-top:3px}ul.cap-eq li{border:0;font-size:9.5px;color:#334155}</style>`;
+  return css + pag1 + '<div class="quebra-pagina"></div>' + pag2 + '<div class="quebra-pagina"></div><h2>Turnos e produtos por linha</h2>' + pag3
+    + '<p class="sub" style="margin-top:8px">Horas: dias trabalhados × jornada do turno (sem a refeição) × eficiência − paradas. Os números são os mesmos da tela.</p>';
+}
+function imprimirCapacidade() { const r = computar(state); _abrirJanelaImpressao(`Capacidade — ${MESES_NOMES[state.mes]}/${state.ano}`, _printCapacidadeV2(r)); }
+
 function imprimirRelatorioPorLinha() {
   if (!state.blocos.length) { if (typeof toast === 'function') toast('Configure pelo menos uma linha primeiro.', 'warning'); return; }
   const r = computar(state);
@@ -8406,7 +8525,7 @@ function _printGeral(r) {
 function imprimirAbaAtual() {
   const r = computar(state);
   switch (state.tab) {
-    case 'config': _abrirJanelaImpressao('Capacidade', _printCapacidade() + _printProducaoETonelagem(r)); return;
+    case 'config': imprimirCapacidade(); return;
     case 'metas': _abrirJanelaImpressao('Metas & Produção', _printProducaoETonelagem(r)); return;
     case 'linha': _abrirJanelaImpressao('Configuração da Linha', _printConfigLinha(r)); return;
     case 'custos': _abrirJanelaImpressao('Custos & Resultado', _printResultado(r) + _printInsumos(r) + _printPrecificacao(r) + _printPainel(r)); return;
@@ -8819,7 +8938,7 @@ function imprimirAbaAtual() {
   switch (state.tab) {
     case 'resumo': imprimirResumoMes(); return;
     case 'real': imprimirRelatorioPlanRealizado(); return;
-    case 'config': _abrirJanelaImpressao('Capacidade', _printCapacidade() + _printProducaoETonelagem(r)); return;
+    case 'config': imprimirCapacidade(); return;
     case 'metas': _abrirJanelaImpressao('Metas & Produção', _printProducaoETonelagem(r)); return;
     case 'linha': _abrirJanelaImpressao('Configuração da Linha', _printConfigLinha(r)); return;
     case 'custos': _abrirJanelaImpressao('Custos & Resultado', _printResultado(r) + _printInsumos(r) + _printPrecificacao(r) + _printPainel(r)); return;
