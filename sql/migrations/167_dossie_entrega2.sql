@@ -1,0 +1,7 @@
+-- (18/11/2026) DOSSIÊ entrega 2 — aplicada no Supabase.
+-- lab_contraprovas (lote, produto, coletada_em, local, quantidade, guardar_ate, responsavel, reanálise, descarte).
+-- dos_lote_extra(lote): contraprova, reclamações ligadas (lote_ref, NF das cargas/granel do lote), PDFs das ordens (romaneios.arquivo_path),
+--   NF do granel (dsm_caminhoes.nf_arquivo), registro de recall pendente. dos_cliente_extra(cliente): reclamações do cliente (nome aproximado).
+-- dos_carga_docs(ordem): PDF da ordem. dos_recall_simulado(lote, segundos, usuario, resumo): preenche o REG-POP11-01 pendente (ou cria)
+--   com lote, clientes, quantidade expedida, ponto de corte, eficácia e tempo → aguardando assinatura; trilha 'simulado de recall'.
+-- Permissão dossie.create (registrar contraprova / simulado): SADM, ADM, QLD, SGR.
