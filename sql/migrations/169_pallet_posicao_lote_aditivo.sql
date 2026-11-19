@@ -1,0 +1,7 @@
+-- (19/11/2026) aplicado no Supabase.
+-- pallet_sacos_calc_v2: usa a POSIÇÃO do pallet dentro da OP (com 2 OPs do mesmo produto no dia, os rótulos seguem a numeração
+--   do dia: Geoplus 18/11 P009 pegava 180 em vez de 100). Recalculado desde 01/11.
+-- tg_lote_aditivo_op (insumos_movimentos): consumo de aditivo com lote grava producao.lote_aditivo.
+-- Dados 19/11: OPs de 18/11 e 19/11 (madrugada) lançadas pela planilha; OP provisória OP-LIN-20261118-9156 = 357 sc (5 pallets);
+--   rótulos 25 kg 18/11 nº 6–10 descartados; 21 pallets de Caulim 25kg Branco 01 fora da contagem (estoque zerado);
+--   entrada de 450 kg de Aditivo Concentrado, lote 215 (18/11); lote 215 status 'liberado'.
