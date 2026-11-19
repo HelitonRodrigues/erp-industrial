@@ -2,3 +2,5 @@
 -- dos_busca passa a trazer só lotes/clientes/cargas com produto de nutrição animal.
 -- Dados: 10 bags de 18/11 (Linha 2, nº 1–11) que tinham sido tirados da contagem ("rótulo além da produção da madrugada")
 --   voltaram ao estoque — com as OPs da manhã e da noite lançadas, os 123 rótulos batem com a produção (45+18+60).
+-- dos_mp: "o que foi produzido com esta MP" só com o PRODUTO que consumiu a MP (via mp_lote_consumo → insumos_movimentos.produto),
+--   um por lote+produto (soma das OPs) e a MP usada (t). dos_lote_mp(lote): MP do lote só do produto do lote (dos_lote usa).
