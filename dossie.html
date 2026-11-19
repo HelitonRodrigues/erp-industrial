@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dossiê · ERP Industrial</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/supabase.js"></script>
+<script src="js/utils.js"></script>
+<!-- ═════════════════════════════════════════════════════════════════
+     DOSSIÊ (18/11/2026) — rastreabilidade para auditoria (entrega 1)
+     Centro = LOTE (espinha de peixe 6M + cabeça com o resumo) e rede clicável: lote ↔ lote de MP ↔ cliente ↔ carga.
+     Banco (migração 166): dos_lote(lote) · dos_busca(texto) · dos_cliente(nome) · dos_mp(lote MP) · dos_carga(ordem).
+     Fichas do BPF abrem no bpf.html (?reg=id). CSV e PDF em cada nível. Só leitura.
+     ═════════════════════════════════════════════════════════════════ -->
+<style>
+:root{--ln:#e2e8f0;--mu:#64748b;--soft:#f8fafc}
+.dq-hd{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+.dq-hd h1{font-size:24px;font-weight:800;color:var(--primary);margin:0}
+.dq-hd p{color:var(--mu);font-size:13px;margin:3px 0 0}
+.dq-bus{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.dq-bus input{font-family:inherit;font-size:15px;padding:10px 14px;border-radius:12px;border:2px solid #cbd5e1;min-width:min(420px,90vw)}
+.dq-card{background:#fff;border:1px solid var(--ln);border-radius:16px;padding:14px 16px;margin-bottom:12px}
+.dq-recentes{display:flex;gap:8px;flex-wrap:wrap}
+.dq-chip{font-size:12.5px;border:1px solid var(--ln);background:var(--soft);border-radius:99px;padding:6px 12px;cursor:pointer;font-weight:700;color:#0f172a}
+.dq-chip:hover{border-color:#0284c7}
+.s-ok{background:#dcfce7;color:#166534}.s-reg{background:#e0f2fe;color:#075985}.s-pen{background:#fef3c7;color:#92400e}.s-nc{background:#fee2e2;color:#991b1b}
+.tag{font-size:11px;font-weight:800;border-radius:99px;padding:2px 8px;white-space:nowrap}
+.chipst{font-size:12px;font-weight:800;border-radius:99px;padding:4px 10px;cursor:pointer;user-select:none}
+.chipst.off{opacity:.38}
+#peixe{width:100%;height:auto;display:block}
+#peixe .it{cursor:pointer} #peixe .it:hover rect{stroke:#0ea5e9;stroke-width:2}
+#peixe .bone-t{cursor:pointer} #peixe .head{cursor:pointer}
+#lista6m{display:none}
+.m-grp{border:1px solid var(--ln);border-radius:12px;margin-bottom:10px;overflow:hidden}
+.m-grp h3{margin:0;padding:10px 12px;background:var(--soft);font-size:14px;cursor:pointer}
+.m-it{padding:9px 12px;border-top:1px solid var(--ln);cursor:pointer;display:flex;gap:8px;align-items:flex-start}
+@media (max-width:900px){ #peixe{display:none} #lista6m{display:block} }
+#ov{position:fixed;inset:0;background:rgba(2,20,40,.45);display:none;z-index:9000}
+#gav{position:fixed;top:0;right:0;height:100%;width:min(820px,100%);background:#fff;z-index:9001;transform:translateX(105%);transition:transform .22s ease;display:flex;flex-direction:column;box-shadow:-20px 0 50px rgba(0,0,0,.25)}
+#gav.on{transform:none} #ov.on{display:block}
+#gav .gh{padding:14px 18px;border-bottom:1px solid var(--ln);display:flex;gap:10px;align-items:flex-start}
+#gav .gh h2{margin:0;font-size:17px}
+#gav .gb{padding:14px 18px;overflow:auto;flex:1}
+#gav .gf{padding:10px 18px;border-top:1px solid var(--ln);display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.crumb{font-size:12px;color:var(--mu);margin-bottom:4px}
+a.lk{color:#0284c7;font-weight:700;cursor:pointer;text-decoration:none;border-bottom:1px dotted #0284c7}
+table.t{width:100%;border-collapse:collapse;font-size:12.5px;margin:6px 0 12px}
+table.t th{background:#042D4D;color:#c9ff64;text-align:left;padding:7px 8px;font-size:11.5px;white-space:nowrap}
+table.t td{padding:7px 8px;border-bottom:1px solid var(--ln);vertical-align:top}
+table.t td.n{text-align:right;white-space:nowrap}
+table.t tr.cl{cursor:pointer} table.t tr.cl:hover td{background:var(--soft)}
+.kv{display:grid;grid-template-columns:200px 1fr;border:1px solid var(--ln);border-radius:10px;overflow:hidden;margin:6px 0 12px}
+.kv div{padding:7px 10px;border-bottom:1px solid var(--ln);font-size:12.5px}
+.kv div:nth-child(odd){background:var(--soft);color:var(--mu);font-weight:700}
+.sec{font-size:12px;font-weight:800;color:var(--mu);margin:12px 0 4px}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin:6px 0 12px}
+.stats div{border:1px solid var(--ln);border-radius:10px;padding:8px 10px}.stats b{display:block;font-size:18px}.stats span{font-size:11px;color:var(--mu)}
+.btn2{font-family:inherit;border:1px solid var(--ln);background:#fff;border-radius:9px;padding:7px 12px;font-weight:700;font-size:12.5px;cursor:pointer}
+.btn2.g{background:#c9ff64;border-color:#a3e635;color:#042D4D}
+.vz{color:#94a3b8;font-size:13px;padding:10px}
+</style>
+</head>
+<body>
+<div id="sidebar-container"></div>
+<header class="topbar" id="topbar">
+  <button class="topbar-open-sidebar" onclick="toggleSidebar()">☰</button>
+  <div class="topbar-title">🗂️ Dossiê</div>
+  <div class="topbar-right"><div class="topbar-user"><div class="topbar-avatar" id="top-avatar">?</div>
+    <div><div class="topbar-user-name" id="top-user-name">—</div><div class="topbar-user-profile" id="top-user-perfil">—</div></div></div></div>
+</header>
+<main class="main-content" id="main-content">
+  <div class="dq-hd">
+    <div><h1>🗂️ Dossiê de rastreabilidade</h1>
+      <p>Comece por um <b>lote</b>, um <b>cliente</b>, um <b>lote de MP</b>, uma <b>placa</b>, <b>NF</b> ou <b>ordem</b>. Tudo que aparece em azul abre o próximo nível.</p></div>
+    <div class="dq-bus"><input id="dq-q" placeholder="🔎 Lote, cliente, lote de MP, placa, NF, ordem, motorista…" onkeydown="if(event.key==='Enter')perguntar(this.value)">
+      <button class="btn2 g" onclick="perguntar(document.getElementById('dq-q').value)">Buscar</button></div>
+  </div>
+  <div class="dq-card"><div class="sec" style="margin-top:0;">LOTES RECENTES</div><div class="dq-recentes" id="dq-rec"><span class="vz">Carregando…</span></div></div>
+  <div class="dq-card" id="dq-lote" style="display:none;">
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:6px;" id="dq-placar"></div>
+    <div style="font-size:12px;color:var(--mu);">Clique na <b>cabeça</b> para o resumo do lote (produção, laudo, balanço, cargas e clientes) · no <b>nome da espinha</b> para tudo daquele grupo · em cada <b>item</b> para as fichas.</div>
+    <svg id="peixe" viewBox="0 0 1500 700"></svg>
+    <div id="lista6m"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;"><button class="btn2" onclick="csvLote()">⬇️ CSV do lote</button><button class="btn2 g" onclick="pdfLote()">🖨️ Dossiê do lote (PDF)</button></div>
+  </div>
+</main>
+<div id="ov" onclick="fechar()"></div>
+<aside id="gav"><div class="gh"><div style="flex:1"><div class="crumb" id="g-crumb"></div><h2 id="g-tit"></h2></div><button class="btn2" onclick="fechar()">✕</button></div>
+  <div class="gb" id="g-body"></div><div class="gf" id="g-foot"></div></aside>
+
+<script>
+const MOD='dossie';
+const E=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const Q=s=>String(s==null?'':s).replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+const fD=v=>v?String(v).slice(0,10).split('-').reverse().join('/'):'—';
+const fDH=v=>v?new Date(v).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'}):'—';
+const fN=(v,d=0)=>v==null||v===''?'—':Number(v).toLocaleString('pt-BR',{minimumFractionDigits:d,maximumFractionDigits:d});
+const lnk=(t,v,txt)=>`<a class="lk" onclick="event.stopPropagation();pivo('${t}','${Q(v)}')">${E(txt||v)}</a>`;
+const ST={ok:{i:'✅',t:'concluído',c:'s-ok'},reg:{i:'🧾',t:'regularizado',c:'s-reg'},pen:{i:'⏳',t:'pendente',c:'s-pen'},nc:{i:'❌',t:'não conforme',c:'s-nc'}};
+const MATN={CAULIM_BRANCO_01:'Caulim Branco 01',CAULIM_BRANCO_02:'Caulim Branco 02',CAULIM_BRANCO_03:'Caulim Branco 03',CAULIM_CREME_01:'Caulim Creme 01',CAULIM_CREME_02:'Caulim Creme 02',CAULIM_CREME_03:'Caulim Creme 03',CAULIM_CINZA:'Caulim Cinza',CAULIM_MARGUERITA:'Caulim Marguerita',CAULIM_BRASIL_MINAS:'Caulim Brasil Minas'};
+let D=null, LK='', filtro={ok:true,reg:true,pen:true,nc:true}, OSSOS=[];
+
+/* ─── 6M: em qual espinha cada formulário do BPF entra ─── */
+const M6=[{k:'mp',t:'🪨 Matéria-prima',f:['REG-POP02-01','REG-POP01-01','REG-POP01-02']},
+          {k:'maq',t:'⚙️ Máquina',f:['REG-POP06-01','REG-POP18-01','REG-POP07-01','REG-POP07-02']},
+          {k:'mo',t:'👷 Mão de obra',f:['REG-POP04-01','REG-POP04-02']},
+          {k:'met',t:'📋 Método',f:['REG-POP03-01','REG-POP13-01','REG-POP10-01','REG-POP12-01','REG-POP12-02']},
+          {k:'amb',t:'🌿 Meio ambiente',f:['REG-POP08-01','REG-POP09-01','REG-POP05-01','REG-POP05-02','REG-POP09-02']},
+          {k:'med',t:'🔬 Medição',f:['REG-POP14-01','REG-POP15-01','REG-POP15-02','REG-POP17-02']}];
+const stReg=r=>r.status==='concluido'?(r.conforme===false?'nc':'ok'):r.status==='nao_conforme'||r.conforme===false?'nc':r.status==='regularizacao'?'reg':'pen';
+const pior=l=>l.includes('nc')?'nc':l.includes('pen')?'pen':l.includes('reg')?'reg':'ok';
+
+function montarOssos(){
+  const regs=D.bpf||[]; const usados=new Set();
+  OSSOS=M6.map(o=>{
+    const itens=[];
+    o.f.forEach(fc=>{ const l=regs.filter(r=>r.form===fc); if(!l.length) return; l.forEach(r=>usados.add(r.id));
+      itens.push({id:'f:'+fc,s:pior(l.map(stReg)),t:(l[0].titulo||fc),sub:`${fc} · ${l.length} registro(s) · ${l.filter(r=>stReg(r)==='ok').length} concluído(s)`,regs:l}); });
+    if(o.k==='mp') (D.mp||[]).forEach(m=>itens.unshift({id:'mp:'+m.lote,s:m.lote==='sem lote'?'pen':'ok',t:(m.lote==='sem lote'?'Sem lote de MP':'Lote de MP '+m.lote),sub:`${MATN[m.material]||m.material} · ${fN(m.t,1)} t usadas`,mp:m}));
+    if(o.k==='mo') { const enc=[...new Set((D.ops||[]).map(x=>x.encarregado).filter(Boolean))], tur=[...new Set((D.ops||[]).map(x=>x.turno).filter(Boolean))];
+      itens.unshift({id:'escala',s:'ok',t:'Escala / turnos da produção',sub:`${tur.join(' · ')||'—'} · encarregado ${enc.join(', ')||'—'}`,escala:true}); }
+    if(o.k==='med') (D.laudos||[]).forEach(l=>itens.unshift({id:'laudo:'+l.numero,s:l.status==='finalizado'?(String(l.veredito||'').toUpperCase().includes('REPROV')?'nc':'ok'):'pen',t:`Laudo ${l.numero}`,sub:`${l.produto||''} · umidade ${l.umidade!=null?fN(l.umidade,2)+' %':'—'} · ${l.veredito||l.status}`,laudo:l}));
+    return {k:o.k,t:o.t,itens};
+  });
+  const resto=regs.filter(r=>!usados.has(r.id));
+  if(resto.length){ const met=OSSOS.find(o=>o.k==='met'); const g={}; resto.forEach(r=>(g[r.form]=g[r.form]||[]).push(r));
+    Object.entries(g).forEach(([fc,l])=>met.itens.push({id:'f:'+fc,s:pior(l.map(stReg)),t:l[0].titulo||fc,sub:`${fc} · ${l.length} registro(s)`,regs:l})); }
+}
+const todos=()=>OSSOS.flatMap(o=>o.itens.map(i=>Object.assign({osso:o.t},i)));
+
+/* ─── desenho ─── */
+function desenhar(){
+  const it=todos(), cont={ok:0,reg:0,pen:0,nc:0}; it.forEach(i=>cont[i.s]++);
+  document.getElementById('dq-placar').innerHTML=Object.keys(ST).map(k=>`<span class="chipst ${ST[k].c} ${filtro[k]?'':'off'}" onclick="filtro.${k}=!filtro.${k};desenhar()">${ST[k].i} ${cont[k]} ${ST[k].t}</span>`).join('')+`<span style="margin-left:auto;font-size:12px;color:var(--mu);">${it.length} itens · ${(D.cargas||[]).length+(D.dsm||[]).length} carga(s)</span>`;
+  const Y=350, cols=[{x:370,top:1},{x:760,top:1},{x:1150,top:1},{x:370,top:0},{x:760,top:0},{x:1150,top:0}];
+  const ops=D.ops||[], prod=[...new Set(ops.map(o=>o.produto))].join(' + '), lau=(D.laudos||[]).map(l=>l.numero).join(', ');
+  const ok=(D.laudos||[]).length&&(D.laudos||[]).every(l=>l.status==='finalizado'&&!String(l.veredito||'').toUpperCase().includes('REPROV'));
+  let h=`<defs><marker id="ar" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M0,0 L12,6 L0,12 z" fill="#042D4D"/></marker></defs>
+    <line x1="20" y1="${Y}" x2="1170" y2="${Y}" stroke="#042D4D" stroke-width="7" marker-end="url(#ar)"/>`;
+  OSSOS.forEach((o,ix)=>{ const c=cols[ix], y0=c.top?60:640, x0=c.x-100;
+    h+=`<line x1="${x0}" y1="${y0}" x2="${c.x}" y2="${Y}" stroke="#64748b" stroke-width="3.5"/><text class="bone-t" x="${c.x-350}" y="${c.top?40:678}" font-size="15" font-weight="800" fill="#042D4D" onclick="abrirOsso('${o.k}')">${E(o.t)} ›</text>`;
+    const vis=o.itens.filter(i=>filtro[i.s]).slice(0,5);
+    vis.forEach((i,j)=>{ const yy=c.top?70+j*52:382+j*52, xx=c.x-360+j*14, cor={ok:'#16a34a',reg:'#0284c7',pen:'#d97706',nc:'#dc2626'}[i.s], t=i.t.length>36?i.t.slice(0,35)+'…':i.t;
+      h+=`<g class="it" onclick="abrirItem('${Q(i.id)}')"><rect x="${xx}" y="${yy}" width="300" height="40" rx="9" fill="#f8fafc" stroke="${cor}" stroke-width="1.2"/><rect x="${xx}" y="${yy}" width="5" height="40" rx="2" fill="${cor}"/>
+        <text x="${xx+14}" y="${yy+17}" font-size="12.5" font-weight="700" fill="#0f172a">${ST[i.s].i} ${E(t)}</text><text x="${xx+14}" y="${yy+32}" font-size="10.5" fill="#64748b">${E(String(i.sub).slice(0,52))}</text></g>`; });
+    if(o.itens.filter(i=>filtro[i.s]).length>5) h+=`<text x="${c.x-350}" y="${c.top?345:648}" font-size="11.5" fill="#0284c7" style="cursor:pointer" onclick="abrirOsso('${o.k}')">+ ${o.itens.filter(i=>filtro[i.s]).length-5} — ver todos</text>`;
+    if(!vis.length) h+=`<text x="${c.x-350}" y="${c.top?110:420}" font-size="12" fill="#94a3b8">nenhum registro</text>`; });
+  h+=`<g class="head" onclick="abrirLote()"><path d="M1185,245 Q1490,245 1490,${Y} Q1490,455 1185,455 Z" fill="#042D4D"/>
+    <text x="1205" y="288" fill="#c9ff64" font-size="17" font-weight="800">LOTE ${E(LK)}</text>
+    <text x="1205" y="310" fill="#fff" font-size="12">${E(prod.slice(0,34))}</text>
+    <text x="1205" y="330" fill="#fff" font-size="12">${fN(D.balanco.produzido)} un · ${(D.cargas||[]).length+(D.dsm||[]).length} carga(s)</text>
+    <text x="1205" y="356" fill="${ok?'#86efac':'#fcd34d'}" font-size="14" font-weight="800">${ok?'✅ CONFORME':'⏳ LAUDO PENDENTE'}</text>
+    <text x="1205" y="377" fill="#cbd5e1" font-size="11">${E(lau||'sem laudo')}</text>
+    <text x="1205" y="418" fill="#c9ff64" font-size="12" font-weight="700">▶ de onde veio · para onde foi</text></g>`;
+  document.getElementById('peixe').innerHTML=h;
+  document.getElementById('lista6m').innerHTML=`<div class="m-grp"><h3 onclick="abrirLote()" style="background:#042D4D;color:#c9ff64">🐟 Lote ${E(LK)} · ${ok?'✅':'⏳'} ›</h3></div>`+OSSOS.map(o=>`<div class="m-grp"><h3 onclick="abrirOsso('${o.k}')">${E(o.t)} ›</h3>${o.itens.filter(i=>filtro[i.s]).map(i=>`<div class="m-it" onclick="abrirItem('${Q(i.id)}')"><span class="tag ${ST[i.s].c}">${ST[i.s].i}</span><div><b>${E(i.t)}</b><div style="font-size:12px;color:var(--mu)">${E(i.sub)}</div></div></div>`).join('')}</div>`).join('');
+}
+
+/* ─── gaveta ─── */
+let pilha=[];
+function gav(tit,crumb,body,foot,push=true){ if(push) pilha.push({tit,crumb,body,foot});
+  document.getElementById('g-tit').innerHTML=tit; document.getElementById('g-crumb').innerHTML=(pilha.length>1?`<a class="lk" onclick="voltar()">← voltar</a> · `:'')+crumb;
+  document.getElementById('g-body').innerHTML=body; document.getElementById('g-foot').innerHTML=foot||''; document.getElementById('gav').classList.add('on'); document.getElementById('ov').classList.add('on'); document.getElementById('g-body').scrollTop=0; }
+function voltar(){ pilha.pop(); const p=pilha[pilha.length-1]; if(p) gav(p.tit,p.crumb,p.body,p.foot,false); else fechar(); }
+function fechar(){ pilha=[]; document.getElementById('gav').classList.remove('on'); document.getElementById('ov').classList.remove('on'); }
+document.addEventListener('keydown',e=>{if(e.key==='Escape')fechar();});
+const kv=o=>`<div class="kv">${Object.entries(o).map(([k,v])=>`<div>${E(k)}</div><div>${v}</div>`).join('')}</div>`;
+function tabRegs(l){ return `<table class="t"><thead><tr><th>Registro</th><th>Data</th><th>Situação</th><th>Assinaturas</th><th></th></tr></thead><tbody>${l.map(r=>{const s=stReg(r);return `<tr><td><b>${E(r.numero)}</b><div style="font-size:11px;color:var(--mu)">${E(r.titulo||r.form)}</div></td><td>${fD(r.data)}</td><td><span class="tag ${ST[s].c}">${ST[s].i} ${ST[s].t}</span></td><td>${r.assinaturas}/${r.previstas}</td><td><a class="lk" href="bpf.html?reg=${r.id}" target="_blank">abrir ficha ↗</a></td></tr>`;}).join('')}</tbody></table>`; }
+
+function abrirItem(id){
+  const i=todos().find(x=>x.id===id); if(!i) return;
+  if(i.mp) return i.mp.lote==='sem lote'?gav('⏳ Sem lote de MP',`Lote ${E(LK)} › ${E(i.osso)}`,`<div class="vz" style="color:#92400e">Parte da MP (${fN(i.mp.t,1)} t de ${E(MATN[i.mp.material]||i.mp.material)}) foi consumida quando não havia lote aprovado com saldo no laboratório.</div>`):pivo('mp',i.mp.lote);
+  if(i.laudo) return verLaudo(i.laudo);
+  if(i.escala) return gav('👷 Produção do lote',`Lote ${E(LK)} › Mão de obra`,`<table class="t"><thead><tr><th>OP</th><th>Data</th><th>Linha</th><th>Turno</th><th>Encarregado</th><th>Produto</th><th class="n">Qtd</th></tr></thead><tbody>${(D.ops||[]).map(o=>`<tr><td>${E(o.op_numero)}</td><td>${fD(o.data)}</td><td>${E(o.linha)}</td><td>${E(o.turno||'—')}</td><td>${E(o.encarregado||'—')}</td><td>${E(o.produto)}</td><td class="n">${fN(o.sacos)}</td></tr>`).join('')}</tbody></table><div style="font-size:12px;color:var(--mu)">O time completo de cada turno está na Escala (escala.html) do período.</div>`);
+  gav(`${ST[i.s].i} ${E(i.t)}`,`Lote ${E(LK)} › ${E(i.osso)}`,tabRegs(i.regs),`<button class="btn2" onclick="csvRegs('${Q(id)}')">⬇️ CSV</button>`);
+}
+function abrirOsso(k){ const o=OSSOS.find(x=>x.k===k); if(!o) return;
+  gav(E(o.t),`Lote ${E(LK)}`,o.itens.length?`<table class="t"><tbody>${o.itens.map(i=>`<tr class="cl" onclick="abrirItem('${Q(i.id)}')"><td><span class="tag ${ST[i.s].c}">${ST[i.s].i}</span></td><td><b>${E(i.t)}</b><div style="font-size:11.5px;color:var(--mu)">${E(i.sub)}</div></td></tr>`).join('')}</tbody></table>`:'<div class="vz">Nenhum registro neste grupo.</div>'); }
+async function verLaudo(l){
+  const g=(l.granulometria||[]).map(x=>`<tr><td>#${E(x.mesh)}</td><td>${E(x.espec||'')}</td><td class="n">${fN(x.resultado,2)} %</td></tr>`).join('');
+  gav(`🔬 Laudo ${E(l.numero)}`,`Lote ${E(LK)} › Medição`,kv({'Produto':E(l.produto),'Situação':E(l.status),'Veredito':E(l.veredito||'—'),'Umidade':l.umidade!=null?fN(l.umidade,2)+' %':'—','Validade':fD(l.validade),'Responsável técnico':E(l.rt||'—'),'Emitido':fDH(l.data)})+(g?`<div class="sec">GRANULOMETRIA</div><table class="t"><thead><tr><th>Peneira</th><th>Especificação</th><th class="n">Resultado</th></tr></thead><tbody>${g}</tbody></table>`:''),
+    l.arquivo?`<button class="btn2 g" onclick="abrirArquivo('${Q(l.arquivo)}')">📜 Ver laudo assinado</button>`:'');
+}
+async function abrirArquivo(path){ const w=window.open('','_blank'); const {data,error}=await _supabase.storage.from('documentos').createSignedUrl(path,600); if(error||!data){ if(w) w.close(); return toast('Não abriu: '+(error&&error.message||''),'danger'); } w.location.href=data.signedUrl; }
+
+/* ─── cabeça: resumo do lote ─── */
+function abrirLote(){
+  const b=D.balanco, cli=[...new Set([...(D.cargas||[]).flatMap(c=>(c.itens||[]).map(x=>x.cliente)),...(D.dsm||[]).map(x=>x.cliente)].filter(Boolean))];
+  const body=`<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:8px;">${(D.mp||[]).filter(m=>m.lote!=='sem lote').map(m=>lnk('mp',m.lote,'⬅️ MP '+m.lote)).join(' ')||'<span class="tag s-pen">MP sem lote</span>'} <span>→</span> <span class="tag s-ok">Lote ${E(LK)}</span> <span>→</span> ${cli.map(c=>lnk('cliente',c,'➡️ '+c)).join(' · ')||'<span style="color:var(--mu)">sem carga ainda</span>'}</div>
+    <div class="stats"><div><b>${fN(b.produzido)}</b><span>produzido (un.)</span></div><div><b>${fN(b.unidades)}</b><span>pallets/bags com QR</span></div><div><b>${fN(b.carregadas)}</b><span>carregados</span></div><div><b>${fN(b.em_estoque)}</b><span>ainda no barracão</span></div><div><b>${fN(b.fora)}</b><span>fora da contagem</span></div>${Number(b.granel_t)?`<div><b>${fN(b.granel_t,1)} t</b><span>granel expedido</span></div>`:''}</div>
+    <div class="sec">PRODUÇÃO</div><table class="t"><thead><tr><th>OP</th><th>Data</th><th>Linha / turno</th><th>Produto</th><th class="n">Qtd</th><th>Lote MP</th></tr></thead><tbody>${(D.ops||[]).map(o=>`<tr><td>${E(o.op_numero)}</td><td>${fD(o.data)}</td><td>${E(o.linha)} · ${E(o.turno||'')}</td><td>${E(o.produto)}</td><td class="n">${fN(o.sacos)}</td><td>${E(o.lote_mp||'—')}</td></tr>`).join('')}</tbody></table>
+    <div class="sec">LAUDOS</div>${(D.laudos||[]).length?`<table class="t"><tbody>${D.laudos.map(l=>`<tr class="cl" onclick="verLaudo(D.laudos.find(x=>x.numero==='${Q(l.numero)}'))"><td><b>${E(l.numero)}</b></td><td>${E(l.produto)}</td><td>${E(l.veredito||l.status)}</td><td>umidade ${l.umidade!=null?fN(l.umidade,2)+' %':'—'}</td></tr>`).join('')}</tbody></table>`:'<div class="vz">Sem laudo.</div>'}
+    <div class="sec">PARA ONDE FOI</div>${(D.cargas||[]).length?`<table class="t"><thead><tr><th>Ordem</th><th>Data</th><th>Cliente</th><th>Placa</th><th>Motorista</th><th class="n">Qtd do lote</th><th>NF</th></tr></thead><tbody>${D.cargas.map(c=>`<tr class="cl" onclick="pivo('carga','${Q(c.ordem)}')"><td><b>${E(c.ordem)}</b></td><td>${fD(c.data)}</td><td>${[...new Set((c.itens||[]).map(x=>x.cliente))].map(x=>lnk('cliente',x)).join(', ')}</td><td>${E(c.placa||'')}</td><td>${E(c.motorista||'')}</td><td class="n">${fN((c.itens||[]).reduce((t,x)=>t+Number(x.sacos||0),0))}</td><td>${E(c.nf||'—')}</td></tr>`).join('')}</tbody></table>`:''}
+    ${(D.dsm||[]).length?`<table class="t"><thead><tr><th>Granel — placa</th><th>Data</th><th>Cliente</th><th>NF</th><th class="n">Peso</th></tr></thead><tbody>${D.dsm.map(x=>`<tr><td><b>${E(x.placa)}</b></td><td>${fD(x.data)}</td><td>${x.cliente?lnk('cliente',x.cliente):'—'}</td><td>${E(x.nf||'—')}</td><td class="n">${fN(x.peso_t,3)} t</td></tr>`).join('')}</tbody></table>`:''}
+    ${!(D.cargas||[]).length&&!(D.dsm||[]).length?'<div class="vz">Nenhuma carga com este lote.</div>':''}
+    <div class="sec">UNIDADES (PALLETS / BAGS)</div><table class="t"><thead><tr><th>Nº</th><th>Código</th><th>Produto</th><th>Situação</th><th>Carga</th></tr></thead><tbody>${(D.unidades||[]).map(u=>`<tr><td>${u.numero}</td><td style="font-family:ui-monospace,monospace;font-size:11.5px">${E(u.codigo||'')}</td><td>${E(u.produto)}</td><td>${u.fora?'<span class="tag s-pen">fora: '+E(u.fora).slice(0,30)+'</span>':E(u.estoque||'')}</td><td>${u.ordem?lnk('carga',u.ordem):'—'}</td></tr>`).join('')}</tbody></table>`;
+  gav(`🐟 Lote ${E(LK)}`,'Dossiê do lote',body,`<button class="btn2" onclick="csvLote()">⬇️ CSV</button><button class="btn2 g" onclick="pdfLote()">🖨️ PDF</button>`);
+}
+
+/* ─── pivô: cliente, MP, carga ─── */
+async function pivo(t,v){
+  if(t==='lote'){ fechar(); return abrirLoteCentro(v); }
+  if(t==='cliente'){ const {data,error}=await _supabase.rpc('dos_cliente',{p_cliente:v}); if(error) return toast(error.message,'danger');
+    const cs=data.cargas||[], its=cs.flatMap(c=>(c.itens||[]).map(x=>Object.assign({ordem:c.ordem,data:c.data},x))), lot={};
+    its.forEach(x=>{const o=lot[x.lote||'—']=lot[x.lote||'—']||{un:0,sc:0,cargas:new Set(),produto:x.produto}; o.un++; o.sc+=Number(x.sacos||0); o.cargas.add(x.ordem);});
+    window._ULT={tipo:'cliente',nome:v,its,cs,dsm:data.dsm||[]};
+    gav(`🏢 ${E(v)}`,'Rastreabilidade › cliente',`<div class="stats"><div><b>${cs.length+(data.dsm||[]).length}</b><span>cargas</span></div><div><b>${Object.keys(lot).length}</b><span>lotes</span></div><div><b>${its.length}</b><span>pallets/bags</span></div><div><b>${fN(its.reduce((t,x)=>t+Number(x.sacos||0),0))}</b><span>unidades (sc/bag)</span></div></div>
+      <div class="sec">LOTES QUE RECEBEU</div><table class="t"><thead><tr><th>Lote</th><th>Produto</th><th class="n">Qtd</th><th>Cargas</th></tr></thead><tbody>${Object.entries(lot).map(([l,o])=>`<tr><td>${l!=='—'?lnk('lote',l):'—'}</td><td>${E(o.produto)}</td><td class="n">${fN(o.sc)}</td><td>${[...o.cargas].map(x=>lnk('carga',x)).join(', ')}</td></tr>`).join('')}</tbody></table>
+      <div class="sec">CARGAS</div><table class="t"><thead><tr><th>Data</th><th>Ordem</th><th>Placa</th><th>Motorista</th><th>NF</th><th>Lotes</th></tr></thead><tbody>${cs.map(c=>`<tr class="cl" onclick="pivo('carga','${Q(c.ordem)}')"><td>${fD(c.data)}</td><td><b>${E(c.ordem)}</b></td><td>${E(c.placa||'')}</td><td>${E(c.motorista||'')}</td><td>${E(c.nf||'—')}</td><td>${[...new Set((c.itens||[]).map(x=>x.lote))].map(x=>x?lnk('lote',x):'').join(', ')}</td></tr>`).join('')}</tbody></table>
+      ${(data.dsm||[]).length?`<div class="sec">GRANEL (DSM)</div><table class="t"><thead><tr><th>Data</th><th>Placa</th><th>NF</th><th>Lote</th><th class="n">Peso</th></tr></thead><tbody>${data.dsm.map(x=>`<tr><td>${fD(x.data)}</td><td>${E(x.placa)}</td><td>${E(x.nf||'—')}</td><td>${x.lote?lnk('lote',x.lote):'—'}</td><td class="n">${fN(x.peso_t,3)} t</td></tr>`).join('')}</tbody></table>`:''}
+      <div class="sec">CADA PALLET / BAG</div><table class="t"><thead><tr><th>Carga</th><th>Data</th><th>Lote</th><th>Código</th><th class="n">Qtd</th></tr></thead><tbody>${its.map(x=>`<tr><td>${lnk('carga',x.ordem)}</td><td>${fD(x.data)}</td><td>${x.lote?lnk('lote',x.lote):'—'}</td><td style="font-family:ui-monospace,monospace;font-size:11.5px">${E(x.codigo||'')}</td><td class="n">${fN(x.sacos)}</td></tr>`).join('')}</tbody></table>`,
+      `<button class="btn2" onclick="csvUltimo()">⬇️ CSV</button><button class="btn2 g" onclick="pdfAtual()">🖨️ PDF</button>`); return; }
+  if(t==='mp'){ const {data,error}=await _supabase.rpc('dos_mp',{p_lote:v}); if(error) return toast(error.message,'danger'); const m=data.mp||{};
+    const cli={}; (data.clientes||[]).forEach(x=>{const o=cli[x.cliente]=cli[x.cliente]||{lotes:new Set(),cargas:new Set()};o.lotes.add(x.lote);o.cargas.add(x.ordem);}); (data.dsm||[]).forEach(x=>{if(!x.cliente)return;const o=cli[x.cliente]=cli[x.cliente]||{lotes:new Set(),cargas:new Set()};o.lotes.add(x.lote);o.cargas.add(x.placa);});
+    window._ULT={tipo:'mp',nome:v,data};
+    gav(`🪨 Lote de MP ${E(v)}`,'Rastreabilidade › matéria-prima',kv({'Material':E(MATN[data.material]||data.material||'—'),'Formação':fD(m.data),'Quantidade':fN(m.montante_t,1)+' t','Usado na produção':fN(data.consumido_t,1)+' t','Frente':E(m.frente_nome||'—'),'Umidade':m.umidade_pct!=null?fN(m.umidade_pct,2)+' %':'—','Análise':E(m.analista_mp||'—'),'Cor aprovada':m.cor_aprovada?'✅ sim':'—'})+
+      `<div class="sec">O QUE FOI PRODUZIDO COM ESTA MP</div><table class="t"><thead><tr><th>Lote</th><th>Produto</th><th>Data</th><th>Linha</th><th class="n">Qtd</th><th>Laudo</th></tr></thead><tbody>${(data.lotes||[]).map(x=>`<tr><td>${lnk('lote',x.lote)}</td><td>${E(x.produto)}</td><td>${fD(x.data)}</td><td>${E(x.linha)}</td><td class="n">${fN(x.sacos)}</td><td>${E(x.laudo||'—')}</td></tr>`).join('')||'<tr><td colspan="6" class="vz">Nenhuma produção ligada a este lote ainda.</td></tr>'}</tbody></table>
+      <div class="sec">QUEM RECEBEU</div><table class="t"><thead><tr><th>Cliente</th><th>Lotes</th><th>Cargas</th></tr></thead><tbody>${Object.entries(cli).map(([c,o])=>`<tr><td>${lnk('cliente',c)}</td><td>${[...o.lotes].map(l=>l?lnk('lote',l):'').join(', ')}</td><td>${[...o.cargas].map(x=>E(x)).join(', ')}</td></tr>`).join('')||'<tr><td colspan="3" class="vz">Ninguém ainda.</td></tr>'}</tbody></table>
+      <div style="font-size:12px;color:var(--mu)">Num recall desta MP, esta tela é a resposta: lotes, clientes e cargas.</div>`,
+      `<button class="btn2" onclick="csvUltimo()">⬇️ CSV</button><button class="btn2 g" onclick="pdfAtual()">🖨️ PDF (recall)</button>`); return; }
+  if(t==='carga'){ const {data,error}=await _supabase.rpc('dos_carga',{p_ordem:v}); if(error) return toast(error.message,'danger'); const c=data.carga||{}, p=data.portaria||{}, its=c.itens||[];
+    window._ULT={tipo:'carga',nome:v,its};
+    gav(`🚚 Carga ${E(v)}`,'Rastreabilidade › carga',kv({'Data':fD(c.data)+' '+E(c.hora||''),'Clientes':[...new Set(its.map(x=>x.cliente))].map(x=>lnk('cliente',x)).join(', ')||'—','Placa':E(c.placa||'')+(p.placa2?' + '+E(p.placa2):''),'Motorista':E(c.motorista||'')+(p.cpf?' · CPF '+E(String(p.cpf).replace(/^(\d{3}).*(\d{2})$/,'$1.***.***-$2')):''),'Transportadora':E(c.transportadora||p.transportadora||'—'),
+       'Pesagem':p.tara!=null?`tara ${fN(p.tara,3)} t · bruto ${fN(p.bruto,3)} t · líquido ${fN(p.liquido,3)} t`:'—','Portaria':`chegada ${fDH(p.chegada)} · saída ${fDH(p.saida)} · ${E(p.porteiro||'')}`,'Carregou':E(c.operador||c.encarregado||'—'),
+       'Inspeção do veículo':data.inspecao?`${E(data.inspecao.numero)} · ${E(data.inspecao.status)}`:'—','Certificados':(data.laudos||[]).map(l=>`${E(l.laudo)}${l.nf?' (NF '+E(l.nf)+')':''}${l.arquivo?` <a class="lk" onclick="abrirArquivo('${Q(l.arquivo)}')">ver</a>`:''}`).join(' · ')||'—'})+
+      `<div class="sec">LOTES E UNIDADES BIPADAS (${its.length})</div><table class="t"><thead><tr><th>Lote</th><th>Produto</th><th>Código</th><th>Cliente</th><th class="n">Qtd</th></tr></thead><tbody>${its.map(x=>`<tr><td>${x.lote?lnk('lote',x.lote):'—'}</td><td>${E(x.produto)}</td><td style="font-family:ui-monospace,monospace;font-size:11.5px">${E(x.codigo||'')}</td><td>${E(x.cliente||'')}</td><td class="n">${fN(x.sacos)}</td></tr>`).join('')}</tbody></table>`,
+      `<button class="btn2" onclick="csvUltimo()">⬇️ CSV</button><button class="btn2 g" onclick="pdfAtual()">🖨️ PDF</button>`); return; }
+}
+async function perguntar(q){ q=String(q||'').trim(); if(!q) return;
+  const {data,error}=await _supabase.rpc('dos_busca',{p_q:q}); if(error) return toast(error.message,'danger');
+  const r=data||[]; if(r.length===1) return pivo(r[0].tipo,r[0].chave);
+  gav(`🔎 “${E(q)}”`,'Busca',r.length?`<table class="t"><tbody>${r.map(x=>`<tr class="cl" onclick="pivo('${x.tipo}','${Q(x.chave)}')"><td>${E(x.rotulo)}</td></tr>`).join('')}</tbody></table>`:'<div class="vz">Nada encontrado. Tente lote, cliente, lote de MP, placa, NF, ordem ou motorista.</div>'); }
+
+async function abrirLoteCentro(lote){
+  LK=lote; const {data,error}=await _supabase.rpc('dos_lote',{p_lote:lote}); if(error) return toast(error.message,'danger');
+  if(!(data.ops||[]).length) return toast('Lote '+lote+' não encontrado na produção.','warning');
+  D=data; montarOssos(); document.getElementById('dq-lote').style.display=''; desenhar(); window.scrollTo({top:document.getElementById('dq-lote').offsetTop-70,behavior:'smooth'});
+  try{ history.replaceState(null,'','#lote='+encodeURIComponent(lote)); }catch(e){}
+}
+
+/* ─── CSV / PDF ─── */
+function baixar(nome,txt){ const b=new Blob(['\ufeff'+txt],{type:'text/csv;charset=utf-8'}), a=document.createElement('a'); a.href=URL.createObjectURL(b); a.download=nome; document.body.appendChild(a); a.click(); setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},400); }
+const cel=v=>'"'+String(v==null?'':v).replace(/"/g,'""')+'"';
+function csvLote(){ if(!D) return; const L=[['Lote','Grupo 6M','Item','Situação','Detalhe'].map(cel).join(';')]; todos().forEach(i=>L.push([LK,i.osso,i.t,ST[i.s].t,i.sub].map(cel).join(';')));
+  L.push(''); L.push(['Ordem','Data','Cliente','Lote','Produto','Código','Qtd','Placa','Motorista','NF'].map(cel).join(';'));
+  (D.cargas||[]).forEach(c=>(c.itens||[]).forEach(x=>L.push([c.ordem,c.data,x.cliente,x.lote,x.produto,x.codigo,x.sacos,c.placa,c.motorista,c.nf].map(cel).join(';'))));
+  (D.dsm||[]).forEach(x=>L.push(['granel',x.data,x.cliente,LK,'granel','',x.peso_t,x.placa,x.motorista,x.nf].map(cel).join(';'))); baixar(`dossie-lote-${LK}.csv`,L.join('\n')); }
+function csvRegs(id){ const i=todos().find(x=>x.id===id); if(!i||!i.regs) return; baixar(`dossie-${LK}-${id.replace(/\W+/g,'_')}.csv`,[['Registro','Formulário','Data','Situação','Assinaturas'].map(cel).join(';'),...i.regs.map(r=>[r.numero,r.titulo||r.form,r.data,ST[stReg(r)].t,r.assinaturas+'/'+r.previstas].map(cel).join(';'))].join('\n')); }
+function csvUltimo(){ const u=window._ULT; if(!u) return; let L=[];
+  if(u.tipo==='cliente'||u.tipo==='carga'){ L=[['Ordem','Data','Cliente','Lote','Produto','Código','Qtd'].map(cel).join(';'),...(u.its||[]).map(x=>[x.ordem||u.nome,x.data||'',x.cliente,x.lote,x.produto,x.codigo,x.sacos].map(cel).join(';'))]; }
+  if(u.tipo==='mp'){ L=[['Lote','Produto','Data','Linha','Qtd','Laudo'].map(cel).join(';'),...(u.data.lotes||[]).map(x=>[x.lote,x.produto,x.data,x.linha,x.sacos,x.laudo].map(cel).join(';')),'',['Cliente','Lote','Ordem','Data'].map(cel).join(';'),...(u.data.clientes||[]).map(x=>[x.cliente,x.lote,x.ordem,x.data].map(cel).join(';'))]; }
+  baixar(`dossie-${u.tipo}-${String(u.nome).replace(/\W+/g,'_')}.csv`,L.join('\n')); }
+function imprimir(titulo,html){ const w=window.open('','_blank'); if(!w) return toast('Permita pop-ups para o PDF.','warning');
+  w.document.write(`<html><head><meta charset="utf-8"><title>${E(titulo)}</title><style>body{font-family:Arial,sans-serif;font-size:11.5px;margin:14mm}h1{font-size:17px;color:#042D4D;margin:0 0 6px}table{width:100%;border-collapse:collapse;margin:4px 0 10px}td,th{border:1px solid #ccc;padding:4px 6px;text-align:left;vertical-align:top}th{background:#f1f5f9}.kv{display:grid;grid-template-columns:200px 1fr;border:1px solid #ccc}.kv div{padding:4px 6px;border-bottom:1px solid #eee}.sec{font-weight:800;margin:10px 0 4px;color:#042D4D}a{color:#000;text-decoration:none}.tag{font-weight:700}.stats{display:flex;gap:10px;flex-wrap:wrap}.stats div{border:1px solid #ccc;padding:4px 8px}.stats b{display:block}button{display:none}</style></head><body><h1>${E(titulo)}</h1><div style="color:#555;margin-bottom:8px">Gerado em ${new Date().toLocaleString('pt-BR')} · ERP Industrial · Silicate</div>${html}</body></html>`);
+  w.document.close(); setTimeout(()=>{w.focus();w.print();},400); }
+function pdfAtual(){ imprimir(document.getElementById('g-tit').textContent, document.getElementById('g-body').innerHTML); }
+function pdfLote(){ if(!D) return; abrirLote(); const resumo=document.getElementById('g-body').innerHTML;
+  const grupos=OSSOS.map(o=>`<div class="sec">${E(o.t)}</div><table><tbody>${o.itens.map(i=>`<tr><td>${ST[i.s].i} ${E(i.t)}</td><td>${E(i.sub)}</td><td>${(i.regs||[]).map(r=>E(r.numero)+' ('+ST[stReg(r)].t+')').join(', ')}</td></tr>`).join('')||'<tr><td>—</td></tr>'}</tbody></table>`).join('');
+  imprimir('Dossiê de auditoria — Lote '+LK, resumo+'<h1 style="margin-top:16px">Registros BPF por grupo (6M)</h1>'+grupos); }
+
+async function iniciar(){
+  if(!checkPerm(MOD,'view')){ document.getElementById('main-content').innerHTML='<div class="vz">Sem acesso ao Dossiê. Peça ao administrador para liberar no perfil.</div>'; return; }
+  const {data}=await _supabase.from('producao').select('data,produtos_op').order('data',{ascending:false}).limit(60);
+  const vistos=new Map(); (data||[]).forEach(p=>(p.produtos_op||[]).forEach(e=>{ if(e&&e.lote&&!vistos.has(e.lote)) vistos.set(e.lote,{d:p.data,p:e.produto}); }));
+  document.getElementById('dq-rec').innerHTML=[...vistos.entries()].slice(0,18).map(([l,o])=>`<span class="dq-chip" onclick="abrirLoteCentro('${Q(l)}')">${E(l)} <span style="font-weight:500;color:var(--mu)">· ${fD(o.d)} · ${E(String(o.p||'').slice(0,26))}</span></span>`).join('')||'<span class="vz">Nenhum lote recente.</span>';
+  const h=new URLSearchParams(location.hash.slice(1)); if(h.get('lote')) abrirLoteCentro(h.get('lote'));
+  else { const q=new URLSearchParams(location.search); if(q.get('lote')) abrirLoteCentro(q.get('lote')); else if(q.get('q')) perguntar(q.get('q')); }
+}
+fetch('partials/sidebar.html').then(r=>r.text()).then(h=>{document.getElementById('sidebar-container').innerHTML=h;document.querySelector('[href="dossie.html"]')?.classList.add('active');});
+initSidebar('dossie.html').then(()=>{if(getUser())iniciar();});
+</script>
+</body>
+</html>
