@@ -1046,3 +1046,4 @@ fábrica específica. Não generalizar.
 - (19/11, migração 172) dossie.html: escopo nutrição animal (lotes recentes e busca: 25 kg, Big Bag, granel), sugestões enquanto digita (dqSugerir), laudo/arquivo .html abre como página (blob text/html; antes mostrava o código). 10 bags 18/11 restaurados.
 - (19/11) dossie.html: links para a ficha do BPF abrem com window.open (abrirFicha) — com target=_blank a aba nova não levava a sessão (sessionStorage) e caía no login.
 - (19/11) Dossiê MP: 'o que foi produzido com esta MP' filtra pelo produto que consumiu a MP (antes listava todos os produtos da OP, ex.: 25kg Branco 02 e Creme 02 no lote B1) e soma por lote+produto com a MP usada (t); MP do lote idem (dos_lote_mp).
+- (19/11) dossie.html: 'abrir ficha' abre a ficha do BPF numa janela por cima do dossiê (iframe bpf.html?reg=ID&embed=1) com 🖨️ Imprimir e 'Abrir no BPF ↗'; bpf.html ganhou o modo EMBED (só a ficha, sem menu nem varredura).
