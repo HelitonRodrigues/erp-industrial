@@ -1,0 +1,6 @@
+-- (18/11/2026) SALDO DE MP POR BARRACÃO (módulo mp-barracoes.html, mineração/Fábio) — aplicada no Supabase.
+-- mp_barracao_mov: ajustes (saldo_informado_t) e viagens sem balança (viagens × peso_viagem_t; origem MINA | BRITADOR).
+-- mp_barracao_da_linha(linha): Emitec → EMITEC; Linha 2/3 → LINHA_2_3; Longa Vida → LONGA_VIDA.
+-- mp_extrato(barracao, material[, desde]): movimentos desde o último ajuste (início do controle 19/11/2026): ajuste, viagens,
+--   saída do britador, balança (minerio_viagens pesado, Fábrica→barracão ou Britador) e consumo (insumos_movimentos 'consumo' da OP da linha).
+-- mp_saldos(): saldo de todos os barracões × materiais selecionáveis. Permissão mp_barracoes: SADM, MIN, SGR, ADM.
