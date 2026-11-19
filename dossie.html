@@ -122,6 +122,10 @@ function montarOssos(){
     if(o.k==='mp') (D.mp||[]).forEach(m=>itens.unshift({id:'mp:'+m.lote,s:m.lote==='sem lote'?'pen':'ok',t:(m.lote==='sem lote'?'Sem lote de MP':'Lote de MP '+m.lote),sub:`${MATN[m.material]||m.material} · ${fN(m.t,1)} t usadas`,mp:m}));
     if(o.k==='mo') { const enc=[...new Set((D.ops||[]).map(x=>x.encarregado).filter(Boolean))], tur=[...new Set((D.ops||[]).map(x=>x.turno).filter(Boolean))];
       itens.unshift({id:'escala',s:'ok',t:'Escala / turnos da produção',sub:`${tur.join(' · ')||'—'} · encarregado ${enc.join(', ')||'—'}`,escala:true}); }
+    if(o.k==='med'){ const cp=(D.extra&&D.extra.contraprova)||[], rc=(D.extra&&D.extra.reclamacoes)||[];
+      itens.unshift(cp.length?{id:'contraprova',s:cp.some(x=>!x.descartada_em)?'ok':'pen',t:'Contraprova (amostra de retenção)',sub:cp.map(x=>`${x.local||'local ?'} · até ${fD(x.guardar_ate)}${x.descartada_em?' · descartada':''}`).join(' | '),contra:true}
+                      :{id:'contraprova',s:'pen',t:'Contraprova não registrada',sub:'registre onde está guardada a amostra deste lote',contra:true});
+      if(rc.length) itens.unshift({id:'reclam',s:rc.some(x=>x.status!=='encerrada')?'nc':'ok',t:`Reclamações ligadas (${rc.length})`,sub:rc.map(x=>`${x.numero} ${x.status}`).join(' · '),reclam:true}); }
     if(o.k==='med') (D.laudos||[]).forEach(l=>itens.unshift({id:'laudo:'+l.numero,s:l.status==='finalizado'?(String(l.veredito||'').toUpperCase().includes('REPROV')?'nc':'ok'):'pen',t:`Laudo ${l.numero}`,sub:`${l.produto||''} · umidade ${l.umidade!=null?fN(l.umidade,2)+' %':'—'} · ${l.veredito||l.status}`,laudo:l}));
     return {k:o.k,t:o.t,itens};
   });
@@ -174,6 +178,8 @@ function abrirItem(id){
   const i=todos().find(x=>x.id===id); if(!i) return;
   if(i.mp) return i.mp.lote==='sem lote'?gav('⏳ Sem lote de MP',`Lote ${E(LK)} › ${E(i.osso)}`,`<div class="vz" style="color:#92400e">Parte da MP (${fN(i.mp.t,1)} t de ${E(MATN[i.mp.material]||i.mp.material)}) foi consumida quando não havia lote aprovado com saldo no laboratório.</div>`):pivo('mp',i.mp.lote);
   if(i.laudo) return verLaudo(i.laudo);
+  if(i.contra) return verContraprova();
+  if(i.reclam) return verReclamacoes((D.extra&&D.extra.reclamacoes)||[],'Lote '+LK);
   if(i.escala) return gav('👷 Produção do lote',`Lote ${E(LK)} › Mão de obra`,`<table class="t"><thead><tr><th>OP</th><th>Data</th><th>Linha</th><th>Turno</th><th>Encarregado</th><th>Produto</th><th class="n">Qtd</th></tr></thead><tbody>${(D.ops||[]).map(o=>`<tr><td>${E(o.op_numero)}</td><td>${fD(o.data)}</td><td>${E(o.linha)}</td><td>${E(o.turno||'—')}</td><td>${E(o.encarregado||'—')}</td><td>${E(o.produto)}</td><td class="n">${fN(o.sacos)}</td></tr>`).join('')}</tbody></table><div style="font-size:12px;color:var(--mu)">O time completo de cada turno está na Escala (escala.html) do período.</div>`);
   gav(`${ST[i.s].i} ${E(i.t)}`,`Lote ${E(LK)} › ${E(i.osso)}`,tabRegs(i.regs),`<button class="btn2" onclick="csvRegs('${Q(id)}')">⬇️ CSV</button>`);
 }
@@ -196,14 +202,54 @@ function abrirLote(){
     <div class="sec">PARA ONDE FOI</div>${(D.cargas||[]).length?`<table class="t"><thead><tr><th>Ordem</th><th>Data</th><th>Cliente</th><th>Placa</th><th>Motorista</th><th class="n">Qtd do lote</th><th>NF</th></tr></thead><tbody>${D.cargas.map(c=>`<tr class="cl" onclick="pivo('carga','${Q(c.ordem)}')"><td><b>${E(c.ordem)}</b></td><td>${fD(c.data)}</td><td>${[...new Set((c.itens||[]).map(x=>x.cliente))].map(x=>lnk('cliente',x)).join(', ')}</td><td>${E(c.placa||'')}</td><td>${E(c.motorista||'')}</td><td class="n">${fN((c.itens||[]).reduce((t,x)=>t+Number(x.sacos||0),0))}</td><td>${E(c.nf||'—')}</td></tr>`).join('')}</tbody></table>`:''}
     ${(D.dsm||[]).length?`<table class="t"><thead><tr><th>Granel — placa</th><th>Data</th><th>Cliente</th><th>NF</th><th class="n">Peso</th></tr></thead><tbody>${D.dsm.map(x=>`<tr><td><b>${E(x.placa)}</b></td><td>${fD(x.data)}</td><td>${x.cliente?lnk('cliente',x.cliente):'—'}</td><td>${E(x.nf||'—')}</td><td class="n">${fN(x.peso_t,3)} t</td></tr>`).join('')}</tbody></table>`:''}
     ${!(D.cargas||[]).length&&!(D.dsm||[]).length?'<div class="vz">Nenhuma carga com este lote.</div>':''}
+    <div class="sec">DOCUMENTOS</div><div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;">${(D.laudos||[]).filter(l=>l.arquivo).map(l=>`<button class="btn2" onclick="abrirArquivo('${Q(l.arquivo)}')">📜 ${E(l.numero)}</button>`).join('')}${((D.extra||{}).romaneios||[]).map(r=>`<button class="btn2" onclick="abrirArquivo('${Q(r.arquivo)}')">🧾 Ordem ${E(r.ordem)}</button>`).join('')}${((D.extra||{}).nf_granel||[]).map(r=>`<button class="btn2" onclick="abrirArquivo('${Q(r.arquivo)}')">📄 NF ${E(r.nf)} (${E(r.placa)})</button>`).join('')||''}</div>
+    <div class="sec">CONTRAPROVA · RECLAMAÇÕES</div><div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;"><button class="btn2" onclick="verContraprova()">🧪 Contraprova (${((D.extra||{}).contraprova||[]).length})</button><button class="btn2" onclick="verReclamacoes((D.extra||{}).reclamacoes||[],'Lote ${Q(LK)}')">⚠️ Reclamações (${((D.extra||{}).reclamacoes||[]).length})</button>
+      ${checkPerm(MOD,'create')?`<button class="btn2 g" onclick="simuladoRecall()">🚨 Simulado de recall com este lote</button>`:''}</div>
     <div class="sec">UNIDADES (PALLETS / BAGS)</div><table class="t"><thead><tr><th>Nº</th><th>Código</th><th>Produto</th><th>Situação</th><th>Carga</th></tr></thead><tbody>${(D.unidades||[]).map(u=>`<tr><td>${u.numero}</td><td style="font-family:ui-monospace,monospace;font-size:11.5px">${E(u.codigo||'')}</td><td>${E(u.produto)}</td><td>${u.fora?'<span class="tag s-pen">fora: '+E(u.fora).slice(0,30)+'</span>':E(u.estoque||'')}</td><td>${u.ordem?lnk('carga',u.ordem):'—'}</td></tr>`).join('')}</tbody></table>`;
   gav(`🐟 Lote ${E(LK)}`,'Dossiê do lote',body,`<button class="btn2" onclick="csvLote()">⬇️ CSV</button><button class="btn2 g" onclick="pdfLote()">🖨️ PDF</button>`);
+}
+
+/* ─── contraprova / reclamações / simulado de recall (entrega 2) ─── */
+function verContraprova(){
+  const cp=(D.extra&&D.extra.contraprova)||[], pode=checkPerm(MOD,'create'), val=((D.laudos||[])[0]||{}).validade;
+  gav('🧪 Contraprova — lote '+E(LK),`Lote ${E(LK)} › Medição`,(cp.length?`<table class="t"><thead><tr><th>Coletada</th><th>Onde está</th><th>Qtd</th><th>Guardar até</th><th>Responsável</th><th>Situação</th></tr></thead><tbody>${cp.map(x=>`<tr><td>${fD(x.coletada_em)}</td><td>${E(x.local||'—')}</td><td>${E(x.quantidade||'—')}</td><td>${fD(x.guardar_ate)}</td><td>${E(x.responsavel||'—')}</td><td>${x.descartada_em?'descartada '+fD(x.descartada_em):x.reanalisada_em?'reanalisada '+fD(x.reanalisada_em)+' — '+E(x.reanalise_resultado||''):'guardada'}${pode&&!x.descartada_em?` <a class="lk" onclick="contraDescartar('${x.id}')">descartar</a>`:''}</td></tr>`).join('')}</tbody></table>`:'<div class="vz">Nenhuma contraprova registrada para este lote.</div>')+
+    (pode?`<div class="sec">REGISTRAR CONTRAPROVA</div><div class="kv"><div>Onde está guardada</div><div><input id="cp-local" class="form-input" placeholder="ex.: Laboratório · armário 2 · prateleira B"></div>
+      <div>Quantidade</div><div><input id="cp-qtd" class="form-input" placeholder="ex.: 1 kg (2 frascos)"></div>
+      <div>Coletada em</div><div><input id="cp-data" type="date" class="form-input" value="${(D.ops[0]||{}).data||''}"></div>
+      <div>Guardar até</div><div><input id="cp-ate" type="date" class="form-input" value="${val||''}"></div>
+      <div>Responsável</div><div><input id="cp-resp" class="form-input" value="${E((getUser()||{}).nome||'')}"></div></div>
+      <button class="btn2 g" onclick="contraSalvar()">💾 Registrar</button>`:''));
+}
+async function contraSalvar(){
+  const g=id=>document.getElementById(id).value.trim(); if(!g('cp-local')) return toast('Informe onde está guardada.','warning');
+  const {error}=await _supabase.from('lab_contraprovas').insert({lote:LK,produto:[...new Set((D.ops||[]).map(o=>o.produto))].join(' + '),local:g('cp-local'),quantidade:g('cp-qtd')||null,coletada_em:g('cp-data')||null,guardar_ate:g('cp-ate')||null,responsavel:g('cp-resp')||null,criado_por:(getUser()||{}).nome||''});
+  if(error) return toast('Não salvou: '+error.message,'danger'); addLog('INSERT','DOSSIE',LK,'Contraprova registrada: '+g('cp-local'));
+  toast('Contraprova registrada.','success'); await abrirLoteCentro(LK); verContraprova(); }
+async function contraDescartar(id){ if(!(await erpConfirm('Marcar esta contraprova como descartada (fim do prazo de guarda)?',{titulo:'Descartar contraprova',ok:'Descartar'}))) return;
+  const {error}=await _supabase.from('lab_contraprovas').update({descartada_em:new Date().toISOString().slice(0,10),descartada_por:(getUser()||{}).nome||''}).eq('id',id);
+  if(error) return toast(error.message,'danger'); await abrirLoteCentro(LK); verContraprova(); }
+function verReclamacoes(l,onde){
+  gav('⚠️ Reclamações — '+E(onde),'Reclamações',l.length?`<table class="t"><thead><tr><th>Nº</th><th>Data</th><th>Cliente / produto</th><th>Situação</th><th>Descrição</th></tr></thead><tbody>${l.map(r=>`<tr><td><b>${E(r.numero)}</b>${r.por?`<div style="font-size:11px;color:var(--mu)">ligada por ${r.por==='lote'?'lote':r.por==='nf'?'NF':'cliente'}</div>`:''}</td><td>${fD(r.data)}</td><td>${E(r.cliente||'')}<div style="font-size:11px;color:var(--mu)">${E(r.produto||'')}${r.nf?' · NF '+E(r.nf):''}${r.lote_ref?' · lote '+E(r.lote_ref):''}</div></td><td><span class="tag ${r.status==='encerrada'?'s-ok':'s-pen'}">${E(r.status)}</span></td><td style="font-size:12px">${E(r.descricao||'')}${r.acao?`<div style="color:var(--mu)">Ação: ${E(r.acao)}</div>`:''}</td></tr>`).join('')}</tbody></table>`:'<div class="vz">Nenhuma reclamação ligada.</div>'); }
+async function simuladoRecall(){
+  const t0=Date.now();
+  if(!(await erpConfirm(`Fazer o <b>simulado de recall</b> com o lote <b>${E(LK)}</b>? O sistema reconstitui clientes, cargas e quantidades agora, mede o tempo e preenche o registro REG-POP11-01 para a Qualidade e a Diretoria assinarem no BPF.`,{titulo:'🚨 Simulado de recall',ok:'Fazer agora'}))) return;
+  const {data:d,error}=await _supabase.rpc('dos_lote',{p_lote:LK}); if(error) return toast(error.message,'danger');
+  const cli={}; (d.cargas||[]).forEach(c=>(c.itens||[]).forEach(x=>{cli[x.cliente]=(cli[x.cliente]||0)+Number(x.sacos||0);})); (d.dsm||[]).forEach(x=>{if(x.cliente)cli[x.cliente]=(cli[x.cliente]||0)+Number(x.peso_t||0);});
+  const b=d.balanco||{}, exp=Number(b.sacos_carregados||0)+Number(b.granel_t||0), seg=Math.max(1,Math.round((Date.now()-t0)/1000));
+  const rastreado=Number(b.unidades)?Math.round(((Number(b.carregadas)+Number(b.em_estoque)+Number(b.fora))/Number(b.unidades))*1000)/10:100;
+  const resumo={clientes:Object.entries(cli).map(([c,q])=>`${c}: ${q}`).join('\n'),qtd_expedida:exp,ponto_corte:`Lote ${LK} inteiro (${(d.ops||[]).map(o=>o.op_numero).join(', ')})`,eficacia:rastreado,
+    cargas:(d.cargas||[]).length+(d.dsm||[]).length,unidades:b.unidades,em_estoque:b.em_estoque};
+  const r=await _supabase.rpc('dos_recall_simulado',{p_lote:LK,p_segundos:seg,p_usuario:(getUser()||{}).nome||'',p_resumo:resumo}); if(r.error) return toast('Não registrou: '+r.error.message,'danger');
+  addLog('INSERT','DOSSIE',LK,`Simulado de recall: ${resumo.cargas} carga(s), ${Object.keys(cli).length} cliente(s), ${seg} s — ${r.data.numero}`);
+  gav('🚨 Simulado de recall — lote '+E(LK),'Resultado',`<div class="stats"><div><b>${seg} s</b><span>tempo para rastrear</span></div><div><b>${Object.keys(cli).length}</b><span>clientes</span></div><div><b>${resumo.cargas}</b><span>cargas</span></div><div><b>${fN(exp)}</b><span>expedido (un./t)</span></div><div><b>${fN(b.em_estoque)}</b><span>ainda no barracão</span></div><div><b>${fN(rastreado,1)} %</b><span>unidades rastreadas</span></div></div>
+    <table class="t"><thead><tr><th>Cliente</th><th class="n">Quantidade</th></tr></thead><tbody>${Object.entries(cli).map(([c,q])=>`<tr><td>${lnk('cliente',c)}</td><td class="n">${fN(q,1)}</td></tr>`).join('')}</tbody></table>
+    <div style="font-size:13px">Registro <b>${E(r.data.numero)}</b> preenchido e enviado para assinatura (Qualidade + Diretoria). <a class="lk" href="bpf.html?reg=${r.data.id}" target="_blank">abrir no BPF ↗</a></div>`,`<button class="btn2 g" onclick="pdfAtual()">🖨️ PDF do simulado</button>`);
 }
 
 /* ─── pivô: cliente, MP, carga ─── */
 async function pivo(t,v){
   if(t==='lote'){ fechar(); return abrirLoteCentro(v); }
-  if(t==='cliente'){ const {data,error}=await _supabase.rpc('dos_cliente',{p_cliente:v}); if(error) return toast(error.message,'danger');
+  if(t==='cliente'){ const [{data,error},ex]=await Promise.all([_supabase.rpc('dos_cliente',{p_cliente:v}),_supabase.rpc('dos_cliente_extra',{p_cliente:v})]); if(error) return toast(error.message,'danger'); const recl=(ex&&ex.data&&ex.data.reclamacoes)||[];
     const cs=data.cargas||[], its=cs.flatMap(c=>(c.itens||[]).map(x=>Object.assign({ordem:c.ordem,data:c.data},x))), lot={};
     its.forEach(x=>{const o=lot[x.lote||'—']=lot[x.lote||'—']||{un:0,sc:0,cargas:new Set(),produto:x.produto}; o.un++; o.sc+=Number(x.sacos||0); o.cargas.add(x.ordem);});
     window._ULT={tipo:'cliente',nome:v,its,cs,dsm:data.dsm||[]};
@@ -211,6 +257,7 @@ async function pivo(t,v){
       <div class="sec">LOTES QUE RECEBEU</div><table class="t"><thead><tr><th>Lote</th><th>Produto</th><th class="n">Qtd</th><th>Cargas</th></tr></thead><tbody>${Object.entries(lot).map(([l,o])=>`<tr><td>${l!=='—'?lnk('lote',l):'—'}</td><td>${E(o.produto)}</td><td class="n">${fN(o.sc)}</td><td>${[...o.cargas].map(x=>lnk('carga',x)).join(', ')}</td></tr>`).join('')}</tbody></table>
       <div class="sec">CARGAS</div><table class="t"><thead><tr><th>Data</th><th>Ordem</th><th>Placa</th><th>Motorista</th><th>NF</th><th>Lotes</th></tr></thead><tbody>${cs.map(c=>`<tr class="cl" onclick="pivo('carga','${Q(c.ordem)}')"><td>${fD(c.data)}</td><td><b>${E(c.ordem)}</b></td><td>${E(c.placa||'')}</td><td>${E(c.motorista||'')}</td><td>${E(c.nf||'—')}</td><td>${[...new Set((c.itens||[]).map(x=>x.lote))].map(x=>x?lnk('lote',x):'').join(', ')}</td></tr>`).join('')}</tbody></table>
       ${(data.dsm||[]).length?`<div class="sec">GRANEL (DSM)</div><table class="t"><thead><tr><th>Data</th><th>Placa</th><th>NF</th><th>Lote</th><th class="n">Peso</th></tr></thead><tbody>${data.dsm.map(x=>`<tr><td>${fD(x.data)}</td><td>${E(x.placa)}</td><td>${E(x.nf||'—')}</td><td>${x.lote?lnk('lote',x.lote):'—'}</td><td class="n">${fN(x.peso_t,3)} t</td></tr>`).join('')}</tbody></table>`:''}
+      <div class="sec">RECLAMAÇÕES DO CLIENTE (${recl.length})</div>${recl.length?`<table class="t"><tbody>${recl.map(r=>`<tr><td><b>${E(r.numero)}</b></td><td>${fD(r.data)}</td><td>${E(r.produto||'')}${r.lote_ref?' · lote '+E(r.lote_ref):''}</td><td><span class="tag ${r.status==='encerrada'?'s-ok':'s-pen'}">${E(r.status)}</span></td><td style="font-size:12px">${E(r.descricao||'')}</td></tr>`).join('')}</tbody></table>`:'<div class="vz">Nenhuma.</div>'}
       <div class="sec">CADA PALLET / BAG</div><table class="t"><thead><tr><th>Carga</th><th>Data</th><th>Lote</th><th>Código</th><th class="n">Qtd</th></tr></thead><tbody>${its.map(x=>`<tr><td>${lnk('carga',x.ordem)}</td><td>${fD(x.data)}</td><td>${x.lote?lnk('lote',x.lote):'—'}</td><td style="font-family:ui-monospace,monospace;font-size:11.5px">${E(x.codigo||'')}</td><td class="n">${fN(x.sacos)}</td></tr>`).join('')}</tbody></table>`,
       `<button class="btn2" onclick="csvUltimo()">⬇️ CSV</button><button class="btn2 g" onclick="pdfAtual()">🖨️ PDF</button>`); return; }
   if(t==='mp'){ const {data,error}=await _supabase.rpc('dos_mp',{p_lote:v}); if(error) return toast(error.message,'danger'); const m=data.mp||{};
@@ -221,10 +268,11 @@ async function pivo(t,v){
       <div class="sec">QUEM RECEBEU</div><table class="t"><thead><tr><th>Cliente</th><th>Lotes</th><th>Cargas</th></tr></thead><tbody>${Object.entries(cli).map(([c,o])=>`<tr><td>${lnk('cliente',c)}</td><td>${[...o.lotes].map(l=>l?lnk('lote',l):'').join(', ')}</td><td>${[...o.cargas].map(x=>E(x)).join(', ')}</td></tr>`).join('')||'<tr><td colspan="3" class="vz">Ninguém ainda.</td></tr>'}</tbody></table>
       <div style="font-size:12px;color:var(--mu)">Num recall desta MP, esta tela é a resposta: lotes, clientes e cargas.</div>`,
       `<button class="btn2" onclick="csvUltimo()">⬇️ CSV</button><button class="btn2 g" onclick="pdfAtual()">🖨️ PDF (recall)</button>`); return; }
-  if(t==='carga'){ const {data,error}=await _supabase.rpc('dos_carga',{p_ordem:v}); if(error) return toast(error.message,'danger'); const c=data.carga||{}, p=data.portaria||{}, its=c.itens||[];
+  if(t==='carga'){ const [{data,error},dc]=await Promise.all([_supabase.rpc('dos_carga',{p_ordem:v}),_supabase.rpc('dos_carga_docs',{p_ordem:v})]); if(error) return toast(error.message,'danger'); const c=data.carga||{}, p=data.portaria||{}, its=c.itens||[], rom=dc&&dc.data&&dc.data.romaneio;
     window._ULT={tipo:'carga',nome:v,its};
     gav(`🚚 Carga ${E(v)}`,'Rastreabilidade › carga',kv({'Data':fD(c.data)+' '+E(c.hora||''),'Clientes':[...new Set(its.map(x=>x.cliente))].map(x=>lnk('cliente',x)).join(', ')||'—','Placa':E(c.placa||'')+(p.placa2?' + '+E(p.placa2):''),'Motorista':E(c.motorista||'')+(p.cpf?' · CPF '+E(String(p.cpf).replace(/^(\d{3}).*(\d{2})$/,'$1.***.***-$2')):''),'Transportadora':E(c.transportadora||p.transportadora||'—'),
        'Pesagem':p.tara!=null?`tara ${fN(p.tara,3)} t · bruto ${fN(p.bruto,3)} t · líquido ${fN(p.liquido,3)} t`:'—','Portaria':`chegada ${fDH(p.chegada)} · saída ${fDH(p.saida)} · ${E(p.porteiro||'')}`,'Carregou':E(c.operador||c.encarregado||'—'),
+       'Ordem de carregamento':rom?`<a class="lk" onclick="abrirArquivo('${Q(rom)}')">🧾 ver PDF da ordem</a>`:'—',
        'Inspeção do veículo':data.inspecao?`${E(data.inspecao.numero)} · ${E(data.inspecao.status)}`:'—','Certificados':(data.laudos||[]).map(l=>`${E(l.laudo)}${l.nf?' (NF '+E(l.nf)+')':''}${l.arquivo?` <a class="lk" onclick="abrirArquivo('${Q(l.arquivo)}')">ver</a>`:''}`).join(' · ')||'—'})+
       `<div class="sec">LOTES E UNIDADES BIPADAS (${its.length})</div><table class="t"><thead><tr><th>Lote</th><th>Produto</th><th>Código</th><th>Cliente</th><th class="n">Qtd</th></tr></thead><tbody>${its.map(x=>`<tr><td>${x.lote?lnk('lote',x.lote):'—'}</td><td>${E(x.produto)}</td><td style="font-family:ui-monospace,monospace;font-size:11.5px">${E(x.codigo||'')}</td><td>${E(x.cliente||'')}</td><td class="n">${fN(x.sacos)}</td></tr>`).join('')}</tbody></table>`,
       `<button class="btn2" onclick="csvUltimo()">⬇️ CSV</button><button class="btn2 g" onclick="pdfAtual()">🖨️ PDF</button>`); return; }
@@ -235,9 +283,9 @@ async function perguntar(q){ q=String(q||'').trim(); if(!q) return;
   gav(`🔎 “${E(q)}”`,'Busca',r.length?`<table class="t"><tbody>${r.map(x=>`<tr class="cl" onclick="pivo('${x.tipo}','${Q(x.chave)}')"><td>${E(x.rotulo)}</td></tr>`).join('')}</tbody></table>`:'<div class="vz">Nada encontrado. Tente lote, cliente, lote de MP, placa, NF, ordem ou motorista.</div>'); }
 
 async function abrirLoteCentro(lote){
-  LK=lote; const {data,error}=await _supabase.rpc('dos_lote',{p_lote:lote}); if(error) return toast(error.message,'danger');
-  if(!(data.ops||[]).length) return toast('Lote '+lote+' não encontrado na produção.','warning');
-  D=data; montarOssos(); document.getElementById('dq-lote').style.display=''; desenhar(); window.scrollTo({top:document.getElementById('dq-lote').offsetTop-70,behavior:'smooth'});
+  LK=lote; const [r1,r2]=await Promise.all([_supabase.rpc('dos_lote',{p_lote:lote}),_supabase.rpc('dos_lote_extra',{p_lote:lote})]); if(r1.error) return toast(r1.error.message,'danger');
+  const data=r1.data; if(!(data.ops||[]).length) return toast('Lote '+lote+' não encontrado na produção.','warning');
+  D=data; D.extra=(r2&&r2.data)||{}; montarOssos(); document.getElementById('dq-lote').style.display=''; desenhar(); window.scrollTo({top:document.getElementById('dq-lote').offsetTop-70,behavior:'smooth'});
   try{ history.replaceState(null,'','#lote='+encodeURIComponent(lote)); }catch(e){}
 }
 
