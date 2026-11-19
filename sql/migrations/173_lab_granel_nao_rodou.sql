@@ -1,0 +1,4 @@
+-- (19/11/2026) aplicada no Supabase.
+-- lab_granel_dias (dia, situacao 'nao_rodou', por, em): dia em que a Longa Vida não ligou (laboratório marca "Não rodou").
+-- Correção do erro "column reference kg is ambiguous" em lab_granel_preparar e lab_granel_liberar (variável kg → v_kg,
+--   coluna qualificada g.kg) — impedia lançar o resultado e liberar o laudo do granel.

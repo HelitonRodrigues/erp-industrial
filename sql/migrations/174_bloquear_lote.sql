@@ -1,0 +1,6 @@
+-- (19/11/2026) aplicada no Supabase.
+-- lotes_bloqueados (lote, motivo, por, em, desbloqueado_em/por, pallets); producao_pallets.status_antes_bloqueio.
+-- _pallet_lote(pallet): lote do pallet pelo item da OP (mesmo produto).
+-- dos_bloquear_lote(lote, motivo, usuario, bloquear): trava as unidades do lote ainda na fábrica (status aguardando_decisao +
+--   motivo_bloqueio 'LOTE BLOQUEADO — …'; a carga não deixa bipar) e desbloqueia voltando ao status anterior; grava em auditoria.
+-- tg_pallet_lote_bloqueado: unidade criada depois (OP lançada após o bloqueio) já nasce bloqueada.
