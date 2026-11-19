@@ -1064,3 +1064,4 @@ fábrica específica. Não generalizar.
     de 10 em 10 (nº 1, 11, 21…); provisório = analisa o 1º. Rótulo descartado não aparece.
   • portaria-dsm.html: saldo do lote no silo (produzido − carregado) e o lote aprovado MAIS ANTIGO com saldo já vem marcado na saída.
   • dossie.html (migração 174): 🚫 Bloquear lote / 🔓 Desbloquear (SADM/ADM/DIR/GER/GIN/QLD) + faixa vermelha no resumo.
+- (19/11) portaria-dsm.html: lote bloqueado (lotes_bloqueados) aparece 🚫 em vermelho na saída e não pode ser escolhido; a sugestão pula; aviso 'não carregar' quando só sobra lote bloqueado; troca de lote (pátio/histórico) recusa lote bloqueado. dossie.html: aviso de granel no bloqueio.

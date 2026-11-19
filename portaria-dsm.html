@@ -286,6 +286,7 @@ function histLoteHtml(x){
 }
 async function dsmSetLoteHist(id,lote){
   if(!lote) return;
+  { const b=(_dsmLotesDisp||[]).find(x=>x.lote===lote&&x.bloq); if(b){ toast('Lote '+lote+' está BLOQUEADO pela Qualidade — não pode ser usado.','danger'); renderHist(); return; } }
   if(!(await erpConfirm(`Trocar o lote deste caminhão para ${lote}? O certificado passa a ser o laudo desse lote.`,{titulo:'🧪 Lote do granel',ok:'Trocar',cancelar:'Voltar'}))){ renderHist(); return; }
   const {error}=await _supabase.from('dsm_caminhoes').update({lote_granel:lote}).eq('id',id);
   if(error){toast('Não trocou o lote: '+error.message,'danger');return;}
@@ -326,6 +327,8 @@ async function dsmCarregarLotes(){
     _supabase.from('producao').select('data,produtos_op,total_sacos').eq('linha','Longa Vida').gte('data',d0).order('data',{ascending:false}).limit(200),
     _supabase.from('lab_laudos').select('lote,status').ilike('produto','caulim granel%').gte('emitido_em',d0).limit(200),
     _supabase.from('dsm_caminhoes').select('lote_granel,peso_entrada,peso_saida').gte('recepcao_em',d0).is('cancelado_em',null).not('lote_granel','is',null).limit(2000)]);
+  // (19/11) lote bloqueado pela Qualidade (Dossiê → 🚫 Bloquear lote): não pode sair
+  let blq=new Map(); try{ const {data:bl}=await _supabase.from('lotes_bloqueados').select('lote,motivo,por').is('desbloqueado_em',null); (bl||[]).forEach(b=>blq.set(b.lote,b)); }catch(e){}
   const dias=[...new Set([hojeISO(),...(ops||[]).map(o=>o.data)])].sort().reverse();
   const lib=new Set((lds||[]).filter(l=>l.status==='finalizado').map(l=>l.lote));
   // (19/11) saldo do lote no silo = produzido (granel da OP, kg) − já carregado (caminhões com esse lote)
@@ -333,10 +336,10 @@ async function dsmCarregarLotes(){
   const carr={}; (sai||[]).forEach(c=>{ if(c.peso_saida&&c.peso_entrada) carr[c.lote_granel]=(carr[c.lote_granel]||0)+(c.peso_saida-c.peso_entrada); });
   _dsmLotesDisp=dias.slice(0,8).map(d=>{const l=d.replace(/-/g,'')+'C',w=_DSEM[new Date(d+'T12:00:00').getDay()];
     const saldo=prod[d]!=null?prod[d]-(carr[l]||0):null;
-    return {lote:l,dia:d,rot:(d===hojeISO()?'Hoje':d.slice(8,10)+'/'+d.slice(5,7)+' '+w),lib:lib.has(l),saldo};});
+    return {lote:l,dia:d,rot:(d===hojeISO()?'Hoje':d.slice(8,10)+'/'+d.slice(5,7)+' '+w),lib:lib.has(l),saldo,bloq:blq.get(l)||null};});
 }
 /* (19/11) lote sugerido para a próxima carga: o MAIS ANTIGO com laudo liberado que ainda tem saldo no silo (o silo sai na ordem) */
-function dsmLoteSugerido(){ const l=[..._dsmLotesDisp].filter(x=>x.lib&&(x.saldo==null||x.saldo>1000)).sort((a,b)=>a.dia.localeCompare(b.dia));
+function dsmLoteSugerido(){ const l=[..._dsmLotesDisp].filter(x=>x.lib&&!x.bloq&&(x.saldo==null||x.saldo>1000)).sort((a,b)=>a.dia.localeCompare(b.dia));
   return l.length?l[0].lote:null; }
 const dsmLotes=()=>_dsmLotesDisp.length?_dsmLotesDisp.map(x=>x.lote):[hojeISO().replace(/-/g,'')+'C'];
 function dsmCertHtml(c){
@@ -346,6 +349,7 @@ function dsmCertHtml(c){
   return `<div class="mu" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:3px;">🧪 lote ${sel}${cert?`<button class="bt vd" style="padding:4px 9px;" onclick="dsmCert('${c.id}')">📜 Certificado</button>`:'<span style="font-size:11px;font-weight:800;background:#fef3c7;color:#92400e;border-radius:99px;padding:2px 8px;">aguardando laboratório</span>'}</div>`;
 }
 async function dsmSetLote(id,lote){
+  { const b=(_dsmLotesDisp||[]).find(x=>x.lote===lote&&x.bloq); if(b){ toast('Lote '+lote+' está BLOQUEADO pela Qualidade — não pode ser usado.','danger'); return; } }
   const {error}=await _supabase.from('dsm_caminhoes').update({lote_granel:lote}).eq('id',id);
   if(error){toast('Não trocou o lote: '+error.message,'danger');return;}
   _dsmLote[id]=lote; await dsmCarregarCert([id,...Object.keys(_dsmLote)]); toast('Lote do caminhão: '+lote,'success'); if(_aba==='fila')renderBoard(); else if(typeof renderHist==='function')renderHist();
@@ -950,7 +954,10 @@ async function abrirPesagem(id,tipo){
       <div><span>BRUTO (SAÍDA)</span><b id="pz-bru">—</b><small>caminhão carregado</small></div>
       <div class="liq"><span>LÍQUIDO DA CARGA</span><b id="pz-liq">—</b><small>bruto − tara</small></div></div>
       ${!/granel.*branco.*02/i.test(c.nf_produto||'')?`<div class="pz-step"><span>2</span><b>Qual lote foi carregado? <small style="font-weight:600;color:#64748b;">(pergunte ao operador)</small></b></div>
-      <div class="pz-uns">${(_dsmLotesDisp.length?_dsmLotesDisp:[{lote:dsmLotes()[0],rot:'Hoje'}]).map(x=>{const sug=x.lote===dsmLoteSugerido(); return `<button type="button" class="pz-un pz-lt${sug?' on':''}" data-l="${x.lote}" onclick="document.querySelectorAll('.pz-lt').forEach(b=>b.classList.toggle('on',b===this))">🧪 ${x.rot}<small>lote ${x.lote}${x.lib?' · ✅ laudo':''}${x.saldo!=null?` · silo ${(Math.max(0,x.saldo)/1000).toLocaleString('pt-BR',{maximumFractionDigits:1})} t`:''}${sug?' · <b>sugerido (mais antigo)</b>':''}</small></button>`;}).join('')}</div>`:''}`:''}
+      <div class="pz-uns">${(_dsmLotesDisp.length?_dsmLotesDisp:[{lote:dsmLotes()[0],rot:'Hoje'}]).map(x=>{const sug=x.lote===dsmLoteSugerido();
+        if(x.bloq) return `<button type="button" class="pz-un" disabled style="background:#fef2f2;border-color:#dc2626;color:#991b1b;opacity:1;cursor:not-allowed;" title="${esc(x.bloq.motivo||'')}">🚫 ${x.rot}<small>lote ${x.lote} · <b>BLOQUEADO pela Qualidade — não carregar</b></small></button>`;
+        return `<button type="button" class="pz-un pz-lt${sug?' on':''}" data-l="${x.lote}" onclick="document.querySelectorAll('.pz-lt').forEach(b=>b.classList.toggle('on',b===this))">🧪 ${x.rot}<small>lote ${x.lote}${x.lib?' · ✅ laudo':''}${x.saldo!=null?` · silo ${(Math.max(0,x.saldo)/1000).toLocaleString('pt-BR',{maximumFractionDigits:1})} t`:''}${sug?' · <b>sugerido (mais antigo)</b>':''}</small></button>`;}).join('')}</div>
+      ${(_dsmLotesDisp||[]).some(x=>x.bloq)&&!(_dsmLotesDisp||[]).some(x=>!x.bloq&&x.lib&&(x.saldo==null||x.saldo>1000))?`<div style="margin-top:8px;padding:9px 11px;border-radius:10px;background:#fef2f2;border:2px solid #dc2626;color:#991b1b;font-weight:800;">🚫 Lote bloqueado pela Qualidade — não carregar. Chame a Qualidade antes de liberar este caminhão.</div>`:''}`:''}`:''}
     ${ent?`<div class="pz-step"><span>2</span><b>Em qual unidade ele vai carregar?</b></div>
       <div class="pz-uns">${uns.map(u=>`<button type="button" class="pz-un" data-u="${esc(u)}" onclick="document.querySelectorAll('.pz-un').forEach(b=>b.classList.toggle('on',b===this))">🏭 ${esc(u)}${ocup(u).length?`<small>${ocup(u).length} carregando</small>`:''}</button>`).join('')}</div>`:''}
     <div id="pz-erro" class="alert alert-danger" style="display:none;margin-top:10px;"></div>
