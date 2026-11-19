@@ -1,0 +1,7 @@
+-- (18/11/2026) DOSSIÊ — funções de rastreabilidade (aplicadas no Supabase):
+-- dos_lote(lote): OPs (linha, turno, encarregado, lote MP/aditivo), laudos (veredito, umidade, granulometria, arquivo), unidades
+--   (pallets/bags: estoque/carregado/fora), cargas (itens do lote, cliente, placa, motorista, pesagem da portaria, NF, laudos),
+--   granel DSM (lote_granel), lotes de MP (mp_lote_consumo), registros BPF ligados (OP, campos com o lote, mesmo dia/mês, POP02 do
+--   lote de MP, manutenção dos 7 dias) e balanço (produzido, unidades, em estoque, carregadas, fora, granel).
+-- dos_busca(texto): lotes, clientes, lotes de MP, cargas (ordem/placa/motorista) e NF.
+-- dos_cliente(nome) · dos_mp(lote MP) · dos_carga(ordem). Permissão 'dossie' (só ver/exportar): SADM, ADM, SGR, QLD, DIR.
