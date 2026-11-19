@@ -558,13 +558,17 @@ const GRUPOS=[
 // Os limites do POP-18 6.c confirmam o escopo: sacaria 25,000–25,200 kg e
 // Big Bag 1.000 kg ± 1 kg. Não há tolerância definida para nenhum outro produto.
 // ═══════════════════════════════════════════════════════════════════════════
+// (18/11) Longa Vida produz GRANEL (DSM — nutrição animal) e a Linha 3 também ensaca Caulim 25 kg: entram.
+// Liga, Sikal e a linha NanoDry (impermeabilizante, inclusive o bag Cinza da mistura) são construção civil: ficam fora.
 const ESCOPO={
-  linhas:['Linha 2','Longa Vida'],
-  // 25 kg (com ou sem espaço) ou Big Bag / BB / bag
-  reProduto:/(^|[^\d])25\s*kg|big\s*-?\s*bag|\bbag\b/i,
+  linhas:['Linha 2','Linha 3','Longa Vida'],
+  // 25 kg (com ou sem espaço), Big Bag / BB / bag, ou granel
+  reProduto:/(^|[^\d])25\s*kg|big\s*-?\s*bag|\bbag\b|granel/i,
+  reFora:/imperm|impem|\bliga\b|sikal|nanodry/i,
   ativo:true,
 };
-function produtoNoEscopo(p){ return ESCOPO.reProduto.test(String(p||'')); }
+function produtoNoEscopo(p){ const v=String(p||''); return ESCOPO.reProduto.test(v)&&!ESCOPO.reFora.test(v); }
+const ehGranel=it=>/granel/i.test(String((it&&it.produto)||it||''));
 function linhaNoEscopo(l){
   const v=String(l||'').trim();
   return !v || ESCOPO.linhas.some(x=>x.toLowerCase()===v.toLowerCase());
@@ -586,8 +590,8 @@ function bannerEscopo(){
   return `<div class="alerta ${ESCOPO.ativo?'al-info':'al-warn'}" style="display:flex;gap:11px;align-items:flex-start;">
     <div style="flex:1;">
       ${ESCOPO.ativo
-        ? `<strong>Escopo do BPF:</strong> ${ESCOPO.linhas.join(' e ')} · sacaria 25 kg e Big Bag.
-           Linha 3, Sikal Concentrado e demais produtos não entram — são outra operação.`
+        ? `<strong>Escopo do BPF (nutrição animal):</strong> ${ESCOPO.linhas.join(', ')} · caulim em sacaria 25 kg, Big Bag e granel.
+           Liga, Sikal e a linha NanoDry (impermeabilizante) não entram — são construção civil.`
         : `<strong>Escopo desligado.</strong> Está aparecendo produção que <u>não</u> é de alimentação animal.
            Use só para conferência; volte a ligar antes de registrar qualquer coisa.`}
     </div>
@@ -4271,7 +4275,7 @@ const GATILHO_FONTES={
   // POP-18: uma ficha por lote; balança e calibração vêm do cadastro de instrumentos
   g_ensaque:{tab:'producao',dias:3,async busca(g){
     const l=await lst(_supabase.from('producao').select('*').gte('data',g._desde||'2026-10-26').order('data',{ascending:false}).limit(5000));
-    return l.filter(noEscopo).flatMap(p=>itensEscopoOP(p).map((it,i)=>{
+    return l.filter(noEscopo).flatMap(p=>itensEscopoOP(p).filter(it=>!ehGranel(it)).map((it,i)=>{
       const bag=ehBag(it);const tag=bag?'BAL-BAG':'BAL-ENS';const cal=calibracaoVigente(tag);
       return {ref:'OP18/'+p.id+'/'+(it.lote||i),id:p.id,quando:p.data,
         det:`Aferição de pesagem — OP ${p.op_numero||p.id} · ${it.produto} · lote ${it.lote||'—'}`,
@@ -4328,7 +4332,7 @@ const GATILHO_FONTES={
     const bal=(_ent.instrumentos||[]).filter(i=>i.status!=='inativo');
     const ens=bal.find(i=>i.tag==='BAL-ENS'), bag=bal.find(i=>i.tag==='BAL-BAG');
     const set=new Map();
-    l.forEach(p=>{itensEscopoOP(p).forEach(it=>{const ehBag=/big\s*-?\s*bag|\bbag\b/i.test(it.produto||'');const b=ehBag?bag:ens;if(!b)return;
+    l.forEach(p=>{itensEscopoOP(p).filter(it=>!ehGranel(it)).forEach(it=>{const ehBag=/big\s*-?\s*bag|\bbag\b/i.test(it.produto||'');const b=ehBag?bag:ens;if(!b)return;
       const k=`${String(p.data).slice(0,10)}|${p.turno||'—'}|${b.tag}`;if(!set.has(k))set.set(k,{d:String(p.data).slice(0,10),t:p.turno||'',b,lin:p.linha||''});});});
     return [...set.values()].sort((a,b)=>(a.d+a.t).localeCompare(b.d+b.t)).map(x=>({ref:`VERIF/${x.d}/${x.t}/${x.b.tag}`,id:x.b.id,quando:x.d,
       det:`Verificação com peso-padrão — ${x.b.tag} · ${fmtD(x.d)} · turno ${x.t}`,
