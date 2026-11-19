@@ -1,0 +1,2 @@
+-- (19/11/2026) aplicada no Supabase. filito_motoristas: + pedido (text), + cacamba_kg (numeric).
+-- Semente: último pedido/caçamba que cada motorista usou numa viagem (116 de 117 motoristas).
