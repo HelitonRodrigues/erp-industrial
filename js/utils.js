@@ -681,6 +681,7 @@ async function initSidebar(paginaAtiva) {
   // de exemplo do partial em vez do usuário de verdade.
   await _esperarSidebar();
   try{ AvisosQualidade.iniciar(); }catch(e){}
+  try{ TurnoGuard.iniciar(); }catch(e){}   // (18/11) celular compartilhado: avisa se o encarregado/operador logado não é o do turno de agora
   // (18/11) escala PROGRAMADA vira ATIVA quando o período começa — 1× por dia por navegador (produção/laboratório usam só as ativas)
   try{ const k='esc_promovida_'+new Date().toLocaleDateString('en-CA'); if(!localStorage.getItem(k)){ localStorage.setItem(k,'1'); _supabase.rpc('escalas_promover').then(()=>{},()=>{}); } }catch(e){}
 
@@ -1045,6 +1046,73 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 });
 
+// ── TURNO CERTO (18/11/2026) ───────────────────────────────
+/* O celular do encarregado fica logado e passa de mão em mão (ex.: logado como Luciano no turno do Narcizo).
+   Pela ESCALA ativa + horários dos TURNOS: se quem está logado é encarregado/operador escalado mas NÃO do turno de
+   agora, mostra quem é o encarregado/operador do turno e pede para entrar com o próprio usuário. Dá para seguir
+   ("estou cobrindo") com um motivo — fica na auditoria. Repete a cada 5 min (troca de turno) e antes de assinar. */
+const TurnoGuard=(()=>{
+  const DIAS=['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
+  const norm=t=>String(t||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ').trim();
+  let st={errado:false,turnos:[],eu:'',meus:[]}, timer=null, aberto=false;
+  const nomes=t=>{ if(!t||typeof t!=='object') return {enc:[],op:[]};
+    const n=x=>x&&x.nome?[x.nome]:[]; return {enc:n(t.encarregado), op:[...n(t.operador),...(Array.isArray(t.operadores)?t.operadores.map(x=>x&&x.nome).filter(Boolean):[])]}; };
+  const hm=v=>{ const [h,m]=String(v||'').split(':').map(Number); return (h||0)*60+(m||0); };
+  const chaveOk=()=>'turno_ok_'+(st.turnos.map(t=>t.nome+'@'+t.ini).join('|'));
+  async function avaliar(){
+    const u=(typeof getUser==='function'&&getUser())||{}; st.eu=u.nome||''; if(!st.eu) return st;
+    const agora=new Date(), dIso=d=>d.toLocaleDateString('en-CA'), ontem=new Date(agora.getTime()-864e5);
+    const [{data:esc},{data:tur}]=await Promise.all([
+      _supabase.from('escalas').select('periodo_inicio,periodo_fim,status,turno_id,turno_nome,encarregado,operador,operadores,turno2,turno3').neq('status','rascunho').lte('periodo_inicio',dIso(agora)).gte('periodo_fim',dIso(ontem)),
+      _supabase.from('turnos').select('id,nome,calendario')]);
+    const T={}; (tur||[]).forEach(t=>T[t.id]=t);
+    const eu=norm(st.eu), ativos=[], meus=[];
+    for(const d of [ontem,agora]){
+      const e=(esc||[]).filter(x=>dIso(d)>=x.periodo_inicio&&dIso(d)<=x.periodo_fim).sort((a,b)=>String(b.periodo_inicio).localeCompare(String(a.periodo_inicio)))[0]; if(!e) continue;
+      const slots=[{tid:e.turno_id,nome:e.turno_nome,...nomes(e)},...[e.turno2,e.turno3].filter(t=>t&&typeof t==='object'&&t.turno_id).map(t=>({tid:t.turno_id,nome:t.turno_nome,...nomes(t)}))];
+      for(const sl of slots){
+        [...sl.enc,...sl.op].forEach(n=>{ if(norm(n)===eu&&!meus.includes(sl.nome)) meus.push(sl.nome); });
+        const cal=T[sl.tid]&&T[sl.tid].calendario&&T[sl.tid].calendario[DIAS[d.getDay()]]; if(!cal||!cal.ativo||!cal.inicio) continue;
+        const base=new Date(d.getFullYear(),d.getMonth(),d.getDate()).getTime(), ini=base+hm(cal.inicio)*6e4; let fim=base+hm(cal.fim)*6e4; if(fim<=ini) fim+=864e5;
+        if(agora.getTime()>=ini-10*6e4&&agora.getTime()<=fim+10*6e4) ativos.push({nome:sl.nome||'turno',enc:sl.enc,op:sl.op,ini:String(cal.inicio).slice(0,5),fim:String(cal.fim).slice(0,5)});
+      }
+    }
+    st.turnos=ativos; st.meus=meus;
+    const estouNoTurno=ativos.some(t=>[...t.enc,...t.op].some(n=>norm(n)===eu));
+    st.errado=!!(meus.length&&ativos.length&&!estouNoTurno);
+    return st;
+  }
+  const precisaConfirmar=()=>st.errado&&!sessionStorage.getItem(chaveOk());
+  function mostrar(forcar){
+    return new Promise(res=>{
+      if(!precisaConfirmar()||aberto) return res();
+      aberto=true; const E=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+      const ov=document.createElement('div'); ov.id='turno-guard';
+      ov.style.cssText='position:fixed;inset:0;z-index:100000;background:rgba(3,32,54,.82);display:flex;align-items:center;justify-content:center;padding:16px;';
+      ov.innerHTML=`<div style="background:#fff;border-radius:20px;max-width:560px;width:100%;padding:22px;border:4px solid #f59e0b;font-family:inherit;">
+        <div style="font-size:22px;font-weight:900;color:#b45309;text-align:center;">⚠️ VOCÊ ESTÁ NO USUÁRIO DE OUTRO TURNO</div>
+        <div style="text-align:center;margin-top:8px;font-size:15px;color:#334155;">Logado como <b>${E(st.eu)}</b>${st.meus.length?' ('+E(st.meus.join(' / '))+')':''}.</div>
+        ${st.turnos.map(t=>`<div style="margin-top:12px;background:#f0fdf4;border:2px solid #86efac;border-radius:14px;padding:12px;text-align:center;">
+          <div style="font-size:13px;font-weight:800;color:#166534;">AGORA É O TURNO ${E(String(t.nome).toUpperCase())} · ${E(t.ini)}–${E(t.fim)}</div>
+          <div style="font-size:20px;font-weight:900;color:#042D4D;margin-top:4px;">👷 ${E(t.enc.join(' / ')||'—')}</div><div style="font-size:12px;color:#64748b;">encarregado</div>
+          <div style="font-size:17px;font-weight:800;color:#042D4D;margin-top:4px;">⚙️ ${E(t.op.join(' / ')||'—')}</div><div style="font-size:12px;color:#64748b;">operador</div></div>`).join('')}
+        <div style="font-size:13px;color:#475569;margin-top:12px;text-align:center;">Para não assinar no nome de outra pessoa, <b>saia e entre com o seu usuário</b>.</div>
+        <button id="tg-sair" style="width:100%;margin-top:12px;min-height:56px;border:none;border-radius:14px;background:#042D4D;color:#c9ff64;font-size:18px;font-weight:900;cursor:pointer;">🔄 SAIR E ENTRAR COM MEU USUÁRIO</button>
+        <button id="tg-cobre" style="width:100%;margin-top:8px;min-height:46px;border:2px solid #e2e8f0;border-radius:14px;background:#fff;color:#334155;font-size:14px;font-weight:800;cursor:pointer;">Sou ${E(String(st.eu).split(' ')[0])} mesmo — estou cobrindo este turno</button></div>`;
+      document.body.appendChild(ov);
+      ov.querySelector('#tg-sair').onclick=()=>{ try{addLog('LOGOUT','TURNO',st.eu,'Saiu para entrar com o usuário do turno: '+st.turnos.map(t=>t.nome+' — '+t.enc.join('/')).join('; '));}catch(e){} doLogout(); };
+      ov.querySelector('#tg-cobre').onclick=async()=>{
+        const m=(prompt('Por que você está cobrindo este turno? (ex.: troca com o Narcizo, hora extra)')||'').trim();
+        if(m.length<3){ alert('Escreva o motivo para continuar.'); return; }
+        sessionStorage.setItem(chaveOk(),'1'); try{ await addLog('UPDATE','TURNO',st.eu,`Seguiu logado fora do próprio turno (${st.turnos.map(t=>t.nome).join(', ')}): ${m}`); }catch(e){}
+        ov.remove(); aberto=false; res(); };
+    });
+  }
+  async function checar(){ try{ await avaliar(); if(precisaConfirmar()) mostrar(); }catch(e){ console.warn('[turno]',e); } }
+  return { iniciar(){ if(timer) return; checar(); timer=setInterval(checar,5*60e3); }, precisaConfirmar, mostrar, avaliar, get estado(){return st;} };
+})();
+window.TurnoGuard=TurnoGuard;
+
 // ── AUTH ───────────────────────────────────────────────────
 async function doLogout() {
   const user = getUser();
@@ -1355,7 +1423,12 @@ async function bpfTravaGenerica(codigo,{onde,violou,msg,contexto}){
 // ── ASSINATURA DE PRÓPRIO PUNHO (BPF e Central da Qualidade) ───────────
 // Abre um quadro para assinar com o dedo, a caneta ou o mouse. Devolve a imagem (PNG) ou null.
 // "Guardar neste aparelho" deixa a pessoa reaproveitar a MESMA assinatura dela depois.
-function padAssinatura({titulo,quem,funcao,detalhe}){
+/* (18/11) antes de qualquer assinatura: se o usuário logado é encarregado/operador de OUTRO turno, pede para trocar de usuário */
+async function padAssinatura(o){
+  try{ if(window.TurnoGuard&&TurnoGuard.precisaConfirmar()){ await TurnoGuard.mostrar(true); if(TurnoGuard.precisaConfirmar()) return null; } }catch(e){}
+  return _padAssinaturaBase(o);
+}
+function _padAssinaturaBase({titulo,quem,funcao,detalhe}){
   const E=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const chave='bpf_assinatura_'+String(quem||'').toLowerCase();
   let salva=null;try{salva=localStorage.getItem(chave);}catch(e){}
