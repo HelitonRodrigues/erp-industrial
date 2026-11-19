@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Saldo de MP nos barracões · ERP Industrial</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/supabase.js"></script>
+<script src="js/utils.js"></script>
+<!-- ═════════════════════════════════════════════════════════════════
+     SALDO DE MP NOS BARRACÕES (18/11/2026) — módulo da mineração (Fábio)
+     Saldo de cada barracão × material = último AJUSTE + BALANÇA (portaria, só leitura) + VIAGENS sem balança − CONSUMO das OPs.
+     Barracões: Emitec · Linha 2/3 (um barracão só) · Longa Vida · Britador (pilha; viagem "do britador" baixa a pilha).
+     Banco: mp_barracao_mov (ajustes e viagens) + RPC mp_saldos() / mp_extrato(barracao, material). Migração 161.
+     ═════════════════════════════════════════════════════════════════ -->
+<style>
+:root{--ln:#e2e8f0;--mu:#64748b}
+.mb-hd{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+.mb-hd h1{font-size:24px;font-weight:800;color:var(--primary);margin:0}
+.mb-hd p{color:var(--mu);font-size:13px;margin:3px 0 0;max-width:720px}
+.mb-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px}
+.mb-card{background:#fff;border:1px solid var(--ln);border-radius:16px;padding:14px 16px;display:flex;flex-direction:column}
+.mb-card h2{margin:0;font-size:18px;color:var(--primary);display:flex;justify-content:space-between;align-items:center;gap:8px}
+.mb-card h2 small{font-size:12px;color:var(--mu);font-weight:600}
+.mb-tot{font-size:30px;font-weight:900;color:#042D4D;margin:6px 0 2px}
+.mb-tot.neg{color:#dc2626}
+.mb-lst{margin:8px 0 10px;flex:1}
+.mb-it{display:flex;justify-content:space-between;align-items:center;padding:9px 10px;border-radius:10px;cursor:pointer;border:1px solid transparent}
+.mb-it:hover{background:#f8fafc;border-color:var(--ln)}
+.mb-it b{font-size:15px}
+.mb-it .q{font-size:17px;font-weight:900;color:#042D4D;white-space:nowrap}
+.mb-it .q.neg{color:#dc2626}
+.mb-it small{display:block;font-size:11.5px;color:var(--mu);font-weight:600}
+.mb-bts{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.mb-bt{min-height:50px;border-radius:12px;border:2px solid var(--ln);background:#fff;font-family:inherit;font-weight:800;font-size:14.5px;color:#042D4D;cursor:pointer}
+.mb-bt.g{background:#c9ff64;border-color:#a3e635}
+.mb-vz{color:#94a3b8;font-size:13px;padding:6px 10px}
+.mb-ov{position:fixed;inset:0;background:rgba(2,20,40,.5);z-index:20000;display:flex;align-items:center;justify-content:center;padding:12px}
+.mb-mod{background:#fff;border-radius:18px;max-width:560px;width:100%;max-height:92vh;overflow:auto;padding:18px 20px;box-shadow:0 20px 60px rgba(0,0,0,.3)}
+.mb-mod.lg{max-width:860px}
+.mb-mod h3{margin:0 0 4px;color:var(--primary);font-size:19px}
+.mb-mod label{display:block;font-size:12.5px;font-weight:800;color:#334155;margin:12px 0 5px}
+.mb-in{width:100%;font-family:inherit;font-size:18px;font-weight:700;padding:12px 14px;border-radius:12px;border:2px solid #cbd5e1;box-sizing:border-box}
+.mb-mats{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px}
+.mb-mats button{min-height:48px;border-radius:12px;border:2px solid #cbd5e1;background:#fff;font-family:inherit;font-weight:800;font-size:13.5px;color:#334155;cursor:pointer}
+.mb-mats button.on{background:#16a34a;border-color:#16a34a;color:#fff}
+.mb-calc{background:#f0fdf4;border:2px solid #86efac;border-radius:12px;padding:10px 12px;margin-top:12px;font-size:15px;font-weight:800;color:#166534;text-align:center}
+.mb-foot{display:flex;gap:10px;justify-content:flex-end;margin-top:16px;flex-wrap:wrap}
+.mb-foot button{min-height:48px;padding:0 18px;border-radius:12px;font-family:inherit;font-weight:800;font-size:15px;cursor:pointer;border:2px solid var(--ln);background:#fff;color:#334155}
+.mb-foot .ok{background:#042D4D;border-color:#042D4D;color:#c9ff64}
+table.mb-t{width:100%;border-collapse:collapse;font-size:13px}
+table.mb-t th{background:#042D4D;color:#c9ff64;text-align:left;padding:7px 8px;font-size:11.5px}
+table.mb-t td{padding:7px 8px;border-bottom:1px solid #eef2f7;vertical-align:top}
+table.mb-t td.n{text-align:right;font-weight:800;white-space:nowrap}
+.tg{font-size:10.5px;font-weight:800;border-radius:99px;padding:2px 8px;white-space:nowrap}
+.tg.aj{background:#ede9fe;color:#5b21b6}.tg.vi{background:#dbeafe;color:#1e40af}.tg.ba{background:#dcfce7;color:#166534}.tg.co{background:#fee2e2;color:#991b1b}.tg.sb{background:#fef3c7;color:#92400e}
+.mb-ult{margin-top:16px}
+</style>
+</head>
+<body>
+<div id="sidebar-container"></div>
+<header class="topbar" id="topbar">
+  <button class="topbar-open-sidebar" onclick="toggleSidebar()">☰</button>
+  <div class="topbar-title">⛏️ Saldo de MP nos barracões</div>
+  <div class="topbar-right">
+    <div class="topbar-user">
+      <div class="topbar-avatar" id="top-avatar">?</div>
+      <div><div class="topbar-user-name" id="top-user-name">—</div><div class="topbar-user-profile" id="top-user-perfil">—</div></div>
+    </div>
+  </div>
+</header>
+<main class="main-content" id="main-content">
+  <div class="mb-hd">
+    <div><h1>⛏️ Saldo de MP nos barracões</h1>
+      <p>Quanto tem de cada material em cada barracão. A <b>balança</b> da portaria soma sozinha, a <b>produção</b> desconta sozinha; aqui você <b>ajusta o saldo</b> quando conferir o barracão e <b>lança as viagens</b> que sobem sem passar na balança.</p></div>
+    <button class="mb-bt" style="min-height:42px;padding:0 14px;" onclick="carregar()">🔄 Atualizar</button>
+  </div>
+  <div class="mb-grid" id="mb-grid"><div class="mb-vz">Carregando…</div></div>
+  <div class="mb-card mb-ult"><h2>🕘 Últimos lançamentos <small>ajustes e viagens</small></h2><div id="mb-ult" style="overflow:auto;"></div></div>
+</main>
+
+<script>
+const MOD='mp_barracoes';
+const BARR=[{k:'LINHA_2_3',n:'Linha 2/3',d:'Linha 2 e Linha 3 — um barracão só'},{k:'EMITEC',n:'Emitec',d:'Linha Emitec'},{k:'LONGA_VIDA',n:'Longa Vida',d:'Granel (Longa Vida)'},{k:'BRITADOR',n:'Britador',d:'Pilha do britador — sobe para os barracões'}];
+const NB=k=>(BARR.find(b=>b.k===k)||{}).n||k;
+let _S=[], _mats=[], _ult=[];
+const E=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fT=v=>(Number(v)||0).toLocaleString('pt-BR',{minimumFractionDigits:1,maximumFractionDigits:1})+' t';
+const fDH=v=>v?new Date(v).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'—';
+const fD=v=>v?String(v).slice(8,10)+'/'+String(v).slice(5,7):'—';
+const hojeISO=()=>new Date().toLocaleDateString('en-CA');
+const quem=()=>{const u=getUser()||{};return u.nome||u.email||'';};
+const nomeMat=c=>(_mats.find(m=>m.codigo===c)||{}).nome||c;
+function fechar(){ document.querySelectorAll('.mb-ov').forEach(x=>x.remove()); }
+function modal(html,lg){ fechar(); const o=document.createElement('div'); o.className='mb-ov'; o.onclick=e=>{if(e.target===o)fechar();}; o.innerHTML=`<div class="mb-mod ${lg?'lg':''}">${html}</div>`; document.body.appendChild(o); return o; }
+
+async function carregar(){
+  const [s,m,u]=await Promise.all([
+    _supabase.rpc('mp_saldos'),
+    _supabase.from('minerio_materiais').select('codigo,nome,ordem').eq('ativo',true).eq('selecionavel',true).order('ordem'),
+    _supabase.from('mp_barracao_mov').select('*').is('cancelado_em',null).order('criado_em',{ascending:false}).limit(30)]);
+  if(s.error){ document.getElementById('mb-grid').innerHTML=`<div class="mb-vz">Não carregou: ${E(s.error.message)}</div>`; return; }
+  _S=s.data||[]; _mats=m.data||[]; _ult=u.data||[];
+  render();
+}
+function render(){
+  const pode=checkPerm(MOD,'create');
+  document.getElementById('mb-grid').innerHTML=BARR.map(b=>{
+    const l=_S.filter(x=>x.barracao===b.k), tem=l.filter(x=>Math.abs(x.saldo_t)>=0.05||x.base_em||x.balanca_t||x.viagens_t||x.consumo_t), tot=tem.reduce((t,x)=>t+Number(x.saldo_t||0),0);
+    return `<div class="mb-card"><h2>🏭 ${E(b.n)} <small>${E(b.d)}</small></h2>
+      <div class="mb-tot ${tot<0?'neg':''}">${fT(tot)}</div><div style="font-size:12px;color:var(--mu);">total no barracão</div>
+      <div class="mb-lst">${tem.length?tem.map(x=>`<div class="mb-it" onclick="extrato('${b.k}','${x.material}')"><div><b>${E(x.nome)}</b>
+          <small>${x.base_em?'ajustado '+fDH(x.base_em):'sem ajuste ainda'}${Number(x.balanca_t)?' · balança +'+fT(x.balanca_t):''}${Number(x.viagens_t)?' · viagens +'+fT(x.viagens_t):''}${Number(x.consumo_t)?' · produção −'+fT(x.consumo_t):''}${Number(x.saida_t)?' · subiu −'+fT(x.saida_t):''}</small></div>
+          <div class="q ${x.saldo_t<0?'neg':''}">${fT(x.saldo_t)}</div></div>`).join(''):'<div class="mb-vz">Nenhum material lançado. Comece pelo ajuste do que tem hoje.</div>'}</div>
+      ${pode?`<div class="mb-bts"><button class="mb-bt g" onclick="abrirViagem('${b.k}')">🚚 Lançar viagens</button><button class="mb-bt" onclick="abrirAjuste('${b.k}')">✏️ Ajustar saldo</button></div>`:''}</div>`;
+  }).join('');
+  document.getElementById('mb-ult').innerHTML=_ult.length?`<table class="mb-t"><thead><tr><th>Quando</th><th>Barracão</th><th>Material</th><th>Lançamento</th><th>Por</th><th></th></tr></thead><tbody>
+    ${_ult.map(x=>`<tr><td>${fDH(x.criado_em)}</td><td>${E(NB(x.barracao))}</td><td>${E(nomeMat(x.material))}</td>
+      <td>${x.tipo==='ajuste'?`<span class="tg aj">ajuste</span> saldo = <b>${fT(x.saldo_informado_t)}</b>`:`<span class="tg vi">viagens</span> ${x.viagens} × ${fT(x.peso_viagem_t)} = <b>${fT(x.quantidade_t)}</b>${x.origem==='BRITADOR'?' (do britador)':''}`}${x.obs?`<div style="color:var(--mu);font-size:12px;">${E(x.obs)}</div>`:''}</td>
+      <td>${E(x.criado_por||'—')}</td><td>${podeCancelar(x)?`<button class="mb-bt" style="min-height:34px;font-size:12px;padding:0 10px;" onclick="cancelar('${x.id}')">Desfazer</button>`:''}</td></tr>`).join('')}</tbody></table>`:'<div class="mb-vz">Nenhum lançamento ainda.</div>';
+}
+const podeCancelar=x=>checkPerm(MOD,'delete')||(x.criado_por===quem()&&String(x.criado_em).slice(0,10)===new Date().toISOString().slice(0,10));
+
+/* ── lançar viagens (sem balança) ── */
+let _f={};
+function matsHtml(sel){ return `<div class="mb-mats">${_mats.filter(m=>m.codigo!=='GRAFITOSO').map(m=>`<button type="button" class="${m.codigo===sel?'on':''}" onclick="_f.mat='${m.codigo}';this.parentElement.querySelectorAll('button').forEach(b=>b.classList.remove('on'));this.classList.add('on');calcViagem();">${E(m.nome.replace(/^Caulim /,''))}</button>`).join('')}</div>`; }
+function abrirViagem(b){
+  const ult=_ult.find(x=>x.barracao===b&&x.tipo==='viagem');
+  _f={b,mat:ult?ult.material:'',tipo:'viagem'};
+  modal(`<h3>🚚 Viagens para ${E(NB(b))}</h3><div style="font-size:13px;color:var(--mu);">Material que subiu <b>sem passar na balança</b>. O que passou na balança já entra sozinho.</div>
+    <label>Material</label>${matsHtml(_f.mat)}
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+      <div><label>Viagens</label><input class="mb-in" id="v-n" type="number" inputmode="numeric" min="1" step="1" oninput="calcViagem()"></div>
+      <div><label>Peso por viagem (t)</label><input class="mb-in" id="v-p" type="number" inputmode="decimal" min="0" step="0.5" value="${ult?ult.peso_viagem_t:20}" oninput="calcViagem()"></div></div>
+    ${b!=='BRITADOR'?`<label>De onde saiu?</label><select class="mb-in" id="v-o" style="font-size:16px;"><option value="MINA">Da mina (direto)</option><option value="BRITADOR">Do britador (baixa a pilha do britador)</option></select>`:''}
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;"><div><label>Data</label><input class="mb-in" id="v-d" type="date" value="${hojeISO()}" style="font-size:16px;"></div>
+      <div><label>Observação</label><input class="mb-in" id="v-obs" style="font-size:15px;" placeholder="opcional"></div></div>
+    <div class="mb-calc" id="v-calc">Informe as viagens</div>
+    <div class="mb-foot"><button onclick="fechar()">Cancelar</button><button class="ok" onclick="salvarViagem()">💾 Lançar</button></div>`);
+  setTimeout(()=>document.getElementById('v-n').focus(),60);
+}
+function calcViagem(){ const n=Number(document.getElementById('v-n')?.value)||0, p=Number(document.getElementById('v-p')?.value)||0, el=document.getElementById('v-calc'); if(!el) return;
+  el.textContent=n&&p?`${n} viagem(ns) × ${fT(p)} = ${fT(n*p)}${_f.mat?' de '+nomeMat(_f.mat):''} → ${NB(_f.b)}`:'Informe as viagens'; }
+async function salvarViagem(){
+  if(!guardAction(MOD,'create')) return;
+  const n=parseInt(document.getElementById('v-n').value,10), p=Number(document.getElementById('v-p').value);
+  if(!_f.mat) return toast('Escolha o material.','warning');
+  if(!(n>0)||!(p>0)) return toast('Informe viagens e peso por viagem.','warning');
+  const reg={barracao:_f.b,material:_f.mat,tipo:'viagem',viagens:n,peso_viagem_t:p,quantidade_t:Math.round(n*p*1000)/1000,origem:document.getElementById('v-o')?.value||'MINA',
+    data:document.getElementById('v-d').value||hojeISO(),obs:document.getElementById('v-obs').value.trim()||null,criado_por:quem()};
+  const {error}=await _supabase.from('mp_barracao_mov').insert(reg);
+  if(error) return toast('Não lançou: '+error.message,'danger');
+  addLog('INSERT','MP_BARRACOES',reg.material,`Viagens: ${n} × ${p} t = ${reg.quantidade_t} t de ${nomeMat(reg.material)} → ${NB(reg.barracao)}${reg.origem==='BRITADOR'?' (do britador)':''}`);
+  toast('Viagens lançadas.','success'); fechar(); carregar();
+}
+
+/* ── ajustar saldo (conferência do barracão) ── */
+function abrirAjuste(b){
+  _f={b,mat:'',tipo:'ajuste'};
+  modal(`<h3>✏️ Ajustar saldo — ${E(NB(b))}</h3><div style="font-size:13px;color:var(--mu);">Informe <b>quanto tem agora</b> no barracão. A partir daqui o saldo segue com a balança, as viagens e a produção.</div>
+    <label>Material</label>${matsHtml('')}
+    <div id="a-atual" style="font-size:13px;color:var(--mu);margin-top:8px;"></div>
+    <label>Quanto tem agora (t)</label><input class="mb-in" id="a-q" type="number" inputmode="decimal" step="0.5" min="0">
+    <label>Observação</label><input class="mb-in" id="a-obs" style="font-size:15px;" placeholder="ex.: conferido no barracão, pá carregadeira">
+    <div class="mb-foot"><button onclick="fechar()">Cancelar</button><button class="ok" onclick="salvarAjuste()">💾 Ajustar</button></div>`);
+  const mo=new MutationObserver(()=>{ const x=_S.find(s=>s.barracao===b&&s.material===_f.mat); const el=document.getElementById('a-atual'); if(el) el.innerHTML=_f.mat?`Saldo atual no sistema: <b>${fT(x?x.saldo_t:0)}</b>`:''; });
+  mo.observe(document.querySelector('.mb-mats'),{subtree:true,attributes:true});
+}
+async function salvarAjuste(){
+  if(!guardAction(MOD,'create')) return;
+  const q=Number(document.getElementById('a-q').value);
+  if(!_f.mat) return toast('Escolha o material.','warning');
+  if(document.getElementById('a-q').value===''||!(q>=0)) return toast('Informe quanto tem agora.','warning');
+  const ant=(_S.find(s=>s.barracao===_f.b&&s.material===_f.mat)||{}).saldo_t||0;
+  const reg={barracao:_f.b,material:_f.mat,tipo:'ajuste',saldo_informado_t:q,obs:document.getElementById('a-obs').value.trim()||null,criado_por:quem()};
+  const {error}=await _supabase.from('mp_barracao_mov').insert(reg);
+  if(error) return toast('Não ajustou: '+error.message,'danger');
+  addLog('UPDATE','MP_BARRACOES',reg.material,`Ajuste ${NB(reg.barracao)} · ${nomeMat(reg.material)}: de ${fT(ant)} para ${fT(q)}${reg.obs?' — '+reg.obs:''}`);
+  toast('Saldo ajustado.','success'); fechar(); carregar();
+}
+async function cancelar(id){
+  const x=_ult.find(y=>y.id===id); if(!x) return;
+  if(!(await erpConfirm(`Desfazer este lançamento (${x.tipo==='ajuste'?'ajuste para '+fT(x.saldo_informado_t):x.viagens+' viagens = '+fT(x.quantidade_t)}) de ${nomeMat(x.material)} em ${NB(x.barracao)}?`,{titulo:'Desfazer',ok:'Desfazer',perigo:true}))) return;
+  const {error}=await _supabase.from('mp_barracao_mov').update({cancelado_em:new Date().toISOString(),cancelado_por:quem()}).eq('id',id);
+  if(error) return toast('Não desfez: '+error.message,'danger');
+  addLog('UPDATE','MP_BARRACOES',x.material,`Desfez ${x.tipo} de ${nomeMat(x.material)} em ${NB(x.barracao)}`); carregar();
+}
+
+/* ── extrato de um material no barracão ── */
+async function extrato(b,mat){
+  const {data,error}=await _supabase.rpc('mp_extrato',{p_barracao:b,p_material:mat});
+  if(error) return toast(error.message,'danger');
+  let acc=0; const TG={ajuste:['aj','ajuste'],viagem:['vi','viagens'],balanca:['ba','balança'],consumo:['co','produção'],saida_britador:['sb','subiu']};
+  const linhas=(data||[]).map(r=>{ acc=r.tipo==='ajuste'?Number(r.qtd_t):acc+Number(r.qtd_t); const t=TG[r.tipo]||['',r.tipo];
+    return `<tr><td>${fDH(r.em)}</td><td><span class="tg ${t[0]}">${t[1]}</span></td><td>${E(r.descricao)}</td><td class="n" style="color:${r.tipo==='ajuste'?'#5b21b6':Number(r.qtd_t)<0?'#dc2626':'#166534'}">${r.tipo==='ajuste'?'= ':Number(r.qtd_t)>0?'+':''}${fT(r.qtd_t)}</td><td class="n">${fT(acc)}</td></tr>`; });
+  modal(`<h3>📒 ${E(nomeMat(mat))} — ${E(NB(b))}</h3><div style="font-size:13px;color:var(--mu);margin-bottom:10px;">Desde o último ajuste. A balança e a produção entram sozinhas.</div>
+    <div style="overflow:auto;max-height:60vh;"><table class="mb-t"><thead><tr><th>Quando</th><th>Tipo</th><th>Descrição</th><th style="text-align:right;">Movimento</th><th style="text-align:right;">Saldo</th></tr></thead><tbody>
+    ${linhas.join('')||'<tr><td colspan="5" class="mb-vz">Nenhum movimento desde o último ajuste.</td></tr>'}</tbody></table></div>
+    <div class="mb-foot"><button onclick="fechar()">Fechar</button>${checkPerm(MOD,'create')?`<button class="ok" onclick="abrirAjuste('${b}');setTimeout(()=>{const bt=[...document.querySelectorAll('.mb-mats button')].find(x=>x.textContent.trim()==='${E(nomeMat(mat).replace(/^Caulim /,''))}');if(bt)bt.click();},50)">✏️ Ajustar este</button>`:''}</div>`,true);
+}
+
+async function iniciar(){
+  if(!checkPerm(MOD,'view')){ document.getElementById('main-content').innerHTML='<div class="mb-vz">Sem acesso ao Saldo de MP. Peça ao administrador para liberar no perfil.</div>'; return; }
+  await carregar();
+  if(typeof applyActionGuards==='function') applyActionGuards();
+}
+fetch('partials/sidebar.html').then(r=>r.text()).then(h=>{document.getElementById('sidebar-container').innerHTML=h;document.querySelector('[href="mp-barracoes.html"]')?.classList.add('active');});
+initSidebar('mp-barracoes.html').then(()=>{if(getUser())iniciar();});
+</script>
+</body>
+</html>
