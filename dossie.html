@@ -9,6 +9,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="js/supabase.js"></script>
 <script src="js/utils.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <!-- ═════════════════════════════════════════════════════════════════
      DOSSIÊ (18/11/2026) — rastreabilidade para auditoria (entrega 1)
      Centro = LOTE (espinha de peixe 6M + cabeça com o resumo) e rede clicável: lote ↔ lote de MP ↔ cliente ↔ carga.
@@ -78,13 +79,17 @@ table.t tr.cl{cursor:pointer} table.t tr.cl:hover td{background:var(--soft)}
     <div class="dq-bus"><input id="dq-q" placeholder="🔎 Lote, cliente, lote de MP, placa, NF, ordem, motorista…" onkeydown="if(event.key==='Enter')perguntar(this.value)">
       <button class="btn2 g" onclick="perguntar(document.getElementById('dq-q').value)">Buscar</button></div>
   </div>
+  <div class="dq-card" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+    <b style="font-size:12px;color:var(--mu);margin-right:4px;">OUTRAS VISÕES:</b>
+    <button class="btn2" onclick="formPessoa()">👤 Pessoa</button><button class="btn2" onclick="formEquip()">⚙️ Equipamento</button><button class="btn2" onclick="formPeriodo()">📅 Período</button>
+    <span style="flex:1"></span><button class="btn2" id="bt-consultas" style="display:none" onclick="verConsultas()">🕘 Consultas ao dossiê</button></div>
   <div class="dq-card"><div class="sec" style="margin-top:0;">LOTES RECENTES</div><div class="dq-recentes" id="dq-rec"><span class="vz">Carregando…</span></div></div>
   <div class="dq-card" id="dq-lote" style="display:none;">
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:6px;" id="dq-placar"></div>
     <div style="font-size:12px;color:var(--mu);">Clique na <b>cabeça</b> para o resumo do lote (produção, laudo, balanço, cargas e clientes) · no <b>nome da espinha</b> para tudo daquele grupo · em cada <b>item</b> para as fichas.</div>
     <svg id="peixe" viewBox="0 0 1500 700"></svg>
     <div id="lista6m"></div>
-    <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;"><button class="btn2" onclick="csvLote()">⬇️ CSV do lote</button><button class="btn2 g" onclick="pdfLote()">🖨️ Dossiê do lote (PDF)</button></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;"><button class="btn2" onclick="copiarLink()">🔗 Copiar link</button><button class="btn2" onclick="zipLote()">📦 Pacote ZIP</button><button class="btn2" onclick="csvLote()">⬇️ CSV do lote</button><button class="btn2 g" onclick="pdfLote()">🖨️ Dossiê do lote (PDF)</button></div>
   </div>
 </main>
 <div id="ov" onclick="fechar()"></div>
@@ -247,7 +252,67 @@ async function simuladoRecall(){
 }
 
 /* ─── pivô: cliente, MP, carga ─── */
+/* ─── registro de consulta (quem viu o quê, para a auditoria) ─── */
+const _consultado=new Set();
+function consulta(t,v){ const k=t+':'+v; if(_consultado.has(k)) return; _consultado.add(k); try{ addLog('VIEW','DOSSIE',String(v).slice(0,80),`Consultou ${t} ${v}`); }catch(e){} }
+async function verConsultas(){ const {data}=await _supabase.from('auditoria').select('criado_em,usuario_email,descricao').eq('modulo','DOSSIE').order('criado_em',{ascending:false}).limit(80);
+  gav('🕘 Consultas ao dossiê','Registro de consulta',`<table class="t"><thead><tr><th>Quando</th><th>Quem</th><th>O quê</th></tr></thead><tbody>${(data||[]).map(x=>`<tr><td>${fDH(x.criado_em)}</td><td>${E(x.usuario_email||'')}</td><td>${E(x.descricao||'')}</td></tr>`).join('')||'<tr><td colspan="3" class="vz">Nenhuma consulta registrada.</td></tr>'}</tbody></table>`); }
+function copiarLink(){ const u=location.origin+location.pathname+'#lote='+encodeURIComponent(LK); (navigator.clipboard?navigator.clipboard.writeText(u):Promise.reject()).then(()=>toast('Link copiado — só abre para quem tem login com acesso ao Dossiê.','success')).catch(()=>prompt('Copie o link:',u)); }
+
+/* ─── visões: pessoa, equipamento, período (entrega 3) ─── */
+const hojeISO=()=>new Date().toLocaleDateString('en-CA'), diasAtras=n=>new Date(Date.now()-n*864e5).toLocaleDateString('en-CA');
+const campoPer=()=>`<div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0;"><label style="font-size:12px;font-weight:700">De <input id="vp-de" type="date" class="form-input" value="${diasAtras(30)}"></label><label style="font-size:12px;font-weight:700">Até <input id="vp-ate" type="date" class="form-input" value="${hojeISO()}"></label></div>`;
+const per=()=>({de:document.getElementById('vp-de').value,ate:document.getElementById('vp-ate').value});
+function formPessoa(){ gav('👤 Dossiê por pessoa','Visões',`<input id="vp-txt" class="form-input" placeholder="Nome (ex.: Narcizo, Ryan, Cesar Augusto)">${campoPer()}<button class="btn2 g" onclick="verPessoa()">Ver</button><div id="vp-res"></div>`); setTimeout(()=>document.getElementById('vp-txt').focus(),60); }
+function formEquip(){ gav('⚙️ Dossiê por equipamento','Visões',`<input id="vp-txt" class="form-input" placeholder="Tag ou nome (ex.: BAL-ENS, balança, moinho 02, ensacadeira)">${campoPer().replace(diasAtras(30),diasAtras(180))}<button class="btn2 g" onclick="verEquip()">Ver</button><div id="vp-res"></div>`); setTimeout(()=>document.getElementById('vp-txt').focus(),60); }
+function formPeriodo(){ gav('📅 Dossiê do período','Visões',`${campoPer()}<button class="btn2 g" onclick="verPeriodo()">Ver</button><div id="vp-res"></div>`); }
+const tabela=(cab,linhas)=>linhas.length?`<table class="t"><thead><tr>${cab.map(c=>`<th>${c}</th>`).join('')}</tr></thead><tbody>${linhas.join('')}</tbody></table>`:'<div class="vz">Nada no período.</div>';
+const regLink=r=>`<a class="lk" href="bpf.html?reg=${r.id}" target="_blank">${E(r.numero)}</a>`;
+async function verPessoa(){ const n=document.getElementById('vp-txt').value.trim(); if(n.length<3) return toast('Digite pelo menos 3 letras do nome.','warning'); const p=per();
+  const {data:d,error}=await _supabase.rpc('dos_pessoa',{p_nome:n,p_de:p.de,p_ate:p.ate}); if(error) return toast(error.message,'danger'); consulta('pessoa',n); window._ULT={tipo:'pessoa',nome:n,data:d};
+  document.getElementById('vp-res').innerHTML=`<div class="stats"><div><b>${d.bpf.length}</b><span>registros BPF</span></div><div><b>${d.ops.length}</b><span>OPs</span></div><div><b>${d.cargas.length}</b><span>cargas</span></div><div><b>${d.lab.length}</b><span>análises</span></div><div><b>${d.manut.length}</b><span>OS</span></div></div>
+    <div class="sec">REGISTROS BPF</div>${tabela(['Registro','Formulário','Data','Papel','Situação'],d.bpf.map(r=>`<tr><td>${regLink(r)}</td><td>${E(r.titulo||r.form)}</td><td>${fD(r.data)}</td><td>${E(r.papel)}</td><td>${E(r.status)}</td></tr>`))}
+    <div class="sec">PRODUÇÃO</div>${tabela(['OP','Data','Linha / turno','Papel','Lotes'],d.ops.map(o=>`<tr><td>${E(o.op)}</td><td>${fD(o.data)}</td><td>${E(o.linha)} · ${E(o.turno||'')}</td><td>${E(o.papel)}</td><td>${String(o.lotes||'').split(', ').filter(Boolean).map(l=>lnk('lote',l)).join(', ')}</td></tr>`))}
+    <div class="sec">CARGAS</div>${tabela(['Ordem','Data','Placa','Papel'],d.cargas.map(c=>`<tr><td>${lnk('carga',c.ordem)}</td><td>${fD(c.data)}</td><td>${E(c.placa||'')}</td><td>${E(c.papel)}</td></tr>`))}
+    <div class="sec">LABORATÓRIO</div>${tabela(['Data','Linha','Produto','Situação'],d.lab.map(l=>`<tr><td>${fD(l.data)} ${E(l.hora||'')}</td><td>${E(l.linha||'')}</td><td>${E(l.produto||'')}</td><td>${E(l.status||'')}</td></tr>`))}
+    <div class="sec">MANUTENÇÃO</div>${tabela(['OS','Data','Equipamento','Situação'],d.manut.map(m=>`<tr><td>${E(m.numero)}</td><td>${fD(m.data)}</td><td>${E(m.equipamento||'')} · ${E(m.linha||'')}</td><td>${E(m.status||'')}</td></tr>`))}
+    <div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn2 g" onclick="pdfAtual()">🖨️ PDF</button></div>`; }
+async function verEquip(){ const n=document.getElementById('vp-txt').value.trim(); if(n.length<2) return toast('Digite a tag ou o nome.','warning'); const p=per();
+  const {data:d,error}=await _supabase.rpc('dos_equipamento',{p_txt:n,p_de:p.de,p_ate:p.ate}); if(error) return toast(error.message,'danger'); consulta('equipamento',n);
+  document.getElementById('vp-res').innerHTML=`<div class="sec">INSTRUMENTOS (CALIBRAÇÃO)</div>${tabela(['Tag','Nome','Local','Calibra a cada','Situação'],d.instrumentos.map(i=>`<tr><td><b>${E(i.tag)}</b></td><td>${E(i.nome)}</td><td>${E(i.local||'')}</td><td>${i.periodicidade?i.periodicidade+' meses':'—'}</td><td>${E(i.status||'')}${i.critico?' · crítico':''}</td></tr>`))}
+    <div class="sec">CALIBRAÇÕES / VERIFICAÇÕES</div>${tabela(['Registro','Data','Validade','Situação'],d.calibracoes.map(r=>`<tr><td>${regLink(r)}</td><td>${fD(r.data)}</td><td>${fD(r.validade)}</td><td>${E(r.status)}</td></tr>`))}
+    <div class="sec">ORDENS DE SERVIÇO</div>${tabela(['OS','Data','Tipo','Equipamento','Técnico','Serviço','Situação'],d.os.map(m=>`<tr><td>${E(m.numero)}</td><td>${fD(m.data)}</td><td>${E(m.tipo||'')}</td><td>${E(m.equipamento||'')} · ${E(m.linha||'')}</td><td>${E(m.tecnico||'')}</td><td style="font-size:12px">${E(m.descricao||'')}</td><td>${E(m.status||'')}</td></tr>`))}
+    <div class="sec">REGISTROS BPF DE MANUTENÇÃO / LIMPEZA</div>${tabela(['Registro','Data','Situação'],d.bpf_manut.map(r=>`<tr><td>${regLink(r)}</td><td>${fD(r.data)}</td><td>${E(r.status)}</td></tr>`))}
+    <div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn2 g" onclick="pdfAtual()">🖨️ PDF</button></div>`; }
+async function verPeriodo(){ const p=per(); const {data:d,error}=await _supabase.rpc('dos_periodo',{p_de:p.de,p_ate:p.ate}); if(error) return toast(error.message,'danger'); consulta('período',p.de+' a '+p.ate);
+  const t=d.bpf.reduce((a,x)=>({tot:a.tot+x.total,ok:a.ok+x.concluido,reg:a.reg+x.regularizacao,pen:a.pen+x.pendente,nc:a.nc+x.nc}),{tot:0,ok:0,reg:0,pen:0,nc:0});
+  document.getElementById('vp-res').innerHTML=`<div class="stats"><div><b>${d.lotes.length}</b><span>lotes produzidos</span></div><div><b>${d.cargas}</b><span>cargas</span></div><div><b>${d.clientes}</b><span>clientes</span></div><div><b>${d.laudos}</b><span>laudos</span></div><div><b>${t.tot}</b><span>registros BPF</span></div><div><b>${t.pen}</b><span>pendentes</span></div><div><b>${d.reclamacoes.length}</b><span>reclamações</span></div></div>
+    <div class="sec">REGISTROS BPF POR FORMULÁRIO</div>${tabela(['Formulário','Total','Concluído','Regularização','Pendente','NC'],d.bpf.map(x=>`<tr><td><b>${E(x.form)}</b><div style="font-size:11px;color:var(--mu)">${E(x.titulo||'')}</div></td><td class="n">${x.total}</td><td class="n">${x.concluido}</td><td class="n">${x.regularizacao}</td><td class="n" style="${x.pendente?'color:#b45309;font-weight:800':''}">${x.pendente}</td><td class="n" style="${x.nc?'color:#dc2626;font-weight:800':''}">${x.nc}</td></tr>`))}
+    <div class="sec">LOTES</div>${tabela(['Lote','Data','Linha','Produto','Qtd'],d.lotes.map(l=>`<tr><td>${lnk('lote',l.lote)}</td><td>${fD(l.data)}</td><td>${E(l.linha||'')}</td><td>${E(l.produto||'')}</td><td class="n">${fN(l.qtd)}</td></tr>`))}
+    <div class="sec">RECLAMAÇÕES</div>${tabela(['Nº','Data','Cliente','Situação'],d.reclamacoes.map(r=>`<tr><td>${E(r.numero)}</td><td>${fD(r.data)}</td><td>${E(r.cliente||'')}</td><td>${E(r.status||'')}</td></tr>`))}
+    <div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn2 g" onclick="pdfAtual()">🖨️ PDF</button></div>`; }
+
+/* ─── pacote ZIP do lote: resumo (HTML para imprimir), CSVs, laudos e ordens em PDF ─── */
+async function zipLote(){
+  if(!D) return; if(typeof JSZip==='undefined') return toast('Não carregou o gerador de ZIP. Atualize a página.','danger');
+  toast('Montando o pacote…','info'); const z=new JSZip(), pasta=z.folder('dossie-lote-'+LK);
+  abrirLote(); const resumo=document.getElementById('g-body').innerHTML; fechar();
+  const grupos=OSSOS.map(o=>`<h3>${E(o.t)}</h3><table><tbody>${o.itens.map(i=>`<tr><td>${ST[i.s].i} ${E(i.t)}</td><td>${E(i.sub)}</td><td>${(i.regs||[]).map(r=>E(r.numero)+' ('+ST[stReg(r)].t+')').join(', ')}</td></tr>`).join('')||'<tr><td>—</td></tr>'}</tbody></table>`).join('');
+  pasta.file('00-dossie-do-lote.html',`<html><head><meta charset="utf-8"><title>Dossiê lote ${E(LK)}</title><style>body{font-family:Arial;font-size:12px;margin:20px}table{border-collapse:collapse;width:100%;margin:6px 0 12px}td,th{border:1px solid #ccc;padding:4px 6px;text-align:left}th{background:#eef}button,a.lk{all:unset}.stats div{display:inline-block;border:1px solid #ccc;padding:4px 8px;margin:2px}</style></head><body><h1>Dossiê de rastreabilidade — lote ${E(LK)}</h1><p>Gerado em ${new Date().toLocaleString('pt-BR')} por ${E((getUser()||{}).nome||'')}</p>${resumo}<h2>Registros BPF (6M)</h2>${grupos}</body></html>`);
+  const linhas=(cab,rows)=>[cab.map(cel).join(';'),...rows.map(r=>r.map(cel).join(';'))].join('\n');
+  pasta.file('01-registros-bpf.csv','﻿'+linhas(['Registro','Formulário','Título','Data','Situação','Assinaturas'],(D.bpf||[]).map(r=>[r.numero,r.form,r.titulo,r.data,ST[stReg(r)].t,r.assinaturas+'/'+r.previstas])));
+  pasta.file('02-cargas.csv','﻿'+linhas(['Ordem','Data','Cliente','Produto','Código','Qtd','Placa','Motorista','NF'],(D.cargas||[]).flatMap(c=>(c.itens||[]).map(x=>[c.ordem,c.data,x.cliente,x.produto,x.codigo,x.sacos,c.placa,c.motorista,c.nf]))));
+  pasta.file('03-unidades.csv','﻿'+linhas(['Nº','Código','Produto','Situação','Carga','Fora da contagem'],(D.unidades||[]).map(u=>[u.numero,u.codigo,u.produto,u.estoque,u.ordem,u.fora])));
+  pasta.file('04-producao.csv','﻿'+linhas(['OP','Data','Linha','Turno','Encarregado','Produto','Qtd','Lote MP'],(D.ops||[]).map(o=>[o.op_numero,o.data,o.linha,o.turno,o.encarregado,o.produto,o.sacos,o.lote_mp])));
+  const arqs=[...(D.laudos||[]).filter(l=>l.arquivo).map(l=>['laudos/'+l.numero+(l.arquivo.endsWith('.pdf')?'.pdf':'.html'),l.arquivo]),
+              ...((D.extra||{}).romaneios||[]).map(r=>['ordens/ordem-'+r.ordem+'.pdf',r.arquivo]),...((D.extra||{}).nf_granel||[]).map(r=>['nf-granel/NF-'+r.nf+'.pdf',r.arquivo])];
+  let falhou=0; for(const [nome,path] of arqs){ try{ const {data,error}=await _supabase.storage.from('documentos').download(path); if(error||!data){falhou++;continue;} pasta.file(nome,data); }catch(e){falhou++;} }
+  const blob=await z.generateAsync({type:'blob'}), a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`dossie-lote-${LK}.zip`; document.body.appendChild(a); a.click(); setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},800);
+  consulta('pacote ZIP do lote',LK); toast(`Pacote pronto: ${arqs.length-falhou} documento(s) + resumo e planilhas${falhou?' · '+falhou+' arquivo(s) não baixaram':''}.`,falhou?'warning':'success');
+}
+
 async function pivo(t,v){
+  consulta(t,v);
   if(t==='lote'){ fechar(); return abrirLoteCentro(v); }
   if(t==='cliente'){ const [{data,error},ex]=await Promise.all([_supabase.rpc('dos_cliente',{p_cliente:v}),_supabase.rpc('dos_cliente_extra',{p_cliente:v})]); if(error) return toast(error.message,'danger'); const recl=(ex&&ex.data&&ex.data.reclamacoes)||[];
     const cs=data.cargas||[], its=cs.flatMap(c=>(c.itens||[]).map(x=>Object.assign({ordem:c.ordem,data:c.data},x))), lot={};
@@ -285,7 +350,7 @@ async function perguntar(q){ q=String(q||'').trim(); if(!q) return;
 async function abrirLoteCentro(lote){
   LK=lote; const [r1,r2]=await Promise.all([_supabase.rpc('dos_lote',{p_lote:lote}),_supabase.rpc('dos_lote_extra',{p_lote:lote})]); if(r1.error) return toast(r1.error.message,'danger');
   const data=r1.data; if(!(data.ops||[]).length) return toast('Lote '+lote+' não encontrado na produção.','warning');
-  D=data; D.extra=(r2&&r2.data)||{}; montarOssos(); document.getElementById('dq-lote').style.display=''; desenhar(); window.scrollTo({top:document.getElementById('dq-lote').offsetTop-70,behavior:'smooth'});
+  D=data; D.extra=(r2&&r2.data)||{}; consulta('lote',lote); montarOssos(); document.getElementById('dq-lote').style.display=''; desenhar(); window.scrollTo({top:document.getElementById('dq-lote').offsetTop-70,behavior:'smooth'});
   try{ history.replaceState(null,'','#lote='+encodeURIComponent(lote)); }catch(e){}
 }
 
@@ -311,6 +376,7 @@ function pdfLote(){ if(!D) return; abrirLote(); const resumo=document.getElement
 
 async function iniciar(){
   if(!checkPerm(MOD,'view')){ document.getElementById('main-content').innerHTML='<div class="vz">Sem acesso ao Dossiê. Peça ao administrador para liberar no perfil.</div>'; return; }
+  if(['SADM','ADM','DIR','QLD'].includes(String((getUser()||{}).perfil||'').toUpperCase())) document.getElementById('bt-consultas').style.display='';
   const {data}=await _supabase.from('producao').select('data,produtos_op').order('data',{ascending:false}).limit(60);
   const vistos=new Map(); (data||[]).forEach(p=>(p.produtos_op||[]).forEach(e=>{ if(e&&e.lote&&!vistos.has(e.lote)) vistos.set(e.lote,{d:p.data,p:e.produto}); }));
   document.getElementById('dq-rec').innerHTML=[...vistos.entries()].slice(0,18).map(([l,o])=>`<span class="dq-chip" onclick="abrirLoteCentro('${Q(l)}')">${E(l)} <span style="font-weight:500;color:var(--mu)">· ${fD(o.d)} · ${E(String(o.p||'').slice(0,26))}</span></span>`).join('')||'<span class="vz">Nenhum lote recente.</span>';
