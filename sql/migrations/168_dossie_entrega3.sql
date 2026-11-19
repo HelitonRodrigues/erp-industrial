@@ -1,0 +1,5 @@
+-- (18/11/2026) DOSSIÊ entrega 3 — aplicada no Supabase.
+-- dos_pessoa(nome, de, até): registros BPF (preencheu/assinou/citado), OPs (encarregado/equipe), cargas, análises do lab, OS.
+-- dos_equipamento(texto, de, até): instrumentos (bpf_instrumentos), calibrações REG-POP07-02, OS da manutenção, registros de manutenção/limpeza.
+-- dos_periodo(de, até): lotes, cargas, clientes, laudos, registros BPF por formulário (concluído/regularização/pendente/NC), reclamações.
+-- Perfil AUD (Auditor): dossie e bpf só ver/exportar. Consultas ao dossiê vão para auditoria (modulo DOSSIE, acao VIEW).
