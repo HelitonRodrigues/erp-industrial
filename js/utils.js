@@ -44,6 +44,7 @@ const MODULO_MAP = [
   // QUALIDADE
   { id:'laboratorio',    page:'laboratorio.html',     label:'Laboratório',          group:'qualidade',    icon:'🧪' },
   { id:'bpf',            page:'bpf.html',             label:'BPF',                  group:'qualidade',    icon:'📋' },
+  { id:'dossie',         page:'dossie.html',          label:'Dossiê',               group:'qualidade',    icon:'🗂️' },
   // (18/11) Central da Qualidade saiu do menu (tudo no BPF: Minha fila / Assinaturas / Regularização). Os avisos com som continuam (AvisosQualidade).
   // { id:'qualidade',      page:'qualidade.html',       label:'Central da Qualidade', group:'qualidade',    icon:'🎯' },
   // OPERAÇÕES
