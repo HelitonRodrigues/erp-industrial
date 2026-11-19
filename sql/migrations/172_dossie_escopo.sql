@@ -1,0 +1,4 @@
+-- (19/11/2026) aplicada no Supabase. dos_escopo(produto): nutrição animal = 25 kg, Big Bag, granel (fora: Liga, Sikal, Geoplus, impermeabilizante).
+-- dos_busca passa a trazer só lotes/clientes/cargas com produto de nutrição animal.
+-- Dados: 10 bags de 18/11 (Linha 2, nº 1–11) que tinham sido tirados da contagem ("rótulo além da produção da madrugada")
+--   voltaram ao estoque — com as OPs da manhã e da noite lançadas, os 123 rótulos batem com a produção (45+18+60).
