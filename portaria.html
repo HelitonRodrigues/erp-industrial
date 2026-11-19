@@ -3999,7 +3999,45 @@ function rodoMontar(id){
       <div style="display:flex;align-items:center;gap:10px;margin-top:10px;flex-wrap:wrap;"><div id="${id}-rodo-tot" style="font-size:16px;font-weight:900;color:#042D4D;flex:1;"></div>
       <button type="button" class="btn btn-ghost btn-sm" onclick="rodoRefazer('${id}')">↺ Pesar de novo</button></div></div>`;
   const g=rodoGrp(id); g.appendChild(box);
-  Balanca.ligar({[id+'-p1']:'t',[id+'-p2']:'t'});
+  /* (19/11) UM painel da balança para as 2 partes: a 1ª fica FIXA ao usar; a 2ª só libera depois que a carreta andou
+     (a balança passou por "em movimento" ou o peso mudou mais de 300 kg) — antes dava para pegar a 1ª de novo */
+  const pn=document.createElement('div'); pn.id=id+'-rodo-bal';
+  pn.style.cssText='display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:10px;padding:10px 12px;border-radius:12px;border:1.5px solid #e2e8f0;background:#fff;';
+  pn.innerHTML=`<span style="font-size:18px;">⚖️</span><span class="rb-v" style="font-size:22px;font-weight:900;color:#042D4D;min-width:120px;font-variant-numeric:tabular-nums;">—</span>
+    <span class="rb-s" style="font-size:11px;font-weight:800;border-radius:99px;padding:3px 9px;background:#f1f5f9;color:#64748b;"></span>
+    <button type="button" class="rb-b" style="margin-left:auto;border:0;border-radius:10px;padding:12px 16px;font-family:inherit;font-weight:800;font-size:15px;cursor:pointer;background:#16a34a;color:#fff;"></button>
+    <div class="rb-m" style="flex-basis:100%;font-size:12.5px;font-weight:700;color:#475569;"></div>`;
+  document.getElementById(id+'-rodo-p').insertBefore(pn, document.getElementById(id+'-rodo-p').lastElementChild);
+  const st=_rodo[id]={etapa:1,p1kg:null,mexeu:false};
+  ['p1','p2'].forEach(p=>{const e=document.getElementById(id+'-'+p); if(!Balanca.podeDigitar()){e.readOnly=true;e.classList.add('bal-lock');e.placeholder='pela balança';}});
+  const b=pn.querySelector('.rb-b');
+  b.onclick=()=>{
+    const l=Balanca.atual(); if(!l||!l.estavel||l.kg<=0||Date.now()-l.ts>3000) return;
+    if(st.etapa===1){ st.p1kg=l.kg; st.mexeu=false; st.etapa=2; const e=document.getElementById(id+'-p1'); e.value=(l.kg/1000).toFixed(3); e.dataset.balKg=String(l.kg); e.readOnly=true; rodoSoma(id); }
+    else if(st.etapa===2){ if(!rodoPodeP2(st,l)) return; const e=document.getElementById(id+'-p2'); e.value=(l.kg/1000).toFixed(3); e.dataset.balKg=String(l.kg); e.readOnly=true; st.etapa=3; rodoSoma(id); }
+    rodoPinta(id);
+  };
+  const ouv=()=>{ if(!pn.isConnected){ off&&off(); return; } const l=Balanca.atual(); if(st.etapa===2&&l&&(!l.estavel||(st.p1kg!=null&&Math.abs(l.kg-st.p1kg)>300))) st.mexeu=true; rodoPinta(id); };
+  const off=Balanca.on(ouv); rodoPinta(id);
+}
+const _rodo={};
+const rodoPodeP2=(st,l)=>!!st.mexeu;   // as 2 partes podem pesar quase igual (tara de 2 carretas vazias): vale ter MEXIDO
+function rodoPinta(id){
+  const pn=document.getElementById(id+'-rodo-bal'), st=_rodo[id]; if(!pn||!st) return;
+  const l=Balanca.atual(), est=Balanca.estado(), fresco=l&&Date.now()-l.ts<3000;
+  const eV=pn.querySelector('.rb-v'), eS=pn.querySelector('.rb-s'), b=pn.querySelector('.rb-b'), eM=pn.querySelector('.rb-m');
+  let v='—',sTxt='',sCor='#f1f5f9;color:#64748b',dis=true;
+  if(!Balanca.suportado){ sTxt='só no computador da portaria'; }
+  else if(est==='sem-porta'||est==='erro'){ sTxt=est==='erro'?'erro na balança':'balança não conectada'; }
+  else if(!fresco){ sTxt='balança sem sinal'; sCor='#fee2e2;color:#991b1b'; }
+  else { v=(l.kg/1000).toLocaleString('pt-BR',{minimumFractionDigits:3,maximumFractionDigits:3})+' t';
+    if(!l.estavel){ sTxt='em movimento…'; sCor='#fef3c7;color:#92400e'; } else if(l.kg<=0){ sTxt='balança vazia'; } else { sTxt='ESTÁVEL'; sCor='#dcfce7;color:#166534'; dis=false; } }
+  eV.textContent=v; eS.textContent=sTxt; eS.setAttribute('style','font-size:11px;font-weight:800;border-radius:99px;padding:3px 9px;background:'+sCor);
+  if(st.etapa===1){ b.style.display=''; b.textContent='⚖️ Usar como 1ª parte'; eM.textContent='Pese a 1ª parte (carreta da frente na balança).'; }
+  else if(st.etapa===2){ b.style.display=''; const pode=!dis&&rodoPodeP2(st,l||{}); dis=!pode; b.textContent='⚖️ Usar como 2ª parte';
+    eM.innerHTML=`✓ 1ª parte FIXA: <b>${(st.p1kg/1000).toLocaleString('pt-BR',{minimumFractionDigits:3})} t</b> — ${st.mexeu?'agora espere ESTÁVEL com a 2ª parte na balança e toque em "Usar como 2ª parte".':'⏳ aguardando a carreta avançar para a 2ª parte…'}`; }
+  else { b.style.display='none'; eM.textContent='✓ As duas partes estão pesadas.'; }
+  b.disabled=dis; b.style.background=dis?'#cbd5e1':'#16a34a'; b.style.color=dis?'#64748b':'#fff'; b.style.cursor=dis?'default':'pointer';
 }
 function rodoLigar(id,on){
   const inp=document.getElementById(id), g=rodoGrp(id), w=g&&g.querySelector(':scope > .bal-w');
@@ -4009,20 +4047,21 @@ function rodoLigar(id,on){
   if(on){ rodoRefazer(id); } else { ['p1','p2'].forEach(p=>{const e=document.getElementById(id+'-'+p);if(e)e.value='';}); }
 }
 function rodoRefazer(id){
-  ['p1','p2'].forEach(p=>{const e=document.getElementById(id+'-'+p); if(!e)return; e.value=''; e.readOnly=e.classList.contains('bal-lock');
-    const w=e.closest('[id$="-box"]').querySelector('.bal-w'); if(w) w.style.display='';});
-  rodoSoma(id);
+  ['p1','p2'].forEach(p=>{const e=document.getElementById(id+'-'+p); if(!e)return; e.value=''; delete e.dataset.balKg; e.readOnly=e.classList.contains('bal-lock');});
+  if(_rodo[id]) Object.assign(_rodo[id],{etapa:1,p1kg:null,mexeu:false});
+  rodoSoma(id); rodoPinta(id);
 }
 function rodoSoma(id){
   const n=x=>parseFloat(String((document.getElementById(id+'-'+x)||{}).value||'').replace(',','.'))||0, p1=n('p1'), p2=n('p2');
   const b2=document.getElementById(id+'-p2-box'); b2.style.opacity=p1>0?'1':'.45'; b2.style.pointerEvents=p1>0?'':'none';
   const trava=(x,v)=>{const e=document.getElementById(id+'-'+x); const ok=document.getElementById(id+'-'+x+'-ok');
-    if(v>0&&e.dataset.balKg){ e.readOnly=true; const w=e.closest('[id$="-box"]').querySelector('.bal-w'); if(w) w.style.display='none'; }
+    if(v>0&&e.dataset.balKg){ e.readOnly=true; }
     ok.textContent=v>0?'✓ '+v.toLocaleString('pt-BR',{minimumFractionDigits:3,maximumFractionDigits:3})+' t':''; };
   trava('p1',p1); trava('p2',p2);
   const inp=document.getElementById(id), tot=p1>0&&p2>0?p1+p2:0;
   inp.value=tot?tot.toFixed(3):''; if(tot) inp.dataset.balKg=String(Math.round(tot*1000)); else delete inp.dataset.balKg;
   inp.dispatchEvent(new Event('input',{bubbles:true})); inp.dispatchEvent(new Event('change',{bubbles:true}));
+  { const st=_rodo[id]; if(st){ st.etapa=p1>0?(p2>0?3:2):1; if(p1>0&&st.p1kg==null) st.p1kg=Math.round(p1*1000); if(!(p1>0)) st.p1kg=null; } }
   document.getElementById(id+'-rodo-tot').textContent=tot?'Total: '+tot.toLocaleString('pt-BR',{minimumFractionDigits:3,maximumFractionDigits:3})+' t':(p1>0?'Agora pese a 2ª parte':'Pese a 1ª parte');
 }
 function rodoReset(id){ const c=document.getElementById(id+'-rodo-on'); if(c&&c.checked){ c.checked=false; rodoLigar(id,false); } }
