@@ -75,8 +75,9 @@ table.t tr.cl{cursor:pointer} table.t tr.cl:hover td{background:var(--soft)}
 <main class="main-content" id="main-content">
   <div class="dq-hd">
     <div><h1>🗂️ Dossiê de rastreabilidade</h1>
-      <p>Comece por um <b>lote</b>, um <b>cliente</b>, um <b>lote de MP</b>, uma <b>placa</b>, <b>NF</b> ou <b>ordem</b>. Tudo que aparece em azul abre o próximo nível.</p></div>
-    <div class="dq-bus"><input id="dq-q" placeholder="🔎 Lote, cliente, lote de MP, placa, NF, ordem, motorista…" onkeydown="if(event.key==='Enter')perguntar(this.value)">
+      <p><b>Nutrição animal</b> (caulim 25 kg, Big Bag e granel). Comece por um <b>lote</b>, um <b>cliente</b>, um <b>lote de MP</b>, uma <b>placa</b>, <b>NF</b> ou <b>ordem</b>. Tudo que aparece em azul abre o próximo nível.</p></div>
+    <div class="dq-bus"><div style="position:relative;"><input id="dq-q" autocomplete="off" placeholder="🔎 Lote, cliente, lote de MP, placa, NF, ordem, motorista…" onkeydown="if(event.key==='Enter'){dqSugFechar();perguntar(this.value);}else if(event.key==='Escape')dqSugFechar();" oninput="dqSugerir(this.value)">
+      <div id="dq-sug" style="display:none;position:absolute;left:0;right:0;top:calc(100% + 4px);background:#fff;border:1px solid #cbd5e1;border-radius:12px;box-shadow:0 10px 30px rgba(2,20,40,.18);z-index:50;max-height:60vh;overflow:auto;"></div></div>
       <button class="btn2 g" onclick="perguntar(document.getElementById('dq-q').value)">Buscar</button></div>
   </div>
   <div class="dq-card" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
@@ -195,7 +196,13 @@ async function verLaudo(l){
   gav(`🔬 Laudo ${E(l.numero)}`,`Lote ${E(LK)} › Medição`,kv({'Produto':E(l.produto),'Situação':E(l.status),'Veredito':E(l.veredito||'—'),'Umidade':l.umidade!=null?fN(l.umidade,2)+' %':'—','Validade':fD(l.validade),'Responsável técnico':E(l.rt||'—'),'Emitido':fDH(l.data)})+(g?`<div class="sec">GRANULOMETRIA</div><table class="t"><thead><tr><th>Peneira</th><th>Especificação</th><th class="n">Resultado</th></tr></thead><tbody>${g}</tbody></table>`:''),
     l.arquivo?`<button class="btn2 g" onclick="abrirArquivo('${Q(l.arquivo)}')">📜 Ver laudo assinado</button>`:'');
 }
-async function abrirArquivo(path){ const w=window.open('','_blank'); const {data,error}=await _supabase.storage.from('documentos').createSignedUrl(path,600); if(error||!data){ if(w) w.close(); return toast('Não abriu: '+(error&&error.message||''),'danger'); } w.location.href=data.signedUrl; }
+async function abrirArquivo(path){
+  const w=window.open('','_blank');
+  if(/\.html?$/i.test(path)){   // laudo/certificado gravado em HTML: o Storage entrega como texto (aparecia o código) — abre como página
+    const {data,error}=await _supabase.storage.from('documentos').download(path); if(error||!data){ if(w) w.close(); return toast('Não abriu: '+(error&&error.message||''),'danger'); }
+    const url=URL.createObjectURL(new Blob([await data.text()],{type:'text/html;charset=utf-8'})); if(w) w.location.href=url; else window.open(url,'_blank'); return;
+  }
+  const {data,error}=await _supabase.storage.from('documentos').createSignedUrl(path,600); if(error||!data){ if(w) w.close(); return toast('Não abriu: '+(error&&error.message||''),'danger'); } w.location.href=data.signedUrl; }
 
 /* ─── cabeça: resumo do lote ─── */
 function abrirLote(){
@@ -342,6 +349,18 @@ async function pivo(t,v){
       `<div class="sec">LOTES E UNIDADES BIPADAS (${its.length})</div><table class="t"><thead><tr><th>Lote</th><th>Produto</th><th>Código</th><th>Cliente</th><th class="n">Qtd</th></tr></thead><tbody>${its.map(x=>`<tr><td>${x.lote?lnk('lote',x.lote):'—'}</td><td>${E(x.produto)}</td><td style="font-family:ui-monospace,monospace;font-size:11.5px">${E(x.codigo||'')}</td><td>${E(x.cliente||'')}</td><td class="n">${fN(x.sacos)}</td></tr>`).join('')}</tbody></table>`,
       `<button class="btn2" onclick="csvUltimo()">⬇️ CSV</button><button class="btn2 g" onclick="pdfAtual()">🖨️ PDF</button>`); return; }
 }
+/* (19/11) sugestões enquanto digita (a partir de 2 letras) */
+let _sugT=null,_sugN=0;
+function dqSugFechar(){ const b=document.getElementById('dq-sug'); if(b){ b.style.display='none'; b.innerHTML=''; } }
+function dqSugerir(v){
+  clearTimeout(_sugT); v=String(v||'').trim(); if(v.length<2){ dqSugFechar(); return; }
+  _sugT=setTimeout(async()=>{ const n=++_sugN; const {data}=await _supabase.rpc('dos_busca',{p_q:v}); if(n!==_sugN) return;
+    const b=document.getElementById('dq-sug'), r=data||[];
+    b.innerHTML=r.length?r.map(x=>`<div onclick="dqSugFechar();pivo('${x.tipo}','${Q(x.chave)}')" style="padding:9px 12px;border-bottom:1px solid #eef2f7;cursor:pointer;font-size:13px;" onmouseover="this.style.background='#f1f5f9'" onmouseout="this.style.background=''">${E(x.rotulo)}</div>`).join('')
+      :'<div style="padding:10px 12px;color:#94a3b8;font-size:13px;">Nada encontrado.</div>';
+    b.style.display=''; },250);
+}
+document.addEventListener('click',e=>{ if(!e.target.closest('#dq-sug')&&e.target.id!=='dq-q') dqSugFechar(); });
 async function perguntar(q){ q=String(q||'').trim(); if(!q) return;
   const {data,error}=await _supabase.rpc('dos_busca',{p_q:q}); if(error) return toast(error.message,'danger');
   const r=data||[]; if(r.length===1) return pivo(r[0].tipo,r[0].chave);
@@ -377,8 +396,10 @@ function pdfLote(){ if(!D) return; abrirLote(); const resumo=document.getElement
 async function iniciar(){
   if(!checkPerm(MOD,'view')){ document.getElementById('main-content').innerHTML='<div class="vz">Sem acesso ao Dossiê. Peça ao administrador para liberar no perfil.</div>'; return; }
   if(['SADM','ADM','DIR','QLD'].includes(String((getUser()||{}).perfil||'').toUpperCase())) document.getElementById('bt-consultas').style.display='';
-  const {data}=await _supabase.from('producao').select('data,produtos_op').order('data',{ascending:false}).limit(60);
-  const vistos=new Map(); (data||[]).forEach(p=>(p.produtos_op||[]).forEach(e=>{ if(e&&e.lote&&!vistos.has(e.lote)) vistos.set(e.lote,{d:p.data,p:e.produto}); }));
+  const {data}=await _supabase.from('producao').select('data,produtos_op').order('data',{ascending:false}).limit(150);
+  // (19/11) dossiê de NUTRIÇÃO ANIMAL: só caulim 25 kg, Big Bag e granel (Liga, Sikal, Geoplus e impermeabilizante ficam fora)
+  const escopo=p=>/(25\s*kg|big\s*-?\s*bag|\bbag\b|granel)/i.test(p||'')&&!/(imperm|impem|\bliga\b|sikal|nanodry|geoplus)/i.test(p||'');
+  const vistos=new Map(); (data||[]).forEach(p=>(p.produtos_op||[]).forEach(e=>{ if(e&&e.lote&&escopo(e.produto)&&!vistos.has(e.lote)) vistos.set(e.lote,{d:p.data,p:e.produto}); }));
   document.getElementById('dq-rec').innerHTML=[...vistos.entries()].slice(0,18).map(([l,o])=>`<span class="dq-chip" onclick="abrirLoteCentro('${Q(l)}')">${E(l)} <span style="font-weight:500;color:var(--mu)">· ${fD(o.d)} · ${E(String(o.p||'').slice(0,26))}</span></span>`).join('')||'<span class="vz">Nenhum lote recente.</span>';
   const h=new URLSearchParams(location.hash.slice(1)); if(h.get('lote')) abrirLoteCentro(h.get('lote'));
   else { const q=new URLSearchParams(location.search); if(q.get('lote')) abrirLoteCentro(q.get('lote')); else if(q.get('q')) perguntar(q.get('q')); }

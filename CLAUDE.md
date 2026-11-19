@@ -1043,3 +1043,4 @@ fábrica específica. Não generalizar.
 - (19/11) bpf.html: quadro de registros do POP ganha a coluna '🧾 Regularização' quando há registros nessa etapa (contavam no 'pendente(s)' mas não apareciam); lista de assinados por pessoa fecha o alerta antes de abrir a ficha.
 - (19/11) bpf.html: janelas maiores — ficha (modal-lg) até 1280 px/96vw e 94vh; diálogos com tabela até 1180 px e 80vh (sem rolagem lateral).
 - (19/11, migração 171) bpf.html Regularização: botão 🚪 Saiu (SADM/ADM/DIR/GER/GIN/QLD/SGR) para quem saiu da empresa — data de saída (vem de funcionarios.demissao), obs; avisa registros DEPOIS da saída (escala errada); ficha mostra '🚪 não assinou — desligado em …'.
+- (19/11, migração 172) dossie.html: escopo nutrição animal (lotes recentes e busca: 25 kg, Big Bag, granel), sugestões enquanto digita (dqSugerir), laudo/arquivo .html abre como página (blob text/html; antes mostrava o código). 10 bags 18/11 restaurados.
