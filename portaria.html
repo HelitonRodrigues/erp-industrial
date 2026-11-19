@@ -1891,7 +1891,7 @@ function abrirChegada(opt){
   document.getElementById('ch-veiculo').innerHTML='<option value="">—</option>'+VEICULOS.map(x=>`<option>${x}</option>`).join('');
   const set=(id,val)=>document.getElementById(id).value=val??'';
   set('ch-motorista',v?.nome_motorista); set('ch-placa',v?.placa); set('ch-placa2',v?.placa2); set('ch-celular',v?.celular); set('ch-cpf',v?.cpf);
-  set('ch-transp',v?.transportadora); set('ch-veiculo',v?.modelo_veiculo||''); set('ch-carga',v?.tipo_carga||'com_stretch'); set('ch-tara',v?.peso_tara); rodoReset('ch-tara');
+  set('ch-transp',v?.transportadora); set('ch-veiculo',v?.modelo_veiculo||''); set('ch-carga',v?.tipo_carga||'com_stretch'); set('ch-tara',v?.peso_tara); rodoReset('ch-tara'); rodoAuto('ch-tara',v?.modelo_veiculo);
   set('ch-obs',v?.observacao); set('ch-hora',localInput(v?new Date(v.hora_chegada):new Date())); set('ch-busca','');
   _ch.horaIni=document.getElementById('ch-hora').value;   // se ninguém mexer, grava a hora exata (com segundos)
   document.getElementById('ch-salvar-mot').checked=true;
@@ -2217,7 +2217,7 @@ function abrirIniciar(portId){
     ${o.motorista&&!mesmoNome(o.motorista,v.nome_motorista)?`<div class="aviso">⚠️ A ordem é para <b>${esc(o.motorista)}</b>, mas quem chegou foi <b>${esc(v.nome_motorista)}</b>.</div>`:''}
     ${o.placa&&normPlaca(o.placa)!==normPlaca(v.placa)?`<div class="aviso">⚠️ A ordem é para a placa <b>${esc(o.placa)}</b>, e o caminhão é <b>${esc(v.placa)}</b>.</div>`:''}`;
   // tara: a que já foi lançada na chegada; senão, dica da última tara desta placa
-  document.getElementById('in-tara').value=v.peso_tara??''; rodoReset('in-tara');
+  document.getElementById('in-tara').value=v.peso_tara??''; rodoReset('in-tara'); rodoAuto('in-tara',v.modelo_veiculo);
   document.getElementById('in-tara-dica').textContent='';
   _supabase.from('portaria').select('peso_tara,hora_chegada').eq('placa',v.placa).not('peso_tara','is',null).neq('id',v.id).order('hora_chegada',{ascending:false}).limit(1)
     .then(({data})=>{const u=data&&data[0]; if(u&&_in.portId===v.id)document.getElementById('in-tara-dica').innerHTML=`Última tara desta placa: <b>${nf(u.peso_tara,2)} t</b> (${dtBr(u.hora_chegada)}) — pese de novo, o tanque e a lona mudam.`;});
@@ -2354,7 +2354,7 @@ async function abrirSaida(portId){
   const r=o?resumoOrdem(o):null, pc=o?palletsCarregados(o):0;
   document.getElementById('sa-resumo').innerHTML=`<div class="peso-box"><div class="v-placa">${esc(v.placa)}<small>${esc(doisNomes(v.nome_motorista))}</small></div>
     <div style="font-size:13px;color:#475569;margin-top:4px;">${v.unidade_carregamento?'🏭 <b>'+esc(v.unidade_carregamento)+'</b> · ':''}chegou ${hmDia(v.hora_chegada)} · carregando desde ${hmDia(v.inicio_carregamento)}</div></div>${blocoOrdem(o)}`;
-  document.getElementById('sa-tara').value=v.peso_tara??''; document.getElementById('sa-bruto').value=v.peso_bruto??''; rodoReset('sa-bruto');
+  document.getElementById('sa-tara').value=v.peso_tara??''; document.getElementById('sa-bruto').value=v.peso_bruto??''; rodoReset('sa-bruto'); rodoAuto('sa-bruto',v.modelo_veiculo);
   document.getElementById('sa-npal').value=v.qtd_pallets??''; document.getElementById('sa-ppal').value=v.peso_pallet_kg??_pesoPallet;
   document.getElementById('sa-conf').innerHTML=!o?'':o.status==='carregado'
     ?`<div class="aviso ok">✅ Carregamento salvo no ERP${r.plt?` · ${pc} de ${r.plt} pallets`:''}.</div>`
@@ -4026,6 +4026,14 @@ function rodoSoma(id){
   document.getElementById(id+'-rodo-tot').textContent=tot?'Total: '+tot.toLocaleString('pt-BR',{minimumFractionDigits:3,maximumFractionDigits:3})+' t':(p1>0?'Agora pese a 2ª parte':'Pese a 1ª parte');
 }
 function rodoReset(id){ const c=document.getElementById(id+'-rodo-on'); if(c&&c.checked){ c.checked=false; rodoLigar(id,false); } }
+/* (19/11) caminhão cadastrado como RODOTREM já abre pesando em 2 partes: antes o porteiro usava o peso normal duas vezes
+   e a 2ª pesagem apagava a 1ª (PHX8J51 ficou com tara 9,000 t em vez de 16,480 + 9,000 = 25,480 t). */
+function rodoAuto(id,modelo){
+  const c=document.getElementById(id+'-rodo-on'), inp=document.getElementById(id); if(!c||!inp) return;
+  if(/rodotrem/i.test(String(modelo||''))&&!String(inp.value||'').trim()){ if(!c.checked){ c.checked=true; rodoLigar(id,true); } }
+  else if(!/rodotrem/i.test(String(modelo||''))&&c.checked&&!String(inp.value||'').trim()){ c.checked=false; rodoLigar(id,false); }
+}
+setTimeout(()=>{ const sel=document.getElementById('ch-veiculo'); if(sel) sel.addEventListener('change',()=>rodoAuto('ch-tara',sel.value)); },0);
 ['ch-tara','in-tara','sa-bruto'].forEach(rodoMontar);
 </script>
 </body>
