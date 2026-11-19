@@ -1178,10 +1178,16 @@ async function apagarNota(id,i){
   const a=v.anotacoes.filter((_,k)=>k!==i); const {error}=await _supabase.from('portaria').update({anotacoes:a}).eq('id',id);
   if(error){toast('Não apagou: '+error.message,'danger');return;} v.anotacoes=a; renderFila();
 }
+/* (18/11) caminhão esquecido: na portaria há mais de 12 h sem sair (ex.: NUG4C45 "sem ordem" desde 17/11) */
+function avisoEsquecidos(){
+  const velhos=_veic.filter(v=>!['finalizado','cancelado'].includes(v.status)&&Date.now()-Date.parse(v.hora_chegada)>12*3600e3);
+  if(!velhos.length) return '';
+  return `<div class="aviso erro" style="margin-bottom:10px;">⚠️ <b>${velhos.length} caminhão(ões) na portaria há mais de 12 h</b> — se já foi embora, finalize ou cancele: ${velhos.map(v=>`<b>${esc(v.placa)}</b> (${esc((ST[v.status]||{}).t||v.status)}, há ${durTxt(Date.now()-Date.parse(v.hora_chegada))})`).join(' · ')}</div>`;
+}
 function renderFila(){
   const car=_veic.filter(v=>v.status==='carregando').sort((a,b)=>Date.parse(a.inicio_carregamento||a.hora_chegada)-Date.parse(b.inicio_carregamento||b.hora_chegada));
   const f=fila(), prox=proximo(), el=document.getElementById('fila');
-  if(!f.length&&!car.length){el.innerHTML='<div class="card empty-state" style="padding:30px;"><div class="empty-icon">🚪</div><h3>Nenhum caminhão na portaria</h3><p>Use <b>＋ Registrar chegada</b> quando o caminhão chegar.</p></div>';return;}
+  if(!f.length&&!car.length){el.innerHTML=avisoEsquecidos()+'<div class="card empty-state" style="padding:30px;"><div class="empty-icon">🚪</div><h3>Nenhum caminhão na portaria</h3><p>Use <b>＋ Registrar chegada</b> quando o caminhão chegar.</p></div>';return;}
   const podeEditar=checkPerm(MOD,'edit');
   const ordemTxt=(o,v)=>{ if(!o){const sug=ordemSugerida(v.nome_motorista,v.placa);
       return `<a class="f-ord sem" onclick="abrirVincular('${v.id}')">📄 Sem ordem — vincular${sug?` · 💡 ${esc(sug.numero)}?`:''}</a>`;}
@@ -1206,7 +1212,7 @@ function renderFila(){
       <div class="f-mid">${ordemTxt(o,v)}<div class="f-meta">chegou ${hmDia(v.hora_chegada)}${v.celular?` · <a href="tel:${esc(String(v.celular).replace(/\D/g,''))}">${esc(v.celular)}</a>`:''}${v.peso_tara!=null?' · tara '+nf(v.peso_tara,2)+' t':''}</div></div>
       <div class="f-tempo ${m>=120?'muito':m>=60?'alta':''}"><b>${durTxt(esp)}</b><small>${st.t.toLowerCase()}</small></div>
       <div class="f-acoes" ${podeEditar?'':'style="opacity:.6;pointer-events:none;"'}>${principal}${ic('Anotação','btn-ghost',`anotar('${v.id}')`,'📝')}${ic('Editar','btn-ghost',`abrirChegada({edit:'${v.id}'})`,'✏️')}${ic('Excluir','btn-ghost del',`excluirPassagem('${v.id}')`,'🗑️')}</div>${notasHtml(v)}</div>`;};
-  el.innerHTML=car.map(linhaCarr).join('')+(car.length&&f.length?'<div class="f-sep">Fila de espera — por ordem de chegada</div>':'')+f.map(linhaFila).join('');
+  el.innerHTML=avisoEsquecidos()+car.map(linhaCarr).join('')+(car.length&&f.length?'<div class="f-sep">Fila de espera — por ordem de chegada</div>':'')+f.map(linhaFila).join('');
 }
 /* ── PRODUTO DA ORDEM → PRODUTO DO ERP (produtos.html) ──
    O sistema de vendas escreve diferente ("CAULIM BIG BAG – BRANCO", "LIGA ORIGINAL CONCENTRADO").
@@ -1220,8 +1226,23 @@ function prodNorm(s){
 function prodTokens(s){ return prodNorm(s).split(' ').map(t=>PROD_SIN[t]!==undefined?PROD_SIN[t]:t).filter(t=>t&&t.length>0); }
 function prodPeso(s){ const m=prodNorm(s).match(/\b(\d+(?:\.\d+)?)kg\b/); return m?Number(m[1]):null; }
 function prodTipo(s){ const n=prodNorm(s); return /granel/.test(n)?'granel':/\bbag\b|big ?bag/.test(n)?'bag':'saco'; }
+/* (18/11) REGRA FIXA do SalesCode para o impermeabilizante (vale antes do apelido): o NÚMERO do texto decide.
+   "LIGA ORIGINAL COM IMPERMEABILIZANTE" (sem número) = Liga Concentrado c/ Impermeabilizante 10kg;
+   "... IMPERMEABILIZANTE 50" = Liga Original c/ Impermeabilizante 50; LigaPro / LigaNex / Sikal pelo nome. */
+function regraImperm(texto, produtos) {
+  const n = String(texto || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  if (!/imperm|impem/.test(n) || /\bbag\b|big ?bag/.test(n)) return null;
+  const ach = f => (produtos || []).find(p => { const m = String(p.nome || '').toLowerCase(); return /c\/ ?imp/.test(m) && !/big ?bag/.test(m) && f(m); });
+  let p = null;
+  if (/sikal/.test(n)) p = ach(m => /sikal/.test(m));
+  else if (/liga ?pro/.test(n)) p = ach(m => /ligapro/.test(m));
+  else if (/liga ?nex/.test(n)) p = ach(m => /liganex/.test(m));
+  else if (/liga/.test(n)) p = /\b50\b/.test(n) ? ach(m => /liga original/.test(m) && /\b50\b/.test(m)) : ach(m => /liga concentrado/.test(m));
+  return p ? { produto: p, seguro: true, score: 1, via: 'regra' } : null;
+}
 function casarProduto(texto,produtos,aliases){
   const an=prodNorm(texto); if(!an)return null;
+  {const rg=regraImperm(texto,produtos); if(rg)return rg;}
   const al=(aliases||[]).find(a=>a.alias_norm===an);
   if(al){const p=produtos.find(x=>x.id===al.produto_id); if(p)return {produto:p,score:1,seguro:true,via:'apelido'};}
   const exato=produtos.find(p=>prodNorm(p.nome)===an); if(exato)return {produto:exato,score:1,seguro:true,via:'igual'};
@@ -2372,7 +2393,23 @@ async function cargaDaOrdem(numero){
     if(pu)kg+=q*pu; else if(q)semPeso.add(i.produto);
   });
   const grupos=Object.values(g).sort((a,b)=>a.produto.localeCompare(b.produto)||String(a.lote).localeCompare(String(b.lote)));
-  const res={numero:String(numero),cargas:cs||[],itens,grupos,nPal,esperadoKg:kg,semPeso:[...semPeso]};
+  /* (18/11) o que está na ORDEM e não foi bipado (sem rótulo, Felisbina, esquecido) também pesa na balança:
+     entra no esperado pelo peso do cadastro — antes a 028542 (270 sc de Liga c/ impermeabilizante sem bipar) dava +20 % de "diferença" */
+  const naoBip=[];
+  try{
+    const {data:ri}=await _supabase.from('romaneio_itens').select('*').eq('numero',String(numero));
+    const ped={}; (ri||[]).forEach(i=>{const pe=produtoErpDoItem(i), nome=pe?pe.nome:i.produto, q=parseFloat(i.quantidade)||0; if(!q||!nome)return;
+      const k=normNome(nome); ped[k]=ped[k]||{nome,q:0,felis:!!(pe&&pe.felis),pe}; ped[k].q+=q;});
+    const bip={}; grupos.forEach(x=>{const k=normNome(x.produto); bip[k]=(bip[k]||0)+Number(x.qtd||0);});
+    const faltam=Object.entries(ped).map(([k,p])=>({...p,falta:+(p.q-(bip[k]||0)).toFixed(3)})).filter(p=>p.falta>0.0005);
+    if(faltam.length){
+      const nm=faltam.filter(p=>!p.felis).map(p=>p.nome);
+      const {data:pz}=nm.length?await _supabase.from('produtos').select('nome,peso_unidade_kg').in('nome',nm):{data:[]};
+      faltam.forEach(p=>{const pr=(pz||[]).find(x=>normNome(x.nome)===normNome(p.nome)), pu=pr&&Number(pr.peso_unidade_kg)||(p.pe&&Number(p.pe.peso_unidade_kg||p.pe.peso_kg))||null;
+        naoBip.push({nome:p.nome,qtd:p.falta,felis:p.felis,kg:pu?p.falta*pu:null}); if(pu) kg+=p.falta*pu; else semPeso.add(p.nome+(p.felis?' (Felisbina)':''));});
+    }
+  }catch(e){ console.warn('[portaria] itens da ordem:',e); }
+  const res={numero:String(numero),cargas:cs||[],itens,grupos,nPal,esperadoKg:kg,semPeso:[...semPeso],naoBip};
   _cargaCache[String(numero)]=res;
   return res;
 }
@@ -2432,8 +2469,12 @@ async function contarCarga(o,v){
   if(_sa.portId!==v.id)return;
   _sa.carga=c; document.getElementById('sa-carga').innerHTML=`<div class="sec-tit" style="margin:12px 0 6px;"><h3>📦 Carga bipada (QR)</h3><span>${c.grupos.length?c.itens.length+' item(ns)':''}</span></div>${htmlCarga(c)}`;
   if(!c.itens.length)return;
-  _sa.nPal=c.nPal; _sa.esperadoKg=c.esperadoKg; _sa.semPeso=c.semPeso;
-  const np=document.getElementById('sa-npal'); if(v.qtd_pallets==null&&!np.value)np.value=c.nPal;
+  _sa.nPal=c.nPal; _sa.esperadoKg=c.esperadoKg; _sa.semPeso=c.semPeso; _sa.naoBip=c.naoBip||[];
+  /* (18/11) nº de pallets vem do Carregamento (antes era digitado: 028515 com 18 na portaria e 14 na carga). Com item da ordem
+     sem bipar (vai pallet a mais que o sistema não sabe), fica liberado para o porteiro corrigir. */
+  const np=document.getElementById('sa-npal');
+  if(!_sa.naoBip.some(x=>!x.felis)){ np.value=c.nPal; np.readOnly=true; np.title='Vem do Carregamento — clique duas vezes para corrigir'; np.ondblclick=()=>{np.readOnly=false;np.title='';np.focus();}; }
+  else { if(v.qtd_pallets==null&&!np.value)np.value=c.nPal; np.readOnly=false; np.title='Há itens da ordem sem bipar — confira os pallets'; }
   // (18/11) só bag/granel: não vai pallet — trava em 0 (antes dava para digitar e o peso do produto saía errado: 39 × 28 kg)
   _sa.semPallet=c.nPal===0&&c.grupos.length&&c.grupos.every(x=>x.tipo==='bag'||x.tipo==='granel');
   if(_sa.semPallet){ np.value=0; np.disabled=true; np.title='Bag e granel não vão em pallet'; } else { np.disabled=false; np.title=''; }
@@ -2459,6 +2500,7 @@ function calcLiquido(){
     if(dif!=null)box.classList.add(ok?'ok':'erro');
     document.getElementById('sa-prod-dif').textContent=dif!=null?(ok?'✓ ':'⚠ ')+difTxt(dif)+' do carregado':'sem os pallets';
     el.innerHTML=`<div class="aviso ${dif==null?'info':ok?'ok':'erro'}">📦 Produto carregado (pelo Carregamento): <b>${nf(esp,3)} t</b>${dif!=null?` · balança <b>${difTxt(dif)}</b> — ${ok?`dentro da tolerância (±${TOL_KG} kg) ✓`:`<b>FORA da tolerância de ±${TOL_KG} kg</b> — confira a carga e a pesagem`}`:''}
+      ${(_sa.naoBip||[]).length?`<br><span style="font-size:11.5px;">Inclui o que está na ordem e <b>não foi bipado</b>: ${_sa.naoBip.map(x=>`${esc(x.nome)} ${nf(x.qtd)}${x.kg?' ('+nf(x.kg/1000,2)+' t)':''}`).join(' · ')}</span>`:''}
       ${_sa.semPeso&&_sa.semPeso.length?`<br><span style="font-size:11.5px;">Sem peso no cadastro de produtos: ${_sa.semPeso.map(esc).join(', ')} — não entrou na conta.</span>`:''}</div>`;
   }else el.innerHTML='';
 }
