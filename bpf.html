@@ -4830,8 +4830,9 @@ function renderFila(){
   const pend=pendenciasAssinatura().filter(podeAssinar);
   const minhasFn=[...new Set(_desig.filter(d=>d.ativo&&d.funcionario_nome===u?.nome).map(d=>d.funcao_cod))];
   const semDesig=!minhasFn.length;
-  const cardT=t=>{const at=tarefaAtrasada(t),f=_forms.find(x=>x.codigo===t.formulario_cod);
-    return `<div class="tk ${at?'atras':'coletar'}"><div class="tk-ic">📝</div><div class="tk-bd">
+  const cardT=t=>{const at=tarefaAtrasada(t),f=_forms.find(x=>x.codigo===t.formulario_cod), eu=minhasFn.includes(t.funcao_cod);
+    return `<div class="tk ${at?'atras':'coletar'}"${eu?' style="border-left:5px solid #16a34a;background:#f0fdf4;"':''}><div class="tk-ic">📝</div><div class="tk-bd">
+      <div style="margin-bottom:3px;">${eu?'<span class="badge" style="background:#16a34a;color:#fff;">👤 VOCÊ executa</span>':`<span class="badge badge-gray">executa: ${esc(nomeFuncao(t.funcao_cod))}</span>`}</div>
       <div class="tk-msg">${esc(msgTarefa(t))}</div>
       <div class="tk-mt"><strong>${esc(t.formulario_cod)}</strong><span>${esc(f?.titulo||'')}</span>
         <span>${esc(t.origem_det||t.origem_ref)}</span>
@@ -4862,8 +4863,17 @@ function renderFila(){
       ${_restr?'Peça à Qualidade para cadastrar sua designação de função.'
               :'Cadastre em <strong>👤 Designações de função</strong> ou rode a carga inicial da migration.'}`
      :`Designado como ${minhasFn.map(x=>'<strong>'+esc(nomeFuncao(x))+'</strong>').join(', ')}.`}</div>`;
-  if(tar.length) h+=`<div class="sec-card"><h3>📝 Colete a informação</h3>
-    <div class="sub">Você é o executante — o registro nasce aqui.</div></div>`+tar.map(cardT).join('');
+  /* (19/11) fichas agrupadas por LOTE (as da produção) e "Do dia" (as demais); a sua função fica em verde — vale para todo usuário */
+  if(tar.length){
+    const loteDe=t=>{const m=String(t.origem_det||t.origem_ref||'').match(/lote\s+(\d{8}[A-Z0-9]*)/i); return m?m[1]:null;};
+    const linhaDe=t=>{const m=String(t.origem_det||'').match(/(Linha\s*\d+|Longa Vida|Emitec)/i); return m?m[1]:'';};
+    const grupos={}; tar.forEach(t=>{const lt=loteDe(t); const k=lt?(linhaDe(t)+'|'+lt):'__dia'; (grupos[k]=grupos[k]||[]).push(t);});
+    const ks=Object.keys(grupos).sort((a,b)=>a==='__dia'?1:b==='__dia'?-1:a.localeCompare(b));
+    h+=`<div class="sec-card"><h3>📝 Colete a informação</h3><div class="sub">Fichas agrupadas por lote. Em verde, as que <b>você executa</b>; nas outras você leva, recolhe e lança.</div></div>`;
+    ks.forEach(k=>{ const l=grupos[k], [lin,lt]=k==='__dia'?['','']:k.split('|'), meus=l.filter(t=>minhasFn.includes(t.funcao_cod)).length;
+      h+=`<div style="margin:12px 0 6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><b style="font-size:14.5px;color:var(--primary,#042D4D);">${k==='__dia'?'📅 Do dia':`🏭 ${esc(lin)} · lote ${esc(lt)}`}</b>
+        <span class="badge badge-gray">${l.length} ficha(s)</span>${meus?`<span class="badge" style="background:#dcfce7;color:#166534;">${meus} sua(s)</span>`:''}</div>`+l.map(cardT).join(''); });
+  }
   if(pend.length) h+=`<div class="sec-card" style="margin-top:13px;"><h3>✍️ Aguardando sua verificação e assinatura</h3>
     <div class="sub">Já coletado por outra pessoa; falta você conferir.</div></div>`+pend.map(cardA).join('');
   if(!tar.length&&!pend.length) h+=`<div class="empty"><div class="ic">✅</div><h3>Fila vazia</h3>

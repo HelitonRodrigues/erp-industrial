@@ -1065,3 +1065,4 @@ fábrica específica. Não generalizar.
   • portaria-dsm.html: saldo do lote no silo (produzido − carregado) e o lote aprovado MAIS ANTIGO com saldo já vem marcado na saída.
   • dossie.html (migração 174): 🚫 Bloquear lote / 🔓 Desbloquear (SADM/ADM/DIR/GER/GIN/QLD) + faixa vermelha no resumo.
 - (19/11) portaria-dsm.html: lote bloqueado (lotes_bloqueados) aparece 🚫 em vermelho na saída e não pode ser escolhido; a sugestão pula; aviso 'não carregar' quando só sobra lote bloqueado; troca de lote (pátio/histórico) recusa lote bloqueado. dossie.html: aviso de granel no bloqueio.
+- (19/11) bpf.html Minha fila: tarefas agrupadas por LOTE (linha + lote, tirado de origem_det) + seção 'Do dia'; em verde '👤 VOCÊ executa' quando a função da tarefa é uma das designações de quem está logado (vale para todos os usuários); nas outras, 'executa: <função>'.
