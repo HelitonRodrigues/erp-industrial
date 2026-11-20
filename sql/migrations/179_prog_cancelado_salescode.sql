@@ -1,0 +1,8 @@
+-- (20/11/2026) aplicada no Supabase.
+-- _prog_tem_carga(pedido): prova de carga = balança, portaria, ordem de carregamento (romaneio_itens) ou bipado no Carregamento.
+-- tg_prog_cancelado_sc: status "Ordem Cancelada" no SalesCode → cancelado (motivo "Cancelada no SalesCode", por "Sistema (SalesCode)");
+--   se o SalesCode tirar o cancelamento, volta sozinho.
+-- sync_salescode: pedido que SAI do SalesCode só vira carregado ("Saiu do Salescode") com prova de carga; sem prova → cancelado
+--   ("Saiu do SalesCode sem carregar").
+-- Acerto: A01M9P (Ordem Cancelada) e 16 pedidos "saiu do SalesCode" sem prova desde 16/11 → Cancelados. Os de 12–13/11 (antes da
+--   portaria/ordens no ERP) e o A01MU4 (estava numa ordem) continuam como carregados.
