@@ -322,6 +322,7 @@ tr.mi-sel td{background:#f0fdf4;}
   .mi-fin-g{grid-template-columns:1fr 1fr;}
   .frow{padding:10px;}.f-acoes .btn{min-height:46px;}
 }
+#nf-drop.on{background:#ecfccb;border-color:#65a30d}
 </style>
 </head>
 <body>
@@ -567,8 +568,12 @@ tr.mi-sel td{background:#f0fdf4;}
     <div class="card" style="margin-bottom:12px;"><div class="filtros" style="margin-bottom:0;align-items:flex-end;">
       <div class="form-group" style="flex:1;min-width:240px;"><label class="form-label">Buscar</label><input class="form-input" placeholder="ordem, placa, motorista, cliente, pedido ou nº da NF" oninput="_nf.q=this.value;renderNfs()"></div>
       <label style="display:flex;gap:6px;align-items:center;font-size:13px;margin-bottom:10px;"><input type="checkbox" onchange="_nf.todas=this.checked;renderNfs()"> mostrar também as completas</label>
+      <label class="btn btn-primary" style="cursor:pointer;white-space:nowrap;margin-bottom:0;" title="Escolha vários PDFs: cada NF vai sozinha para o caminhão e o cliente certos (pelo pedido)">📤 Subir PDFs<input type="file" accept="application/pdf" multiple style="display:none" onchange="nfLote(this.files);this.value=''"></label>
       <button class="btn btn-secondary" onclick="carregarNfs()">🔄 Atualizar</button></div>
+      <div id="nf-drop" ondragover="event.preventDefault();this.classList.add('on')" ondragleave="this.classList.remove('on')" ondrop="nfDrop(event)"
+        style="margin-top:10px;border:2px dashed #94a3b8;border-radius:12px;padding:12px;text-align:center;color:#475569;font-size:13px;">📥 <b>Arraste os PDFs das NFs aqui</b> — cada uma vai sozinha para o caminhão certo, pelo <b>pedido</b> que vem na nota.</div>
       <div style="font-size:12.5px;color:#64748b;margin-top:6px;">Só <b>Caulim 25 kg e Big Bag</b>. Cada caminhão que saiu precisa da <b>NF de cada cliente</b> da ordem. Anexe o <b>PDF da DANFE</b> (o número é lido sozinho) ou uma <b>foto</b> (digite o número). Granel: Portaria DSM.</div></div>
+    <div id="nf-lote-res"></div>
     <div id="nf-lista"></div>
   </div>
 
@@ -4117,6 +4122,48 @@ async function nfSalvar(){
   if(typeof addLog==='function') addLog('INSERT',MOD,s.numero_ordem,`NF ${num} anexada — ${cli} (ordem ${s.numero_ordem})`);
   document.getElementById('nf-ov').remove(); toast(`📄 NF ${num} anexada.`,'success'); carregarNfs();
 }
+/* (20/11) 📤 SUBIR VÁRIAS NFs DE UMA VEZ (igual ao Filito): escolhe ou arrasta os PDFs; cada DANFE é lida (chave + "Pedido No.")
+   e vai sozinha para o caminhão e o cliente certos pelo PEDIDO. O que não der para ligar fica listado para anexar à mão. */
+async function nfLote(files){
+  if(!guardAction(MOD,'edit')) return;
+  files=[...(files||[])].filter(f=>/pdf/i.test(f.type)||/\.pdf$/i.test(f.name)); if(!files.length){ toast('Escolha arquivos PDF.','warning'); return; }
+  if(!_nf.saidas.length) await carregarNfs();
+  const res=[], out=document.getElementById('nf-lote-res');
+  const pinta=()=>{ out.innerHTML=`<div class="card" style="margin-bottom:12px;padding:10px 14px;"><b>📤 ${res.length} de ${files.length} PDF(s)</b>
+    ${res.map(r=>`<div style="padding:4px 0;border-top:1px dashed #e2e8f0;font-size:13px;">${r.ok?'✅':r.dup?'↩️':'⚠️'} <b>${esc(r.nome)}</b> — ${r.msg}</div>`).join('')}</div>`; };
+  for(const f of files){
+    const r={nome:f.name,ok:false,dup:false,msg:''}; res.push(r); r.msg='lendo…'; pinta();
+    try{
+      const txt=(await pecasDoPdf(f)).map(p=>p.s).join(' ');
+      const d=nfDaChave(nfAcharChave(txt));
+      const peds=[...new Set([...txt.matchAll(/Pedido\s*N[ºo°.]*\s*:?\s*([A-Z]\d{2}[A-Z0-9]{3,4})/gi)].map(m=>m[1].toUpperCase()))];
+      const emi=(txt.match(/DATA\s+DE\s+EMISS[ÃA]O\s*(\d{2}\/\d{2}\/\d{4})/i)||[])[1];
+      if(!d){ r.msg='não achei a chave da NF no PDF — anexe à mão.'; pinta(); continue; }
+      if(_nf.nfs.some(n=>n.chave===d.chave)){ r.dup=true; r.msg=`NF ${d.numero} já estava anexada.`; pinta(); continue; }
+      // pedido → item da ordem (só Caulim 25 kg / Big Bag) → caminhão que saiu
+      const it=_nf.itens.filter(i=>peds.includes(String(i.pedido||'').toUpperCase())&&nfEhCaulim(i));
+      // o mesmo pedido pode ter ido em mais de um caminhão: desempata pela placa da NF
+      const placaNf=((txt.match(/Placa\s*:?\s*([A-Z]{3}-?\d[A-Z0-9]\d{2})/i)||[])[1]||'').replace('-','').toUpperCase();
+      const cands=_nf.saidas.filter(x=>it.some(i=>String(i.numero)===String(x.numero_ordem)));
+      const sx=cands.find(x=>placaNf&&String(x.placa||'').replace('-','').toUpperCase()===placaNf)||cands[0]||null;
+      if(sx) it.sort((a,b)=>(String(b.numero)===String(sx.numero_ordem))-(String(a.numero)===String(sx.numero_ordem)));
+      if(!peds.length){ r.msg=`NF ${d.numero}: sem "Pedido No." no PDF — anexe à mão.`; pinta(); continue; }
+      if(!sx){ r.msg=`NF ${d.numero} (pedido ${peds.join(', ')}): não achei caminhão que saiu com este pedido de Caulim 25 kg / Big Bag.`; pinta(); continue; }
+      const cli=it[0].cliente;
+      const path=`portaria-nfs/${sx.numero_ordem}/${Date.now()}_NF${d.numero}.pdf`;
+      const up=await _supabase.storage.from('documentos').upload(path,f,{upsert:false,contentType:'application/pdf'});
+      if(up.error){ r.msg='não enviou o arquivo: '+esc(up.error.message); pinta(); continue; }
+      const ins=await _supabase.from('portaria_nfs').insert({portaria_id:sx.id,ordem:sx.numero_ordem,cliente:cli,pedido:peds.join(', '),numero:d.numero,serie:d.serie,chave:d.chave,
+        emissao:emi?emi.split('/').reverse().join('-'):d.emissao,cnpj_emit:d.cnpj,arquivo_path:path,arquivo_nome:f.name,enviado_por:(quemSou()||'Portaria')+' (lote)'}).select().single();
+      if(ins.error){ r.msg=/duplicate|unique/i.test(ins.error.message)?`NF ${d.numero} já estava anexada.`:'não salvou: '+esc(ins.error.message); r.dup=/duplicate|unique/i.test(ins.error.message); pinta(); continue; }
+      _nf.nfs.push(ins.data); r.ok=true; r.msg=`<b>NF ${esc(d.numero)}</b> → ordem <b>${esc(sx.numero_ordem)}</b> (${esc(sx.placa||'')}) · ${esc(cli)}`; pinta();
+    }catch(e){ r.msg='não consegui ler o PDF — anexe à mão.'; pinta(); }
+  }
+  const ok=res.filter(r=>r.ok).length; if(ok&&typeof addLog==='function') addLog('INSERT',MOD,null,`${ok} NF(s) anexadas em lote`);
+  toast(`📤 ${ok} de ${files.length} NF(s) anexadas sozinhas.`,ok===files.length?'success':'warning'); renderNfs();
+}
+function nfDrop(e){ e.preventDefault(); document.getElementById('nf-drop').classList.remove('on'); nfLote(e.dataTransfer.files); }
+
 setTimeout(()=>{ try{ carregarNfs(); }catch(e){} },5000);   // contador de pendentes na aba logo ao abrir a portaria
 
 function showTab(t){
