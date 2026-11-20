@@ -358,6 +358,13 @@ tr.mi-sel td{background:#f0fdf4;}
 .fi-conf{display:grid;gap:5px;font-size:13px}
 .fi-tab{width:100%;border-collapse:collapse;font-size:13px}.fi-tab th{background:#042D4D;color:#C9FF64;font-size:10.5px;text-align:left;padding:7px 8px}.fi-tab td{border-bottom:1px solid #e2e8f0;padding:7px 8px;vertical-align:top}.fi-tab .n{text-align:right}
 .fi-ft{display:flex;gap:8px;padding:12px 22px;border-top:1px solid #e2e8f0;align-items:center;position:sticky;bottom:0;background:#fff}
+
+/* (20/11) visualizador na frente */
+.dv-ov{position:fixed;inset:0;z-index:1500;background:rgba(2,20,40,.6);display:flex;align-items:center;justify-content:center;padding:16px}
+.dv-m{width:min(1100px,98vw);height:94vh;background:#fff;border-radius:16px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 30px 80px rgba(0,0,0,.5)}
+.dv-h{display:flex;gap:8px;align-items:center;padding:10px 14px;background:#042D4D;color:#fff}.dv-h .dv-t{font-size:14px}
+.dv-f{flex:1;border:0;width:100%;background:#f1f5f9}
+#m-docs,#m-ordem,#m-qr{z-index:1250!important}
 </style>
 </head>
 <body>
@@ -1024,6 +1031,30 @@ const ST={sem_ordem:{t:'Sem ordem',c:'#ef4444',b:'badge-danger'},aguardando:{t:'
 const SIT_ORD={esperando:['Esperando caminhão','badge-info'],fila:['Caminhão na fila','badge-warning'],em_carregamento:['Em carregamento','badge-success'],
                carregado:['Carregado · pesar saída','badge-success'],finalizado:['Finalizada','badge-gray']};
 const CORES_ENTREGA=['#1F6FD1','#5E8C00','#B45309','#7C3AED','#0E7490','#BE185D','#4D7C0F','#9A3412','#334155','#A16207'];
+/* (20/11) TUDO ABRE NA FRENTE: romaneio, certificado, NF, PDF da ordem e impressões abrem num visualizador por cima da tela
+   (não em outra aba). Vale para todo window.open da Portaria — inclusive o do certificados.js. WhatsApp continua abrindo fora. */
+const _abrirFora=window.open.bind(window);
+function docNaFrente(url){
+  const ov=document.createElement('div'); ov.className='dv-ov';
+  ov.innerHTML=`<div class="dv-m"><div class="dv-h"><b class="dv-t">📄 Documento</b><span style="flex:1"></span>
+    <button class="btn btn-sm dv-pr" style="background:#fff;color:#042D4D;border:0;">🖨️ Imprimir</button>${url?`<a class="btn btn-ghost btn-sm" href="${String(url).replace(/"/g,'&quot;')}" target="_blank" rel="noopener" title="Abrir em outra aba">↗</a>`:''}
+    <button class="btn btn-primary btn-sm dv-x">✕ Fechar</button></div><iframe class="dv-f"></iframe></div>`;
+  document.body.appendChild(ov);
+  const fr=ov.querySelector('iframe'), fechar=()=>ov.remove();
+  ov.querySelector('.dv-x').onclick=fechar; ov.addEventListener('click',e=>{ if(e.target===ov) fechar(); });
+  const tecla=e=>{ if(e.key==='Escape'&&document.body.contains(ov)){ fechar(); document.removeEventListener('keydown',tecla); } }; document.addEventListener('keydown',tecla);
+  ov.querySelector('.dv-pr').onclick=()=>{ try{ fr.contentWindow.focus(); fr.contentWindow.print(); }catch(e){ if(url) _abrirFora(url,'_blank'); } };
+  if(url) fr.src=url;
+  const w=fr.contentWindow;
+  try{ w.close=fechar; }catch(e){}
+  fr.addEventListener('load',()=>{ try{ const t=fr.contentDocument&&fr.contentDocument.title; if(t) ov.querySelector('.dv-t').textContent='📄 '+t; w.close=fechar; }catch(e){} });
+  return w;
+}
+window.open=function(url,target,feat){
+  const u=String(url||'');
+  if(/wa\.me|whatsapp\.com|^mailto:|^tel:/i.test(u)) return _abrirFora(url,target,feat);
+  return docNaFrente(u&&u!=='about:blank'?u:'');
+};
 const PDFJS='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
 const PDFJS_WORKER='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 const TESSERACT='https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';
@@ -4132,7 +4163,7 @@ function nfAnexar(portId,cliente){
   const s=_nf.saidas.find(x=>x.id===portId); if(!s) return;
   const cl=nfClientes(s.numero_ordem);
   _nfCtx={s,arquivo:null,lido:null,pedidosNf:null,placaNf:null,emissaoNf:null,bloqueia:false};
-  const ov=document.createElement('div'); ov.id='nf-ov'; ov.className='modal-overlay'; ov.style.zIndex=1200;
+  const ov=document.createElement('div'); ov.id='nf-ov'; ov.className='modal-overlay'; ov.style.zIndex=1300;
   ov.innerHTML=`<div class="modal" style="max-width:560px;width:96vw;">
     <div class="modal-header"><div class="modal-title">📎 NF — ordem ${esc(s.numero_ordem)} · ${esc(s.placa||'')}</div><button class="modal-close" onclick="document.getElementById('nf-ov').remove()">✕</button></div>
     <div class="form-group"><label class="form-label">Cliente</label><select id="nf-cli" class="form-input">${cl.map(c=>`<option ${normNome(c.cliente)===normNome(cliente)?'selected':''}>${esc(c.cliente)}</option>`).join('')}</select></div>
@@ -4249,6 +4280,7 @@ async function abrirFicha(portId){
   let v=acharPassagem(portId);
   if(!v){ const r=await _supabase.from('portaria').select('*').eq('id',portId).maybeSingle(); v=r.data; }
   if(!v){ toast('Saída não encontrada.','warning'); return; }
+  if(!acharPassagem(v.id)) _hist.push(v);   // romaneio/documentos acham a saída
   let o=ordemDe(v);
   if(!o&&v.numero_ordem){ const r=await _supabase.from('romaneios').select('*').eq('numero',v.numero_ordem).maybeSingle(); o=r.data||null; if(o&&!_ordens.some(x=>x.id===o.id))_ordens.push(o); }
   document.getElementById('m-ficha')?.remove();
