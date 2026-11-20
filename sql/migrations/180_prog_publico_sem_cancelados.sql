@@ -1,0 +1,3 @@
+-- (20/11/2026) aplicada no Supabase.
+-- prog_publico (link/tela do representante): não mostra pedido CANCELADO ("meus" e a capacidade "carga").
+-- tg_prog_carregou_descancela: pedido cancelado que acaba carregado de verdade (balança/portaria) deixa de ser cancelado.
