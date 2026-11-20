@@ -4044,6 +4044,7 @@ async function salvarCarregamentoPasso2(incompletas){
         let m=document.getElementById('inc-mot')?.value||'';
         if(m==='__outro')m=(document.getElementById('inc-mot-outro')?.value||'').trim();
         if(!m){toast('Escolha por que saiu menos que a ordem.','warning');return;}
+        if(ehMotivoSemQr(m)){toast('Pallet sem QR foi no caminhão: lance como "sem QR / rótulo antigo" informando quantos — não é motivo de sair menos.','warning');return;}
         linhasIncompletas().forEach(l=>l.motivoMenos=m);
       }
       closeModal('modal-confirm');await gravarCarregamento();},'Salvar assim mesmo');
@@ -6446,8 +6447,34 @@ function patioLibEncOk(m){
   window._libCtx=null;patioFlashFechar();salvarRascunho();
   beep(patioLeitura(palCodigo(c.p)));
 }
+/* (19/11) "não tinha QR" NÃO é motivo de sair menos: o pallet foi junto, só não foi bipado. Quem escrever isso (ou "sem rótulo",
+   "etiqueta"…) tem que INFORMAR QUANTOS pallets/bags sem QR foram — entram como carregados (sem QR) e a carga fecha com a ordem. */
+const ehMotivoSemQr=m=>/\bqr\b|qr\s*code|r[oó]tulo|etiqueta|sem\s*c[oó]digo/i.test(String(m||''));
+function patioSemQrPerguntar(){
+  const ls=linhasIncompletas().filter(l=>!l.felis&&!l.granel);
+  if(!ls.length){ patioFlashFechar(); return; }
+  patioFlash('warn','🏷️','QUANTOS SEM QR?',
+    `Pallet ou bag sem QR <b>foi no caminhão</b> — informe quantos, para contar como carregado:<div style="display:grid;gap:10px;margin-top:10px;">
+     ${ls.map((l,ix)=>{const bag=ehBagNome(l.produto), pp=bag?1:(Number(l.palPedido)||palletPadraoDoProduto(l.produto)||0), falta=Math.round(l.sacksNeed-allocSacks(l.key));
+       return `<div style="text-align:left;"><b>${esc(l.produto)}</b>${l.cliente?' · '+esc(l.cliente):''}<div style="font-size:12px;">faltam ${n0(falta)} ${bag?'bag(s)':'sc'}${pp&&!bag?' · pallet de '+n0(pp)+' sc':''}</div>
+         <input id="sq-n-${ix}" class="pt-input" type="number" inputmode="numeric" min="0" placeholder="nº de ${bag?'bags':'pallets'} sem QR" autocomplete="off"></div>`;}).join('')}
+     <button class="pt-btn verde" onclick="patioSemQrOk()">✔ CONFIRMAR</button></div>`,{botao:'CANCELAR'});
+}
+function patioSemQrOk(){
+  const ls=linhasIncompletas().filter(l=>!l.felis&&!l.granel); let algum=false;
+  for(let ix=0;ix<ls.length;ix++){ const l=ls[ix], n=parseInt(document.getElementById('sq-n-'+ix)?.value||'0',10)||0; if(n<=0) continue;
+    const bag=ehBagNome(l.produto), pp=bag?1:(Number(l.palPedido)||palletPadraoDoProduto(l.produto)||0), falta=Math.round(l.sacksNeed-allocSacks(l.key));
+    if(!pp){ beep('err'); toast('Não sei quantos sacos tem o pallet de '+l.produto+' — chame o escritório.','danger'); return; }
+    const sacos=Math.min(n*pp, Math.max(falta,0)||n*pp);
+    (_avulsos[l.key]=_avulsos[l.key]||[]).push({id:'av'+(++_keySeq),sacos,ton:0,unidade:'sc',motivo:ROT_ANTIGO,pallets:n,soltos:0,lote:'',obs:'Sem QR — informado no fim da carga'});
+    l.motivoMenos=null; algum=true; }
+  if(!algum){ beep('err'); toast('Informe pelo menos 1 pallet/bag sem QR.','warning'); return; }
+  try{salvarRascunho();}catch(e){}
+  patioFlashFechar(); patioSalvar();
+}
 function patioMotivoMenos(m){
   if(m==='__outro'){m=(document.getElementById('pm-outro')?.value||'').trim();if(!m){beep('err');return;}}
+  if(ehMotivoSemQr(m)){ patioSemQrPerguntar(); return; }
   linhasIncompletas().forEach(l=>l.motivoMenos=m);patioFlashFechar();salvarRascunho();patioSalvar();
 }
 /* (16/11) a carga tem que fechar com a ORDEM: se o caminhão levou tudo e faltou bipar (pallet/bag sem rótulo),

@@ -1066,3 +1066,10 @@ fábrica específica. Não generalizar.
   • dossie.html (migração 174): 🚫 Bloquear lote / 🔓 Desbloquear (SADM/ADM/DIR/GER/GIN/QLD) + faixa vermelha no resumo.
 - (19/11) portaria-dsm.html: lote bloqueado (lotes_bloqueados) aparece 🚫 em vermelho na saída e não pode ser escolhido; a sugestão pula; aviso 'não carregar' quando só sobra lote bloqueado; troca de lote (pátio/histórico) recusa lote bloqueado. dossie.html: aviso de granel no bloqueio.
 - (19/11) bpf.html Minha fila: tarefas agrupadas por LOTE (linha + lote, tirado de origem_det) + seção 'Do dia'; em verde '👤 VOCÊ executa' quando a função da tarefa é uma das designações de quem está logado (vale para todos os usuários); nas outras, 'executa: <função>'.
+- (19/11) carregamento.html: "não tinha QR / sem rótulo / etiqueta" NÃO é motivo de sair menos — ao digitar isso (pátio ou desktop) o
+  encarregado tem que informar QUANTOS pallets/bags sem QR (patioSemQrPerguntar/patioSemQrOk): entram como avulso rotulo_antigo
+  (pallets_sem_qr × pallet padrão), contam como carregados, no nº de pallets e no peso esperado da portaria. Acerto 028534
+  (Sant'Ana A01MXK: +1 pallet Sikal 190 sc sem QR; portaria 22 pallets, esperado 41,8 t; diferença +1,19 t = Sikal acima do peso + Felisbina).
+  028551: Sgavioli 200 sc (Liga) na ordem sem bipar e balança +1,84 t → provável pallet sem QR, a confirmar com o encarregado.
+- (19/11) portaria.html Fechamento do dia: caminhão que ENTROU até 24:00 e saiu até 02:00 do dia seguinte conta no dia em que entrou
+  (vale para a portaria e a DSM); quem saiu 00:00–02:00 tendo entrado no dia anterior vai para o dia anterior.

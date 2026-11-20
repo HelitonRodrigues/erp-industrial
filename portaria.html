@@ -2744,12 +2744,21 @@ function unProduto(nome){const p=_prodErp.find(x=>normNome(x.nome)===normNome(no
 function grupoProduto(nome){const p=_prodErp.find(x=>normNome(x.nome)===normNome(nome)); return p?((p.linhas&&p.linhas[0])||'Outros'):'Sem cadastro no ERP';}
 async function carregarFechamento(){
   const dia=document.getElementById('fe-dia').value||hojeISO(), ini=inicioDia(dia), fim=new Date(ini.getTime()+86400e3);
+  /* (19/11) caminhão que ENTROU até a meia-noite e saiu até as 02:00 do dia seguinte é do fechamento do dia em que entrou
+     (carregamento do 2º turno). Quem saiu entre 00:00 e 02:00 deste dia mas entrou no dia anterior vai para o dia anterior. */
+  const MARG=2*3600e3, ini2=new Date(ini.getTime()+MARG), fim2=new Date(fim.getTime()+MARG);
+  const doDia=(saida,cheg)=>{ const s0=Date.parse(saida), c0=cheg?Date.parse(cheg):s0;
+    if(s0<ini2.getTime()&&c0<ini.getTime()) return false;            // entrou ontem, saiu de madrugada → ontem
+    if(s0>=fim.getTime()) return c0<fim.getTime();                    // saiu depois da meia-noite: só se entrou hoje
+    return true; };
   document.getElementById('fe-body').innerHTML='<tr><td colspan="13" style="text-align:center;color:#94a3b8;padding:20px;">Carregando…</td></tr>';
   const [pv,pf,pd]=await Promise.all([
-    db(_supabase.from('portaria').select('*').eq('status','finalizado').gte('hora_saida',ini.toISOString()).lt('hora_saida',fim.toISOString()).order('hora_saida'),'carregar saídas do dia'),
+    db(_supabase.from('portaria').select('*').eq('status','finalizado').gte('hora_saida',ini.toISOString()).lt('hora_saida',fim2.toISOString()).order('hora_saida'),'carregar saídas do dia'),
     _supabase.from('portaria_fechamentos').select('*').eq('data',dia).limit(1),
-    _supabase.from('dsm_caminhoes').select('*').is('cancelado_em',null).gte('saida_em',ini.toISOString()).lt('saida_em',fim.toISOString()).order('saida_em')]);
+    _supabase.from('dsm_caminhoes').select('*').is('cancelado_em',null).gte('saida_em',ini.toISOString()).lt('saida_em',fim2.toISOString()).order('saida_em')]);
   if(pv.error)return;
+  if(pv.data) pv.data=pv.data.filter(v=>doDia(v.hora_saida,v.hora_chegada));
+  if(pd&&pd.data) pd.data=pd.data.filter(c=>doDia(c.saida_em,c.recepcao_em||c.entrada_em||c.inicio_em));
   const saidas=pv.data||[], nums=[...new Set(saidas.map(v=>v.numero_ordem).filter(Boolean))];
   let roms=[],its=[],cgs=[];
   if(nums.length){
