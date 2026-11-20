@@ -1090,3 +1090,4 @@ fábrica específica. Não generalizar.
   carregamento (NAO_CARREGA, fora do casamento da ordem); Liga Original 20 kg = "LIGA 20", "LIGA 20KG", "LIGA ORIGINAL 20(KG)" (apelidos
   no banco); 028551: Sgavioli 200 sc = 1 pallet sem QR (lançado; portaria 10 pallets, esperado 20,0 t, balança +130 kg).
   Conferência carregamento × planilha 03–18/11 (fechamento da fábrica): todos os dias batem por produto; portaria 16–19/11 bate.
+- (20/11) portaria.html Fechamento: item da Felisbina que o Carregamento já registrou não é somado de novo pela ordem (028534 SIKALMAX 200→100, SIKAL 5L 40→20, 1L 240→120; 028551 LIGA AD 1L 24→12, 3,6L 16→8).
