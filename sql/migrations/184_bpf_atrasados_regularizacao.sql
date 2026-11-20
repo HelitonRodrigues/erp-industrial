@@ -1,0 +1,4 @@
+-- (20/11/2026) aplicado no Supabase. Decisão do Heliton: os registros BPF atrasados (a preencher, até 18/11) entram na REGULARIZAÇÃO;
+-- de 19/11 em diante é rotina (Ryan). bpf_regularizar_aplicar('2026-11-18'): 1.051 regularizados (conforme a escala do dia; carimbo
+-- "preenchido em 20/11/2026") + 34 REG-POP07-02 como pendência de verdade (calibração terceirizada). Total em regularização: 3.037.
+-- bpf.html: BPF_OCULTAR_ATRASADOS=false (nada mais oculto).
