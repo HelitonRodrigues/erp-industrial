@@ -356,6 +356,7 @@ tr.mi-sel td{background:#f0fdf4;}
     <button class="tab-btn" id="tbtn-ordens" onclick="showTab('ordens')">📄 Ordens de carregamento</button>
     <button class="tab-btn" id="tbtn-motoristas" onclick="showTab('motoristas')">👤 Motoristas</button>
     <button class="tab-btn" id="tbtn-fechamento" onclick="showTab('fechamento')">📊 Fechamento do dia</button>
+    <button class="tab-btn" id="tbtn-nfs" onclick="showTab('nfs')">📄 NFs pendentes</button>
     <button class="tab-btn" id="tbtn-historico" onclick="showTab('historico')">📚 Histórico</button>
     <button class="tab-btn" id="tbtn-visitantes" onclick="showTab('visitantes')">🪪 Visitantes</button>
     <button class="tab-btn" id="tbtn-minerio" onclick="showTab('minerio')">⛏️ Caulim e Grafitoso</button>
@@ -561,6 +562,16 @@ tr.mi-sel td{background:#f0fdf4;}
   </div>
 
   <!-- ══════════ HISTÓRICO ══════════ -->
+  <!-- ══════════ NFs PENDENTES (20/11) ══════════ -->
+  <div id="tab-nfs" style="display:none;">
+    <div class="card" style="margin-bottom:12px;"><div class="filtros" style="margin-bottom:0;align-items:flex-end;">
+      <div class="form-group" style="flex:1;min-width:240px;"><label class="form-label">Buscar</label><input class="form-input" placeholder="ordem, placa, motorista, cliente, pedido ou nº da NF" oninput="_nf.q=this.value;renderNfs()"></div>
+      <label style="display:flex;gap:6px;align-items:center;font-size:13px;margin-bottom:10px;"><input type="checkbox" onchange="_nf.todas=this.checked;renderNfs()"> mostrar também as completas</label>
+      <button class="btn btn-secondary" onclick="carregarNfs()">🔄 Atualizar</button></div>
+      <div style="font-size:12.5px;color:#64748b;margin-top:6px;">Cada caminhão que saiu precisa da <b>NF de cada cliente</b> da ordem. Anexe o <b>PDF da DANFE</b> (o número é lido sozinho) ou uma <b>foto</b> (digite o número). Granel: Portaria DSM.</div></div>
+    <div id="nf-lista"></div>
+  </div>
+
   <div id="tab-historico" style="display:none;">
     <div class="card" style="margin-bottom:16px;">
       <div class="filtros" style="margin-bottom:0;">
@@ -3978,15 +3989,124 @@ function miExportar(){
   a.download=`minerio_${miMat().toLowerCase()}_${document.getElementById('mi-mes').value}.csv`; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),2000);
 }
 
+/* ══════════ (20/11) NFs PENDENTES ══════════
+   Cada caminhão que saiu (portaria, desde 16/11) precisa da NF de cada cliente da ordem. O porteiro anexa depois:
+   PDF da DANFE (o sistema lê a chave de 44 dígitos → número, série, CNPJ, emissão) ou FOTO (digita o número).
+   Granel/DSM fica de fora (tem o controle próprio na Portaria DSM). */
+let _nf={saidas:[],nfs:[],itens:[],todas:false,q:''};
+async function carregarNfs(){
+  const box=document.getElementById('nf-lista'); if(box) box.innerHTML='<div class="aviso info">Carregando…</div>';
+  const desde=new Date(Date.now()-45*864e5).toISOString()<'2026-11-16'?'2026-11-16':new Date(Date.now()-45*864e5).toISOString().slice(0,10);
+  const {data:sa,error}=await _supabase.from('portaria').select('id,numero_ordem,placa,nome_motorista,hora_saida,hora_chegada,transportadora').eq('status','finalizado').not('numero_ordem','is',null).gte('hora_saida',desde+'T03:00:00Z').order('hora_saida',{ascending:false}).limit(500);
+  if(error){ if(box) box.innerHTML='<div class="aviso erro">Não carregou: '+esc(error.message)+'</div>'; return; }
+  const nums=[...new Set((sa||[]).map(s=>s.numero_ordem))];
+  const [ri,nf]=await Promise.all([
+    nums.length?_supabase.from('romaneio_itens').select('numero,cliente,pedido,cidade,produto_erp,produto,quantidade').in('numero',nums).limit(5000):{data:[]},
+    nums.length?_supabase.from('portaria_nfs').select('*').in('ordem',nums).order('enviado_em').limit(5000):{data:[]}]);
+  _nf.saidas=sa||[]; _nf.itens=ri.data||[]; _nf.nfs=nf.data||[];
+  renderNfs();
+}
+function nfClientes(num){
+  const m={}; _nf.itens.filter(i=>String(i.numero)===String(num)).forEach(i=>{const k=normNome(i.cliente||'—'); (m[k]=m[k]||{cliente:i.cliente||'—',pedidos:new Set(),cidade:i.cidade||'',prods:[]}); if(i.pedido)m[k].pedidos.add(i.pedido); m[k].prods.push((i.produto_erp||i.produto||'').replace(/\s*\(Felisbina\)\s*$/i,'')+' '+(i.quantidade||''));});
+  return Object.values(m);
+}
+const nfDoCliente=(num,cli)=>_nf.nfs.filter(n=>String(n.ordem)===String(num)&&normNome(n.cliente||'')===normNome(cli));
+function nfPendCount(){ let n=0; _nf.saidas.forEach(s=>{ if(nfClientes(s.numero_ordem).some(c=>!nfDoCliente(s.numero_ordem,c.cliente).length)) n++; }); return n; }
+function renderNfs(){
+  const box=document.getElementById('nf-lista'); if(!box) return;
+  const N=normNome(_nf.q||'');
+  const linhas=_nf.saidas.map(s=>{ const cl=nfClientes(s.numero_ordem), falt=cl.filter(c=>!nfDoCliente(s.numero_ordem,c.cliente).length); return {s,cl,falt}; })
+    .filter(x=>x.cl.length&&(_nf.todas||x.falt.length))
+    .filter(x=>!N||normNome([x.s.numero_ordem,x.s.placa,x.s.nome_motorista,...x.cl.map(c=>c.cliente+' '+[...c.pedidos].join(' ')),..._nf.nfs.filter(n=>n.ordem===x.s.numero_ordem).map(n=>n.numero)].join(' ')).includes(N));
+  const pend=nfPendCount(); const b=document.getElementById('tbtn-nfs'); if(b) b.innerHTML=`📄 NFs pendentes${pend?` <span class="badge badge-danger" style="margin-left:4px;">${pend}</span>`:''}`;
+  box.innerHTML=linhas.length?linhas.map(({s,cl,falt})=>`<div class="card" style="margin-bottom:10px;padding:12px 14px;border-left:5px solid ${falt.length?'#f59e0b':'#16a34a'};">
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:6px;"><b style="font-size:15px;color:var(--primary);">Ordem ${esc(s.numero_ordem)}</b><span><b>${esc(s.placa||'')}</b> · ${esc(s.nome_motorista||'')}</span>
+      <span style="color:#64748b;font-size:12.5px;">saiu ${dtBr(s.hora_saida)}</span>
+      <span class="badge ${falt.length?'badge-warning':'badge-success'}" style="margin-left:auto;">${falt.length?`⚠️ falta${falt.length>1?'m':''} ${falt.length} de ${cl.length} NF`:`✅ ${cl.length} NF`}</span></div>
+    ${cl.map(c=>{const ns=nfDoCliente(s.numero_ordem,c.cliente);return `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:6px 0;border-top:1px dashed #e2e8f0;">
+      <div style="flex:1;min-width:240px;"><b>${esc(c.cliente)}</b>${c.cidade?` <span style="color:#64748b;font-size:12px;">· ${esc(c.cidade)}</span>`:''}<div style="font-size:11.5px;color:#64748b;">${[...c.pedidos].map(esc).join(', ')}${c.prods.length?' · '+esc(c.prods.join(' + ')):''}</div></div>
+      ${ns.map(n=>`<span class="badge badge-success" style="cursor:${n.arquivo_path?'pointer':'default'};" title="${n.chave?'chave '+esc(n.chave):''} · ${esc(n.enviado_por||'')} em ${dtBr(n.enviado_em)}" ${n.arquivo_path?`onclick="nfAbrir('${n.id}')"`:''}>📄 NF ${esc(n.numero)}${n.serie?'/'+esc(n.serie):''}${n.arquivo_path?' 👁':''}</span>`).join('')}
+      <button class="btn ${ns.length?'btn-ghost':'btn-primary'} btn-sm" onclick="nfAnexar('${s.id}',${jsqNf(c.cliente)})">${ns.length?'+ outra NF':'📎 Anexar NF'}</button></div>`;}).join('')}</div>`).join('')
+    :`<div class="aviso ok">${_nf.todas?'Nenhuma saída no período.':'✅ Nenhuma NF pendente.'}</div>`;
+}
+const jsqNf=s=>JSON.stringify(String(s)).replace(/"/g,'&quot;');
+async function nfAbrir(id){ const n=_nf.nfs.find(x=>x.id===id); if(!n||!n.arquivo_path)return;
+  const {data,error}=await _supabase.storage.from('documentos').createSignedUrl(n.arquivo_path,600); if(!error&&data) window.open(data.signedUrl,'_blank'); }
+// chave NF-e: cUF(2) AAMM(4) CNPJ(14) mod(2) série(3) número(9) tpEmis(1) cNF(8) DV(1)
+function nfDvOk(ch){ let s=0,p=2; for(let i=42;i>=0;i--){ s+=Number(ch[i])*p; p=p===9?2:p+1; } const r=s%11, dv=(r<2)?0:11-r; return dv===Number(ch[43]); }
+/* acha a chave no texto do PDF: janela de 44 dígitos com modelo 55, dígito verificador certo e emitente Silicate (CNPJ 04.952.265) */
+function nfAcharChave(txt){ const d=String(txt||'').replace(/\D/g,''); let melhor=null;
+  for(let i=0;i+44<=d.length;i++){ const c=d.substr(i,44); if(c.substr(20,2)!=='55'||!nfDvOk(c)) continue; if(c.substr(6,8)==='04952265') return c; melhor=melhor||c; }
+  return melhor; }
+function nfDaChave(ch){ ch=String(ch||'').replace(/\D/g,''); if(ch.length!==44||!nfDvOk(ch)) return null;
+  return {chave:ch,numero:String(parseInt(ch.substr(25,9),10)),serie:String(parseInt(ch.substr(22,3),10)),cnpj:ch.substr(6,14),emissao:'20'+ch.substr(2,2)+'-'+ch.substr(4,2)+'-01'}; }
+let _nfCtx=null;
+function nfAnexar(portId,cliente){
+  const s=_nf.saidas.find(x=>x.id===portId); if(!s) return;
+  const cl=nfClientes(s.numero_ordem);
+  _nfCtx={s,arquivo:null,lido:null};
+  const ov=document.createElement('div'); ov.id='nf-ov'; ov.className='modal-overlay'; ov.style.zIndex=1200;
+  ov.innerHTML=`<div class="modal" style="max-width:560px;width:96vw;">
+    <div class="modal-header"><div class="modal-title">📎 NF — ordem ${esc(s.numero_ordem)} · ${esc(s.placa||'')}</div><button class="modal-close" onclick="document.getElementById('nf-ov').remove()">✕</button></div>
+    <div class="form-group"><label class="form-label">Cliente</label><select id="nf-cli" class="form-input">${cl.map(c=>`<option ${normNome(c.cliente)===normNome(cliente)?'selected':''}>${esc(c.cliente)}</option>`).join('')}</select></div>
+    <div class="form-group"><label class="form-label">Arquivo da NF — PDF da DANFE (lê sozinho) ou foto</label>
+      <input type="file" id="nf-arq" class="form-input" accept="application/pdf,image/*" onchange="nfLerArquivo(this.files[0])"><div id="nf-leu" style="font-size:12px;margin-top:4px;"></div></div>
+    <div style="display:grid;grid-template-columns:1fr 90px;gap:8px;">
+      <div class="form-group"><label class="form-label">Número da NF *</label><input id="nf-num" class="form-input" inputmode="numeric" placeholder="ex.: 245831"></div>
+      <div class="form-group"><label class="form-label">Série</label><input id="nf-ser" class="form-input" inputmode="numeric"></div></div>
+    <div class="form-group"><label class="form-label">Chave de acesso (44 dígitos — opcional)</label><input id="nf-ch" class="form-input" inputmode="numeric" placeholder="lida do PDF ou digitada" oninput="const d=nfDaChave(this.value);if(d){document.getElementById('nf-num').value=d.numero;document.getElementById('nf-ser').value=d.serie;}"></div>
+    <div id="nf-err" class="aviso erro hidden"></div>
+    <div class="modal-footer"><button class="btn btn-secondary" onclick="document.getElementById('nf-ov').remove()">Cancelar</button><button class="btn btn-primary" id="nf-ok" onclick="nfSalvar()">💾 Salvar NF</button></div></div>`;
+  document.body.appendChild(ov);
+}
+async function nfLerArquivo(f){
+  _nfCtx.arquivo=f||null; const leu=document.getElementById('nf-leu'); if(!f){leu.textContent='';return;}
+  if(!/pdf/i.test(f.type)&&!/\.pdf$/i.test(f.name)){ leu.innerHTML='📷 Foto anexada — <b>digite o número da NF</b>.'; return; }
+  leu.textContent='Lendo o PDF…';
+  try{
+    const pecas=await pecasDoPdf(f); const txt=pecas.map(p=>p.s).join(' ');
+    const d=nfDaChave(nfAcharChave(txt));
+    if(d){ _nfCtx.lido=d; document.getElementById('nf-ch').value=d.chave; document.getElementById('nf-num').value=d.numero; document.getElementById('nf-ser').value=d.serie;
+      // cliente: o da ordem cujo nome aparece no PDF
+      const T=normNome(txt), sel=document.getElementById('nf-cli');
+      const ach=[...sel.options].find(o=>{const p=normNome(o.text).split(' ').filter(w=>w.length>3).slice(0,3); return p.length&&p.every(w=>T.includes(w));});
+      if(ach) sel.value=ach.value;
+      leu.innerHTML=`✅ Lido: <b>NF ${esc(d.numero)}</b> série ${esc(d.serie)}${ach?' · cliente <b>'+esc(ach.text)+'</b>':''} — confira.`;
+    } else leu.innerHTML='⚠️ Não achei a chave no PDF — <b>digite o número da NF</b>.';
+  }catch(e){ leu.innerHTML='⚠️ Não consegui ler o PDF — <b>digite o número da NF</b>.'; }
+}
+async function nfSalvar(){
+  if(!guardAction(MOD,'edit')) return;
+  const err=document.getElementById('nf-err'), num=String(document.getElementById('nf-num').value||'').replace(/\D/g,'');
+  const ser=String(document.getElementById('nf-ser').value||'').replace(/\D/g,''), ch=String(document.getElementById('nf-ch').value||'').replace(/\D/g,''), cli=document.getElementById('nf-cli').value;
+  if(!num){ err.textContent='Informe o número da NF.'; err.classList.remove('hidden'); return; }
+  if(ch&&ch.length!==44){ err.textContent='A chave tem 44 dígitos — confira ou deixe em branco.'; err.classList.remove('hidden'); return; }
+  if(!_nfCtx.arquivo){ err.textContent='Anexe o PDF ou a foto da NF.'; err.classList.remove('hidden'); return; }
+  const s=_nfCtx.s, btn=document.getElementById('nf-ok'); btn.disabled=true; btn.textContent='Salvando…';
+  const ext=(_nfCtx.arquivo.name.split('.').pop()||'pdf').toLowerCase().replace(/[^a-z0-9]/g,'');
+  const path=`portaria-nfs/${s.numero_ordem}/${Date.now()}_NF${num}.${ext}`;
+  const up=await _supabase.storage.from('documentos').upload(path,_nfCtx.arquivo,{upsert:false,contentType:_nfCtx.arquivo.type||undefined});
+  if(up.error){ err.textContent='Não enviou o arquivo: '+up.error.message; err.classList.remove('hidden'); btn.disabled=false; btn.textContent='💾 Salvar NF'; return; }
+  const ped=[...(nfClientes(s.numero_ordem).find(c=>normNome(c.cliente)===normNome(cli))||{pedidos:new Set()}).pedidos].join(', ')||null;
+  const d=nfDaChave(ch);
+  const {error}=await _supabase.from('portaria_nfs').insert({portaria_id:s.id,ordem:s.numero_ordem,cliente:cli,pedido:ped,numero:num,serie:ser||null,chave:ch||null,
+    emissao:d?d.emissao:null,cnpj_emit:d?d.cnpj:null,arquivo_path:path,arquivo_nome:_nfCtx.arquivo.name,enviado_por:quemSou()||'Portaria'});
+  if(error){ err.textContent=/duplicate|unique/i.test(error.message)?'Esta NF (chave) já foi anexada.':'Não salvou: '+error.message; err.classList.remove('hidden'); btn.disabled=false; btn.textContent='💾 Salvar NF'; return; }
+  if(typeof addLog==='function') addLog('INSERT',MOD,s.numero_ordem,`NF ${num} anexada — ${cli} (ordem ${s.numero_ordem})`);
+  document.getElementById('nf-ov').remove(); toast(`📄 NF ${num} anexada.`,'success'); carregarNfs();
+}
+setTimeout(()=>{ try{ carregarNfs(); }catch(e){} },5000);   // contador de pendentes na aba logo ao abrir a portaria
+
 function showTab(t){
   if(t==='historico'&&typeof canTab==='function'&&!canTab(MOD,'historico')){t='fila';}
   _aba=t;
-  ['fila','ordens','motoristas','fechamento','historico','visitantes','minerio'].forEach(x=>{
+  ['fila','ordens','motoristas','fechamento','nfs','historico','visitantes','minerio'].forEach(x=>{
     document.getElementById('tab-'+x).style.display=x===t?'':'none';
     document.getElementById('tbtn-'+x).classList.toggle('active',x===t);
   });
   if(t==='ordens')renderOrdens(); if(t==='motoristas')renderMotoristas(); if(t==='historico'&&!_hist.length)carregarHistorico();
   if(t==='fechamento')carregarFechamento();
+  if(t==='nfs')carregarNfs();
   if(t==='visitantes')carregarVisitantes();
   if(t==='minerio')carregarMinerio();
   // a aba de visitantes tem os próprios botões; os do topo são do carregamento
