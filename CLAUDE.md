@@ -1082,3 +1082,11 @@ fábrica específica. Não generalizar.
   exceto reenvio offline/assinatura). Felisbina e granel fora. A portaria NÃO trava a saída por isso (trava tirada); o fechamento da
   portaria continua somando o produto da ordem sem nenhuma unidade bipada.
 - (20/11) laboratorio.html granel: dias do silo incluem os dias com PRODUÇÃO da Longa Vida lançada (_grDiasOP; o 16/11 com 29,4 t não aparecia); dia com produção não mostra 'Não rodou' e sim '✓ rodou (produção lançada)'; até 4 dias anteriores + hoje.
+- (20/11) portaria.html SalesCode × produto: FELISBINA PRIMEIRO (casarTudo e produtoErpDoItem conferem casarFelis antes do apelido/produto_id);
+  sinônimo FEL_SIN "STAND POUCH" → STAND POUNCH 10 DOSES; aprenderApelidos não grava apelido de nome que casa com a Felisbina.
+  Banco: apagados os apelidos errados (LIGA ORIGINAL STAND POUCH→Liga Original 20kg; ORIGINAL PRO TOPDRY RODAPÉ/BALDRAME→Topdry fábrica);
+  romaneio_itens corrigidos (028551 stand pouch/topdry, 028511 e 028530 Liga AD/Chapistec). Fechamento: botão 📄 abre a ordem de carregamento.
+- (20/11) Respostas do Heliton: "LIGA ORIGINAL STAND POUCH" = STAND POUNCH 10 DOSES (Felisbina); Topdry da fábrica (sacos) NÃO vai em
+  carregamento (NAO_CARREGA, fora do casamento da ordem); Liga Original 20 kg = "LIGA 20", "LIGA 20KG", "LIGA ORIGINAL 20(KG)" (apelidos
+  no banco); 028551: Sgavioli 200 sc = 1 pallet sem QR (lançado; portaria 10 pallets, esperado 20,0 t, balança +130 kg).
+  Conferência carregamento × planilha 03–18/11 (fechamento da fábrica): todos os dias batem por produto; portaria 16–19/11 bate.

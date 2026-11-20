@@ -1271,17 +1271,24 @@ const felCompacto=t=>String(t||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'
 /* (17/11) a ordem escreve a marca na frente ("ORIGINAL PRO LIGA AD 18L"); o cadastro da Felisbina é "LIGA AD 18L":
    igual, ou sem o prefixo ORIGINAL / ORIGINAL PRO, ou o nome do cadastro no FIM do texto da ordem (só se for um único) */
 const felSemMarca=c=>String(c||'').replace(/^ORIGINALPRO|^ORIGINAL/,'');
+/* (20/11) sinônimos SalesCode → Felisbina que o nome não casa sozinho */
+const FEL_SIN=[[/STANDPOU?N?CH/,'STAND POUNCH 10 DOSES']];
 function casarFelis(texto){const c=felCompacto(texto);if(!c)return null;
+  for(const [re,nome] of FEL_SIN){ if(re.test(c)){ const f0=_prodFel.find(x=>felCompacto(x.nome)===felCompacto(nome)); if(f0) return {produto:f0,seguro:true,via:'felisbina'}; } }
   let f=_prodFel.find(x=>felCompacto(x.nome)===c)||_prodFel.find(x=>felSemMarca(felCompacto(x.nome))===felSemMarca(c));
   if(!f){const fs=_prodFel.filter(x=>{const k=felCompacto(x.nome);return k.length>=6&&c.endsWith(k);}).sort((a,b)=>felCompacto(b.nome).length-felCompacto(a.nome).length);
     if(fs.length&&(fs.length===1||felCompacto(fs[0].nome).length>felCompacto(fs[1].nome).length))f=fs[0];}
   return f?{produto:f,seguro:true,via:'felisbina'}:null;}
-function casarTudo(texto){const m=casarProduto(texto,_prodErp,_aliases);if(m&&m.seguro)return m;return casarFelis(texto)||m;}
+/* (20/11) FELISBINA PRIMEIRO: "ORIGINAL PRO TOPDRY RODAPÉ" é o Topdry Rodapé da Felisbina, não o Topdry da fábrica; "LIGA ORIGINAL STAND
+   POUCH" é o Stand Pouch da Felisbina, não a Liga Original 20 kg. Um apelido mal gravado não passa mais por cima da Felisbina. */
+// (20/11) produto da fábrica que NÃO vai em carregamento (Topdry sacos: só uso interno) nunca é sugerido para item de ordem
+const NAO_CARREGA=/^topdry\b/i;
+function casarTudo(texto){const f=casarFelis(texto); if(f) return f; const m=casarProduto(texto,_prodErp.filter(p=>!NAO_CARREGA.test(p.nome||'')),_aliases); return m;}
 function produtoErpDoItem(i){
   if(i.felis_item_id){const f=_prodFel.find(x=>x.felis_id===i.felis_item_id); if(f)return f;}
-  if(i.produto_id){const p=_prodErp.find(x=>x.id===i.produto_id); if(p)return p;}
   {const f=casarFelis(i.produto); if(f)return f.produto;}
-  const m=casarProduto(i.produto,_prodErp,_aliases); return m&&m.seguro?m.produto:null;
+  if(i.produto_id){const p=_prodErp.find(x=>x.id===i.produto_id); if(p)return p;}
+  const m=casarProduto(i.produto,_prodErp.filter(p=>!NAO_CARREGA.test(p.nome||'')),_aliases); return m&&m.seguro?m.produto:null;
 }
 /* ── ABA ORDENS ─────────────────────────────────────────────────────────── */
 function renderOrdens(){
@@ -1313,6 +1320,8 @@ function tabelaItens(itens){
       <td>${esc(i.produto)}${(()=>{const pe=produtoErpDoItem(i);return pe?`<div style="font-size:11px;color:#15803d;font-weight:700;">↳ ${esc(pe.nome)}</div>`:'<div style="font-size:11px;color:#b45309;">↳ sem cadastro no ERP</div>';})()}</td><td class="num"><b>${nf(parseFloat(i.quantidade)||0)}</b></td><td>${esc(i.frete||'')}</td><td class="num">${esc(i.unidades||'')}</td></tr>`;}).join('')
     ||'<tr><td colspan="7" style="color:#94a3b8;text-align:center;">Sem itens.</td></tr>'}</tbody></table></div>`;
 }
+/* (20/11) do Fechamento: abre a ORDEM de carregamento (pedidos, clientes, produtos) da saída */
+function feVerOrdem(num){ const o=_ordens.find(x=>String(x.numero)===String(num)); if(!o){ toast('Ordem '+num+' não encontrada.','warning'); return; } verOrdem(o.id); }
 function verOrdem(id){
   const o=ordemPorId(id); if(!o)return;
   const r=resumoOrdem(o), s=situacaoOrdem(o), v=portDaOrdem(o)||_veic.find(x=>x.romaneio_id===o.id), pc=palletsCarregados(o);
@@ -1583,7 +1592,8 @@ function itensParaGravar(itens,romId,numero){
       produto_erp:String(i.produto_id||'').startsWith('F:')?((_prodFel.find(p=>p.id===i.produto_id)||{}).nome||null)+' (Felisbina)':((_prodErp.find(p=>p.id===i.produto_id)||{}).nome||null)}));
 }
 async function aprenderApelidos(itens){
-  const novos=[...new Map(itens.filter(i=>i.produto_id&&!String(i.produto_id).startsWith('F:')).map(i=>[prodNorm(i.produto),i])).values()]
+  // (20/11) nome que é da FELISBINA nunca vira apelido de produto da fábrica (era assim que "TOPDRY RODAPÉ" virou Topdry da fábrica)
+  const novos=[...new Map(itens.filter(i=>i.produto_id&&!String(i.produto_id).startsWith('F:')&&!casarFelis(i.produto)).map(i=>[prodNorm(i.produto),i])).values()]
     .filter(i=>{const a=_aliases.find(x=>x.alias_norm===prodNorm(i.produto));return !a||a.produto_id!==i.produto_id;})
     .map(i=>({alias_norm:prodNorm(i.produto),alias_texto:i.produto,produto_id:i.produto_id,produto_nome:(_prodErp.find(p=>p.id===i.produto_id)||{}).nome||null,criado_por:quemSou()}));
   if(novos.length){const ra=await _supabase.from('produto_aliases').upsert(novos,{onConflict:'alias_norm'}); if(!ra.error)novos.forEach(n=>{_aliases=_aliases.filter(x=>x.alias_norm!==n.alias_norm);_aliases.push(n);});}
@@ -2857,7 +2867,7 @@ function renderFechamento(){
     <td class="num">${l.pallets??'—'}</td><td class="num">${(()=>{const d=difKg(l.produto_t,l.esperado), fora=d!=null&&Math.abs(d)>TOL_KG;
       return `<b class="${d==null?'':fora?'liq-erro':'liq-ok'}">${l.produto_t!=null?nf(l.produto_t,3)+' t':'—'}</b>${d!=null?`<div style="font-size:10.5px;" class="${fora?'liq-erro':'liq-ok'}">${fora?'⚠ ':''}${difTxt(d)}</div>`:''}`;})()}</td>
     <td><div class="fe-prods">${Object.entries(l.prods).map(([n,p])=>`<span class="${p.sem?'sem':''}" title="${p.sem?'Sem cadastro no ERP':''}">${esc(n)} <b>${fmtUn(p.qtd,p.un)}</b></span>`).join('')||'<span>—</span>'}${l.fonte==='ordem'&&Object.keys(l.prods).length?' <span style="background:none;color:#94a3b8;">(pela ordem)</span>':''}</div></td>
-    <td style="white-space:nowrap;text-align:right;">${l.dsm?`<a class="badge badge-info" href="portaria-dsm.html" title="Caminhão da DSM — detalhes na aba DSM">DSM</a>`:`<button class="btn btn-ghost btn-sm" title="Visualizar o romaneio" onclick="imprimirSaida('${l.id}',true)">👁️</button><button class="btn btn-ghost btn-sm" title="Imprimir o romaneio de novo" onclick="imprimirSaida('${l.id}')">🖨️</button><button class="btn btn-ghost btn-sm" title="Certificado de análise (laudo) e relação dos bags/pallets carregados" onclick="abrirDocumentos('${l.id}')">📜</button><button class="btn btn-ghost btn-sm" title="Errou algo? Volta o caminhão para o carregamento" style="color:#b45309;" onclick="voltarParaCarregamento('${l.id}')">↩</button>`}</td></tr>`).join('')
+    <td style="white-space:nowrap;text-align:right;">${l.dsm?`<a class="badge badge-info" href="portaria-dsm.html" title="Caminhão da DSM — detalhes na aba DSM">DSM</a>`:`${l.ordem?`<button class="btn btn-ghost btn-sm" title="Ver a ordem de carregamento (pedidos)" onclick="feVerOrdem('${esc(l.ordem)}')">📄</button>`:''}<button class="btn btn-ghost btn-sm" title="Visualizar o romaneio" onclick="imprimirSaida('${l.id}',true)">👁️</button><button class="btn btn-ghost btn-sm" title="Imprimir o romaneio de novo" onclick="imprimirSaida('${l.id}')">🖨️</button><button class="btn btn-ghost btn-sm" title="Certificado de análise (laudo) e relação dos bags/pallets carregados" onclick="abrirDocumentos('${l.id}')">📜</button><button class="btn btn-ghost btn-sm" title="Errou algo? Volta o caminhão para o carregamento" style="color:#b45309;" onclick="voltarParaCarregamento('${l.id}')">↩</button>`}</td></tr>`).join('')
     :'<tr><td colspan="13"><div class="empty-state" style="padding:24px;"><p>Nenhum caminhão saiu neste dia.</p></div></td></tr>';
   const gs=Object.entries(f.grupos).sort((a,b)=>(a[0]==='Sem cadastro no ERP')-(b[0]==='Sem cadastro no ERP')||a[0].localeCompare(b[0]));
   document.getElementById('fe-grupos').innerHTML=gs.map(([g,ps])=>{const lst=Object.entries(ps).sort((a,b)=>b[1].qtd-a[1].qtd), un=[...new Set(lst.map(x=>x[1].un))];
