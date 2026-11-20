@@ -1093,3 +1093,4 @@ fábrica específica. Não generalizar.
 - (20/11) portaria.html Fechamento: item da Felisbina que o Carregamento já registrou não é somado de novo pela ordem (028534 SIKALMAX 200→100, SIKAL 5L 40→20, 1L 240→120; 028551 LIGA AD 1L 24→12, 3,6L 16→8).
 - (20/11) laboratorio.html granel: dias aprovados (ou com laudo) saem dos 'dias no silo' (ficam no Laudo); dia marcado 'não rodou' sai (hoje continua com ↩); '🚫 Não rodou' em todo card não aprovado (sem o '✓ rodou'); HOJE pede confirmação (a linha pode ligar até 23:40) e dia com produção lançada também pede.
 - (20/11) laboratorio.html (Não rodou) e dossie.html (bloquear/desbloquear lote, copiar link): confirmações e motivo em MODAL do ERP (erpConfirm / modal próprio) — nunca confirm()/prompt() do navegador.
+- (20/11) tg_rotulo_vira_pallet vale para TODOS os produtos do totem (todas as linhas; granel fora): Emitec e Linha 3 também entram na Análise de Pallets na hora.
