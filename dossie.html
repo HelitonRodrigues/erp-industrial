@@ -211,8 +211,20 @@ const _podeBloq=()=>['SADM','ADM','DIR','GER','GIN','QLD'].includes(String((getU
 async function bloquearLote(bloq){
   if(!_podeBloq()) return toast('Só Qualidade, gerência ou administração bloqueiam lote.','warning');
   let motivo='';
-  if(bloq){ motivo=(prompt(`Bloquear o lote ${LK}?\n\nTodas as unidades que ainda estão na fábrica ficam travadas: não podem ser carregadas até desbloquear.\n\nMotivo do bloqueio (obrigatório):`)||'').trim(); if(!motivo) return; }
-  else if(!confirm(`Desbloquear o lote ${LK}? Cada unidade volta à situação de antes do bloqueio.`)) return;
+  if(bloq){
+    // (20/11) motivo num modal do ERP (nunca prompt do navegador)
+    motivo=await new Promise(res=>{ const ov=document.createElement('div'); ov.style.cssText='position:fixed;inset:0;background:rgba(2,20,40,.55);z-index:9600;display:flex;align-items:center;justify-content:center;padding:14px;';
+      ov.innerHTML=`<div style="background:#fff;border-radius:16px;width:min(520px,96vw);padding:18px 20px;box-shadow:0 20px 60px rgba(0,0,0,.35);">
+        <div style="font-weight:900;font-size:17px;color:#991b1b;">🚫 Bloquear o lote ${E(LK)}</div>
+        <div style="font-size:13px;color:#475569;margin:6px 0 10px;">Todas as unidades que ainda estão na fábrica ficam <b>travadas</b> e não podem ser carregadas até desbloquear.</div>
+        <label style="font-size:12px;font-weight:800;">Motivo do bloqueio (obrigatório)</label>
+        <textarea id="bl-mot" rows="3" style="width:100%;box-sizing:border-box;border:1.5px solid #cbd5e1;border-radius:10px;padding:8px;font-family:inherit;margin-top:4px;"></textarea>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;"><button class="btn2" id="bl-no">Cancelar</button><button class="btn2" id="bl-ok" style="background:#b91c1c;color:#fff;border-color:#b91c1c;">🚫 Bloquear</button></div></div>`;
+      document.body.appendChild(ov); const t=ov.querySelector('#bl-mot'); setTimeout(()=>t.focus(),30);
+      ov.querySelector('#bl-no').onclick=()=>{ov.remove();res('');};
+      ov.querySelector('#bl-ok').onclick=()=>{const v=t.value.trim(); if(!v){t.style.borderColor='#dc2626';t.focus();return;} ov.remove(); res(v);}; });
+    if(!motivo) return; }
+  else if(!(await erpConfirm(`Desbloquear o lote ${LK}? Cada unidade volta à situação de antes do bloqueio.`,{titulo:'🔓 Desbloquear lote',ok:'Desbloquear'}))) return;
   const u=getUser()||{}; const {data,error}=await _supabase.rpc('dos_bloquear_lote',{p_lote:LK,p_motivo:motivo||null,p_usuario:u.nome||u.email||'',p_bloquear:bloq});
   if(error) return toast('Não gravou: '+error.message,'danger');
   toast(bloq?`🚫 Lote ${LK} bloqueado — ${/C$/.test(LK)?'granel: a Portaria DSM não deixa carregar este lote':data.unidades+' unidade(s) travadas no estoque'}.`:`🔓 Lote ${LK} desbloqueado — ${data.unidades} unidade(s) liberadas.`,bloq?'warning':'success');
@@ -278,7 +290,7 @@ const _consultado=new Set();
 function consulta(t,v){ const k=t+':'+v; if(_consultado.has(k)) return; _consultado.add(k); try{ addLog('VIEW','DOSSIE',String(v).slice(0,80),`Consultou ${t} ${v}`); }catch(e){} }
 async function verConsultas(){ const {data}=await _supabase.from('auditoria').select('criado_em,usuario_email,descricao').eq('modulo','DOSSIE').order('criado_em',{ascending:false}).limit(80);
   gav('🕘 Consultas ao dossiê','Registro de consulta',`<table class="t"><thead><tr><th>Quando</th><th>Quem</th><th>O quê</th></tr></thead><tbody>${(data||[]).map(x=>`<tr><td>${fDH(x.criado_em)}</td><td>${E(x.usuario_email||'')}</td><td>${E(x.descricao||'')}</td></tr>`).join('')||'<tr><td colspan="3" class="vz">Nenhuma consulta registrada.</td></tr>'}</tbody></table>`); }
-function copiarLink(){ const u=location.origin+location.pathname+'#lote='+encodeURIComponent(LK); (navigator.clipboard?navigator.clipboard.writeText(u):Promise.reject()).then(()=>toast('Link copiado — só abre para quem tem login com acesso ao Dossiê.','success')).catch(()=>prompt('Copie o link:',u)); }
+function copiarLink(){ const u=location.origin+location.pathname+'#lote='+encodeURIComponent(LK); (navigator.clipboard?navigator.clipboard.writeText(u):Promise.reject()).then(()=>toast('Link copiado — só abre para quem tem login com acesso ao Dossiê.','success')).catch(()=>erpAlert('Copie o link: '+u,{titulo:'🔗 Link do lote'})); }
 
 /* ─── visões: pessoa, equipamento, período (entrega 3) ─── */
 const hojeISO=()=>new Date().toLocaleDateString('en-CA'), diasAtras=n=>new Date(Date.now()-n*864e5).toLocaleDateString('en-CA');
