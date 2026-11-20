@@ -2,3 +2,5 @@
 -- tg_rotulo_vira_pallet (AFTER INSERT em rotulos_impressos): rótulo de Big Bag / Caulim 25 kg impresso no totem já cria o pallet/bag
 -- PENDENTE (sem OP) — aparece na Análise de Pallets do laboratório na hora. Ao lançar a OP, totem_alocar adota o pallet (liga OP e
 -- turno) e apaga o que foi impresso e não produzido (se não foi lido/carregado). Aplicado também aos rótulos de 20/11 (55 bags).
+-- (20/11, ajuste) vale para TODOS os produtos impressos no totem (todas as linhas), não só Big Bag/25 kg; granel fica fora.
+--   Aplicado aos rótulos de 20/11 da Emitec (Liga 10 kg, 20) e da Linha 3 (Sikal 10 kg, 21).
