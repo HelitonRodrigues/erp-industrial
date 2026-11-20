@@ -1,0 +1,2 @@
+-- (20/11/2026) aplicada no Supabase. programacao_cargas: obs_fabrica / obs_fabrica_em / obs_fabrica_por (observação da fábrica no pedido)
+-- e cancelado / cancelado_em / cancelado_por / cancelado_motivo (pedido cancelado pela fábrica — sai do quadro e das contas).
