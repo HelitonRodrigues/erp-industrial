@@ -1,0 +1,3 @@
+-- (20/11/2026) aplicada no Supabase.
+-- portaria_nfs: NF de cada cliente da ordem de cada caminhão que saiu (portaria_id, ordem, cliente, pedido, numero, serie, chave,
+--   emissao, cnpj_emit, arquivo_path no bucket documentos/portaria-nfs/<ordem>/, enviado_por/em). Chave única (não repete a NF).
