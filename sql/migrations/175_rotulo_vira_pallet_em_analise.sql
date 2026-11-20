@@ -1,0 +1,4 @@
+-- (20/11/2026) aplicada no Supabase.
+-- tg_rotulo_vira_pallet (AFTER INSERT em rotulos_impressos): rótulo de Big Bag / Caulim 25 kg impresso no totem já cria o pallet/bag
+-- PENDENTE (sem OP) — aparece na Análise de Pallets do laboratório na hora. Ao lançar a OP, totem_alocar adota o pallet (liga OP e
+-- turno) e apaga o que foi impresso e não produzido (se não foi lido/carregado). Aplicado também aos rótulos de 20/11 (55 bags).
