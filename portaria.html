@@ -4043,9 +4043,18 @@ function nfCard({s,cl,falt},cor){ return `<div class="card" style="margin-bottom
       <span class="badge ${falt.length?'badge-warning':'badge-success'}" style="margin-left:auto;">${falt.length?`⚠️ falta${falt.length>1?'m':''} ${falt.length} de ${cl.length} NF`:`✅ ${cl.length} NF`}</span></div>
     ${cl.map(c=>{const ns=nfDoCliente(s.numero_ordem,c.cliente);return `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:6px 0;border-top:1px dashed #e2e8f0;">
       <div style="flex:1;min-width:240px;"><b>${esc(c.cliente)}</b>${c.cidade?` <span style="color:#64748b;font-size:12px;">· ${esc(c.cidade)}</span>`:''}<div style="font-size:11.5px;color:#64748b;">${[...c.pedidos].map(esc).join(', ')}${c.prods.length?' · '+esc(c.prods.join(' + ')):''}</div></div>
-      ${ns.map(n=>`<span class="badge badge-success" style="cursor:${n.arquivo_path?'pointer':'default'};" title="${n.chave?'chave '+esc(n.chave):''} · ${esc(n.enviado_por||'')} em ${dtBr(n.enviado_em)}" ${n.arquivo_path?`onclick="nfAbrir('${n.id}')"`:''}>📄 NF ${esc(n.numero)}${n.serie?'/'+esc(n.serie):''}${n.arquivo_path?' 👁':''}</span>`).join('')}
+      ${ns.map(n=>`<span class="badge badge-success" style="cursor:${n.arquivo_path?'pointer':'default'};" title="${n.chave?'chave '+esc(n.chave):''} · ${esc(n.enviado_por||'')} em ${dtBr(n.enviado_em)}" ${n.arquivo_path?`onclick="nfAbrir('${n.id}')"`:''}>📄 NF ${esc(n.numero)}${n.serie?'/'+esc(n.serie):''}${n.arquivo_path?' 👁':''}</span><button class="btn btn-ghost btn-sm" style="color:#b91c1c;padding:2px 6px;" title="Tirar esta NF (anexada no lugar errado)" onclick="nfRemover('${n.id}')">✕</button>`).join('')}
       <button class="btn ${ns.length?'btn-ghost':'btn-primary'} btn-sm" onclick="nfAnexar('${s.id}',${jsqNf(c.cliente)})">${ns.length?'+ outra NF':'📎 Anexar NF'}</button></div>`;}).join('')}</div>`; }
 const jsqNf=s=>JSON.stringify(String(s)).replace(/"/g,'&quot;');
+async function nfRemover(id){
+  if(!guardAction(MOD,'delete')) return;
+  const n=_nf.nfs.find(x=>x.id===id); if(!n) return;
+  if(!(await erpConfirm(`Tirar a NF ${n.numero} da ordem ${n.ordem} (${n.cliente})? Use quando foi anexada no caminhão ou cliente errado.`,{titulo:'Tirar NF',perigo:true,ok:'Tirar NF'}))) return;
+  const {error}=await _supabase.from('portaria_nfs').delete().eq('id',id); if(error){ toast('Não tirou: '+error.message,'danger'); return; }
+  if(n.arquivo_path) await _supabase.storage.from('documentos').remove([n.arquivo_path]);
+  if(typeof addLog==='function') addLog('DELETE',MOD,n.ordem,`NF ${n.numero} tirada da ordem ${n.ordem} — ${n.cliente}`);
+  _nf.nfs=_nf.nfs.filter(x=>x.id!==id); toast(`NF ${n.numero} tirada.`,'success'); renderNfs();
+}
 async function nfAbrir(id){ const n=_nf.nfs.find(x=>x.id===id); if(!n||!n.arquivo_path)return;
   const {data,error}=await _supabase.storage.from('documentos').createSignedUrl(n.arquivo_path,600); if(!error&&data) window.open(data.signedUrl,'_blank'); }
 // chave NF-e: cUF(2) AAMM(4) CNPJ(14) mod(2) série(3) número(9) tpEmis(1) cNF(8) DV(1)
@@ -4145,7 +4154,12 @@ async function nfLote(files){
       // o mesmo pedido pode ter ido em mais de um caminhão: desempata pela placa da NF
       const placaNf=((txt.match(/Placa\s*:?\s*([A-Z]{3}-?\d[A-Z0-9]\d{2})/i)||[])[1]||'').replace('-','').toUpperCase();
       const cands=_nf.saidas.filter(x=>it.some(i=>String(i.numero)===String(x.numero_ordem)));
-      const sx=cands.find(x=>placaNf&&String(x.placa||'').replace('-','').toUpperCase()===placaNf)||cands[0]||null;
+      const porPlaca=cands.filter(x=>placaNf&&String(x.placa||'').replace('-','').toUpperCase()===placaNf);
+      const sx=porPlaca.length===1?porPlaca[0]:(cands.length===1&&(!placaNf||!cands[0].placa)?cands[0]:null);
+      if(!sx&&cands.length){ r.msg=cands.length>1
+          ?`NF ${d.numero} (pedido ${peds.join(', ')}): o pedido foi em <b>${cands.length} caminhões</b> (${cands.map(x=>esc(x.placa||'')).join(', ')}) e a placa da NF${placaNf?' ('+esc(placaNf)+')':''} não decide — anexe à mão no caminhão certo.`
+          :`NF ${d.numero}: a placa da NF é <b>${esc(placaNf)}</b> e o caminhão do pedido é <b>${esc(cands[0].placa||'')}</b> — confira e anexe à mão.`;
+        pinta(); continue; }
       if(sx) it.sort((a,b)=>(String(b.numero)===String(sx.numero_ordem))-(String(a.numero)===String(sx.numero_ordem)));
       if(!peds.length){ r.msg=`NF ${d.numero}: sem "Pedido No." no PDF — anexe à mão.`; pinta(); continue; }
       if(!sx){ r.msg=`NF ${d.numero} (pedido ${peds.join(', ')}): não achei caminhão que saiu com este pedido de Caulim 25 kg / Big Bag.`; pinta(); continue; }
