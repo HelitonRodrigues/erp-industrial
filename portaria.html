@@ -568,7 +568,7 @@ tr.mi-sel td{background:#f0fdf4;}
       <div class="form-group" style="flex:1;min-width:240px;"><label class="form-label">Buscar</label><input class="form-input" placeholder="ordem, placa, motorista, cliente, pedido ou nº da NF" oninput="_nf.q=this.value;renderNfs()"></div>
       <label style="display:flex;gap:6px;align-items:center;font-size:13px;margin-bottom:10px;"><input type="checkbox" onchange="_nf.todas=this.checked;renderNfs()"> mostrar também as completas</label>
       <button class="btn btn-secondary" onclick="carregarNfs()">🔄 Atualizar</button></div>
-      <div style="font-size:12.5px;color:#64748b;margin-top:6px;">Cada caminhão que saiu precisa da <b>NF de cada cliente</b> da ordem. Anexe o <b>PDF da DANFE</b> (o número é lido sozinho) ou uma <b>foto</b> (digite o número). Granel: Portaria DSM.</div></div>
+      <div style="font-size:12.5px;color:#64748b;margin-top:6px;">Só <b>Caulim 25 kg e Big Bag</b>. Cada caminhão que saiu precisa da <b>NF de cada cliente</b> da ordem. Anexe o <b>PDF da DANFE</b> (o número é lido sozinho) ou uma <b>foto</b> (digite o número). Granel: Portaria DSM.</div></div>
     <div id="nf-lista"></div>
   </div>
 
@@ -4006,8 +4006,10 @@ async function carregarNfs(){
   _nf.saidas=sa||[]; _nf.itens=ri.data||[]; _nf.nfs=nf.data||[];
   renderNfs();
 }
+/* (20/11) NF pendente só para Caulim 25 kg e Big Bag (pedido do Heliton) */
+const nfEhCaulim=i=>{const n=String(i.produto_erp||i.produto||''); return /big\s*-?\s*bag/i.test(n)||/caulim[^]*25\s*kg|25\s*kg[^]*caulim|ensacado\s*25/i.test(n);};
 function nfClientes(num){
-  const m={}; _nf.itens.filter(i=>String(i.numero)===String(num)).forEach(i=>{const k=normNome(i.cliente||'—'); (m[k]=m[k]||{cliente:i.cliente||'—',pedidos:new Set(),cidade:i.cidade||'',prods:[]}); if(i.pedido)m[k].pedidos.add(i.pedido); m[k].prods.push((i.produto_erp||i.produto||'').replace(/\s*\(Felisbina\)\s*$/i,'')+' '+(i.quantidade||''));});
+  const m={}; _nf.itens.filter(i=>String(i.numero)===String(num)&&nfEhCaulim(i)).forEach(i=>{const k=normNome(i.cliente||'—'); (m[k]=m[k]||{cliente:i.cliente||'—',pedidos:new Set(),cidade:i.cidade||'',prods:[]}); if(i.pedido)m[k].pedidos.add(i.pedido); m[k].prods.push((i.produto_erp||i.produto||'').replace(/\s*\(Felisbina\)\s*$/i,'')+' '+(i.quantidade||''));});
   return Object.values(m);
 }
 const nfDoCliente=(num,cli)=>_nf.nfs.filter(n=>String(n.ordem)===String(num)&&normNome(n.cliente||'')===normNome(cli));
@@ -4019,16 +4021,25 @@ function renderNfs(){
     .filter(x=>x.cl.length&&(_nf.todas||x.falt.length))
     .filter(x=>!N||normNome([x.s.numero_ordem,x.s.placa,x.s.nome_motorista,...x.cl.map(c=>c.cliente+' '+[...c.pedidos].join(' ')),..._nf.nfs.filter(n=>n.ordem===x.s.numero_ordem).map(n=>n.numero)].join(' ')).includes(N));
   const pend=nfPendCount(); const b=document.getElementById('tbtn-nfs'); if(b) b.innerHTML=`📄 NFs pendentes${pend?` <span class="badge badge-danger" style="margin-left:4px;">${pend}</span>`:''}`;
-  box.innerHTML=linhas.length?linhas.map(({s,cl,falt})=>`<div class="card" style="margin-bottom:10px;padding:12px 14px;border-left:5px solid ${falt.length?'#f59e0b':'#16a34a'};">
+  const CORD=['#2563eb','#7c3aed','#0d9488','#db2777','#ea580c','#4f46e5','#0891b2'];
+  const loc=t=>{const d=new Date(t); d.setMinutes(d.getMinutes()-d.getTimezoneOffset()); return d.toISOString();};
+  // mesma regra do Fechamento: entrou até 24:00 e saiu até 02:00 → dia em que entrou
+  const diaDe=x=>{const sa=loc(x.s.hora_saida), ch=x.s.hora_chegada?loc(x.s.hora_chegada):sa; return (sa.slice(11,13)<'02'&&ch.slice(0,10)<sa.slice(0,10))?ch.slice(0,10):sa.slice(0,10);};
+  const dias=[...new Set(linhas.map(diaDe))]; const corDia=d=>CORD[(dias.indexOf(d))%CORD.length];
+  const SEM=['domingo','segunda','terça','quarta','quinta','sexta','sábado'];
+  let _ult='';
+  box.innerHTML=linhas.length?linhas.map(x=>{const d=diaDe(x), c=corDia(d), cab=d!==_ult?`<div style="margin:${_ult?'18px':'4px'} 0 8px;padding:7px 12px;border-radius:10px;background:${c};color:#fff;font-weight:800;font-size:14px;display:flex;justify-content:space-between;">
+      <span>📅 ${d.split('-').reverse().join('/')} · ${SEM[new Date(d+'T12:00:00').getDay()]}</span><span>${linhas.filter(y=>diaDe(y)===d).length} caminhão(ões)</span></div>`:''; _ult=d; return cab+nfCard(x,c);}).join('')
+    :`<div class="aviso ok">${_nf.todas?'Nenhuma saída no período.':'✅ Nenhuma NF pendente de Caulim 25 kg / Big Bag.'}</div>`;
+}
+function nfCard({s,cl,falt},cor){ return `<div class="card" style="margin-bottom:10px;padding:12px 14px;border-left:6px solid ${cor};background:${falt.length?'#fff':'#f0fdf4'};">
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:6px;"><b style="font-size:15px;color:var(--primary);">Ordem ${esc(s.numero_ordem)}</b><span><b>${esc(s.placa||'')}</b> · ${esc(s.nome_motorista||'')}</span>
       <span style="color:#64748b;font-size:12.5px;">saiu ${dtBr(s.hora_saida)}</span>
       <span class="badge ${falt.length?'badge-warning':'badge-success'}" style="margin-left:auto;">${falt.length?`⚠️ falta${falt.length>1?'m':''} ${falt.length} de ${cl.length} NF`:`✅ ${cl.length} NF`}</span></div>
     ${cl.map(c=>{const ns=nfDoCliente(s.numero_ordem,c.cliente);return `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:6px 0;border-top:1px dashed #e2e8f0;">
       <div style="flex:1;min-width:240px;"><b>${esc(c.cliente)}</b>${c.cidade?` <span style="color:#64748b;font-size:12px;">· ${esc(c.cidade)}</span>`:''}<div style="font-size:11.5px;color:#64748b;">${[...c.pedidos].map(esc).join(', ')}${c.prods.length?' · '+esc(c.prods.join(' + ')):''}</div></div>
       ${ns.map(n=>`<span class="badge badge-success" style="cursor:${n.arquivo_path?'pointer':'default'};" title="${n.chave?'chave '+esc(n.chave):''} · ${esc(n.enviado_por||'')} em ${dtBr(n.enviado_em)}" ${n.arquivo_path?`onclick="nfAbrir('${n.id}')"`:''}>📄 NF ${esc(n.numero)}${n.serie?'/'+esc(n.serie):''}${n.arquivo_path?' 👁':''}</span>`).join('')}
-      <button class="btn ${ns.length?'btn-ghost':'btn-primary'} btn-sm" onclick="nfAnexar('${s.id}',${jsqNf(c.cliente)})">${ns.length?'+ outra NF':'📎 Anexar NF'}</button></div>`;}).join('')}</div>`).join('')
-    :`<div class="aviso ok">${_nf.todas?'Nenhuma saída no período.':'✅ Nenhuma NF pendente.'}</div>`;
-}
+      <button class="btn ${ns.length?'btn-ghost':'btn-primary'} btn-sm" onclick="nfAnexar('${s.id}',${jsqNf(c.cliente)})">${ns.length?'+ outra NF':'📎 Anexar NF'}</button></div>`;}).join('')}</div>`; }
 const jsqNf=s=>JSON.stringify(String(s)).replace(/"/g,'&quot;');
 async function nfAbrir(id){ const n=_nf.nfs.find(x=>x.id===id); if(!n||!n.arquivo_path)return;
   const {data,error}=await _supabase.storage.from('documentos').createSignedUrl(n.arquivo_path,600); if(!error&&data) window.open(data.signedUrl,'_blank'); }
@@ -4044,7 +4055,7 @@ let _nfCtx=null;
 function nfAnexar(portId,cliente){
   const s=_nf.saidas.find(x=>x.id===portId); if(!s) return;
   const cl=nfClientes(s.numero_ordem);
-  _nfCtx={s,arquivo:null,lido:null};
+  _nfCtx={s,arquivo:null,lido:null,pedidosNf:null,placaNf:null,emissaoNf:null,bloqueia:false};
   const ov=document.createElement('div'); ov.id='nf-ov'; ov.className='modal-overlay'; ov.style.zIndex=1200;
   ov.innerHTML=`<div class="modal" style="max-width:560px;width:96vw;">
     <div class="modal-header"><div class="modal-title">📎 NF — ordem ${esc(s.numero_ordem)} · ${esc(s.placa||'')}</div><button class="modal-close" onclick="document.getElementById('nf-ov').remove()">✕</button></div>
@@ -4066,13 +4077,23 @@ async function nfLerArquivo(f){
   try{
     const pecas=await pecasDoPdf(f); const txt=pecas.map(p=>p.s).join(' ');
     const d=nfDaChave(nfAcharChave(txt));
-    if(d){ _nfCtx.lido=d; document.getElementById('nf-ch').value=d.chave; document.getElementById('nf-num').value=d.numero; document.getElementById('nf-ser').value=d.serie;
-      // cliente: o da ordem cujo nome aparece no PDF
-      const T=normNome(txt), sel=document.getElementById('nf-cli');
-      const ach=[...sel.options].find(o=>{const p=normNome(o.text).split(' ').filter(w=>w.length>3).slice(0,3); return p.length&&p.every(w=>T.includes(w));});
-      if(ach) sel.value=ach.value;
-      leu.innerHTML=`✅ Lido: <b>NF ${esc(d.numero)}</b> série ${esc(d.serie)}${ach?' · cliente <b>'+esc(ach.text)+'</b>':''} — confira.`;
-    } else leu.innerHTML='⚠️ Não achei a chave no PDF — <b>digite o número da NF</b>.';
+    // DANFE do TOTVS: "Pedido No. A01MUG ... Placa: NRZ0611" nas informações complementares; "DATA DE EMISSÃO 19/11/2026"
+    const peds=[...new Set([...txt.matchAll(/Pedido\s*N[ºo°.]*\s*:?\s*([A-Z]\d{2}[A-Z0-9]{3,4})/gi)].map(m=>m[1].toUpperCase()))];
+    const placa=(txt.match(/Placa\s*:?\s*([A-Z]{3}-?\d[A-Z0-9]\d{2})/i)||[])[1]; const emi=(txt.match(/DATA\s+DE\s+EMISS[ÃA]O\s*(\d{2}\/\d{2}\/\d{4})/i)||[])[1];
+    _nfCtx.pedidosNf=peds; _nfCtx.placaNf=placa?placa.replace('-','').toUpperCase():null; _nfCtx.emissaoNf=emi?emi.split('/').reverse().join('-'):null;
+    if(d){ _nfCtx.lido=d; document.getElementById('nf-ch').value=d.chave; document.getElementById('nf-num').value=d.numero; document.getElementById('nf-ser').value=d.serie; }
+    const sel=document.getElementById('nf-cli'); let ach=null, aviso='';
+    // 1º pelo PEDIDO (o mais seguro); 2º pelo nome do cliente no PDF
+    if(peds.length){ const cl=nfClientes(_nfCtx.s.numero_ordem); const c=cl.find(c=>[...c.pedidos].some(p=>peds.includes(String(p).toUpperCase())));
+      if(c){ ach=[...sel.options].find(o=>normNome(o.text)===normNome(c.cliente)); }
+      else { const outra=_nf.itens.find(i=>peds.includes(String(i.pedido||'').toUpperCase())), sx=outra&&_nf.saidas.find(x=>String(x.numero_ordem)===String(outra.numero));
+        aviso=`<div class="aviso erro" style="margin-top:6px;">⚠️ Esta NF é do pedido <b>${esc(peds.join(', '))}</b>, que <b>não é desta ordem</b>${sx?` — está na ordem <b>${esc(sx.numero_ordem)}</b> (${esc(sx.placa||'')}). Anexe lá.`:'.'}</div>`; } }
+    if(!ach&&!aviso){ const T=normNome(txt); ach=[...sel.options].find(o=>{const p=normNome(o.text).split(' ').filter(w=>w.length>3).slice(0,3); return p.length&&p.every(w=>T.includes(w));}); }
+    if(ach) sel.value=ach.value;
+    if(_nfCtx.placaNf&&_nfCtx.s.placa&&_nfCtx.placaNf!==String(_nfCtx.s.placa).replace('-','').toUpperCase()) aviso+=`<div class="aviso erro" style="margin-top:6px;">⚠️ A placa da NF é <b>${esc(_nfCtx.placaNf)}</b> e a do caminhão é <b>${esc(_nfCtx.s.placa)}</b>. Confira.</div>`;
+    _nfCtx.bloqueia=/não é desta ordem/.test(aviso);
+    leu.innerHTML=(d?`✅ Lido: <b>NF ${esc(d.numero)}</b> série ${esc(d.serie)}${_nfCtx.emissaoNf?' · emitida '+esc(emi):''}${peds.length?' · pedido <b>'+esc(peds.join(', '))+'</b>':''}${ach?' · cliente <b>'+esc(ach.text)+'</b>':''} — confira.`
+      :'⚠️ Não achei a chave no PDF — <b>digite o número da NF</b>.')+aviso;
   }catch(e){ leu.innerHTML='⚠️ Não consegui ler o PDF — <b>digite o número da NF</b>.'; }
 }
 async function nfSalvar(){
@@ -4082,15 +4103,16 @@ async function nfSalvar(){
   if(!num){ err.textContent='Informe o número da NF.'; err.classList.remove('hidden'); return; }
   if(ch&&ch.length!==44){ err.textContent='A chave tem 44 dígitos — confira ou deixe em branco.'; err.classList.remove('hidden'); return; }
   if(!_nfCtx.arquivo){ err.textContent='Anexe o PDF ou a foto da NF.'; err.classList.remove('hidden'); return; }
+  if(_nfCtx.bloqueia){ err.textContent='Esta NF é de pedido de outra ordem — anexe no caminhão certo.'; err.classList.remove('hidden'); return; }
   const s=_nfCtx.s, btn=document.getElementById('nf-ok'); btn.disabled=true; btn.textContent='Salvando…';
   const ext=(_nfCtx.arquivo.name.split('.').pop()||'pdf').toLowerCase().replace(/[^a-z0-9]/g,'');
   const path=`portaria-nfs/${s.numero_ordem}/${Date.now()}_NF${num}.${ext}`;
   const up=await _supabase.storage.from('documentos').upload(path,_nfCtx.arquivo,{upsert:false,contentType:_nfCtx.arquivo.type||undefined});
   if(up.error){ err.textContent='Não enviou o arquivo: '+up.error.message; err.classList.remove('hidden'); btn.disabled=false; btn.textContent='💾 Salvar NF'; return; }
-  const ped=[...(nfClientes(s.numero_ordem).find(c=>normNome(c.cliente)===normNome(cli))||{pedidos:new Set()}).pedidos].join(', ')||null;
+  const ped=(_nfCtx.pedidosNf&&_nfCtx.pedidosNf.length?_nfCtx.pedidosNf.join(', '):null)||[...(nfClientes(s.numero_ordem).find(c=>normNome(c.cliente)===normNome(cli))||{pedidos:new Set()}).pedidos].join(', ')||null;
   const d=nfDaChave(ch);
   const {error}=await _supabase.from('portaria_nfs').insert({portaria_id:s.id,ordem:s.numero_ordem,cliente:cli,pedido:ped,numero:num,serie:ser||null,chave:ch||null,
-    emissao:d?d.emissao:null,cnpj_emit:d?d.cnpj:null,arquivo_path:path,arquivo_nome:_nfCtx.arquivo.name,enviado_por:quemSou()||'Portaria'});
+    emissao:_nfCtx.emissaoNf||(d?d.emissao:null),cnpj_emit:d?d.cnpj:null,arquivo_path:path,arquivo_nome:_nfCtx.arquivo.name,enviado_por:quemSou()||'Portaria'});
   if(error){ err.textContent=/duplicate|unique/i.test(error.message)?'Esta NF (chave) já foi anexada.':'Não salvou: '+error.message; err.classList.remove('hidden'); btn.disabled=false; btn.textContent='💾 Salvar NF'; return; }
   if(typeof addLog==='function') addLog('INSERT',MOD,s.numero_ordem,`NF ${num} anexada — ${cli} (ordem ${s.numero_ordem})`);
   document.getElementById('nf-ov').remove(); toast(`📄 NF ${num} anexada.`,'success'); carregarNfs();
