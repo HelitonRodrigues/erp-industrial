@@ -1,0 +1,5 @@
+-- (20/11/2026) aplicada no Supabase.
+-- prog_acessos (em, tipo link|login, codigo, representante, login, ok, ip, aparelho): histórico de cada abertura de link da
+--   programação (prog_publico) e de cada login de representante (rep_entrar, inclusive senha errada).
+-- _req_info(): IP e navegador pelos cabeçalhos da requisição; consulta interna no banco (sem cabeçalho) NÃO registra nem
+--   atualiza o "último acesso" do link.
