@@ -1,0 +1,7 @@
+-- (20/11/2026) aplicada no Supabase.
+-- Produto novo "Big Bag Caulim Branco 01 1250kg" (cópia do Branco 01: Linha 2/Bag, mesmo laboratório e peneiras, 1.250 kg/un).
+-- Insumo novo ALM-0557 "Big Bag 1250kg (1,00x1,00x1,20)" com saldo inicial 100 (INVENTARIO 20/11); ficha: bag novo 1/un, pallet igual, MP Branco 01 1.250 kg/un.
+-- REGRA FIXA SalesCode (Heliton): "CAULIM BIG BAG – BRANCO" (não 2/3) só vira 1250 quando "1.250 kg" estiver ESCRITO na obs do pedido/item
+--   (tg_prog_regra_bag1250 renomeia o item para "... 1250KG" + apelido); "Bag NOVO" sozinho não muda.
+-- tg_ri_regra_bag1250: item da ordem de carregamento com pedido 1250 na Programação entra como Big Bag Caulim Branco 01 1250kg.
+-- A01MYV (Cargill, 30) já convertido; A01N07 (sem "1.250") continua Branco 01.
