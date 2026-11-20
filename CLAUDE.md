@@ -1081,3 +1081,4 @@ fábrica específica. Não generalizar.
   (pátio: patioSalvar vai direto para patioSemQrPerguntar; desktop: salvarCarregamentoPasso2 recusa; gravarCarregamento recusa incompleto,
   exceto reenvio offline/assinatura). Felisbina e granel fora. A portaria NÃO trava a saída por isso (trava tirada); o fechamento da
   portaria continua somando o produto da ordem sem nenhuma unidade bipada.
+- (20/11) laboratorio.html granel: dias do silo incluem os dias com PRODUÇÃO da Longa Vida lançada (_grDiasOP; o 16/11 com 29,4 t não aparecia); dia com produção não mostra 'Não rodou' e sim '✓ rodou (produção lançada)'; até 4 dias anteriores + hoje.

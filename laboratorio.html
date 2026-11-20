@@ -4757,9 +4757,16 @@ function renderGranelPainel(){
     <div style="display:flex;gap:10px;flex-wrap:wrap;">${ds.map((d,i)=>dia(d,i===0?'Hoje':_sem[new Date(d+'T12:00:00').getDay()])).join('')}</div></div>`;
 }
 /* (18/11) Análise de Pallets: o granel do dia (sem QR) para lançar o resultado — aprovou, o laudo sai sozinho */
+/* (20/11) dias do silo: também os dias em que a Longa Vida tem PRODUÇÃO lançada (o 16/11 tinha 29,4 t e não aparecia por não ter
+   pallet/análise). Dia com produção não mostra "Não rodou" — rodou. */
+let _grDiasOP=new Set(), _grDiasOPEm=0;
+async function _grCarregarDiasOP(){ if(Date.now()-_grDiasOPEm<60000) return; _grDiasOPEm=Date.now();
+  const d0=new Date(Date.now()-10*864e5).toISOString().slice(0,10);
+  const {data}=await _supabase.from('producao').select('data,produtos_op').eq('linha','Longa Vida').gte('data',d0);
+  _grDiasOP=new Set((data||[]).filter(p=>(Array.isArray(p.produtos_op)?p.produtos_op:[]).some(i=>/granel/i.test(i.produto||'')&&Number(i.total_sacos)>0)).map(p=>p.data)); }
 function _grDiasPal(){
-  const h=hoje(), ds=new Set([...(_analises||[]).filter(a=>a.linha==='Longa Vida').map(a=>a.data),...(_pallets||[]).filter(p=>p.linha==='Longa Vida'&&/granel/i.test(p.produto||'')).map(p=>p.data)].filter(d=>d&&d<h));
-  return [h,...[...ds].sort().reverse().slice(0,3)];
+  const h=hoje(), ds=new Set([...(_analises||[]).filter(a=>a.linha==='Longa Vida').map(a=>a.data),...(_pallets||[]).filter(p=>p.linha==='Longa Vida'&&/granel/i.test(p.produto||'')).map(p=>p.data),..._grDiasOP].filter(d=>d&&d<h));
+  return [h,...[...ds].sort().reverse().slice(0,4)];
 }
 /* (19/11) "Não rodou": a Longa Vida não liga todo dia. O laboratório marca o dia e o card sai; se chegar carga e a linha ligar,
    "Voltou a rodar" traz o card de volta para analisar (inclusive à noite). Tabela lab_granel_dias (migração 173). */
@@ -4780,6 +4787,7 @@ async function granelNaoRodou(d,marcar){
 function renderGranelPallets(){
   const el=document.getElementById('pal-granel'); if(!el) return;
   if(Date.now()-_grNaoRodouEm>=30000){ _grCarregarNaoRodou().then(()=>renderGranelPallets()); }
+  if(Date.now()-_grDiasOPEm>=60000){ _grCarregarDiasOP().then(()=>renderGranelPallets()); }
   const pode=typeof checkPerm!=='function'||checkPerm('laboratorio','edit');
   const card=(d,rot)=>{
     const lote=_grLote(d), p=(_pallets||[]).find(x=>x.data===d&&x.linha==='Longa Vida'&&/granel/i.test(x.produto||'')), l=_grLaudo(lote);
@@ -4789,7 +4797,7 @@ function renderGranelPallets(){
     const st=!p?'<span class="badge badge-gray">sem resultado</span>':p.status==='aprovado'?'<span class="badge badge-success">✅ aprovado</span>':p.status==='reprovado'?'<span class="badge badge-danger">❌ reprovado</span>':'<span class="badge badge-warning">aguardando resultado</span>';
     return `<div style="border:1.5px solid ${p&&p.status==='aprovado'?'#86efac':'#e2e8f0'};background:${p&&p.status==='aprovado'?'#f0fdf4':'#fff'};border-radius:12px;padding:9px 12px;flex:1;min-width:230px;">
       <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;"><b>${rot} · ${d.split('-').reverse().slice(0,2).join('/')}</b><span class="badge badge-info">lote ${lote}</span>${st}${l&&l.status==='finalizado'?`<span class="badge badge-success">📜 ${esc(l.numero)}</span>`:''}</div>
-      <div style="margin-top:7px;">${pode&&!p?`<button class="btn btn-ghost btn-sm" style="margin-right:6px;" onclick="granelNaoRodou('${d}',true)" title="A Longa Vida não ligou neste dia">🚫 Não rodou</button>`:''}${pode&&(!p||p.status!=='aprovado')?`<button class="btn btn-primary btn-sm" onclick="granelResultado('${d}')">🔬 Analisar</button>`:p?`<button class="btn btn-ghost btn-sm" onclick="granelResultado('${d}')">🔬 Ver / refazer</button>`:''}</div></div>`;
+      <div style="margin-top:7px;">${pode&&!p&&!_grDiasOP.has(d)?`<button class="btn btn-ghost btn-sm" style="margin-right:6px;" onclick="granelNaoRodou('${d}',true)" title="A Longa Vida não ligou neste dia">🚫 Não rodou</button>`:''}${(p||_grDiasOP.has(d))&&!(l&&l.status==='finalizado')?'<span style="font-size:11.5px;color:#15803d;font-weight:700;margin-right:6px;">✓ rodou (produção lançada)</span>':''}${pode&&(!p||p.status!=='aprovado')?`<button class="btn btn-primary btn-sm" onclick="granelResultado('${d}')">🔬 Analisar</button>`:p?`<button class="btn btn-ghost btn-sm" onclick="granelResultado('${d}')">🔬 Ver / refazer</button>`:''}</div></div>`;
   };
   const ds=_grDiasPal(), sem=['dom','seg','ter','qua','qui','sex','sáb'];
   el.innerHTML=`<div class="card" style="margin:0 0 12px;padding:10px 14px;"><div style="font-weight:800;color:var(--primary,#042D4D);">🧪 Caulim Granel Cinza — dias no silo <span style="font-weight:500;font-size:12px;color:#64748b;">· lance o resultado; aprovado, o laudo do lote sai sozinho</span></div>
