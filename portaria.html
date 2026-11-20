@@ -2411,7 +2411,18 @@ async function cargaDaOrdem(numero){
         naoBip.push({nome:p.nome,qtd:p.falta,felis:p.felis,kg:pu?p.falta*pu:null}); if(pu) kg+=p.falta*pu; else semPeso.add(p.nome+(p.felis?' (Felisbina)':''));});
     }
   }catch(e){ console.warn('[portaria] itens da ordem:',e); }
-  const res={numero:String(numero),cargas:cs||[],itens,grupos,nPal,esperadoKg:kg,semPeso:[...semPeso],naoBip};
+  /* (20/11) A QUANTIDADE TEM QUE BATER: produto da ordem com menos sacos que o pedido e SEM motivo registrado no Carregamento
+     (nem pallet sem QR declarado) trava a saída. Felisbina e Topdry (sem rótulo) não entram nesta conta. */
+  const faltas=[];
+  try{
+    const {data:ri2}=await _supabase.from('romaneio_itens').select('*').eq('numero',String(numero));
+    const ped={}; (ri2||[]).forEach(i=>{const pe=produtoErpDoItem(i), nome=pe?pe.nome:i.produto, q=parseFloat(i.quantidade)||0; if(!q||!nome||(pe&&pe.felis)||/felisbina/i.test(nome)||/topdry/i.test(nome))return;
+      const k=normNome(nome); ped[k]=ped[k]||{nome,q:0}; ped[k].q+=q;});
+    const car={}, mot={}; itens.forEach(i=>{ const k=normNome(i.produto); const t=tipo(i.produto);
+      car[k]=(car[k]||0)+(t==='granel'||i.unidade==='t'?(Number(i.ton)||0):t==='bag'?(Number(i.sacos)||1):(Number(i.sacos)||0)); if(i.motivo_menos) mot[k]=i.motivo_menos; });
+    Object.entries(ped).forEach(([k,p])=>{ const c=car[k]||0; if(c<p.q-0.0005&&!mot[k]) faltas.push({nome:p.nome,pedido:p.q,carregado:c,falta:+(p.q-c).toFixed(3)}); });
+  }catch(e){ console.warn('[portaria] conferência da quantidade:',e); }
+  const res={numero:String(numero),cargas:cs||[],itens,grupos,nPal,esperadoKg:kg,semPeso:[...semPeso],naoBip,faltas};
   _cargaCache[String(numero)]=res;
   return res;
 }
@@ -2471,7 +2482,7 @@ async function contarCarga(o,v){
   if(_sa.portId!==v.id)return;
   _sa.carga=c; document.getElementById('sa-carga').innerHTML=`<div class="sec-tit" style="margin:12px 0 6px;"><h3>📦 Carga bipada (QR)</h3><span>${c.grupos.length?c.itens.length+' item(ns)':''}</span></div>${htmlCarga(c)}`;
   if(!c.itens.length)return;
-  _sa.nPal=c.nPal; _sa.esperadoKg=c.esperadoKg; _sa.semPeso=c.semPeso; _sa.naoBip=c.naoBip||[];
+  _sa.nPal=c.nPal; _sa.esperadoKg=c.esperadoKg; _sa.semPeso=c.semPeso; _sa.naoBip=c.naoBip||[]; _sa.faltas=c.faltas||[];
   /* (18/11) nº de pallets vem do Carregamento (antes era digitado: 028515 com 18 na portaria e 14 na carga). Com item da ordem
      sem bipar (vai pallet a mais que o sistema não sabe), fica liberado para o porteiro corrigir. */
   const np=document.getElementById('sa-npal');
@@ -2779,7 +2790,12 @@ async function carregarFechamento(){
     if(carga.length){ carga.forEach(i=>{const t=window.certTipoProduto?certTipoProduto(i.produto):'saco';
       if(i.unidade==='t'||t==='granel')add(i.produto,Number(i.ton)||0,'T'); else add(i.produto,t==='bag'?(Number(i.sacos)||1):(Number(i.sacos)||0));});
       // (17/11) Felisbina não é bipada no Carregamento: vem da ordem (ex.: ORIGINAL PRO LIGA AD 18L na 028530)
-      its.filter(i=>String(i.numero)===String(num)).forEach(i=>{const pe=felDaOrdem(i); if(pe) add(pe.nome+' (Felisbina)',parseFloat(i.quantidade)||0,'FL');}); }
+      its.filter(i=>String(i.numero)===String(num)).forEach(i=>{const pe=felDaOrdem(i); if(pe) add(pe.nome+' (Felisbina)',parseFloat(i.quantidade)||0,'FL');});
+      /* (20/11) produto da ORDEM sem NENHUMA unidade bipada (Liga Original 20 kg, Topdry… na 028551) também saiu no caminhão:
+         entra pela quantidade da ordem (mesma regra do peso esperado). Produto bipado a menos é carga parcial e fica como bipado. */
+      const bipN=new Set(carga.map(i=>normNome(i.produto)));
+      its.filter(i=>String(i.numero)===String(num)&&!felDaOrdem(i)).forEach(i=>{const pe=produtoErpDoItem(i), nome=pe?pe.nome:i.produto;
+        if(!nome||bipN.has(normNome(nome))) return; add(nome,parseFloat(i.quantidade)||0,pe?null:'UN',!pe); fonte='carga + ordem';}); }
     else{fonte='ordem'; its.filter(i=>String(i.numero)===String(num)).forEach(i=>{const pe=produtoErpDoItem(i); add(pe?(pe.felis?pe.nome+' (Felisbina)':pe.nome):i.produto,parseFloat(i.quantidade)||0,pe?null:'UN',!pe);});}
     const rom=roms.find(r=>String(r.numero)===String(num));
     return {n:k+1,id:v.id,placa:v.placa,motorista:v.nome_motorista,ordem:num,veiculo:v.modelo_veiculo,unidade:v.unidade_carregamento,

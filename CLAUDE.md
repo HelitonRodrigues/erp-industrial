@@ -1073,3 +1073,11 @@ fábrica específica. Não generalizar.
   028551: Sgavioli 200 sc (Liga) na ordem sem bipar e balança +1,84 t → provável pallet sem QR, a confirmar com o encarregado.
 - (19/11) portaria.html Fechamento do dia: caminhão que ENTROU até 24:00 e saiu até 02:00 do dia seguinte conta no dia em que entrou
   (vale para a portaria e a DSM); quem saiu 00:00–02:00 tendo entrado no dia anterior vai para o dia anterior.
+- (20/11, migração 175) rótulo de Big Bag/Caulim 25 kg impresso no totem vira pallet PENDENTE na hora (tg_rotulo_vira_pallet) → aparece na lista principal da Análise de Pallets sem esperar a OP; totem_alocar adota ao lançar a OP e apaga o impresso a mais.
+- (20/11) portaria.html Fechamento do dia: produto da ORDEM sem nenhuma unidade bipada (não Felisbina) entra pela quantidade da ordem (028551: Liga Original 20 kg 16 sc e Topdry 5 faltavam); bipado a menos segue como carga parcial.
+- (20/11) portaria.html: QUANTIDADE TEM QUE BATER — cargaDaOrdem calcula faltas (produto da ordem com carregado < pedido e sem motivo_menos no Carregamento; Felisbina e Topdry fora); a saída mostra o aviso vermelho e confirmarSaida NÃO libera (devolver ao carregamento para declarar pallets sem QR ou motivo). Conferido com dados reais 10–19/11: só a 028551 travaria (Liga 1.800/2.000 sem motivo; Liga Original 20 kg 0/16); cargas parciais com motivo (028512/13/35) passam.
+- (20/11) REGRA DA CARGA (Heliton): a ordem tem que FECHAR no Carregamento — só finaliza com a quantidade da ordem, bipando ou
+  declarando pallet SEM QR (pallets × pallet padrão + sacos soltos; não aceita mais que o que falta). Acabou o "saiu menos com motivo" para SACARIA; BIG BAG continua podendo sair menos com motivo (faltaRigida)
+  (pátio: patioSalvar vai direto para patioSemQrPerguntar; desktop: salvarCarregamentoPasso2 recusa; gravarCarregamento recusa incompleto,
+  exceto reenvio offline/assinatura). Felisbina e granel fora. A portaria NÃO trava a saída por isso (trava tirada); o fechamento da
+  portaria continua somando o produto da ordem sem nenhuma unidade bipada.
