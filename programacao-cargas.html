@@ -96,6 +96,15 @@
 .pc-livre{border:2px dashed #94A3B8;border-radius:10px;padding:10px;text-align:center;color:var(--pc-mut);font-weight:700;font-size:11.5px}
 .pc-note{font-size:12px;color:var(--pc-mut);margin-top:10px}
 .pc-lat{width:300px;flex:none}
+/* (20/11) balão de observação da fábrica (verde-limão) e cancelados */
+.pc4-obs{margin-top:5px;background:#C9FF64;color:#1a2e05;border-radius:10px 10px 10px 2px;padding:4px 8px;font-size:11.5px;font-weight:700;line-height:1.3;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;box-shadow:0 1px 0 rgba(0,0,0,.08)}
+.pc-mini .pc4-obsdot{display:inline-block;background:#C9FF64;color:#1a2e05;border-radius:8px;padding:0 5px;font-size:10px;font-weight:800;margin-left:3px}
+.pc4-act button.o{background:#C9FF64!important;color:#1a2e05!important}
+.pc4-c:hover .pc4-act{flex-wrap:wrap}.pc4-act button{min-width:calc(50% - 3px)}
+.pc-canc{border-left:3px solid #dc2626;background:#fff5f5;border-radius:8px;padding:6px 8px;margin-bottom:6px;font-size:12px;cursor:pointer}
+.pc-canc b{color:#991b1b}.pc-canc small{display:block;color:#64748b}
+#m-hist .pcm{max-width:min(1400px,96vw)!important;width:96vw}
 .pc-lat .pc-card{padding:12px 14px;margin-bottom:12px}
 .pc-lat h4{font-size:13px;color:var(--primary);display:flex;justify-content:space-between;margin-bottom:8px;font-weight:800}
 .pc-pill{font-size:11px;font-weight:800;border-radius:10px;padding:1px 8px;background:var(--primary);color:var(--accent)}.pc-pill.r{background:var(--pc-red);color:#fff}.pc-pill.a{background:var(--pc-amb);color:#fff}
@@ -520,7 +529,8 @@ async function carregar(){
   ]);
   _produtos=pr.data||[]; _aliases=al.data||[]; _links=lk.data||[];
   M.iniciar({planos:pl.data||[],turnos:tu.data||[],produtos:_produtos,aliases:_aliases});
-  _cargas=(cg.data||[]).map(montar);
+  // (20/11) pedido CANCELADO pela fábrica sai do quadro, das contas e das listas — fica só em "🚫 Cancelados" (lateral)
+  const todos=(cg.data||[]).map(montar); _cancelados=todos.filter(c=>c.cancelado).sort((a,b)=>String(b.cancelado_em||'').localeCompare(String(a.cancelado_em||''))); _cargas=todos.filter(c=>!c.cancelado);
   _balEm=(bl.data||[])[0]?.lido_em||null;
   render();
   carregarAvisos();
@@ -557,6 +567,7 @@ const repCurto=c=>{if(!c.representante)return 'sem representante';const i=repInf
 const CORES_AV=['#2563EB','#0F766E','#7C3AED','#D97706','#DB2777','#0891B2','#65A30D','#475569','#B45309','#4F46E5'];
 const corAv=s=>{let h=0;for(const ch of String(s))h=(h*31+ch.charCodeAt(0))>>>0;return CORES_AV[h%CORES_AV.length];};
 const iniciais=s=>{const p=repInfo(s).nome.split(' ').filter(Boolean);return ((p[0]||'?')[0]+((p[1]||'')[0]||'')).toUpperCase();};
+let _cancelados=[];
 let _balEm=null,_repOpen=false,_repIdx=0,_diaAberto=null,_diaLinha=null;
 
 function contMovel(){const n=(_rep?1:0)+(_colF?1:0)+(document.getElementById('chk-fin').checked?0:1);const e=document.getElementById('flt-n');if(e)e.textContent=n?'· '+n+' ativo'+(n>1?'s':''):'';
@@ -711,7 +722,8 @@ function cardHtml(c,fit,o={}){
     <div class="rp" title="${esc(c.representante||'')}">👤 ${c.representante?`${ri.n?ri.n+' — ':''}${esc(ri.nome)}`:'sem representante'}</div>
     ${chips?`<div class="l5">${chips}</div>`:''}
     ${mud?`<div class="pc4-dsc">Salescode ${fmtD(c._dataSC)} → Fábrica ${fmtD(c.data_manual)}</div>`:''}
-    ${_pode?`<div class="pc4-act">${c._novo?`<button class="y" onclick="event.stopPropagation();marcarVisto(['${c.id}'])">✓ Visto</button>`:''}${!c._fin||c._conta?`<button onclick="event.stopPropagation();marcarCarregado('${c.id}')">✓ Carregado</button>`:''}<button class="l" onclick="event.stopPropagation();abrirCarga('${c.id}')">📄 Abrir</button></div>`:''}
+    ${c.obs_fabrica?`<div class="pc4-obs" title="${esc(c.obs_fabrica)}${c.obs_fabrica_por?' — '+esc(c.obs_fabrica_por):''}">💬 ${esc(c.obs_fabrica)}</div>`:''}
+    ${_pode?`<div class="pc4-act">${c._novo?`<button class="y" onclick="event.stopPropagation();marcarVisto(['${c.id}'])">✓ Visto</button>`:''}${!c._fin||c._conta?`<button onclick="event.stopPropagation();marcarCarregado('${c.id}')">✓ Carregado</button>`:''}<button class="o" title="${c.obs_fabrica?'Editar a observação':'Escrever uma observação'}" onclick="event.stopPropagation();obsRapida('${c.id}')">💬 Obs</button><button class="l" onclick="event.stopPropagation();abrirCarga('${c.id}')">📄 Abrir</button></div>`:''}
   </div>`;
 }
 function capDia(iso,e,linha){
@@ -776,12 +788,13 @@ function renderLateral(){
   const L=abertos(), h=hoje();
   const atr=L.filter(c=>ehCard(c)&&c._data&&c._data<h&&c._conta&&naLinha(c)).sort(porPrioridade);
   const sem=L.filter(c=>ehCard(c)&&!c._data&&naLinha(c)).sort(porPrioridade), sv=semVinculo(), adf=aDefinir();
-  const mini=c=>{const q={};c._itens.forEach(i=>{q[i.un]=(q[i.un]||0)+i.q;});return `<div class="pc-mini${c._novo?' novo':''}" ${_pode?'draggable="true"':''} data-id="${c.id}" onclick="abrirCarga('${c.id}')"><span class="pc-ped" style="font-size:11px">${esc(c.pedido)}</span> ${colTag(c,1)} <b>${Object.entries(q).map(([u,v])=>qtdTxt(v,u)).join(' + ')}</b> · ${esc(c._cli)}<br>${c._data?(c.a_definir?`<span style="color:#64748B">data ${fmtD(c._data)}</span> · `:`<span class="no" style="font-weight:700">desde ${fmtD(c._data)}</span> · `):''}${esc(c._itens.map(i=>curto(i.nome)).join(', '))} · <span style="color:#64748B">👤 ${esc(repCurto(c))}</span></div>`;};
+  const mini=c=>{const q={};c._itens.forEach(i=>{q[i.un]=(q[i.un]||0)+i.q;});return `<div class="pc-mini${c._novo?' novo':''}" ${_pode?'draggable="true"':''} data-id="${c.id}" onclick="abrirCarga('${c.id}')"><span class="pc-ped" style="font-size:11px">${esc(c.pedido)}</span>${c.obs_fabrica?`<span class="pc4-obsdot" title="${esc(c.obs_fabrica)}">💬</span>`:''} ${colTag(c,1)} <b>${Object.entries(q).map(([u,v])=>qtdTxt(v,u)).join(' + ')}</b> · ${esc(c._cli)}<br>${c._data?(c.a_definir?`<span style="color:#64748B">data ${fmtD(c._data)}</span> · `:`<span class="no" style="font-weight:700">desde ${fmtD(c._data)}</span> · `):''}${esc(c._itens.map(i=>curto(i.nome)).join(', '))} · <span style="color:#64748B">👤 ${esc(repCurto(c))}</span></div>`;};
   const opts=_produtos.map(p=>`<option value="${p.id}">${esc(p.nome)}</option>`).join('');
   document.getElementById('pc-lat').innerHTML=`
     <div class="pc-card"><h4>Atrasados <span class="pc-pill ${atr.length?'r':''}">${atr.length}</span></h4><div class="pc-sb">${atr.map(mini).join('')||'<div class="pc-help">Nenhum 👍</div>'}</div></div>
     <div class="pc-card"><h4>Sem data <span class="pc-pill">${sem.length}</span></h4><div class="pc-sb" data-dia="">${sem.map(mini).join('')||'<div class="pc-help">Nenhum</div>'}</div>${_pode?'<div class="pc-help" style="margin-top:6px">Soltar aqui tira a data da fábrica.</div>':''}</div>
     <div class="pc-card"><h4>Produtos sem vínculo <span class="pc-pill a">${sv.length}</span></h4>${sv.map(([nome,n])=>`<div class="pc-warn"><b>“${esc(nome)}”</b> (Salescode, ${n} pedido${n>1?'s':''}) não está ligado ao produtos.html.${_pode?`<select onchange="vincular(${jsq(nome)},this.value)"><option value="">Ligar a: escolha o produto do ERP…</option>${opts}</select><div style="margin-top:4px;color:#92400E">Uma vez ligado, vale para sempre (também na Portaria).</div>`:''}</div>`).join('')||'<div class="pc-help">Todos os produtos do Salescode estão ligados ✓</div>'}</div>
+    <div class="pc-card"><h4>🚫 Cancelados <span class="pc-pill ${_cancelados.length?'r':''}">${_cancelados.length}</span></h4><div class="pc-sb">${_cancelados.slice(0,40).map(c=>`<div class="pc-canc" onclick="abrirCancelado('${c.id}')"><b>${esc(c.pedido)}</b> · ${esc(c._cli)}<small>${c.cancelado_em?new Date(c.cancelado_em).toLocaleDateString('pt-BR'):''}${c.cancelado_por?' · '+esc(c.cancelado_por.split(' ')[0]):''}${c.cancelado_motivo?' — '+esc(c.cancelado_motivo):''}</small></div>`).join('')||'<div class="pc-help">Nenhum pedido cancelado.</div>'}</div></div>
     <div class="pc-card"><h4>📌 A Definir <span class="pc-pill ${adf.length?'a':''}">${adf.length}</span></h4><div class="pc-sb" data-dia="__def" style="min-height:44px">${adf.map(mini).join('')||'<div class="pc-help">Nenhum pedido aqui.</div>'}</div>${_pode?'<div class="pc-help" style="margin-top:6px">Arraste um pedido para cá para separar: sai do quadro e não ocupa a linha. Para voltar, arraste para um dia ou para Sem data.</div>':''}</div>`;
   ligarDrag();
 }
@@ -913,6 +926,11 @@ function abrirCarga(id){
     <div class="pcm-f"><small>&nbsp;</small>${c._fin&&!c._conta?'<div class="pcm-mini">No financeiro — não pode marcar carregado</div>':`<button class="btn btn-primary" style="width:100%" onclick="marcarCarregado('${c.id}')">✓ Marcar carregado</button>`}</div>
     <div class="pcm-f"><small>&nbsp;</small><button class="btn btn-secondary" style="width:100%" onclick="closeModal('m-carga');marcarADefinir('${c.id}',${!c.a_definir})">${c.a_definir?'↩ Tirar de A Definir':'📌 Mover para A Definir'}</button></div>
   </div>`:''}
+  <div class="pcm-obsbox" style="margin:10px 22px 0;padding:10px 12px;border-radius:12px;background:#f7ffe6;border:1.5px solid #C9FF64;">
+    <div style="font-size:11px;font-weight:800;color:#3f6212;letter-spacing:.5px;">💬 OBSERVAÇÃO DA FÁBRICA${c.obs_fabrica_por?` <span style="font-weight:600;color:#64748b;">· ${esc(c.obs_fabrica_por)}${c.obs_fabrica_em?' em '+new Date(c.obs_fabrica_em).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):''}</span>`:''}</div>
+    ${_pode?`<textarea id="obs-fab" rows="2" style="width:100%;box-sizing:border-box;margin-top:5px;border:1px solid #d9f99d;border-radius:8px;padding:6px 8px;font-family:inherit;font-size:13px;" placeholder="ex.: cliente pediu para carregar depois das 14h · só com caminhão baú">${esc(c.obs_fabrica||'')}</textarea>
+      <div style="display:flex;gap:6px;justify-content:flex-end;margin-top:5px;">${c.obs_fabrica?`<button class="btn btn-ghost btn-sm" onclick="salvarObsFab('${c.id}',true)">Apagar</button>`:''}<button class="btn btn-primary btn-sm" onclick="salvarObsFab('${c.id}')">💬 Salvar observação</button></div>`
+      :`<div style="margin-top:4px;font-size:13px;">${esc(c.obs_fabrica||'—')}</div>`}</div>
   <div class="pcm-bd"><div>
     <div class="pcm-card"><h4>Carga <span>${n1(c._t)} t</span></h4>
       ${c._itens.map(i=>`<div class="pcm-it"><span class="pc4-pp${i.erp?'':' sv'}" style="background:${COR[i.mat]||COR.outro};font-size:12px;padding:4px 9px">${i.erp?'':'⚠ '}${esc(i.nome)}</span><div style="min-width:0"><div class="o">${i.erp?'':'sem vínculo · '}Salescode: ${esc(i.produto)}${horas(i)}</div></div><span class="q">${qtdU(i.q,i.un)}</span></div>`).join('')}
@@ -931,10 +949,81 @@ function abrirCarga(id){
     ${(dt._bruto||[]).length?`<button class="btn btn-secondary btn-sm" onclick="verPedido('${c.id}')">📄 Ver pedido</button>`:'<span class="pc-help">“Ver pedido” aparece depois que a extensão ler este pedido.</span>'}
     ${c.salescode_view?`<a class="pcm-lk" target="_blank" href="https://salescode.com.br/ret/pedido/view/${encodeURIComponent(c.salescode_view)}">Abrir no Salescode ↗</a>`:''}
     <span class="pcm-sp"></span>
+    ${_pode&&!c.carregado?`<button class="btn btn-ghost btn-sm" style="color:#b91c1c;" onclick="cancelarPedido('${c.id}')">🚫 Cancelar pedido</button>`:''}
     ${_pode&&c.data_manual&&!c.carregado?`<button class="btn btn-ghost btn-sm" onclick="closeModal('m-carga');moverCarga('${c.id}',${c._dataSC?`'${c._dataSC}'`:'null'})">↩ Voltar à data do Salescode</button>`:''}
     ${_pode&&c.carregado?`<button class="btn btn-secondary btn-sm" onclick="marcarCarregado('${c.id}')">✏️ Data do carregamento</button><button class="btn btn-secondary btn-sm" onclick="marcarCarregado('${c.id}',true)">↩ Desfazer carregado</button>`:''}
     <button class="btn btn-secondary btn-sm" onclick="closeModal('m-carga')">Fechar</button></div>`;
   abrirM('m-carga');
+}
+/* (20/11) OBSERVAÇÃO DA FÁBRICA e CANCELAMENTO do pedido */
+/* 💬 direto do card do quadro, sem abrir o pedido */
+function obsRapida(id){
+  if(!guardAction(MOD,'edit'))return;
+  const c=_cargas.find(x=>x.id===id);if(!c)return;
+  const ov=document.createElement('div');ov.id='obs-ov';ov.style.cssText='position:fixed;inset:0;background:rgba(2,20,40,.45);z-index:10050;display:flex;align-items:center;justify-content:center;padding:14px;';
+  ov.innerHTML=`<div style="background:#fff;border-radius:16px;width:min(460px,96vw);padding:16px 18px;box-shadow:0 20px 60px rgba(0,0,0,.35);border-top:6px solid #C9FF64;">
+    <div style="font-weight:900;font-size:16px;color:#1a2e05;">💬 Observação — ${esc(c.pedido)}</div>
+    <div style="font-size:12.5px;color:#64748b;margin:2px 0 8px;">${esc(c._cli)}</div>
+    <textarea id="obs-fab" rows="3" style="width:100%;box-sizing:border-box;border:1.5px solid #d9f99d;border-radius:10px;padding:8px;font-family:inherit;font-size:13.5px;" placeholder="ex.: carregar só depois das 14h · caminhão baú">${esc(c.obs_fabrica||'')}</textarea>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px;">${c.obs_fabrica?'<button class="btn btn-ghost btn-sm" id="ob-del">Apagar</button>':''}<button class="btn btn-secondary btn-sm" id="ob-no">Cancelar</button><button class="btn btn-primary btn-sm" id="ob-ok">💬 Salvar</button></div></div>`;
+  document.body.appendChild(ov); const t=ov.querySelector('#obs-fab'); setTimeout(()=>{t.focus();t.setSelectionRange(t.value.length,t.value.length);},30);
+  ov.onclick=e=>{if(e.target===ov)ov.remove();};
+  ov.querySelector('#ob-no').onclick=()=>ov.remove();
+  const salvar=async apagar=>{ await salvarObsFab(id,apagar,true); ov.remove(); };
+  ov.querySelector('#ob-ok').onclick=()=>salvar(false);
+  const del=ov.querySelector('#ob-del'); if(del) del.onclick=()=>salvar(true);
+  t.addEventListener('keydown',e=>{ if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)) salvar(false); if(e.key==='Escape') ov.remove(); });
+}
+async function salvarObsFab(id,apagar,semAbrir){
+  if(!guardAction(MOD,'edit'))return;
+  const c=_cargas.find(x=>x.id===id)||_cancelados.find(x=>x.id===id);if(!c)return;
+  const t=apagar?'':String(document.getElementById('obs-fab')?.value||'').trim();
+  const u=(getUser()||{}).nome||'';
+  const d={obs_fabrica:t||null,obs_fabrica_em:t?new Date().toISOString():null,obs_fabrica_por:t?u:null};
+  const {error}=await db(_supabase.from('programacao_cargas').update(d).eq('id',id),'salvar observação');if(error)return;
+  Object.assign(c,d); addLog('UPDATE',MOD,c.pedido,t?`Observação no pedido ${c.pedido}: ${t}`:`Observação apagada no pedido ${c.pedido}`);
+  toast(t?'💬 Observação salva.':'Observação apagada.','success'); render(); if(!semAbrir) abrirCarga(id);
+}
+function cancelarPedido(id){
+  if(!guardAction(MOD,'edit'))return;
+  const c=_cargas.find(x=>x.id===id);if(!c)return;
+  const ov=document.createElement('div');ov.style.cssText='position:fixed;inset:0;background:rgba(2,20,40,.55);z-index:10050;display:flex;align-items:center;justify-content:center;padding:14px;';
+  ov.innerHTML=`<div style="background:#fff;border-radius:16px;width:min(500px,96vw);padding:18px 20px;box-shadow:0 20px 60px rgba(0,0,0,.35);">
+    <div style="font-weight:900;font-size:17px;color:#991b1b;">🚫 Cancelar o pedido ${esc(c.pedido)}</div>
+    <div style="font-size:13px;color:#475569;margin:6px 0 10px;">${esc(c._cli)} — sai do quadro e das contas de capacidade e fica na lista <b>🚫 Cancelados</b>, ao lado direito. Dá para reativar depois.</div>
+    <label style="font-size:12px;font-weight:800;">Motivo (obrigatório)</label>
+    <textarea id="cn-mot" rows="3" style="width:100%;box-sizing:border-box;border:1.5px solid #cbd5e1;border-radius:10px;padding:8px;font-family:inherit;margin-top:4px;" placeholder="ex.: cliente desistiu · pedido refeito como A01XXX"></textarea>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;"><button class="btn btn-secondary" id="cn-no">Voltar</button><button class="btn" id="cn-ok" style="background:#b91c1c;color:#fff;">🚫 Cancelar pedido</button></div></div>`;
+  document.body.appendChild(ov); const t=ov.querySelector('#cn-mot'); setTimeout(()=>t.focus(),30);
+  ov.querySelector('#cn-no').onclick=()=>ov.remove();
+  ov.querySelector('#cn-ok').onclick=async()=>{ const mot=t.value.trim(); if(!mot){t.style.borderColor='#dc2626';t.focus();return;}
+    const d={cancelado:true,cancelado_em:new Date().toISOString(),cancelado_por:(getUser()||{}).nome||'',cancelado_motivo:mot};
+    const {error}=await db(_supabase.from('programacao_cargas').update(d).eq('id',id),'cancelar pedido'); if(error)return;
+    ov.remove(); closeModal('m-carga'); Object.assign(c,d); _cargas=_cargas.filter(x=>x.id!==id); _cancelados.unshift(c);
+    addLog('UPDATE',MOD,c.pedido,`Pedido ${c.pedido} CANCELADO: ${mot}`); toast(`🚫 Pedido ${c.pedido} cancelado.`,'warning'); render(); };
+}
+function abrirCancelado(id){
+  const c=_cancelados.find(x=>x.id===id);if(!c)return;
+  const q={};c._itens.forEach(i=>q[i.un]=(q[i.un]||0)+i.q);
+  document.getElementById('m-carga-body').innerHTML=`<div class="pcm-hd" style="background:#7f1d1d;"><button class="pcm-x" onclick="closeModal('m-carga')">✕</button>
+    <div class="pcm-r1"><span class="pcm-ped">${esc(c.pedido)}</span><span class="pcm-tag" style="background:#dc2626">🚫 CANCELADO</span></div><div class="pcm-cli">${esc(c._cli)}</div>
+    <div class="pcm-cid">${[c.cidade,c.representante].filter(Boolean).map(esc).join(' · ')}</div></div>
+    <div style="padding:14px 22px;font-size:13.5px;line-height:1.6;">
+      <div><b>Cancelado em:</b> ${c.cancelado_em?new Date(c.cancelado_em).toLocaleString('pt-BR'):'—'} por <b>${esc(c.cancelado_por||'—')}</b></div>
+      <div><b>Motivo:</b> ${esc(c.cancelado_motivo||'—')}</div>
+      <div><b>Carga:</b> ${c._itens.map(i=>esc(i.nome)).join(' + ')} — ${Object.entries(q).map(([u,v])=>qtdTxt(v,u)).join(' + ')}</div>
+      ${c.obs_fabrica?`<div class="pc4-obs" style="display:block;margin-top:8px;">💬 ${esc(c.obs_fabrica)}</div>`:''}</div>
+    <div class="pcm-ft"><span class="pcm-sp"></span>${_pode?`<button class="btn btn-secondary btn-sm" onclick="reativarPedido('${c.id}')">↩ Reativar pedido</button>`:''}<button class="btn btn-secondary btn-sm" onclick="closeModal('m-carga')">Fechar</button></div>`;
+  abrirM('m-carga');
+}
+async function reativarPedido(id){
+  if(!guardAction(MOD,'edit'))return;
+  const c=_cancelados.find(x=>x.id===id);if(!c)return;
+  if(!(await erpConfirm(`Reativar o pedido ${c.pedido}? Ele volta para o quadro da semana.`,{titulo:'↩ Reativar pedido',ok:'Reativar'})))return;
+  const d={cancelado:false,cancelado_em:null,cancelado_por:null,cancelado_motivo:null};
+  const {error}=await db(_supabase.from('programacao_cargas').update(d).eq('id',id),'reativar pedido');if(error)return;
+  Object.assign(c,d); _cancelados=_cancelados.filter(x=>x.id!==id); _cargas.push(c);
+  addLog('UPDATE',MOD,c.pedido,`Pedido ${c.pedido} reativado`); toast('↩ Pedido reativado.','success'); closeModal('m-carga'); render();
 }
 /* linha de pedido nas listas (Dia / Atrasados / Sem data / Financeiro / Novos) */
 function rowHtml(c,fit,o={}){
@@ -1009,12 +1098,16 @@ async function abrirHistorico(){
     _hExtra=(r.data||[]).filter(x=>!_cargas.some(c=>c.id===x.id)).map(montar);_hExtraDe=de;}
   desenharHist();abrirM('m-hist');
 }
+/* base do período (sem os filtros de texto/produto) — para montar a lista de produtos */
+function dadosHistBase(){ const [de,ate]=periodoHist(); return [..._cargas,..._hExtra].filter(c=>c.carregado&&c.carregado_em).filter(c=>{const d=isoLocal(c.carregado_em);return d>=de&&d<=ate;}); }
 function dadosHist(){
   const [de,ate]=periodoHist(), q=M.norm(_hQ);
   return [..._cargas,..._hExtra].filter(c=>c.carregado&&c.carregado_em).filter(c=>{const d=isoLocal(c.carregado_em);return d>=de&&d<=ate;})
-    .filter(c=>!q||M.norm([c.pedido,c._cli,c.representante,...(c.balanca||[]).map(b=>b.placa+' '+b.ticket)].join(' ')).includes(q))
+    .filter(c=>!q||M.norm([c.pedido,c._cli,c.representante,...(c.balanca||[]).map(b=>b.placa+' '+b.ticket),...c._itens.map(i=>i.nome+' '+(i.produto||''))].join(' ')).includes(q))
+    .filter(c=>!_hProd||c._itens.some(i=>i.nome===_hProd))
     .sort((a,b)=>String(b.carregado_em).localeCompare(String(a.carregado_em)));
 }
+let _hProd='';
 const ORIG={portaria:'🚪 Portaria',balanca:'⚖️ Balança',manual:'✋ Marcado aqui',salescode:'Saiu do Salescode',planilha:'Planilha'};
 function desenharHist(){
   const tudo=dadosHist(), arr=tudo.filter(c=>!_hO||(c.carregado_origem||'')===_hO||(_hO==='salescode'&&c.carregado_origem==='planilha'));
@@ -1029,7 +1122,8 @@ function desenharHist(){
     <div class="pcm-r1"><span class="pcm-ped">📦 Carregadas</span><span class="pcm-tag">${de===ate?fmtDL(de):fmtD(de)+' a '+fmtD(ate)}</span></div>
     <div class="pcm-tabs">${per.map(([k,t])=>`<button class="pcm-tb${_hP===k?' on':''}" onclick="_hP='${k}';abrirHistorico()">${t}</button>`).join('')}
     ${_hP==='esc'?`<input type="date" value="${de}" onchange="_hDe=this.value;abrirHistorico()" style="border-radius:8px;border:0;padding:4px 6px"> a <input type="date" value="${ate}" onchange="_hAte=this.value;abrirHistorico()" style="border-radius:8px;border:0;padding:4px 6px">`:''}</div></div>
-  <div class="pcm-flt"><input id="h-q" class="form-input" style="max-width:320px;padding:7px 10px" placeholder="🔎 pedido, cliente, placa ou representante" value="${esc(_hQ)}" oninput="_hQ=this.value;clearTimeout(window._hT);window._hT=setTimeout(()=>{desenharHist();const i=document.getElementById('h-q');i.focus();i.setSelectionRange(i.value.length,i.value.length);},250)">
+  <div class="pcm-flt"><input id="h-q" class="form-input" style="max-width:320px;padding:7px 10px" placeholder="🔎 pedido, cliente, placa, representante ou produto" value="${esc(_hQ)}" oninput="_hQ=this.value;clearTimeout(window._hT);window._hT=setTimeout(()=>{desenharHist();const i=document.getElementById('h-q');i.focus();i.setSelectionRange(i.value.length,i.value.length);},250)">
+    <select class="form-input" style="max-width:260px;padding:7px 10px" onchange="_hProd=this.value;desenharHist()" title="Filtrar por produto"><option value="">📦 Todos os produtos</option>${[...new Set(dadosHistBase().flatMap(c=>c._itens.map(i=>i.nome)))].sort((a,b)=>a.localeCompare(b,'pt-BR')).map(n=>`<option${_hProd===n?' selected':''}>${esc(n)}</option>`).join('')}</select>
     <span class="pcm-sp"></span>${[['','Todas',tudo.length],['portaria','🚪 Portaria',nO('portaria')],['balanca','⚖️ Balança',nO('balanca')],['manual','✋ Marcado aqui',nO('manual')],['salescode','Saiu do Salescode',nO('salescode')]].map(([k,t,n])=>`<button class="pcm-fc${_hO===k?' on':''}" onclick="_hO='${k}';desenharHist()">${t} · ${n}</button>`).join('')}</div>
   <div class="pcm-kp4"><div class="pcm-k"><small>PEDIDOS</small><b>${arr.length}</b></div><div class="pcm-k"><small>BIG BAGS</small><b>${n0(tot.bags||0)}</b></div><div class="pcm-k"><small>SACOS</small><b>${n0(tot.sacos||0)}</b></div><div class="pcm-k"><small>PESO LÍQUIDO (BALANÇA)</small><b>${liq?n1(liq/1000)+' t':'—'}</b></div></div>
   <div style="padding:10px 22px;max-height:52vh;overflow:auto">${arr.length?`<table class="pcm-tab"><thead><tr><th>Hora</th><th>Pedido</th><th>Cliente</th><th>Produto</th><th class="n">Qtd</th><th>Ticket · placa · líquido</th><th>Como</th><th></th></tr></thead><tbody>
