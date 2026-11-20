@@ -1,0 +1,3 @@
+-- (20/11/2026) aplicada no Supabase.
+-- dos_nfs_json(ordem): NFs da carga = anexadas na Portaria (portaria_nfs, com arquivo) + digitadas no certificado (lab_laudo_carregamentos).
+-- dos_lote (cargas: 'nf' texto + 'nfs' lista), dos_cliente (só as NFs do cliente), dos_carga ('nfs'), dos_busca (acha a carga pelo nº ou chave da NF).
