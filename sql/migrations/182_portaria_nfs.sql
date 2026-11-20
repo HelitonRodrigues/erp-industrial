@@ -1,3 +1,5 @@
 -- (20/11/2026) aplicada no Supabase.
 -- portaria_nfs: NF de cada cliente da ordem de cada caminhão que saiu (portaria_id, ordem, cliente, pedido, numero, serie, chave,
 --   emissao, cnpj_emit, arquivo_path no bucket documentos/portaria-nfs/<ordem>/, enviado_por/em). Chave única (não repete a NF).
+-- Permissões (20/11): aba 'nfs' da Portaria — PRT (porteiros): ver/anexar/exportar, sem excluir; MIN (Minério consulta): sem acesso.
+--   Perfis administrativos (SADM/ADM…) veem tudo. Tirar NF anexada exige excluir na Portaria.
