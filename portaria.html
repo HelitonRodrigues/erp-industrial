@@ -1336,6 +1336,32 @@ function tabelaItens(itens){
       <td>${esc(i.produto)}${(()=>{const pe=produtoErpDoItem(i);return pe?`<div style="font-size:11px;color:#15803d;font-weight:700;">↳ ${esc(pe.nome)}</div>`:'<div style="font-size:11px;color:#b45309;">↳ sem cadastro no ERP</div>';})()}</td><td class="num"><b>${nf(parseFloat(i.quantidade)||0)}</b></td><td>${esc(i.frete||'')}</td><td class="num">${esc(i.unidades||'')}</td></tr>`;}).join('')
     ||'<tr><td colspan="7" style="color:#94a3b8;text-align:center;">Sem itens.</td></tr>'}</tbody></table></div>`;
 }
+/* (20/11) Fechamento: as ações da linha num menu só (⋯ Ações), com a NF junto */
+function feNfBadge(ordem){
+  if(!ordem||!_nf||!_nf.saidas.length) return '';
+  const cl=nfClientes(ordem); if(!cl.length) return '';
+  const tem=cl.filter(c=>nfDoCliente(ordem,c.cliente).length).length;
+  return `<span class="badge ${tem===cl.length?'badge-success':'badge-warning'}" style="margin-right:6px;" title="NF de Caulim 25 kg / Big Bag">🧾 ${tem}/${cl.length}</span>`;
+}
+function feAcoes(ev,portId,ordem){
+  ev.stopPropagation(); document.getElementById('fe-menu')?.remove();
+  const sx=_nf&&_nf.saidas.find(x=>x.id===portId), cl=ordem&&sx?nfClientes(ordem):[];
+  const it=(ic,txt,fn,cor)=>`<button onclick="document.getElementById('fe-menu').remove();${fn}" style="display:flex;gap:10px;align-items:center;width:100%;border:0;background:none;padding:9px 12px;border-radius:8px;font:inherit;font-size:13.5px;text-align:left;cursor:pointer;color:${cor||'#0f172a'};" onmouseover="this.style.background='#f1f5f9'" onmouseout="this.style.background='none'"><span style="width:20px;text-align:center;flex:none;">${ic}</span><span style="flex:1;">${txt}</span></button>`;
+  const nfs=cl.map(c=>{const ns=nfDoCliente(ordem,c.cliente); return ns.length
+      ?ns.map(n=>it('🧾',`NF <b>${esc(n.numero)}</b> · ${esc(c.cliente)} <span style="color:#16a34a;">(abrir)</span>`,`nfAbrir('${n.id}')`)).join('')
+      :it('📎',`Anexar NF · <b>${esc(c.cliente)}</b>`,`nfAnexar('${portId}',${jsqNf(c.cliente)})`,'#b45309');}).join('');
+  const m=document.createElement('div'); m.id='fe-menu';
+  m.style.cssText='position:fixed;z-index:1300;background:#fff;border:1px solid #e2e8f0;border-radius:12px;box-shadow:0 14px 40px rgba(2,20,40,.22);padding:6px;min-width:260px;max-width:380px;';
+  m.innerHTML=(ordem?it('📄','Ver a ordem de carregamento',`feVerOrdem('${ordem}')`):'')
+    +it('👁️','Visualizar o romaneio',`imprimirSaida('${portId}',true)`)+it('🖨️','Imprimir o romaneio',`imprimirSaida('${portId}')`)
+    +it('📜','Certificado e relação dos bags/pallets',`abrirDocumentos('${portId}')`)
+    +(nfs?`<div style="border-top:1px solid #e2e8f0;margin:4px 0;padding:6px 12px 2px;font-size:10.5px;font-weight:800;color:#64748b;letter-spacing:.5px;">NOTA FISCAL (CAULIM 25 KG / BIG BAG)</div>`+nfs:'')
+    +`<div style="border-top:1px solid #e2e8f0;margin:4px 0;"></div>`+it('↩','Voltar para o carregamento (errou algo)',`voltarParaCarregamento('${portId}')`,'#b45309');
+  document.body.appendChild(m);
+  const r=ev.currentTarget.getBoundingClientRect(), w=m.offsetWidth, h=m.offsetHeight;
+  m.style.left=Math.max(8,Math.min(r.right-w,innerWidth-w-8))+'px'; m.style.top=(r.bottom+6+h>innerHeight?Math.max(8,r.top-h-6):r.bottom+6)+'px';
+  setTimeout(()=>document.addEventListener('click',function f(e){ if(!m.contains(e.target)){ m.remove(); document.removeEventListener('click',f); } }),0);
+}
 /* (20/11) do Fechamento: abre a ORDEM de carregamento (pedidos, clientes, produtos) da saída */
 function feVerOrdem(num){ const o=_ordens.find(x=>String(x.numero)===String(num)); if(!o){ toast('Ordem '+num+' não encontrada.','warning'); return; } verOrdem(o.id); }
 function verOrdem(id){
@@ -2780,6 +2806,7 @@ const UN_ERP={sacos:'SC',unidades:'UN',toneladas:'T'};
 function unProduto(nome){const p=_prodErp.find(x=>normNome(x.nome)===normNome(nome)); return p?(UN_ERP[p.unidade]||'UN'):null;}
 function grupoProduto(nome){const p=_prodErp.find(x=>normNome(x.nome)===normNome(nome)); return p?((p.linhas&&p.linhas[0])||'Outros'):'Sem cadastro no ERP';}
 async function carregarFechamento(){
+  if(!_nf.saidas.length){ try{ await carregarNfs(); }catch(e){} }
   const dia=document.getElementById('fe-dia').value||hojeISO(), ini=inicioDia(dia), fim=new Date(ini.getTime()+86400e3);
   /* (19/11) caminhão que ENTROU até a meia-noite e saiu até as 02:00 do dia seguinte é do fechamento do dia em que entrou
      (carregamento do 2º turno). Quem saiu entre 00:00 e 02:00 deste dia mas entrou no dia anterior vai para o dia anterior. */
@@ -2885,7 +2912,7 @@ function renderFechamento(){
     <td class="num">${l.pallets??'—'}</td><td class="num">${(()=>{const d=difKg(l.produto_t,l.esperado), fora=d!=null&&Math.abs(d)>TOL_KG;
       return `<b class="${d==null?'':fora?'liq-erro':'liq-ok'}">${l.produto_t!=null?nf(l.produto_t,3)+' t':'—'}</b>${d!=null?`<div style="font-size:10.5px;" class="${fora?'liq-erro':'liq-ok'}">${fora?'⚠ ':''}${difTxt(d)}</div>`:''}`;})()}</td>
     <td><div class="fe-prods">${Object.entries(l.prods).map(([n,p])=>`<span class="${p.sem?'sem':''}" title="${p.sem?'Sem cadastro no ERP':''}">${esc(n)} <b>${fmtUn(p.qtd,p.un)}</b></span>`).join('')||'<span>—</span>'}${l.fonte==='ordem'&&Object.keys(l.prods).length?' <span style="background:none;color:#94a3b8;">(pela ordem)</span>':''}</div></td>
-    <td style="white-space:nowrap;text-align:right;">${l.dsm?`<a class="badge badge-info" href="portaria-dsm.html" title="Caminhão da DSM — detalhes na aba DSM">DSM</a>`:`${l.ordem?`<button class="btn btn-ghost btn-sm" title="Ver a ordem de carregamento (pedidos)" onclick="feVerOrdem('${esc(l.ordem)}')">📄</button>`:''}<button class="btn btn-ghost btn-sm" title="Visualizar o romaneio" onclick="imprimirSaida('${l.id}',true)">👁️</button><button class="btn btn-ghost btn-sm" title="Imprimir o romaneio de novo" onclick="imprimirSaida('${l.id}')">🖨️</button><button class="btn btn-ghost btn-sm" title="Certificado de análise (laudo) e relação dos bags/pallets carregados" onclick="abrirDocumentos('${l.id}')">📜</button><button class="btn btn-ghost btn-sm" title="Errou algo? Volta o caminhão para o carregamento" style="color:#b45309;" onclick="voltarParaCarregamento('${l.id}')">↩</button>`}</td></tr>`).join('')
+    <td style="white-space:nowrap;text-align:right;">${l.dsm?`<a class="badge badge-info" href="portaria-dsm.html" title="Caminhão da DSM — detalhes na aba DSM">DSM</a>`:`${feNfBadge(l.ordem)}<button class="btn btn-secondary btn-sm" onclick="feAcoes(event,'${l.id}',${l.ordem?`'${esc(l.ordem)}'`:'null'})">⋯ Ações</button>`}</td></tr>`).join('')
     :'<tr><td colspan="13"><div class="empty-state" style="padding:24px;"><p>Nenhum caminhão saiu neste dia.</p></div></td></tr>';
   const gs=Object.entries(f.grupos).sort((a,b)=>(a[0]==='Sem cadastro no ERP')-(b[0]==='Sem cadastro no ERP')||a[0].localeCompare(b[0]));
   document.getElementById('fe-grupos').innerHTML=gs.map(([g,ps])=>{const lst=Object.entries(ps).sort((a,b)=>b[1].qtd-a[1].qtd), un=[...new Set(lst.map(x=>x[1].un))];
@@ -3998,7 +4025,7 @@ function miExportar(){
    Cada caminhão que saiu (portaria, desde 16/11) precisa da NF de cada cliente da ordem. O porteiro anexa depois:
    PDF da DANFE (o sistema lê a chave de 44 dígitos → número, série, CNPJ, emissão) ou FOTO (digita o número).
    Granel/DSM fica de fora (tem o controle próprio na Portaria DSM). */
-let _nf={saidas:[],nfs:[],itens:[],todas:false,q:''};
+var _nf={saidas:[],nfs:[],itens:[],todas:false,q:''};
 async function carregarNfs(){
   const box=document.getElementById('nf-lista'); if(box) box.innerHTML='<div class="aviso info">Carregando…</div>';
   const desde=new Date(Date.now()-45*864e5).toISOString()<'2026-11-16'?'2026-11-16':new Date(Date.now()-45*864e5).toISOString().slice(0,10);
@@ -4129,7 +4156,7 @@ async function nfSalvar(){
     emissao:_nfCtx.emissaoNf||(d?d.emissao:null),cnpj_emit:d?d.cnpj:null,arquivo_path:path,arquivo_nome:_nfCtx.arquivo.name,enviado_por:quemSou()||'Portaria'});
   if(error){ err.textContent=/duplicate|unique/i.test(error.message)?'Esta NF (chave) já foi anexada.':'Não salvou: '+error.message; err.classList.remove('hidden'); btn.disabled=false; btn.textContent='💾 Salvar NF'; return; }
   if(typeof addLog==='function') addLog('INSERT',MOD,s.numero_ordem,`NF ${num} anexada — ${cli} (ordem ${s.numero_ordem})`);
-  document.getElementById('nf-ov').remove(); toast(`📄 NF ${num} anexada.`,'success'); carregarNfs();
+  document.getElementById('nf-ov').remove(); toast(`📄 NF ${num} anexada.`,'success'); await carregarNfs(); if(_aba==='fechamento'&&typeof renderFechamento==='function') renderFechamento();
 }
 /* (20/11) 📤 SUBIR VÁRIAS NFs DE UMA VEZ (igual ao Filito): escolhe ou arrasta os PDFs; cada DANFE é lida (chave + "Pedido No.")
    e vai sozinha para o caminhão e o cliente certos pelo PEDIDO. O que não der para ligar fica listado para anexar à mão. */
