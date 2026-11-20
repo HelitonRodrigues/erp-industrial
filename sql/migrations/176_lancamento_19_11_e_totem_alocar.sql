@@ -1,0 +1,8 @@
+-- (20/11/2026) aplicado no Supabase.
+-- totem_alocar: rótulo que sobra ao lançar a OP, se o dia é HOJE ou ONTEM, NÃO é apagado — fica em análise sem OP (pode ser do turno
+--   que ainda não foi lançado). Dias anteriores continuam apagando o impresso a mais.
+-- Lançamento da planilha (19/11 manhã/noite e madrugada 20/11): 9 OPs (L2 bags B02 55/56, madrugada B02 20 + B01 20; L3 Liga 10 kg 303,
+--   Liga Original 20 kg 1.467, GeoPlus 20 kg 1.572; Emitec Liga 10 kg 5.710 + 7.000), baixa de insumos, paradas (7 itens),
+--   entradas 19/11 (embalagem Liga 10 kg 40.000, Geoplus 10 kg 10.000, pallets 281), stretch (L3 2, Emitec 3), ajuste de pallet +6,162,
+--   diferenças de estoque 19/11 (Liga 10 kg −10, Sikal +2, Big Bag B01 +2), Felisbina 19/11 (carregamentos, Liga AD 3,6L produção 9,
+--   Imper Pro envase 59/132 com latas e tampas, diferenças Liga AD 18L 2 e PU40 Branco 10).
