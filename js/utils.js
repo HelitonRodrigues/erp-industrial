@@ -162,6 +162,7 @@ const MODULO_FUNCIONALIDADES = {
     { id:'ordens',     label:'📄 Ordens de carregamento' },
     { id:'motoristas', label:'👤 Motoristas' },
     { id:'fechamento', label:'📊 Fechamento do dia' },
+    { id:'nfs',        label:'🧾 NFs pendentes (Caulim 25 kg / Big Bag)' },
     { id:'historico',  label:'📚 Histórico' },
     { id:'visitantes', label:'🪪 Visitantes' },
     { id:'minerio',    label:'⛏️ Caulim e Grafitoso (minério)' },
