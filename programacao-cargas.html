@@ -1331,11 +1331,33 @@ function irParaPedido(id){
 
 /* ── links dos representantes ── */
 const urlLink=cod=>`${location.origin}${location.pathname.replace(/[^/]*$/,'')}programacao-rep.html?c=${cod}`;
+/* (20/11) HISTÓRICO DE ACESSOS: cada abertura de link e cada login de representante (data, hora, aparelho, IP).
+   Consulta interna no banco não conta — só acesso pela internet. */
+function aparelhoDe(ua){ ua=String(ua||''); if(!ua) return '—';
+  const so=/iPhone/.test(ua)?'iPhone':/iPad/.test(ua)?'iPad':/Android/.test(ua)?'Android':/Windows/.test(ua)?'Windows':/Mac OS X|Macintosh/.test(ua)?'Mac':/Linux/.test(ua)?'Linux':'outro';
+  const nav=/Edg\//.test(ua)?'Edge':/OPR\//.test(ua)?'Opera':/SamsungBrowser/.test(ua)?'Samsung':/CriOS|Chrome\//.test(ua)?'Chrome':/FxiOS|Firefox\//.test(ua)?'Firefox':/Safari\//.test(ua)?'Safari':/WhatsApp/.test(ua)?'WhatsApp':'navegador';
+  return so+' · '+nav; }
+async function verAcessos(o){
+  o=o||{}; let q=_supabase.from('prog_acessos').select('*').order('em',{ascending:false}).limit(300);
+  if(o.codigo) q=q.eq('codigo',o.codigo);
+  const {data,error}=await q; if(error){ toast('Não carregou os acessos: '+error.message,'danger'); return; }
+  const L=data||[];
+  const linha=a=>`<tr><td style="white-space:nowrap">${new Date(a.em).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'})}</td>
+    <td>${a.tipo==='login'?(a.ok?'🔑 Login':'⛔ Senha errada'):'🔗 Link'}</td>
+    <td>${a.tipo==='login'?'<b>'+esc(a.login||'')+'</b> · ':''}${a.representante==='*'?'⭐ Link geral':esc(a.representante||'—')}</td>
+    <td>${esc(aparelhoDe(a.aparelho))}</td><td style="font-family:monospace;font-size:11.5px">${esc(a.ip||'—')}</td></tr>`;
+  document.getElementById('m-dia-body').innerHTML=`<div class="pcm-hd"><button class="pcm-x" onclick="closeModal('m-dia')">✕</button>
+    <div class="pcm-r1"><span class="pcm-ped">🕑 Acessos${o.titulo?' — '+esc(o.titulo):''}</span><span class="pcm-tag">${L.length} registro(s)</span></div>
+    <div class="pcm-cid" style="margin-top:8px">Cada vez que o link é aberto ou um representante entra. Registro desde 20/11/2026.</div></div>
+    <div style="padding:10px 22px 14px;max-height:62vh;overflow:auto">${L.length?`<table class="pcm-tab"><thead><tr><th>Quando</th><th>Tipo</th><th>Quem</th><th>Aparelho</th><th>IP</th></tr></thead><tbody>${L.map(linha).join('')}</tbody></table>`:'<div class="pc-help">Nenhum acesso registrado ainda.</div>'}</div>
+    <div class="pcm-ft"><span class="pcm-sp"></span><button class="btn btn-primary btn-sm" onclick="closeModal('m-dia')">Fechar</button></div>`;
+  _diaAberto=null; abrirM('m-dia');
+}
 function abrirLinks(){
   const reps=[...new Set([..._cargas.filter(c=>!c.carregado&&c.representante).map(c=>c.representante),..._links.filter(l=>l.representante!=='*').map(l=>l.representante)])].sort((a,b)=>a.localeCompare(b,'pt-BR'));
   const linha=(rep,rot,sub)=>{const l=_links.find(x=>x.representante===rep&&x.ativo),n=_cargas.filter(c=>!c.carregado&&(rep==='*'||c.representante===rep)).length;
     return `<div class="pc-lk"><div class="n"><b>${esc(rot)}</b><span>${sub||n+' pedido(s) em aberto'}${l?(l.ultimo_acesso?' · abriu em '+new Date(l.ultimo_acesso).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):' · ainda não abriu'):''}</span></div>
-      ${l?`<code>${l.codigo}</code><button class="btn btn-secondary btn-sm" onclick="copiarLink('${l.codigo}')">📋 Copiar</button><button class="btn btn-secondary btn-sm" onclick="zapLink(${jsq(rep)},'${l.codigo}')">WhatsApp</button><button class="btn btn-ghost btn-sm" onclick="window.open(urlLink('${l.codigo}'),'_blank')">Abrir</button>${_pode?`<button class="btn btn-ghost btn-sm" style="color:#DC2626" onclick="gerarLink(${jsq(rep)},true)">Trocar</button>`:''}`
+      ${l?`<code>${l.codigo}</code><button class="btn btn-secondary btn-sm" onclick="copiarLink('${l.codigo}')">📋 Copiar</button><button class="btn btn-secondary btn-sm" onclick="zapLink(${jsq(rep)},'${l.codigo}')">WhatsApp</button><button class="btn btn-ghost btn-sm" onclick="window.open(urlLink('${l.codigo}'),'_blank')">Abrir</button><button class="btn btn-ghost btn-sm" title="Quem abriu este link (data, hora, aparelho)" onclick="verAcessos({codigo:'${l.codigo}',titulo:${jsq(rot)}})">🕑 Acessos</button>${_pode?`<button class="btn btn-ghost btn-sm" style="color:#DC2626" onclick="gerarLink(${jsq(rep)},true)">Trocar</button>`:''}`
         :(_pode?`<button class="btn btn-primary btn-sm" onclick="gerarLink(${jsq(rep)},false)">Gerar link</button>`:'<span class="pc-help">sem link</span>')}</div>`;};
   // separa quem vende caulim (Big Bag / ensacado 25 kg — o link mostra só esses) dos demais
   const CAULIM=['Bag','Linha 25kg'], ab=_cargas.filter(c=>!c.carregado);
@@ -1343,7 +1365,7 @@ function abrirLinks(){
   const sub=(rep,x)=>`<span style="color:#0F766E;font-weight:800">${x.k} de Big Bag / 25 kg</span>${x.o?` · ${x.o} de outros produtos`:''}`;
   const cau=[],out=[];reps.forEach(r=>{const x=conta(r);(x.k?cau:out).push([r,x]);});
   const titulo=(t,n,d)=>`<div style="margin:16px 0 6px;font-size:11px;font-weight:800;letter-spacing:1px;color:#042D4D">${t} <span class="pc-pill">${n}</span><div class="pc-help" style="letter-spacing:0;font-weight:500">${d}</div></div>`;
-  document.getElementById('m-links-body').innerHTML=linha('*','⭐ Meu link (geral)','todos os representantes e todos os produtos')+(reps.length?
+  document.getElementById('m-links-body').innerHTML=`<div style="display:flex;justify-content:flex-end;margin-bottom:6px;"><button class="btn btn-secondary btn-sm" onclick="verAcessos({})">🕑 Histórico de acessos (links e logins)</button></div>`+linha('*','⭐ Meu link (geral)','todos os representantes e todos os produtos')+(reps.length?
     titulo('🟢 CAULIM — BIG BAG E ENSACADO 25 KG',cau.length,'O link mostra os pedidos de Big Bag e 25 kg e os dias livres da Linha 2.')+(cau.map(([r,x])=>linha(r,r,sub(r,x))).join('')||'<div class="pc-help">Nenhum.</div>')+
     `<details style="margin-top:14px"><summary style="cursor:pointer;font-size:11px;font-weight:800;letter-spacing:1px;color:#64748B">DEMAIS REPRESENTANTES (Liga, Sikal, Geoplus, 20 kg…) <span class="pc-pill">${out.length}</span></summary><div class="pc-help" style="margin:4px 0 6px">O link deles só mostra Big Bag e 25 kg — hoje não têm pedido desses.</div>${out.map(([r,x])=>linha(r,r,x.o?x.o+' pedido(s) em aberto':'sem pedido em aberto')).join('')}</details>`
     :'<div class="pc-help" style="margin-top:8px">Nenhum pedido com representante ainda — clique na extensão do Salescode (versão 1.1) para ler o representante de cada pedido.</div>');
