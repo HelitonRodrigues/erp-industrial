@@ -1,0 +1,5 @@
+-- (21/11/2026) aplicado no Supabase. Lançamento da planilha de 20/11 (manhã/noite) e madrugada de 21/11:
+--   L2: Big Bag B01 manhã 27; Caulim 25 kg B01 manhã 881 (a OP provisória do laboratório virou esta) e noite 1.485; Big Bag B01 madrugada 21/11 25.
+--   L3: Sikal manhã 3.204 e noite 1.710; Liga noite 1.100. Emitec: Liga manhã 6.610 e noite 2.150; Sikal noite 4.750.
+--   Baixa de insumos (perdas: L3 Liga 2, Sikal 3; Emitec Liga 29, Sikal 30), paradas (14 itens), totem_alocar 25 kg e Big Bag.
+--   Diferenças 20/11: Liga 10 kg −16 (volta), Sikal +13; stretch L2 1, L3 2, Emitec 2; pallet +4,58 (fracionado).
