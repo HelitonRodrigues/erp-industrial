@@ -1880,8 +1880,8 @@ async function imprimirFichaReg(id){
 }
 
 // Imprime de uma vez todas as fichas "A preencher" (ex.: as que a OP acabou de gerar)
-async function imprimirFichasPendentes(popCod,opId){
-  const l=_regs.filter(r=>etapaReg(r)==='a_preencher'&&(!popCod||r.pop_cod===popCod)&&(!opId||String(r.origem_id||'')===String(opId)));
+async function imprimirFichasPendentes(popCod,opId,soIds){
+  const l=_regs.filter(r=>etapaReg(r)==='a_preencher'&&(!popCod||r.pop_cod===popCod)&&(!opId||String(r.origem_id||'')===String(opId))&&(!soIds||soIds.includes(r.id)));
   if(!l.length){toast('Nenhuma ficha a imprimir.','info');return;}
   const ok=await uiConfirma(`Imprimir <strong>${l.length} ficha(s)</strong>${popCod?' do '+esc(popCod):''}? Cada uma sai numa página, com o número do registro e os dados da OP.`,{titulo:'Imprimir fichas',ok:'Imprimir'});
   if(!ok)return;
@@ -4858,6 +4858,29 @@ function renderFila(){
     <div class="kpi"><div class="v">${pend.length}</div><div class="l">Para assinar</div></div>
     ${_restr?'':`<div class="kpi"><div class="v">${_gatilhos.filter(g=>g.ativo).length}/${_gatilhos.length}</div><div class="l">Gatilhos ligados</div></div>`}
   </div>`;
+  /* (21/11) 🖨️ PARA IMPRIMIR E LEVAR À LINHA: fichas novas (19/11 em diante) que OUTRA pessoa executa (operador, encarregado…).
+     Separado do "você executa" para quem coleta (Ryan) saber o que imprimir e levar. */
+  { const execFn=r=>{const f=_forms.find(x=>x.codigo===r.formulario_cod); return ((f&&f.assinaturas)||[])[0]?.funcao||'';};
+    const dBr=d=>String(d||'').split('-').reverse().slice(0,2).join('/');
+    const loteDe=r=>(r.campos&&(r.campos.lote||r.campos.lote_produzido))||'';
+    const lev=_regs.filter(r=>etapaReg(r)==='a_preencher'&&String(r.data||'')>='2026-11-19'&&!minhasFn.includes(execFn(r)));
+    if(lev.length){
+      const gr={}; lev.forEach(r=>{const k=(r.campos&&r.campos.linha)||((r.origem_modulo==='calendario')?'Do dia':'Outros'); const key=k+'|'+(loteDe(r)||''); (gr[key]=gr[key]||[]).push(r);});
+      const ks=Object.keys(gr).sort();
+      window._levIds=lev.map(r=>r.id);
+      h+=`<div class="sec-card" style="border-left:6px solid #0284c7;background:#f0f9ff;"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <h3 style="margin:0;">🖨️ Para imprimir e levar à linha <span class="badge" style="background:#0284c7;color:#fff;">${lev.length}</span></h3>
+        <button class="btn btn-primary btn-sm" style="margin-left:auto;" onclick="imprimirFichasPendentes(null,null,window._levIds)">🖨️ Imprimir estas ${lev.length} ficha(s)</button></div>
+        <div class="sub">Fichas que <b>outra pessoa preenche</b> (operador, encarregado). Imprima, entregue na linha e depois recolha. Ao imprimir, elas vão para <b>“impressas — recolher e digitar”</b>.</div>
+        <div style="margin-top:8px;display:grid;gap:6px;">${ks.map(k=>{const [lin,lt]=k.split('|'), L=gr[k];
+          return `<div style="background:#fff;border:1px solid #bae6fd;border-radius:10px;padding:7px 10px;"><b>${esc(lin)}${lt?' · lote '+esc(lt):''}</b> <span class="badge badge-gray">${L.length}</span>
+            <div style="font-size:12px;color:#475569;margin-top:2px;">${L.map(r=>{const f=_forms.find(x=>x.codigo===r.formulario_cod);return esc(String((f&&f.titulo)||r.formulario_cod).replace(/^Registro de |^Checklist de /i,''))+' <span style="color:#94a3b8">('+esc(nomeFuncao(execFn(r)))+' · '+dBr(r.data)+')</span>';}).join(' · ')}</div></div>`;}).join('')}</div></div>`;
+    }
+    const dig=_regs.filter(r=>etapaReg(r)==='a_digitar'&&String(r.data||'')>='2026-11-19');
+    if(dig.length) h+=`<div class="sec-card" style="border-left:6px solid #f59e0b;"><h3 style="margin:0;">⌨️ Impressas — recolher e digitar <span class="badge badge-warning">${dig.length}</span></h3>
+      <div class="sub">Já foram para a linha. Quando voltarem preenchidas: abra, digite, tire a foto e envie para as assinaturas.</div>
+      <div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:6px;">${dig.slice(0,60).map(r=>`<button class="btn btn-ghost btn-sm" onclick="abrirRegistroFluxo('${r.id}')">${esc(r.numero||'')} · ${esc(String((_forms.find(x=>x.codigo===r.formulario_cod)||{}).titulo||r.formulario_cod).slice(0,38))}</button>`).join('')}</div></div>`;
+  }
   h+=`<div class="alerta al-info" style="margin-bottom:12px;"><strong>${esc(u?.nome||'—')}</strong> · ${esc(u?.perfil||'')}.
     ${semDesig?`<strong style="color:var(--danger);">Sem designação vigente</strong> — por isso a fila está vazia.
       ${_restr?'Peça à Qualidade para cadastrar sua designação de função.'
