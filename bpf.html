@@ -1882,6 +1882,7 @@ async function imprimirFichaReg(id){
 // Imprime de uma vez todas as fichas "A preencher" (ex.: as que a OP acabou de gerar)
 async function imprimirFichasPendentes(popCod,opId,soIds){
   const l=_regs.filter(r=>etapaReg(r)==='a_preencher'&&(!popCod||r.pop_cod===popCod)&&(!opId||String(r.origem_id||'')===String(opId))&&(!soIds||soIds.includes(r.id)));
+  if(soIds){const o=new Map(soIds.map((id,i)=>[id,i])); l.sort((a,b)=>o.get(a.id)-o.get(b.id));}
   if(!l.length){toast('Nenhuma ficha a imprimir.','info');return;}
   const ok=await uiConfirma(`Imprimir <strong>${l.length} ficha(s)</strong>${popCod?' do '+esc(popCod):''}? Cada uma sai numa página, com o número do registro e os dados da OP.`,{titulo:'Imprimir fichas',ok:'Imprimir'});
   if(!ok)return;
@@ -4811,11 +4812,63 @@ function cadeiaHtml(f,r){
       <div class="w">${j?'✓ '+esc(j.nome)+' · '+new Date(j.em).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'})
         :(cls==='now'?'aguardando agora':'aguarda a etapa anterior')}</div></div>`;}).join('')}</div>`;
 }
+/* (21/11) fichas a imprimir: a preencher, de 19/11 em diante, com papel. Ordem = dia → linha → lote → formulário (a pilha sai na ordem da linha). */
+const BPF_INICIO_ROTINA='2026-11-19';
+function _impExec(r){const f=_forms.find(x=>x.codigo===r.formulario_cod); return ((f&&f.assinaturas)||[])[0]?.funcao||'';}
+function _impLote(r){const c=r.campos||{}; if(c.lote||c.lote_produzido) return c.lote||c.lote_produzido;
+  const t=r.tarefa_id?_tarefas.find(x=>x.id===r.tarefa_id):null; const m=String((t&&(t.origem_det||t.origem_ref))||'').match(/lote\s+(\d{8}[A-Z0-9]*)/i); return m?m[1]:'';}
+function _impLinha(r){const c=r.campos||{}; if(c.linha) return c.linha;
+  const t=r.tarefa_id?_tarefas.find(x=>x.id===r.tarefa_id):null; const m=String((t&&t.origem_det)||'').match(/(Linha\s*\d+|Longa Vida|Emitec)/i); return m?m[1]:'';}
+function fichasParaImprimir(){
+  return _regs.filter(r=>etapaReg(r)==='a_preencher'&&String(r.data||'')>=BPF_INICIO_ROTINA&&!formSemPapel(r.formulario_cod))
+    .sort((a,b)=>String(a.data).localeCompare(String(b.data))||(_impLinha(a)||'~').localeCompare(_impLinha(b)||'~')
+      ||_impLote(a).localeCompare(_impLote(b))||String(a.formulario_cod).localeCompare(String(b.formulario_cod)));
+}
+function renderImpBox(){
+  const box=document.getElementById('imp-box'); if(!box) return;
+  const lev=fichasParaImprimir(); const sel=window._impSel||new Set();
+  const minhasFn=[...new Set(_desig.filter(d=>d.ativo&&d.funcionario_nome===getUser()?.nome).map(d=>d.funcao_cod))];
+  const dBr=d=>{const [y,m,dd]=String(d||'').slice(0,10).split('-'); const w=['dom','seg','ter','qua','qui','sex','sáb'][new Date(y,m-1,dd).getDay()]; return `${w} ${dd}/${m}`;};
+  const tit=r=>String((_forms.find(x=>x.codigo===r.formulario_cod)||{}).titulo||r.formulario_cod).replace(/^Registro de |^Checklist de /i,'');
+  const gr=[]; const idx={};
+  lev.forEach(r=>{const lin=_impLinha(r)||'Geral (do dia)', lt=_impLote(r); const k=String(r.data).slice(0,10)+'|'+lin+'|'+lt;
+    if(!(k in idx)){idx[k]=gr.length; gr.push({dia:String(r.data).slice(0,10),lin,lt,l:[]});} gr[idx[k]].l.push(r);});
+  const nSel=lev.filter(r=>sel.has(r.id)).length, nMeu=lev.filter(r=>minhasFn.includes(_impExec(r))).length;
+  let diaAnt='';
+  box.innerHTML=`<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+      <h3 style="margin:0;">🖨️ Fichas para imprimir <span class="badge" style="background:#0284c7;color:#fff;">${lev.length}</span></h3>
+      <span class="sub" style="margin:0;">pendentes de ${BPF_INICIO_ROTINA.split('-').reverse().slice(0,2).join('/')} em diante</span>
+      <button class="btn btn-primary" style="margin-left:auto;font-size:15px;padding:10px 18px;" ${nSel?'':'disabled'} onclick="impImprimirSel()">🖨️ Imprimir ${nSel} ficha(s)</button></div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin:8px 0 4px;">
+      <button class="btn btn-ghost btn-sm" onclick="impMarcar('todas')">☑ Todas (${lev.length})</button>
+      ${nMeu?`<button class="btn btn-ghost btn-sm" onclick="impMarcar('minhas')">👤 Só as que eu executo (${nMeu})</button>
+      <button class="btn btn-ghost btn-sm" onclick="impMarcar('linha')">🏭 Só as que vão para a linha (${lev.length-nMeu})</button>`:''}
+      <button class="btn btn-ghost btn-sm" onclick="impMarcar('nenhuma')">☐ Nenhuma</button></div>
+    <div class="sub">Sai uma ficha por página, na ordem <b>dia → linha → lote</b>. Depois de impressas elas vão para <b>“impressas — recolher e digitar”</b>.</div>
+    <div style="margin-top:8px;display:grid;gap:6px;">${gr.map((g,gi)=>{
+      const cab=g.dia!==diaAnt?`<div style="margin-top:${diaAnt?'8px':'0'};font-weight:800;color:var(--primary,#042D4D);">📅 ${dBr(g.dia)}</div>`:''; diaAnt=g.dia;
+      const todosG=g.l.every(r=>sel.has(r.id));
+      return cab+`<div style="background:#fff;border:1px solid #bae6fd;border-radius:10px;padding:8px 10px;">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:700;"><input type="checkbox" style="width:20px;height:20px;" ${todosG?'checked':''} onchange="impGrupo(${gi},this.checked)">
+          ${esc(g.lin)}${g.lt?' · lote '+esc(g.lt):''} <span class="badge badge-gray">${g.l.length}</span></label>
+        <div style="display:flex;flex-wrap:wrap;gap:4px 14px;margin:4px 0 0 28px;">${g.l.map(r=>{const eu=minhasFn.includes(_impExec(r));
+          return `<label style="display:flex;align-items:center;gap:5px;font-size:12.5px;color:#334155;cursor:pointer;"><input type="checkbox" style="width:17px;height:17px;" ${sel.has(r.id)?'checked':''} onchange="impUma('${r.id}',this.checked)">
+            ${esc(tit(r))} <span style="color:${eu?'#16a34a':'#94a3b8'};">(${eu?'você':esc(nomeFuncao(_impExec(r)))})</span></label>`;}).join('')}</div></div>`;}).join('')}</div>`;
+  window._impGrupos=gr.map(g=>g.l.map(r=>r.id));
+}
+function impImprimirSel(){const s=window._impSel||new Set(); imprimirFichasPendentes(null,null,fichasParaImprimir().filter(r=>s.has(r.id)).map(r=>r.id));}
+function impUma(id,on){const s=window._impSel=window._impSel||new Set(); on?s.add(id):s.delete(id); renderImpBox();}
+function impGrupo(gi,on){const s=window._impSel=window._impSel||new Set(); (window._impGrupos[gi]||[]).forEach(id=>on?s.add(id):s.delete(id)); renderImpBox();}
+function impMarcar(modo){
+  const lev=fichasParaImprimir(); const minhasFn=[...new Set(_desig.filter(d=>d.ativo&&d.funcionario_nome===getUser()?.nome).map(d=>d.funcao_cod))];
+  window._impSel=new Set(lev.filter(r=>modo==='todas'||(modo==='minhas'&&minhasFn.includes(_impExec(r)))||(modo==='linha'&&!minhasFn.includes(_impExec(r)))).map(r=>r.id));
+  renderImpBox();
+}
 function renderFila(){
   const nVelhas=_tarefas.filter(t=>t.status==='aberta'&&!t.registro_id&&String(t.criado_em||'').slice(0,10)<'2026-10-26').length;
   cab('BPF / SGQ','Minha fila',
     _temFila?`<button class="btn btn-secondary btn-sm" onclick="varrerGatilhos()">↻ Procurar eventos agora</button>
-      ${_regs.some(r=>etapaReg(r)==='a_preencher')?`<button class="btn btn-primary btn-sm" onclick="imprimirFichasPendentes()">🖨️ Imprimir fichas novas (${_regs.filter(r=>etapaReg(r)==='a_preencher').length})</button>`:''}
+      ${fichasParaImprimir().length?`<button class="btn btn-primary btn-sm" onclick="impMarcar('todas');impImprimirSel()">🖨️ Imprimir todas as fichas (${fichasParaImprimir().length})</button>`:''}
       ${nVelhas?`<button class="btn btn-secondary btn-sm" onclick="encerrarPendenciasAntigas()" title="Tarefas de antes do fluxo papel→ERP">🧹 Encerrar ${nVelhas} pendência(s) antiga(s)</button>`:''}`:'');
   const u=getUser();
   if(!_temFila){
@@ -4858,23 +4911,13 @@ function renderFila(){
     <div class="kpi"><div class="v">${pend.length}</div><div class="l">Para assinar</div></div>
     ${_restr?'':`<div class="kpi"><div class="v">${_gatilhos.filter(g=>g.ativo).length}/${_gatilhos.length}</div><div class="l">Gatilhos ligados</div></div>`}
   </div>`;
-  /* (21/11) 🖨️ PARA IMPRIMIR E LEVAR À LINHA: fichas novas (19/11 em diante) que OUTRA pessoa executa (operador, encarregado…).
-     Separado do "você executa" para quem coleta (Ryan) saber o que imprimir e levar. */
-  { const execFn=r=>{const f=_forms.find(x=>x.codigo===r.formulario_cod); return ((f&&f.assinaturas)||[])[0]?.funcao||'';};
-    const dBr=d=>String(d||'').split('-').reverse().slice(0,2).join('/');
-    const loteDe=r=>(r.campos&&(r.campos.lote||r.campos.lote_produzido))||'';
-    const lev=_regs.filter(r=>etapaReg(r)==='a_preencher'&&String(r.data||'')>='2026-11-19'&&!minhasFn.includes(execFn(r)));
+  /* (21/11 v2) 🖨️ FICHAS PARA IMPRIMIR — TODAS as pendentes de 19/11 em diante (as que você executa E as que vão para a linha),
+     num lugar só, por dia → linha/lote, com caixinhas. Um clique imprime tudo, em ordem, sem abrir POP por POP. */
+  { const lev=fichasParaImprimir();
     if(lev.length){
-      const gr={}; lev.forEach(r=>{const k=(r.campos&&r.campos.linha)||((r.origem_modulo==='calendario')?'Do dia':'Outros'); const key=k+'|'+(loteDe(r)||''); (gr[key]=gr[key]||[]).push(r);});
-      const ks=Object.keys(gr).sort();
-      window._levIds=lev.map(r=>r.id);
-      h+=`<div class="sec-card" style="border-left:6px solid #0284c7;background:#f0f9ff;"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-        <h3 style="margin:0;">🖨️ Para imprimir e levar à linha <span class="badge" style="background:#0284c7;color:#fff;">${lev.length}</span></h3>
-        <button class="btn btn-primary btn-sm" style="margin-left:auto;" onclick="imprimirFichasPendentes(null,null,window._levIds)">🖨️ Imprimir estas ${lev.length} ficha(s)</button></div>
-        <div class="sub">Fichas que <b>outra pessoa preenche</b> (operador, encarregado). Imprima, entregue na linha e depois recolha. Ao imprimir, elas vão para <b>“impressas — recolher e digitar”</b>.</div>
-        <div style="margin-top:8px;display:grid;gap:6px;">${ks.map(k=>{const [lin,lt]=k.split('|'), L=gr[k];
-          return `<div style="background:#fff;border:1px solid #bae6fd;border-radius:10px;padding:7px 10px;"><b>${esc(lin)}${lt?' · lote '+esc(lt):''}</b> <span class="badge badge-gray">${L.length}</span>
-            <div style="font-size:12px;color:#475569;margin-top:2px;">${L.map(r=>{const f=_forms.find(x=>x.codigo===r.formulario_cod);return esc(String((f&&f.titulo)||r.formulario_cod).replace(/^Registro de |^Checklist de /i,''))+' <span style="color:#94a3b8">('+esc(nomeFuncao(execFn(r)))+' · '+dBr(r.data)+')</span>';}).join(' · ')}</div></div>`;}).join('')}</div></div>`;
+      window._impSel=new Set(lev.map(r=>r.id));
+      h+=`<div class="sec-card" id="imp-box" style="border-left:6px solid #0284c7;background:#f0f9ff;"></div>`;
+      setTimeout(()=>renderImpBox(),0);
     }
     const dig=_regs.filter(r=>etapaReg(r)==='a_digitar'&&String(r.data||'')>='2026-11-19');
     if(dig.length) h+=`<div class="sec-card" style="border-left:6px solid #f59e0b;"><h3 style="margin:0;">⌨️ Impressas — recolher e digitar <span class="badge badge-warning">${dig.length}</span></h3>
