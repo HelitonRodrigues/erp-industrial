@@ -283,11 +283,11 @@ async function carregarCadastros(){
   const [e,l,p]=await Promise.all([
     _supabase.from('empresa_config').select('nome_fantasia,razao_social,cnpj,ie,rua,numero,bairro,cidade,uf,cep,telefone,logo').limit(1).maybeSingle(),
     _supabase.from('linhas_producao').select('nome,barracao,produtos,status,foto').eq('status','ativo').order('nome'),
-    _supabase.from('produtos').select('id,nome,linhas,unidade,status,foto').eq('status','ativo').order('nome')]);
+    _supabase.from('produtos').select('id,nome,linhas,unidade,status,foto,peso_unidade_kg').eq('status','ativo').order('nome')]);
   if(l.error||p.error) throw (l.error||p.error);
   EMP=e.data||{};
   PRODUTOS=(p.data||[]).filter(x=>String(x.unidade||'').toLowerCase()!=='toneladas'&&(x.linhas||[]).length)
-    .map(x=>({id:x.id,nome:x.nome,linhaProduto:x.linhas[0],tag:String(x.id).replace(/-/g,'').slice(0,3).toUpperCase(),foto:/^https?:\/\//.test(x.foto||'')?x.foto:''}));
+    .map(x=>({id:x.id,nome:x.nome,linhaProduto:x.linhas[0],pesoKg:Number(x.peso_unidade_kg)||null,tag:String(x.id).replace(/-/g,'').slice(0,3).toUpperCase(),foto:/^https?:\/\//.test(x.foto||'')?x.foto:''}));
   LINHAS=(l.data||[]).map(x=>({nome:x.nome,barracao:x.barracao||'',foto:/^https?:\/\//.test(x.foto||'')?x.foto:'',
     sub:(Array.isArray(x.produtos)?x.produtos:[]).filter(s=>String(s.unidade||'').toLowerCase()!=='toneladas').map(s=>s.nome)}))
     .filter(x=>x.sub.some(s=>PRODUTOS.some(p=>norm(p.linhaProduto)===norm(s))));
@@ -468,7 +468,8 @@ function cabecalhoEmpresa(sub){
 }
 function rotuloCompleto(pal,p){
   const bag=ehBag(p), lp=norm(p.linhaProduto);
-  const pesoLiq=lp.includes('bag')?'1.000 kg':(lp.includes('25kg')?'25 kg/unidade':'');
+  // (21/11) peso do CADASTRO do produto (Big Bag 1250kg → 1.250 kg); sem cadastro, o padrão de antes
+  const pesoLiq=lp.includes('bag')?((p.pesoKg||1000).toLocaleString('pt-BR')+' kg'):(lp.includes('25kg')?'25 kg/unidade':'');
   const ficha=`<div style="margin-bottom:12px;border:1px solid #1e293b;border-radius:6px;overflow:hidden;">
     ${[['COMPOSIÇÃO','SILICATO DE ALUMÍNIO'],['UMIDADE','MÁXIMO 1%'],
       ['INDICAÇÃO DE USO','VEÍCULO/EXCIPIENTE DE ORIGEM MINERAL PARA INCORPORAÇÃO EM PRODUTOS DESTINADOS À ALIMENTAÇÃO ANIMAL — RAÇÕES, CONCENTRADOS, SUPLEMENTOS, PREMIXES E NÚCLEOS — DE TODAS AS ESPÉCIES ANIMAIS. PRODUTO DE USO INDUSTRIAL, NÃO DESTINADO AO FORNECIMENTO DIRETO AO ANIMAL.'],
