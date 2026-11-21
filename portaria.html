@@ -1261,10 +1261,12 @@ async function apagarNota(id,i){
   if(error){toast('Não apagou: '+error.message,'danger');return;} v.anotacoes=a; renderFila();
 }
 /* (18/11) caminhão esquecido: na portaria há mais de 12 h sem sair (ex.: NUG4C45 "sem ordem" desde 17/11) */
+/* (21/11) carregando conta desde o INÍCIO do carregamento (caminhão que dormiu na fila e começou hoje não é "esquecido") */
+function _desdeAviso(v){ return Date.parse((v.status==='carregando'&&v.inicio_carregamento)||v.hora_chegada); }
 function avisoEsquecidos(){
-  const velhos=_veic.filter(v=>!['finalizado','cancelado'].includes(v.status)&&Date.now()-Date.parse(v.hora_chegada)>12*3600e3);
+  const velhos=_veic.filter(v=>!['finalizado','cancelado'].includes(v.status)&&Date.now()-_desdeAviso(v)>12*3600e3);
   if(!velhos.length) return '';
-  return `<div class="aviso erro" style="margin-bottom:10px;">⚠️ <b>${velhos.length} caminhão(ões) na portaria há mais de 12 h</b> — se já foi embora, finalize ou cancele: ${velhos.map(v=>`<b>${esc(v.placa)}</b> (${esc((ST[v.status]||{}).t||v.status)}, há ${durTxt(Date.now()-Date.parse(v.hora_chegada))})`).join(' · ')}</div>`;
+  return `<div class="aviso erro" style="margin-bottom:10px;">⚠️ <b>${velhos.length} caminhão(ões) na portaria há mais de 12 h</b> — se já foi embora, finalize ou cancele: ${velhos.map(v=>`<b>${esc(v.placa)}</b> (${esc((ST[v.status]||{}).t||v.status)}, há ${durTxt(Date.now()-_desdeAviso(v))})`).join(' · ')}</div>`;
 }
 function renderFila(){
   const car=_veic.filter(v=>v.status==='carregando').sort((a,b)=>Date.parse(a.inicio_carregamento||a.hora_chegada)-Date.parse(b.inicio_carregamento||b.hora_chegada));
@@ -1279,7 +1281,7 @@ function renderFila(){
     const o=ordemDe(v), pronto=o&&o.status==='carregado', r=o?resumoOrdem(o):null, pc=o?palletsCarregados(o):0;
     return `<div class="frow ${pronto?'pronto':'carregando'}">
       <div class="f-pos">${pronto?'✅':'🚛'}</div>
-      <div class="f-main"><div class="f-placa">${esc(v.placa)}${v.placa2?`<small> + ${esc(v.placa2)}</small>`:''}</div><div class="f-mot" title="${esc(v.nome_motorista||'')}">${esc(doisNomes(v.nome_motorista)||'—')} · ${esc(v.modelo_veiculo||'')}</div></div>
+      <div class="f-main"><div class="f-placa">${esc(v.placa)}${v.placa2&&v.placa2!==v.placa?`<small> + ${esc(v.placa2)}</small>`:''}</div><div class="f-mot" title="${esc(v.nome_motorista||'')}">${esc(doisNomes(v.nome_motorista)||'—')} · ${esc(v.modelo_veiculo||'')}</div></div>
       <div class="f-mid">${ordemTxt(o,v)}<div class="f-meta">🏭 <b>${esc(v.unidade_carregamento||'—')}</b> · tara ${v.peso_tara!=null?nf(v.peso_tara,2)+' t':'—'} · ${r&&r.plt?pc+'/'+r.plt+' plt':pc+' plt'}</div></div>
       <div class="f-tempo"><b>${durTxt(Date.now()-Date.parse(v.inicio_carregamento||v.hora_chegada))}</b><small>${pronto?'carregado':'carregando'}</small></div>
       <div class="f-acoes" ${podeEditar?'':'style="opacity:.6;pointer-events:none;"'}>${ic('Pesar saída','btn-pesar'+(pronto?' pronto':''),`abrirSaida('${v.id}')`,'⚖️ Pesar saída')}${o?ic('Mudou a carga? Subir a ordem nova (troca a ordem deste caminhão e o Carregamento muda junto)','btn-ghost',`mudarCarga('${v.id}')`,'🔄'):''}
@@ -1290,7 +1292,7 @@ function renderFila(){
       :!o?`<button class="btn btn-primary btn-sm" onclick="abrirVincular('${v.id}')">📄 Vincular</button>`:'';
     return `<div class="frow ${eh?'proximo':''} ${v.status==='sem_ordem'?'semordem':''}">
       <div class="f-pos">${i+1}º</div>
-      <div class="f-main"><div class="f-placa">${esc(v.placa||'—')}${v.placa2?`<small> + ${esc(v.placa2)}</small>`:''}${eh?' <span class="f-prox">PRÓXIMO</span>':''}</div><div class="f-mot" title="${esc(v.nome_motorista||'')}">${esc(doisNomes(v.nome_motorista)||'—')} · ${esc(v.transportadora||'')}${v.modelo_veiculo?' · '+esc(v.modelo_veiculo):''}</div></div>
+      <div class="f-main"><div class="f-placa">${esc(v.placa||'—')}${v.placa2&&v.placa2!==v.placa?`<small> + ${esc(v.placa2)}</small>`:''}${eh?' <span class="f-prox">PRÓXIMO</span>':''}</div><div class="f-mot" title="${esc(v.nome_motorista||'')}">${esc(doisNomes(v.nome_motorista)||'—')} · ${esc(v.transportadora||'')}${v.modelo_veiculo?' · '+esc(v.modelo_veiculo):''}</div></div>
       <div class="f-mid">${ordemTxt(o,v)}<div class="f-meta">chegou ${hmDia(v.hora_chegada)}${v.celular?` · <a href="tel:${esc(String(v.celular).replace(/\D/g,''))}">${esc(v.celular)}</a>`:''}${v.peso_tara!=null?' · tara '+nf(v.peso_tara,2)+' t':''}</div></div>
       <div class="f-tempo ${m>=120?'muito':m>=60?'alta':''}"><b>${durTxt(esp)}</b><small>${st.t.toLowerCase()}</small></div>
       <div class="f-acoes" ${podeEditar?'':'style="opacity:.6;pointer-events:none;"'}>${principal}${ic('Anotação','btn-ghost',`anotar('${v.id}')`,'📝')}${ic('Editar','btn-ghost',`abrirChegada({edit:'${v.id}'})`,'✏️')}${ic('Excluir','btn-ghost del',`excluirPassagem('${v.id}')`,'🗑️')}</div>${notasHtml(v)}</div>`;};
@@ -2259,7 +2261,7 @@ async function salvarChegada(){
     let motId=_ch.motId&&_mot.find(m=>m.id===_ch.motId)?_ch.motId:(motoristaPorNome(nome)||{}).id||null;
     const cpf=g('ch-cpf')||null;
     if(document.getElementById('ch-salvar-mot').checked){
-      const dm={nome,celular:g('ch-celular')||null,cpf,placa,placa2:normPlaca(g('ch-placa2'))||null,transportadora:g('ch-transp')||null,tipo_veiculo:g('ch-veiculo')||null,atualizado_em:new Date().toISOString()};
+      const dm={nome,celular:g('ch-celular')||null,cpf,placa,placa2:(normPlaca(g('ch-placa2'))&&normPlaca(g('ch-placa2'))!==normPlaca(placa))?normPlaca(g('ch-placa2')):null,transportadora:g('ch-transp')||null,tipo_veiculo:g('ch-veiculo')||null,atualizado_em:new Date().toISOString()};
       if(motId){const atual=_mot.find(m=>m.id===motId)||{}; Object.keys(dm).forEach(k=>{if(dm[k]==null)delete dm[k];});
         if(!v){dm.visitas=(atual.visitas||0)+1;dm.ultima_visita=new Date().toISOString();}
         const r=await _supabase.from('motoristas').update(dm).eq('id',motId); if(r.error)console.error('[portaria] motorista:',r.error.message);}
@@ -2267,7 +2269,7 @@ async function salvarChegada(){
         if(r.error)toast('Chegada registrada, mas o motorista não foi cadastrado: '+r.error.message,'warning'); else motId=r.data.id;}
     }
     const hora=g('ch-hora')&&g('ch-hora')!==_ch.horaIni?new Date(g('ch-hora')).toISOString():(v?v.hora_chegada:new Date().toISOString());
-    const dados={placa,placa2:normPlaca(g('ch-placa2'))||null,nome_motorista:nome,celular:g('ch-celular')||null,cpf,transportadora:g('ch-transp')||null,
+    const dados={placa,placa2:(normPlaca(g('ch-placa2'))&&normPlaca(g('ch-placa2'))!==normPlaca(placa))?normPlaca(g('ch-placa2')):null,nome_motorista:nome,celular:g('ch-celular')||null,cpf,transportadora:g('ch-transp')||null,
       modelo_veiculo:g('ch-veiculo')||null,tipo_carga:v?.tipo_carga||null,peso_tara:g('ch-tara')===''?null:Number(g('ch-tara').replace(',','.')),
       observacao:g('ch-obs')||null,hora_chegada:hora,motorista_id:motId,romaneio_id:o?o.id:null,numero_ordem:o?o.numero:null};
     if(!v||['sem_ordem','aguardando'].includes(v.status))dados.status=o?'aguardando':'sem_ordem';
@@ -2367,6 +2369,8 @@ async function confirmarInicio(){
   if(_in.fura){const s=document.getElementById('in-motivo').value; motivo=s==='outro'?document.getElementById('in-motivo-txt').value.trim():s;}
   const tara=parseFloat(String(document.getElementById('in-tara').value).replace(',','.'));
   if(tara>80&&!(await erpConfirm(`A tara digitada é ${nf(tara,2)} toneladas.\nParece que foi digitada em kg (ex.: 12500 em vez de 12,5).`,{titulo:'Confira a tara',tipo:'aviso',icone:'⚖️',ok:'Está certo, seguir',cancelar:'Corrigir'})))return;
+  /* (21/11) 2+ unidades só se for de verdade (028563 ficou 'Unidade 02, Unidade 01' e o caminhão estava só na 01) */
+  if(_in.unidades.size>1&&!(await erpConfirm(`Marcou ${_in.unidades.size} unidades: ${[..._in.unidades].join(' e ')}.\nO caminhão vai mesmo carregar em mais de uma unidade?`,{titulo:'Confira a unidade',tipo:'aviso',icone:'🏭',ok:'Sim, nas duas',cancelar:'Corrigir'})))return;
   const unidade=[..._in.unidades].join(', ');
   const btn=document.getElementById('in-btn'); btn.disabled=true;
   try{
@@ -2804,7 +2808,7 @@ async function salvarMotorista(){
   if(!guardAction(MOD,_mt.id?'edit':'create'))return;
   const g=id=>document.getElementById(id).value.trim();
   const d={nome:g('mt-nome').toUpperCase(),cpf:g('mt-cpf')||null,celular:g('mt-celular')||null,transportadora:g('mt-transp')||null,placa:normPlaca(g('mt-placa'))||null,
-    placa2:normPlaca(g('mt-placa2'))||null,tipo_veiculo:g('mt-veiculo')||null,cnh:g('mt-cnh')||null,cnh_validade:g('mt-cnh-val')||null,ativo:g('mt-ativo')==='1',
+    placa2:(normPlaca(g('mt-placa2'))&&normPlaca(g('mt-placa2'))!==normPlaca(g('mt-placa')))?normPlaca(g('mt-placa2')):null,tipo_veiculo:g('mt-veiculo')||null,cnh:g('mt-cnh')||null,cnh_validade:g('mt-cnh-val')||null,ativo:g('mt-ativo')==='1',
     observacao:g('mt-obs')||null,atualizado_em:new Date().toISOString()};
   if(!d.nome){toast('Informe o nome.','warning');return;}
   if(d.cpf&&d.cpf.replace(/\D/g,'').length!==11){toast('CPF incompleto.','warning');return;}
