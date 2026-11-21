@@ -961,7 +961,7 @@ function ferCalcHTML(p) {
   const fi = ferFim(p), ret = fi ? ferAddDias(fi, 1) : null;
   return `<span>Fim: <strong>${fi ? ferBr(ferIso(fi)) : '—'}</strong></span>
     <span>Retorna: <strong>${ret ? ferBr(ferIso(ret)) : '—'}</strong></span>
-    <span>Dias: <strong>${p.dias || 0}${p.abono ? ' + ' + p.abono + ' abono' : ''}</strong></span>`;
+    <span>Dias: <strong>${p.dias || 0}${p.abono ? ' + ' + p.abono + ' vendidos' : ''}</strong></span>`;
 }
 
 function ferAvisosPeriodoHTML(f, c, p, ix) {
@@ -1031,7 +1031,15 @@ function ferGeralHTML(r, c) {
     if (r.periodos.some((p) => (+p.dias || 0) < 5)) out += `<div class="alert alert-warning" style="margin:0;"><span>Nenhum período pode ser menor que <strong>5 dias</strong>.</span></div>`;
   }
   if (tot > 30) out += `<div class="alert alert-danger" style="margin:0;"><span><strong>Total de ${tot} dias.</strong> O saldo do período aquisitivo é de 30 dias.</span></div>`;
-  else if (tot > 0 && tot < 30) out += `<div class="alert alert-info" style="margin:0;"><span>Faltam <strong>${30 - tot} dias</strong> para completar os 30 do período.</span></div>`;
+  else if (tot > 0 && tot < 30) {
+    /* (21/11) venda de férias (abono pecuniário): até 1/3 = 10 dias por período aquisitivo */
+    const jaVend = r.periodos.reduce((a, p) => a + (+p.abono || 0), 0), pode = Math.min(30 - tot, 10 - jaVend);
+    out += `<div class="alert alert-info" style="margin:0;display:flex;align-items:center;gap:10px;flex-wrap:wrap;"><span>Faltam <strong>${30 - tot} dias</strong> para completar os 30 do período.</span>
+      ${pode > 0 && r.periodos.length ? `<button type="button" class="btn btn-sm btn-primary" style="margin-left:auto;" onclick="ferVenderFalta()">💰 Vender ${pode} dia(s)</button>` : ''}</div>`;
+  }
+  { const vend = r.periodos.reduce((a, p) => a + (+p.abono || 0), 0);
+    if (vend > 10) out += `<div class="alert alert-danger" style="margin:0;"><span><strong>${vend} dias vendidos.</strong> A venda (abono) é de no máximo 10 dias (1/3) por período.</span></div>`;
+    else if (vend > 0 && tot <= 30) out += `<div class="alert alert-success" style="margin:0;"><span>💰 <strong>${vend} dia(s) vendidos</strong> · ${tot - vend} dia(s) de descanso.</span></div>`; }
   if (tot >= 30 && r.periodos.length && r.periodos.every((p) => { const fi = ferFim(p); return fi && fi < ferHoje(); })) {
     const nx = ferProximoCiclo(c);
     if (nx) out += `<div class="alert alert-success" style="margin:0;"><span><strong>Ciclo completo.</strong> Ao salvar, o vencimento passa para
@@ -1102,9 +1110,12 @@ function ferDesenharModal() {
         <div class="form-group"><label class="form-label">Dias corridos</label>
           <input type="number" min="1" max="30" class="form-input" id="fer-p-dias-${ix}" value="${p.dias || ''}"
             onchange="ferSetPeriodo(${ix},'dias',this.value)"></div>
-        <div class="form-group"><label class="form-label">Abono (dias)</label>
-          <input type="number" min="0" max="10" class="form-input" id="fer-p-abono-${ix}" value="${p.abono || 0}"
-            onchange="ferSetPeriodo(${ix},'abono',this.value)"></div>
+        <div class="form-group"><label class="form-label">💰 Dias vendidos <span style="font-weight:400;color:#94a3b8;font-size:11px;">(abono · máx. 10)</span></label>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <input type="number" min="0" max="10" class="form-input" style="flex:1;min-width:60px;" id="fer-p-abono-${ix}" value="${p.abono || 0}"
+              onchange="ferSetPeriodo(${ix},'abono',this.value)">
+            ${[0, 10].map((n) => `<button type="button" class="btn btn-sm ${(+p.abono || 0) === n ? 'btn-primary' : 'btn-secondary'}" onclick="ferVender(${ix},${n})">${n ? 'Vender 10' : 'Não vende'}</button>`).join('')}
+          </div></div>
       </div>
       <div class="calc-box" id="fer-calc-${ix}"
         style="background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:8px 10px;font-size:12.5px;display:flex;gap:18px;flex-wrap:wrap;font-variant-numeric:tabular-nums;">${ferCalcHTML(p)}</div>
@@ -1201,10 +1212,24 @@ function ferRecalcularLimite() {
   if (el) el.value = c.limite_concessao;
   ferAtualizarDerivados();
 }
+/* (21/11) venda de férias: põe o abono no período (o maior, quando é pelo botão do "Faltam") e redesenha o modal */
+function ferVender(ix, n) {
+  const p = FER.rascunho.periodos[ix]; if (!p) return;
+  const outros = FER.rascunho.periodos.reduce((a, q, j) => a + (j === ix ? 0 : (+q.abono || 0)), 0);
+  p.abono = Math.max(0, Math.min(+n || 0, 10 - outros));
+  ferDesenharModal();
+}
+function ferVenderFalta() {
+  const r = FER.rascunho; if (!r.periodos.length) return;
+  const tot = r.periodos.reduce((a, p) => a + (+p.dias || 0) + (+p.abono || 0), 0);
+  let ix = 0; r.periodos.forEach((p, j) => { if ((+p.dias || 0) > (+r.periodos[ix].dias || 0)) ix = j; });
+  ferVender(ix, (+r.periodos[ix].abono || 0) + (30 - tot));
+}
 function ferSetPeriodo(ix, campo, v, el) {
   const p = FER.rascunho.periodos[ix]; if (!p) return;
   if (campo === 'data_inicio' && ferDataEmEdicao(v, el)) return;
   p[campo] = (campo === 'dias' || campo === 'abono') ? (+v || 0) : v;
+  if (campo === 'abono') p.abono = Math.max(0, Math.min(p.abono, 10));
   if (campo === 'data_inicio' || campo === 'dias') {
     /* recalcula do zero a partir de início + dias. Não dá para chamar ferFim()
        aqui: ela devolveria o data_fim ANTIGO que veio do banco, e a data final
@@ -1603,7 +1628,7 @@ function ferRelatorioMesConteudo(ano, mes) {
 
     <h2>Quem está de férias</h2>
     <table><thead><tr><th>Funcionário</th><th>Função</th><th>Setor</th><th>Turno</th><th>Admissão</th>
-      <th>Início</th><th>Fim</th><th class="num">Dias</th><th class="num">Abono</th><th>Retorno</th>
+      <th>Início</th><th>Fim</th><th class="num">Dias</th><th class="num">Vendidos</th><th>Retorno</th>
       <th>Cobertura</th><th>Vencimento</th><th>Limite concessão</th><th>Obs.</th></tr></thead>
       <tbody>${linhas || '<tr><td colspan="14">Ninguém programado neste mês.</td></tr>'}</tbody></table>
 
@@ -1718,7 +1743,7 @@ function ferImprimirAviso(fid, periodoId) {
       Comunicamos que suas férias foram concedidas conforme o quadro abaixo. Você deverá
       apresentar-se ao trabalho no primeiro dia útil seguinte ao término, na data de retorno indicada.</p>
     <table><thead><tr><th>Início</th><th>Término</th><th class="num">Dias</th>
-      ${p.abono ? '<th class="num">Abono</th>' : ''}<th>Retorno ao trabalho</th></tr></thead>
+      ${p.abono ? '<th class="num">Dias vendidos (abono)</th>' : ''}<th>Retorno ao trabalho</th></tr></thead>
       <tbody><tr><td><strong>${ferBr(p.data_inicio)}</strong></td><td><strong>${ferBr(ferIso(fi))}</strong></td>
       <td class="num">${p.dias || 0}</td>${p.abono ? `<td class="num">${p.abono}</td>` : ''}
       <td><strong>${ferBr(ferIso(ret))}</strong></td></tr></tbody></table>
@@ -1734,7 +1759,7 @@ function ferImprimirAviso(fid, periodoId) {
 
 function ferExportarCSV() {
   if (!guardAction('ferias', 'export')) return;
-  const colunas = ['Funcionário', 'Função', 'Setor', 'Turno', 'Situação', 'Tipo', 'Ciclo', 'Início', 'Fim', 'Dias', 'Abono', 'Retorno', 'Cobertura', 'Vencimento', 'Limite concessão', 'Dias restantes', 'Admissão'];
+  const colunas = ['Funcionário', 'Função', 'Setor', 'Turno', 'Situação', 'Tipo', 'Ciclo', 'Início', 'Fim', 'Dias', 'Vendidos (abono)', 'Retorno', 'Cobertura', 'Vencimento', 'Limite concessão', 'Dias restantes', 'Admissão'];
   const linhas = [];
   ferFiltrados().forEach((o) => {
     const per = o.c.todos.length ? o.c.todos : [null];
