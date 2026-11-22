@@ -1123,3 +1123,11 @@ fábrica específica. Não generalizar.
 - (21/11) ferias.html VENDA DE FÉRIAS: o campo 'Abono (dias)' virou '💰 Dias vendidos (abono · máx. 10)' com botões 'Não vende' / 'Vender 10' (`ferVender`); no aviso 'Faltam X dias' aparece '💰 Vender X dia(s)' (`ferVenderFalta`: põe no maior período, até completar 30, limite 10 no ciclo); faixa verde 'N dias vendidos · M de descanso' e vermelho se passar de 10. Grava no mesmo `abono` (conta nos 30, igual antes). Impressões/CSV: coluna 'Vendidos'.
 - (21/11) portaria.html: aviso '🚨 há mais de 12 h' conta o caminhão CARREGANDO desde o início do carregamento (`_desdeAviso`) — CLH4G43 chegou 20/11 (feriado), começou 21/11 13:35 e aparecia 'há 22h50'. Placa da carreta igual à do cavalo não é gravada (chegada e cadastro do motorista) nem mostrada ('CLH4G43 + CLH4G43'); banco limpo: 10 caminhões em `portaria` e 13 em `motoristas` com placa2 = placa → null.
 - (21/11) portaria.html Iniciar carregamento: marcou 2+ unidades → confirmação 'vai mesmo carregar em mais de uma unidade?' (erpConfirm). 028563 (CLH4G43) corrigido no banco para só Unidade 01 (portaria e romaneio).
+- (22/11) **NF e laudo no portal do representante** (representante.html + Edge `prog-rep` v6; fonte agora em `supabase/functions/prog-rep/index.ts`):
+  Carregados desde `DOCS_DESDE`=2026-11-03 (antes 30 dias), coluna/linha 'Documentos' com 🧾 NF nº e 📜 Laudo (ou 'em breve'/'em análise'). Regras:
+  documento SÓ pelo número do pedido (`portaria_nfs.pedido`, `lab_laudo_carregamentos.pedido_numero` separado por vírgula), nunca por cliente/caminhão;
+  sem pedido não aparece; ao abrir (`{token, doc:{tipo,id}}`) o servidor confere DE NOVO em programacao_cargas que o pedido é do representante;
+  NF = link assinado 5 min (bucket documentos, privado); laudo = HTML do Storage + quadro 'Fornecimento' montado no servidor só com o pedido/cliente
+  dele (ligação com mais de um pedido: quantidade pela ordem só do pedido dele). Celular: NF abre em 'Abrir a NF' (PDF não aparece dentro da página).
+  Lacuna: 03–15/11 (10 pedidos de caulim) não têm NF nem laudo ligados no sistema (NF na portaria e ligação de laudo por pedido começaram 16/11).
+  Os 21 vínculos de laudo sem pedido são todos DSM (granel) — não são de representante.

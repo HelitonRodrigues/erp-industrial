@@ -121,6 +121,15 @@ tr.dg td{font-weight:800;font-size:12px;color:var(--navy);background:#F8FAFC;pad
 .mm label{display:block;font-size:11px;font-weight:800;letter-spacing:.8px;color:var(--mut);margin:14px 0 6px;text-transform:uppercase}
 .mm .row{display:flex;gap:8px;margin-top:18px}
 .or{font-size:10.5px;font-weight:800;padding:3px 8px;border-radius:20px;white-space:nowrap;background:#F1F5F9;color:#475569}.or.b{background:#FEF3C7;color:#92400E}
+.doc{display:inline-flex;align-items:center;gap:5px;border:1px solid #BBF7D0;background:#F0FDF4;color:#166534;font:inherit;font-size:11.5px;font-weight:800;padding:5px 9px;border-radius:8px;cursor:pointer;white-space:nowrap;margin:2px 4px 2px 0}
+.doc.lau{border-color:#BFDBFE;background:#EFF6FF;color:#1E40AF}.doc.pd{border-style:dashed;border-color:#CBD5E1;background:#F8FAFC;color:#94A3B8;cursor:default}
+.mdocs{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px dashed var(--line)}.mdocs .doc{flex:1;justify-content:center;padding:10px 8px;font-size:13px;margin:0}
+.vw{background:#fff;border-radius:18px;width:100%;max-width:860px;height:92vh;display:flex;flex-direction:column;overflow:hidden}
+.vw .vh{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid var(--line)}.vw .vh b{font-size:15px;color:var(--navy)}.vw .vh small{display:block;color:var(--mut);font-size:12px;font-weight:600}
+.vw .vb{background:#E5E7EB;flex:1;position:relative}.vw iframe{border:0;width:100%;height:100%;background:#fff}
+.vw .vf{display:flex;flex-wrap:wrap;gap:8px;padding:10px 14px;border-top:1px solid var(--line)}.vw .vf .bt{flex:1;font-size:14px;padding:11px}
+.vw .x{border:0;background:#F1F5F9;border-radius:10px;padding:8px 12px;font:inherit;font-weight:800;cursor:pointer}
+@media (max-width:900px){.vw{height:96vh;border-radius:14px}}
 .d .me2{display:block;font-size:9.5px;font-weight:800;color:var(--navy);margin-top:2px}
 @media (max-width:900px){.bar{flex-wrap:wrap}.acts{order:5;width:100%;margin-top:12px;gap:6px}.acts .ab.av{flex:1;padding:10px;font-size:14px}.ab{padding:9px 12px}}
 </style>
@@ -219,6 +228,49 @@ function cabecalho(D){
     <div class="hero"><div class="k">PROGRAMAÇÃO DE CARREGAMENTO</div><h1>Olá, ${esc(pri.charAt(0)+pri.slice(1).toLowerCase())} 👋</h1><p>${esc(rep)} · seus pedidos de Big Bag e Caulim 25 kg</p></div></div>`;
 }
 
+/* (22/11) NF e laudo do pedido — o servidor só manda os documentos dos pedidos DESTA conta e confere de novo ao abrir */
+const _docs={};
+function docsHtml(c){
+  const k=String(c.pedido||''); _docs[k]=c;
+  const nfs=(c.nfs||[]), lau=(c.laudos||[]);
+  const a=nfs.map((n,i)=>`<button class="doc" onclick="abrirDoc('${esc(k)}','nf',${i})">🧾 NF ${esc(n.numero)}</button>`).join('')||'<span class="doc pd" title="A NF ainda não foi anexada">🧾 NF em breve</span>';
+  const b=lau.length?lau.map((l,i)=>l.pronto?`<button class="doc lau" onclick="abrirDoc('${esc(k)}','laudo',${i})">📜 Laudo${lau.length>1?' '+esc(l.lote||''):''}</button>`:'<span class="doc pd">📜 Laudo em análise</span>').join(''):'<span class="doc pd" title="O laudo ainda não foi ligado a esta carga">📜 Laudo em breve</span>';
+  return a+b;
+}
+async function abrirDoc(ped,tipo,i){
+  const c=_docs[ped]; if(!c)return; const d=tipo==='nf'?(c.nfs||[])[i]:(c.laudos||[])[i]; if(!d)return;
+  const tit=tipo==='nf'?'NF '+d.numero:'Laudo '+(d.numero||'');
+  document.getElementById('ov').innerHTML=`<div class="ov" onclick="if(event.target===this)fecharOv()"><div class="vw">
+    <div class="vh"><div style="font-size:22px">${tipo==='nf'?'🧾':'📜'}</div><div><b>${esc(tit)}</b><small>Pedido ${esc(ped)} · ${esc(c.cliente||'')}</small></div><div class="sp"></div><button class="x" onclick="fecharOv()">✕</button></div>
+    <div class="vb" id="vw-b"><div class="vazio">Abrindo…</div></div><div class="vf" id="vw-f"></div></div></div>`;
+  try{
+    const r=await fetch(`${URL_SB}/functions/v1/prog-rep`,{method:'POST',headers:H,body:JSON.stringify({token:lerTk(),doc:{tipo,id:d.id}})});
+    const j=await r.json().catch(()=>null);
+    if(r.status===401){fecharOv();gravarTk('');telaLogin(j&&j.motivo);return;}
+    if(!r.ok||!j||!j.ok){document.getElementById('vw-b').innerHTML=`<div class="vazio">${esc((j&&j.motivo)||'Não deu para abrir. Tente de novo.')}</div>`;return;}
+    const b=document.getElementById('vw-b'), f=document.getElementById('vw-f'); if(!b)return;
+    if(j.tipo==='nf'){
+      const pdf=j.ext==='pdf';
+      const cel=/Android|iPhone|iPad/i.test(navigator.userAgent);   // celular não mostra PDF dentro da página
+      b.innerHTML=pdf&&cel?`<div class="vazio" style="padding:40px 18px;background:#fff;height:100%"><div style="font-size:44px">🧾</div><b style="display:block;color:var(--navy);font-size:17px;margin:8px 0">NF ${esc(d.numero)}</b>
+          <a class="bt" style="display:block;text-decoration:none;max-width:320px;margin:14px auto 0" href="${esc(j.url)}" target="_blank" rel="noopener">📄 Abrir a NF</a><div style="font-size:12px;margin-top:10px">o link vale por 5 minutos</div></div>`
+        :pdf?`<iframe src="${esc(j.url)}#view=FitH"></iframe>`:`<div style="height:100%;overflow:auto;text-align:center;background:#fff"><img src="${esc(j.url)}" style="max-width:100%"></div>`;
+      f.innerHTML=`<a class="bt" style="text-align:center;text-decoration:none" href="${esc(j.url)}" download="${esc(j.nome)}" target="_blank" rel="noopener">⬇ Baixar</a>${navigator.share?`<button class="bt av" onclick="compartilharDoc()">📲 Enviar</button>`:''}`;
+      window._docAtual={url:j.url,nome:j.nome,tipo:pdf?'application/pdf':'image/'+j.ext};
+    }else{
+      b.innerHTML='<iframe id="vw-if"></iframe>'; const fr=document.getElementById('vw-if'); fr.srcdoc=j.html;
+      fr.onload=()=>{try{fr.contentWindow.certFit&&fr.contentWindow.certFit();}catch(e){}};
+      f.innerHTML=`<button class="bt" onclick="try{document.getElementById('vw-if').contentWindow.print()}catch(e){}">🖨️ Imprimir / salvar PDF</button>`;
+      window._docAtual=null;
+    }
+  }catch(e){console.error(e);const b=document.getElementById('vw-b');if(b)b.innerHTML='<div class="vazio">Sem conexão. Tente de novo.</div>';}
+}
+async function compartilharDoc(){
+  const x=window._docAtual; if(!x)return;
+  try{ const bl=await (await fetch(x.url)).blob(); const fl=new File([bl],x.nome,{type:x.tipo});
+    if(navigator.canShare&&navigator.canShare({files:[fl]})) await navigator.share({files:[fl],title:x.nome}); else await navigator.share({title:x.nome,url:x.url});
+  }catch(e){ if(e&&e.name!=='AbortError'){const f=document.getElementById('vw-f'); if(f&&!f.querySelector('.err'))f.insertAdjacentHTML('beforeend','<div class="err" style="margin:0;flex-basis:100%">Não deu para enviar daqui. Use ⬇ Baixar.</div>');} }
+}
 function render(){
   if(!_d)return;const D=_d,h=D.hoje,meus=D.meus;
   const sab=addDias(h,(6-dow(h)+7)%7);
@@ -229,7 +281,7 @@ function render(){
   const kpis=`<div class="kpis"><div class="kp"><small>Pedidos em aberto</small><b>${meus.length}</b><span>${n1(tTot)} t no total</span></div>
     <div class="kp az"><small>Carregam esta semana</small><b>${semana.length}</b><span>até ${fmtDL(sab).toLowerCase()}</span></div>
     <div class="kp am"><small>Data mudada pela fábrica</small><b>${mudou.length}</b><span>${mudou.length?'veja abaixo':'nenhuma'}</span></div>
-    <div class="kp"><small>Carregados (30 dias)</small><b style="color:#15803D">${D.carr.length}</b><span>${D.carr.length?'veja em Carregados':'nenhum'}</span></div></div>`;
+    <div class="kp"><small>Carregados desde ${fmtD(D.d.docs_desde||'')}</small><b style="color:#15803D">${D.carr.length}</b><span>${D.carr.length?`🧾 ${D.carr.filter(c=>(c.nfs||[]).length).length} NF · 📜 ${D.carr.filter(c=>(c.laudos||[]).some(l=>l.pronto)).length} laudo(s)`:'nenhum'}</span></div></div>`;
   const atrasos=(D.d.atrasos||[]).map(a=>`<div class="atr">⚠️ <div><b>Atraso na fábrica (${esc(a.linha)}):</b> ${esc(a.motivo)}. Os pedidos a partir de ${fmtDL(a.inicio)} foram adiados ${a.dias} dia${a.dias>1?'s':''} útil${a.dias>1?'eis':''} — as datas abaixo já estão corrigidas.</div></div>`).join('');
   const alerta=mudou.length?`<div class="alert">📅 <div><b>${mudou.length>1?mudou.length+' pedidos mudaram':'1 pedido mudou'} de data</b> para caber na produção — a data riscada é a que você tinha programado. Avise o cliente.</div></div>`:'';
 
@@ -278,10 +330,11 @@ function render(){
   const cg={};D.carr.forEach(c=>{const k=isoLocal(c.em);(cg[k]=cg[k]||[]).push(c);});
   const ck=Object.keys(cg).sort().reverse();
   const origem=c=>c.origem==='balanca'?`<span class="or b">⚖️ pesou${c.ticket?' · ticket '+esc(c.ticket):''}</span>`:'<span class="or">carregado</span>';
-  const boxCarr=`<div class="box${_aba==='carr'?' on':''}"><div class="bh"><h2>Carregados</h2><span>últimos 30 dias</span></div>
-    ${D.carr.length?`<table><thead><tr><th>Pedido</th><th>Cliente</th><th>Produto</th><th>Qtd</th><th>Carregou</th><th>Placa</th></tr></thead><tbody>${ck.map(k=>`<tr class="dg"><td colspan="6">${fmtDL(k)} · ${cg[k].length}</td></tr>`+cg[k].map(c=>`<tr><td><span class="ped">${esc(c.pedido)}</span></td><td class="cli">${cli(c)}</td><td>${prod(c)}</td><td class="q">${qtd(c)}</td><td>${new Date(c.em).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})} ${origem(c)}</td><td>${esc(c.placa||'—')}</td></tr>`).join('')).join('')}</tbody></table>
-    <div class="mc">${ck.map(k=>`<div class="mg">${fmtDL(k)}</div>`+cg[k].map(c=>`<div class="mcard"><div class="r"><span class="ped">${esc(c.pedido)}</span>${origem(c)}</div><div class="r" style="margin-top:8px;align-items:flex-start"><div class="cli">${cli(c)}</div><div class="dd">${new Date(c.em).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</div></div><div class="r" style="margin-top:8px;align-items:flex-end"><div>${prod(c)}</div><div class="q" style="text-align:right">${qtd(c)}${c.placa?`<br><small>${esc(c.placa)}</small>`:''}</div></div></div>`).join('')).join('')}</div>`
-    :'<div class="vazio">Nenhum pedido carregado nos últimos 30 dias.</div>'}</div>`;
+  const boxCarr=`<div class="box${_aba==='carr'?' on':''}"><div class="bh"><h2>Carregados</h2><span>desde ${fmtD(D.d.docs_desde||'')} · NF e laudo de cada pedido seu</span></div>
+    ${D.carr.length?`<table><thead><tr><th>Pedido</th><th>Cliente</th><th>Produto</th><th>Qtd</th><th>Carregou</th><th>Placa</th><th>Documentos</th></tr></thead><tbody>${ck.map(k=>`<tr class="dg"><td colspan="7">${fmtDL(k)} · ${cg[k].length}</td></tr>`+cg[k].map(c=>`<tr><td><span class="ped">${esc(c.pedido)}</span></td><td class="cli">${cli(c)}</td><td>${prod(c)}</td><td class="q">${qtd(c)}</td><td>${new Date(c.em).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})} ${origem(c)}</td><td>${esc(c.placa||'—')}</td><td>${docsHtml(c)}</td></tr>`).join('')).join('')}</tbody></table>
+    <div class="mc">${ck.map(k=>`<div class="mg">${fmtDL(k)}</div>`+cg[k].map(c=>`<div class="mcard"><div class="r"><span class="ped">${esc(c.pedido)}</span>${origem(c)}</div><div class="r" style="margin-top:8px;align-items:flex-start"><div class="cli">${cli(c)}</div><div class="dd">${new Date(c.em).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</div></div><div class="r" style="margin-top:8px;align-items:flex-end"><div>${prod(c)}</div><div class="q" style="text-align:right">${qtd(c)}${c.placa?`<br><small>${esc(c.placa)}</small>`:''}</div></div><div class="mdocs">${docsHtml(c)}</div></div>`).join('')).join('')}</div>
+    <div class="nota" style="margin:0 18px 16px;">🔒 Aqui aparecem só os <b>seus</b> pedidos. A NF e o laudo saem pelo número do pedido — quando um caminhão leva pedidos de outros representantes, você vê só os do seu cliente.</div>`
+    :`<div class="vazio">Nenhum pedido carregado desde ${fmtD(D.d.docs_desde||'')}.</div>`}</div>`;
 
   const segm=`<div class="seg"><button class="${_aba==='ped'?'on':''}" onclick="_aba='ped';render()">Pedidos</button><button class="${_aba==='cal'?'on':''}" onclick="_aba='cal';render()">Dias livres</button><button class="${_aba==='carr'?'on':''}" onclick="_aba='carr';render()">Carregados</button></div>`;
   const b=_brand||{};
