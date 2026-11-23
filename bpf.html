@@ -4359,19 +4359,25 @@ const GATILHO_FONTES={
   g_limp_lote:{tab:'producao',dias:3,async busca(g){
     const l=await lst(_supabase.from('producao').select('*').gte('data',g._desde||'2026-10-26').order('data',{ascending:false}).limit(3000));
     const T=await totemLotes();
-    return T.lista.map(x=>({ref:'TOT-LIMP/'+x.dia+'/'+x.linha+'/'+x.lote,id:null,quando:x.dia,det:`Limpeza — fim de lote ${x.lote} · ${x.linha}`,
-        pre:{areas:`${x.linha} — linha, silos/moinho, ensacadeira e piso`,obs:`Motivo: fim de lote · lote ${x.lote} · ${x.produto}`}}))
-     .concat(l.filter(noEscopo).flatMap(p=>itensEscopoOP(p).filter(it=>!_doTotem(T,p,it)).map((it,i)=>({ref:'LIMP-LOTE/'+p.id+'/'+(it.lote||i),id:p.id,quando:p.data,
+    /* (23/11, POP-03 6.d "a cada execução" + "rotina diária integrada ao encerramento do lote/expediente"): uma ficha por LIMPEZA feita.
+       O lote leva a data, então ele termina na virada do dia (coberto pela limpeza de fim do expediente) ou na troca de material
+       (coberto pela ficha de troca de variação). De 19/11 em diante (rotina do Ryan) o fim de lote NÃO gera ficha própria. Antes:
+       uma por lote (não uma por OP — em 19/11 o mesmo lote saiu 3×). */
+    const vistos=new Set();
+    return l.filter(noEscopo).filter(p=>String(p.data)<'2026-11-19').flatMap(p=>itensEscopoOP(p).filter(it=>!_doTotem(T,p,it)).filter(it=>{const k=p.data+'|'+p.linha+'|'+(it.lote||p.id); if(vistos.has(k))return false; vistos.add(k); return true;}).map((it,i)=>({ref:'LIMP-LOTE/'+p.id+'/'+(it.lote||i),id:p.id,quando:p.data,
       det:`Limpeza — fim de lote ${it.lote||''} · ${p.linha||''} · OP ${p.op_numero||''}`,
       pre:{areas:`${p.linha||''} — linha, silos/moinho, ensacadeira e piso`,
-           obs:`Motivo: fim de lote · OP ${p.op_numero||''} · lote ${it.lote||'—'} · ${it.produto||''} · ${p.turno||''}`}}))));
+           obs:`Motivo: fim de lote · OP ${p.op_numero||''} · lote ${it.lote||'—'} · ${it.produto||''} · ${p.turno||''}`}})));
   }},
   g_limp_var:{tab:'producao',dias:3,async busca(g){
     const l=(await lst(_supabase.from('producao').select('*').gte('data',g._desde||'2026-10-26').order('data',{ascending:true}).order('created_at',{ascending:true}).limit(3000))).filter(noEscopo);
     const prodOP=p=>itensEscopoOP(p).map(x=>x.produto).filter(Boolean).join(' + ');
     const T=await totemLotes(); const out=[];const ult={};
-    const ultT={}; T.lista.forEach(x=>{ const a=ultT[x.linha]; if(a&&_normP(a.produto)!==_normP(x.produto)) out.push({ref:'TOT-VAR/'+x.dia+'/'+x.linha+'/'+x.lote,id:null,quando:x.dia,
-        det:`Limpeza — troca de variação na ${x.linha}: ${a.produto} → ${x.produto}`,pre:{areas:`${x.linha} — linha, silos/moinho, ensacadeira e piso`,obs:`Motivo: troca de variação · ${a.produto} (lote ${a.lote}) → ${x.produto} (lote ${x.lote})`}});
+    const mat=lt=>String(lt||'').replace(/^\d{8}/,'').replace(/^[A-Z]{2,3}\d?-\d{8}$/,'').toUpperCase();
+    const ultT={}, jaVar=new Set(); (T.seq||[]).forEach(x=>{ const a=ultT[x.linha];
+      if(a&&mat(a.lote)&&mat(x.lote)&&mat(a.lote)!==mat(x.lote)){ let ref='TOT-VAR/'+x.dia+'/'+x.linha+'/'+x.lote; if(jaVar.has(ref)) ref+='/'+mat(a.lote);
+        if(!jaVar.has(ref)){ jaVar.add(ref); out.push({ref,id:null,quando:x.dia,
+          det:`Limpeza — troca de variação na ${x.linha}: ${a.produto} → ${x.produto}`,pre:{areas:`${x.linha} — linha, silos/moinho, ensacadeira e piso`,obs:`Motivo: troca de variação · ${a.produto} (lote ${a.lote}) → ${x.produto} (lote ${x.lote}) · fim do lote ${a.lote}`}}); } }
       ultT[x.linha]=x; });
     const linhaTotem=(p)=>String(p.data)>=BPF_CORTE_TOTEM&&T.lista.some(x=>x.dia===String(p.data).slice(0,10)&&x.linha===p.linha);
     l.forEach(p=>{const lin=String(p.linha||'');const pr=prodOP(p);if(!pr||linhaTotem(p))return;
@@ -4657,7 +4663,8 @@ async function totemLotes(){
   let l=[]; try{ l=await lst(_supabase.from('rotulos_emissoes').select('dia,linha,produto,lote,qtd,criado_em').gte('dia',BPF_CORTE_TOTEM).order('criado_em').limit(5000)); }catch(e){ console.warn('[bpf] totem',e); }
   const g={}; l.filter(x=>x.lote&&linhaNoEscopo(x.linha)&&produtoNoEscopo(x.produto)).forEach(x=>{
     const k=x.dia+'|'+x.linha+'|'+x.lote; const o=g[k]=g[k]||{dia:x.dia,linha:x.linha,produto:x.produto,lote:x.lote,qtd:0,em:x.criado_em}; o.qtd+=Number(x.qtd)||0; });
-  _totemCache={lista:Object.values(g).sort((a,b)=>String(a.em).localeCompare(String(b.em))),chaves:new Set(Object.keys(g))}; _totemCacheEm=Date.now();
+  const seq=l.filter(x=>x.lote&&linhaNoEscopo(x.linha)&&produtoNoEscopo(x.produto)).map(x=>({dia:x.dia,linha:x.linha,produto:x.produto,lote:x.lote,em:x.criado_em}));
+  _totemCache={lista:Object.values(g).sort((a,b)=>String(a.em).localeCompare(String(b.em))),chaves:new Set(Object.keys(g)),seq}; _totemCacheEm=Date.now();
   return _totemCache;
 }
 // item de OP cujo lote já nasceu pelo totem (a ficha já existe): a OP não gera de novo
