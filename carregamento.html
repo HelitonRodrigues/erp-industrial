@@ -2534,7 +2534,18 @@ async function vigiarOrdensPortaria(forcar){
 if(!_ordVigia)_ordVigia=setInterval(async()=>{await vigiarOrdensPortaria();if(!document.hidden)await atualizarPortaria();},20000);
 function itensRomaneio(numero){return _romItens.filter(x=>String(x.numero)===String(numero));}
 /* produto do ERP quando a Portaria ligou o item da ordem ao cadastro (migração 054) — senão o texto da ordem */
-function linhasRomaneio(r){return itensRomaneio(r.numero).map(it=>({felis:!!it.felis_item_id||/\(Felisbina\)\s*$/i.test(it.produto_erp||''),pedido:it.pedido||'',cidade:it.cidade||'',cliente:it.cliente||'',produto:it.produto_erp||it.produto||'',produto_ordem:it.produto||'',qtd:parseFloat(it.quantidade)||0,lote:it.lote||'',plt:Number((String(it.unidades||'').match(/(\d+)\s*(plt|pal|pallet|palete)/i)||[])[1])||0}));}
+function linhasRomaneio(r){
+  const ls=itensRomaneio(r.numero).map(it=>({felis:!!it.felis_item_id||/\(Felisbina\)\s*$/i.test(it.produto_erp||''),pedido:it.pedido||'',cidade:it.cidade||'',cliente:it.cliente||'',produto:it.produto_erp||it.produto||'',produto_ordem:it.produto||'',qtd:parseFloat(it.quantidade)||0,lote:it.lote||'',plt:Number((String(it.unidades||'').match(/(\d+)\s*(plt|pal|pallet|palete)/i)||[])[1])||0}));
+  /* (23/11) a ordem às vezes põe o "N plt" só na 1ª linha do pedido, valendo para o pedido inteiro
+     (ex.: De Melo 1.600 Liga + 400 Liga Imperm. = 2.000 sc em "10 plt" → 200/pallet: 8 + 2).
+     Sem isto a 1ª linha ficava com 160/pallet e a outra caía no pallet do estoque (180 → 3 pallets em vez de 2). */
+  const porPed={}; ls.forEach(l=>{ if(l.pedido&&!l.felis&&!ehGranel(l.produto)) (porPed[l.pedido+'|'+l.cliente]=porPed[l.pedido+'|'+l.cliente]||[]).push(l); });
+  Object.values(porPed).forEach(g=>{ const com=g.filter(l=>l.plt>0), sem=g.filter(l=>!l.plt); if(!com.length||!sem.length) return;
+    const nPlt=com.reduce((s,l)=>s+l.plt,0), tot=g.reduce((s,l)=>s+Math.round(l.qtd),0); const pp=tot/nPlt;
+    if(!Number.isInteger(pp)||pp<20||g.some(l=>Math.round(l.qtd)%pp!==0)) return;
+    g.forEach(l=>{ l.plt=Math.round(l.qtd)/pp; }); });
+  return ls;
+}
 function cargasDaOrdem(numero){return _carregamentos.filter(c=>String(c.ordem_numero)===String(numero));}
 
 function renderOrdens(){

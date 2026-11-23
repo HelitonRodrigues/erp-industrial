@@ -1159,3 +1159,6 @@ fábrica específica. Não generalizar.
 - Religados: `abrirRevisao`, `executarRevisaoLote`, `concluirOS`, `concluirOSRapido`, Kanban→Concluída, `imprimirOS`, `imprimirFichaBranca`; botão "📝 Lançar Ficha" (ficha em branco → gera nº). Programar inalterado (oferece imprimir a ficha da OS criada).
 - Retirados: card Controle do Gestor, campos gestor/encarregado manuais, checklist 32 perguntas e análise de falha do formulário da OS (dados antigos preservados), pendências "sem aprovação do gestor"/"sem encarregado". Preventiva: plano e ficha de rotina inalterados; a OS do plano conclui pela tela curta.
 - Máquina sempre liberada (campo não existe na ficha).
+
+### carregamento.html — "N plt" do pedido inteiro (23/11/2026)
+- `linhasRomaneio`: quando a ordem põe "N plt" só numa linha do pedido e as outras linhas do mesmo pedido/cliente vêm sem plt, o N vale para o pedido todo → sacos/pallet = total do pedido ÷ N, distribuído por linha (só se der inteiro e ≥ 20). Ex.: ordem 028569 De Melo 1.600 Liga + 400 Liga Imperm. em "10 plt" → 200/pallet = 8 + 2 (antes 160/pallet e 3 pallets de imperm. pelo pallet de 180 do estoque).
