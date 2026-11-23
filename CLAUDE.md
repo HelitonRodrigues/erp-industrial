@@ -1146,3 +1146,9 @@ fábrica específica. Não generalizar.
 - `bpf_formularios.sem_papel=true` em REG-POP10-01, 15-01, 15-02 (eletrônicos no POP) → saem da impressão do Ryan.
 - 25 duplicadas/fora de escopo de 19–23/11 canceladas com motivo (tarefa + ficha), nunca juntadas.
 - Dossiê (`dos_lote`): inclui REG-POP07-02 e 18-02 dos dias do lote e REG-POP21-01 pela ordem de cada carga do lote (campos.ordem). dossie.html: 18-02 em Máquina, 21-01 em Método.
+
+### manutencao.html — aba 🔩 Rolamentos (23/11/2026)
+- Soma por CÓDIGO os rolamentos **dentro de motor** (componente nome ~ rolamento e `grupo_pai` ~ motor; mancais fora). Status = `calcStatus(comp, horímetro do equipamento)` (mesma conta do Monitor); sem intervalo ou sem registro → "sem" (não conta).
+- Colunas: vencidos · próximos · em dia · total instalado · estoque (almoxarifado por `almox_id` do componente, senão código no nome) · comprar = vencido+próximo−estoque. Clique no código abre linha · equipamento · motor com botão ✅ Executar revisão (`.btn-exec-rev`). 🖨️ lista de separação/compra.
+- `js/utils.js`: aba `rolamentos` adicionada em manutencao (permissão por perfil; perfil antigo herda do módulo).
+- Horímetro: a produção.html grava hf da OP em linhas_producao + equipamentos_linhas ao salvar; OPs lançadas direto por SQL NÃO sincronizam — rodar o sync depois (23/11 corrigido à mão).

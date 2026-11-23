@@ -228,6 +228,7 @@ div:has(> #tbtn-monitor) .tab-btn.active{background:var(--accent) !important;col
   <div class="tabs">
     <button class="tab-btn active" id="tbtn-monitor" onclick="showTab('monitor')">🖥️ Monitor</button>
     <button class="tab-btn" id="tbtn-motores" onclick="showTab('motores')">⚡ Motores Elétricos</button>
+    <button class="tab-btn" id="tbtn-rolamentos" onclick="showTab('rolamentos')">🔩 Rolamentos</button>
     <button class="tab-btn" id="tbtn-historico" onclick="showTab('historico')">📋 Ordens de Serviço</button>
     <button class="tab-btn" id="tbtn-kanban" onclick="showTab('kanban')">🗂️ Kanban</button>
     <button class="tab-btn" id="tbtn-agenda" onclick="showTab('agenda')">🗓️ Agenda</button>
@@ -280,6 +281,23 @@ div:has(> #tbtn-monitor) .tab-btn.active{background:var(--accent) !important;col
     <!-- OS ABERTAS -->
     <div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;">📋 OS Abertas</div>
     <div id="monitor-os-abertas" style="display:flex;flex-direction:column;gap:6px;"></div>
+  </div>
+
+  <!-- ROLAMENTOS DE MOTOR (23/11) — soma por código, só rolamentos dentro de motor -->
+  <div id="tab-rolamentos" style="display:none;">
+    <div class="card" style="margin-bottom:14px;">
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+        <div class="form-group" style="margin:0;min-width:150px;"><label class="form-label">Linha</label>
+          <select id="rol-f-linha" class="form-input" onchange="renderRolamentos()"><option value="">Todas as linhas</option></select></div>
+        <div class="form-group" style="margin:0;min-width:170px;"><label class="form-label">Mostrar</label>
+          <select id="rol-f-st" class="form-input" onchange="renderRolamentos()"><option value="alerta">Só com vencido/próximo</option><option value="">Todos</option></select></div>
+        <div class="form-group" style="margin:0;flex:1;min-width:140px;"><label class="form-label">🔍 Código</label>
+          <input id="rol-f-busca" type="text" class="form-input" placeholder="Ex.: 6316" oninput="renderRolamentos()" autocomplete="off"></div>
+        <button class="btn btn-primary btn-sm" onclick="imprimirRolamentos()" title="Lista de separação e compra">🖨️ Imprimir lista</button>
+      </div>
+      <div style="font-size:11px;color:#64748b;margin-top:6px;">Só rolamentos <b>dentro de motor</b> (grupo Motor, Motor 1, Motor2…) — mancais não entram. Soma a qtd de cada código · horímetro atual do equipamento · estoque do almoxarifado.</div>
+    </div>
+    <div id="rolamentos-cont"></div>
   </div>
 
   <!-- MOTORES ELÉTRICOS -->
@@ -2708,7 +2726,7 @@ async function init(){
   try{
     const[mv,it]=await Promise.all([
       selectTodos(_supabase.from('almoxarifado_movimentos').select('*').eq('tipo','saida').order('data',{ascending:false})),
-      _supabase.from('almoxarifado').select('id,nome,codigo,unidade,custo_unitario'),
+      _supabase.from('almoxarifado').select('id,nome,codigo,unidade,custo_unitario,estoque_atual'),
     ]);
     _movsAlmox=mv.data||[]; _itensAlmox=it.data||[];
   }catch(e){console.warn('almoxarifado:',e.message);}
@@ -3907,18 +3925,106 @@ function delFiltro(id){ document.getElementById('confirm-msg').textContent='Excl
 
 // CRONOGRAMA
 function showTab(t){
-  ['monitor','motores','historico','kanban','agenda','docs','cronograma','kpis','prev'].forEach(x=>{
+  ['monitor','motores','rolamentos','historico','kanban','agenda','docs','cronograma','kpis','prev'].forEach(x=>{
     const el=document.getElementById('tab-'+x);if(el)el.style.display=x===t?'block':'none';
     const btn=document.getElementById('tbtn-'+x);if(btn)btn.classList.toggle('active',x===t);
   });
   if(t==='monitor')renderMonitor();
   if(t==='motores')renderMotores();
+  if(t==='rolamentos')renderRolamentos();
   if(t==='historico')renderOS();  if(t==='docs')renderDocs();
   if(t==='kanban')renderKanban();
   if(t==='agenda')renderAgenda();
   if(t==='cronograma')abrirModuloCronograma();
   if(t==='kpis')renderKPIs();
   if(t==='prev')renderPreventiva();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ROLAMENTOS DE MOTOR (23/11) — quantos de cada código estão vencidos/próximos,
+// sem abrir equipamento por equipamento. Só rolamento com grupo_pai "Motor…".
+// Mesma conta do Monitor: calcStatus(comp, horímetro do equipamento).
+// ═══════════════════════════════════════════════════════════════════════════
+const _rolCod=c=>String(c||'').toUpperCase().replace(/\s+/g,'');
+function _rolColeta(){
+  const out=[];
+  [[_eqLinhas,'linhas'],[_eqGerais,'gerais']].forEach(([lista,tabela])=>(lista||[]).forEach(e=>{
+    const horim=parseFloat(e.horimetro)||0;
+    (e.componentes||[]).forEach((comp,idx)=>{
+      if(!/rolamento/i.test(comp.nome||'')||!/motor/i.test(comp.grupo_pai||''))return;
+      const cod=_rolCod(comp.codigo); if(!cod)return;
+      const st=calcStatus(comp,horim);
+      out.push({cod,qtd:parseFloat(comp.qtd)||1,linha:tabela==='linhas'?(e.linha||'Sem Linha'):'Equipamentos Gerais',
+        equip:e.nome||'—',motor:String(comp.grupo_pai||'').trim(),equipId:e.id,tabela,idx,comp,st,horim,
+        k:st.vencido?'venc':st.proximo?'prox':(st.semInfo||!(st.intv>0))?'sem':'ok'});
+    });
+  }));
+  return out;
+}
+function _rolEstoque(cod,ids){
+  // 1º pelo vínculo do componente com o almoxarifado (almox_id); senão pelo código no nome do item
+  const it=(_itensAlmox||[]).find(a=>(ids||[]).includes(a.id))||(_itensAlmox||[]).find(a=>_rolCod(a.nome).includes(cod)||_rolCod(a.codigo)===cod);
+  return it?{qtd:parseFloat(it.estoque_atual)||0,nome:it.nome}:null;
+}
+function _rolResumo(){
+  const fl=(document.getElementById('rol-f-linha')||{}).value||'';
+  const g={};
+  _rolColeta().filter(r=>!fl||r.linha===fl).forEach(r=>{const x=g[r.cod]=g[r.cod]||{cod:r.cod,venc:0,prox:0,ok:0,sem:0,total:0,itens:[]};
+    x[r.k]+=r.qtd; x.total+=r.qtd; x.itens.push(r);});
+  return Object.values(g).map(x=>{const e=_rolEstoque(x.cod,[...new Set(x.itens.map(r=>r.comp.almox_id).filter(Boolean))]); x.est=e?e.qtd:null; x.comprar=Math.max(0,x.venc+x.prox-(x.est||0)); return x;})
+    .sort((a,b)=>b.venc-a.venc||b.prox-a.prox||b.total-a.total||a.cod.localeCompare(b.cod));
+}
+function renderRolamentos(){
+  const cont=document.getElementById('rolamentos-cont'); if(!cont)return;
+  const selL=document.getElementById('rol-f-linha');
+  if(selL&&selL.options.length<=1){[...new Set(_rolColeta().map(r=>r.linha))].sort(_motCmp).forEach(l=>{const o=document.createElement('option');o.value=l;o.textContent=l;selL.appendChild(o);});}
+  const so=(document.getElementById('rol-f-st')||{}).value, bu=_rolCod((document.getElementById('rol-f-busca')||{}).value);
+  const todos=_rolResumo();
+  const lst=todos.filter(x=>(!so||x.venc+x.prox>0)&&(!bu||x.cod.includes(bu)));
+  const sum=k=>todos.reduce((a,x)=>a+x[k],0);
+  const kp=(v,t,c)=>`<div style="background:${c};color:#fff;border-radius:10px;padding:10px 12px;flex:1;min-width:140px;"><div style="font-size:22px;font-weight:800;">${v}</div><div style="font-size:11px;opacity:.92;">${t}</div></div>`;
+  window._rolAberto=window._rolAberto||new Set();
+  const n=v=>v?v:'<span style="color:#cbd5e1;">—</span>';
+  const tag=(v,bg,fg)=>v?`<span style="background:${bg};color:${fg};font-weight:800;border-radius:6px;padding:2px 8px;">${v}</span>`:n(0);
+  const fH=h=>Math.abs(h).toLocaleString('pt-BR',{maximumFractionDigits:0});
+  const linhaDet=r=>{const ic=r.k==='venc'?'🔴':r.k==='prox'?'🟡':r.k==='sem'?'⚪':'🟢';
+    const situ=r.k==='venc'?`venceu há ${fH(r.st.prox)} h`:r.k==='prox'?`faltam ${fH(r.st.prox)} h`:r.k==='sem'?(!(r.st.intv>0)?'sem intervalo de revisão cadastrado (não conta)':'sem registro de revisão (não conta como vencido)'):`faltam ${fH(r.st.prox)} h`;
+    return `<tr><td colspan="7" style="background:#f8fafc;font-size:12px;padding:6px 8px 6px 28px;color:#334155;">${ic} <b>${_motEsc(r.linha)} · ${_motEsc(r.equip)} · ${_motEsc(r.motor)}</b> — ${r.qtd} un · última revisão ${r.st.compH?r.st.compH.toLocaleString('pt-BR')+' h':'—'} · ${situ}
+      ${r.k!=='ok'?`<button class="btn btn-sm btn-exec-rev" style="background:#16a34a;color:#fff;border:none;font-size:11px;margin-left:8px;padding:2px 8px;"
+        data-equip-id="${r.equipId}" data-tabela="${r.tabela}" data-comp-idx="${r.idx}" data-equip-nome="${_motEsc(r.equip).replace(/"/g,'')}"
+        data-comp-nome="${_motEsc(r.comp.nome||'').replace(/"/g,'')}" data-horimetro="${r.horim}">✅ Executar revisão</button>`:''}</td></tr>`;};
+  cont.innerHTML=`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+      ${kp(sum('venc'),'rolamentos de motor vencidos','#dc2626')}${kp(sum('prox'),'próximos (≤ 20% do intervalo)','#d97706')}
+      ${kp(todos.filter(x=>x.venc>0).length,'códigos com vencido','#0284c7')}${kp(sum('comprar'),'a comprar (vencido + próximo − estoque)','#7c3aed')}</div>
+    <div class="card" style="padding:0;overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:13px;">
+    <thead><tr style="background:#1e3a5f;color:#fff;font-size:12px;"><th style="padding:8px;text-align:left;">Código</th><th>Vencidos</th><th>Próximos</th><th>Em dia</th><th>Total instalado</th><th>Estoque</th><th>Comprar</th></tr></thead>
+    <tbody>${lst.length?lst.map(x=>{const ab=window._rolAberto.has(x.cod);
+      const det=ab?x.itens.slice().sort((a,b)=>({venc:0,prox:1,sem:2,ok:3}[a.k]-{venc:0,prox:1,sem:2,ok:3}[b.k])||((a.st.prox??0)-(b.st.prox??0))).map(linhaDet).join(''):'';
+      return `<tr style="cursor:pointer;border-bottom:1px solid #e2e8f0;" onclick="_rolToggle('${x.cod}')">
+        <td style="padding:8px;font-family:monospace;font-weight:800;font-size:14px;">${ab?'▼':'▶'} ${_motEsc(x.cod)}</td>
+        <td style="text-align:center;">${tag(x.venc,'#fee2e2','#b91c1c')}</td><td style="text-align:center;">${tag(x.prox,'#fef3c7','#92400e')}</td>
+        <td style="text-align:center;color:#15803d;">${n(x.ok)}</td><td style="text-align:center;">${x.total}${x.sem?` <span style="font-size:10px;color:#94a3b8;">(${x.sem} s/ reg.)</span>`:''}</td>
+        <td style="text-align:center;">${x.est==null?'<span style="font-size:11px;color:#94a3b8;">não cadastrado</span>':x.est}</td>
+        <td style="text-align:center;">${tag(x.comprar,'#dc2626','#fff')}</td></tr>${det}`;}).join('')
+      :'<tr><td colspan="7" style="padding:16px;text-align:center;color:#64748b;">Nenhum rolamento de motor vencido ou próximo. 👍</td></tr>'}</tbody></table></div>
+    <div style="font-size:11px;color:#64748b;margin-top:6px;">Clique no código para ver em qual motor está cada um.</div>`;
+}
+function _rolToggle(cod){ window._rolAberto=window._rolAberto||new Set(); window._rolAberto.has(cod)?window._rolAberto.delete(cod):window._rolAberto.add(cod); renderRolamentos(); }
+function imprimirRolamentos(){
+  const fl=(document.getElementById('rol-f-linha')||{}).value||'';
+  const lst=_rolResumo().filter(x=>x.venc+x.prox>0);
+  const fH=h=>Math.abs(h).toLocaleString('pt-BR',{maximumFractionDigits:0});
+  const html=`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Rolamentos de motor</title>
+  <style>body{font-family:Arial,sans-serif;padding:22px;color:#1e293b;font-size:12px;}table{width:100%;border-collapse:collapse;margin-top:10px;}th,td{border:1px solid #cbd5e1;padding:5px 7px;}th{background:#1e3a5f;color:#fff;}td.n{text-align:center;}.cod{font-weight:800;font-family:monospace;}@media print{@page{margin:.7cm;}}</style></head><body>
+  ${(typeof _fichaHeaderHTML==='function')?_fichaHeaderHTML():''}
+  <div style="font-size:16px;font-weight:800;color:#1e3a5f;">🔩 Rolamentos de motor — vencidos e próximos${fl?' — '+_motEsc(fl):''}</div>
+  <div style="font-size:12px;color:#475569;">Gerado em ${new Date().toLocaleString('pt-BR')}</div>
+  <table><tr><th>Código</th><th>Vencidos</th><th>Próximos</th><th>Estoque</th><th>Comprar</th><th>Onde (linha · equipamento · motor)</th><th>Separado ✓</th></tr>
+  ${lst.map(x=>`<tr><td class="cod">${_motEsc(x.cod)}</td><td class="n">${x.venc||''}</td><td class="n">${x.prox||''}</td><td class="n">${x.est==null?'—':x.est}</td><td class="n"><b>${x.comprar||''}</b></td>
+    <td>${x.itens.filter(r=>r.k==='venc'||r.k==='prox').map(r=>`${_motEsc(r.linha)} · ${_motEsc(r.equip)} · ${_motEsc(r.motor)} (${r.qtd} un, ${r.k==='venc'?'venceu há '+fH(r.st.prox)+' h':'faltam '+fH(r.st.prox)+' h'})`).join('<br>')}</td><td></td></tr>`).join('')}
+  </table></body></html>`;
+  const w=window.open('','_blank','width=1000,height=720');
+  if(w){w.document.write(html);w.document.close();setTimeout(()=>w.print(),400);}
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
