@@ -620,6 +620,16 @@ function alternarEscopo(){
 function itensDaOP(r){ return Array.isArray(r.produtos_op)?r.produtos_op.filter(Boolean):[]; }
 // itens da OP que são de nutrição animal (sacaria 25 kg ou Big Bag)
 function itensEscopoOP(r){ return itensDaOP(r).filter(x=>produtoNoEscopo(x.produto)&&(Number(x.total_sacos||x.sacos_pallets||0)>0||x.lote)); }
+/* (23/11) POP-06/10/14/18 pedem UMA ficha POR LOTE (item 7/12). Antes do totem o mesmo lote saía em várias OPs
+   (19/11: 20261119B02 em 3 turnos = 3 fichas). Ordena as OPs pela criação e devolve um filtro "primeira OP do lote";
+   a ref da ficha continua a da 1ª OP (as já geradas não mudam). */
+// itens de um carregamento: true = tem produto no escopo · false = só fora do escopo · null = sem itens (não dá para saber, entra)
+function carregaEscopo(itens){ const a=Array.isArray(itens)?itens:[]; if(!a.length) return null; return a.some(x=>produtoNoEscopo(x&&(x.produto||x.nome)||'')); }
+function _filtroPrimeiraOP(l){
+  const ord=[...l].sort((a,b)=>String(a.created_at||'').localeCompare(String(b.created_at||''))||String(a.id).localeCompare(String(b.id)));
+  const dono={}; ord.forEach(p=>itensDaOP(p).forEach(it=>{ if(!it.lote) return; const k=String(p.data).slice(0,10)+'|'+(p.linha||'')+'|'+it.lote; if(!(k in dono)) dono[k]=p.id; }));
+  return (p,it)=>{ if(!it.lote) return true; return dono[String(p.data).slice(0,10)+'|'+(p.linha||'')+'|'+it.lote]===p.id; };
+}
 function ehBag(it){ return /big\s*-?\s*bag|\bbag\b/i.test(String(it.produto||''))||/bag/i.test(String(it.linha_produto||'')); }
 // ── POP-15: laboratório → registro ───────────────────────────────────────
 const _normP=x=>String(x||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]/g,'');
@@ -4283,12 +4293,13 @@ const GATILHO_FONTES={
   // Na troca de variação ou de lote de MP em relação ao lote anterior da mesma linha, avisa o descarte de transição (6.b).
   g_linha:{tab:'producao',dias:7,async busca(g){
     const l=(await lst(_supabase.from('producao').select('*').gte('data',g._desde||'2026-10-26').order('data',{ascending:true}).order('created_at',{ascending:true}).limit(3000))).filter(noEscopo);
-    const T=await totemLotes();
+    const T=await totemLotes(); const prim=_filtroPrimeiraOP(l);
     const ult={};const out=T.lista.map(x=>({ref:'TOT06/'+x.dia+'/'+x.linha+'/'+x.lote,id:null,quando:x.dia,
       det:`Inspeção antes da moagem — lote ${x.lote} · ${x.linha} · ${x.produto}`,
       pre:{unidade:x.linha,lote:x.lote,obs:`${x.produto} · produção iniciada no totem`}}));
     l.forEach(p=>{const lin=String(p.linha||'');
       itensEscopoOP(p).filter(it=>!_doTotem(T,p,it)).forEach((it,i)=>{
+        if(!prim(p,it)){ ult[lin]={prod:it.produto,mp:p.lote_mp||(ult[lin]&&ult[lin].mp)}; return; }   // mesmo lote em outra OP: a moagem é a mesma
         const ant=ult[lin];const trocaVar=ant&&_normP(ant.prod)!==_normP(it.produto);const trocaMP=ant&&p.lote_mp&&ant.mp&&_normP(ant.mp)!==_normP(p.lote_mp);
         const trans=trocaVar?`troca de variação (${ant.prod} → ${it.produto})`:trocaMP?`troca de lote de MP (${ant.mp} → ${p.lote_mp})`:'';
         out.push({ref:'LOTE06/'+p.id+'/'+(it.lote||i),id:p.id,quando:p.data,
@@ -4336,9 +4347,11 @@ const GATILHO_FONTES={
   }},
   g_veiculo:{tab:'carregamentos',dias:30,async busca(g){
     const l=await lst(_supabase.from('carregamentos').select('*').gte('data',g._desde||'2026-10-26').order('data',{ascending:false}).limit(5000));
-    // só caulim de nutrição animal (25 kg / Big Bag); carregamento sem itens entra (não dá para saber)
-    const ehEscopo=c=>{const t=JSON.stringify(c.itens||'');return !c.itens||t==='[]'||produtoNoEscopo(t);};
-    return l.filter(ehEscopo).map(c=>({ref:'CARR/'+c.id,id:c.id,quando:c.data,
+    // (23/11, POP-21 item 7 "a cada carregamento"): UMA inspeção por carregamento. A fonte é a Portaria (g_veiculo_port,
+    // o caminhão é inspecionado na chegada, antes de carregar); aqui só entra o carregamento cuja ordem NÃO passou pela Portaria.
+    let port=[];try{port=await lst(_supabase.from('portaria').select('numero_ordem').not('numero_ordem','is',null).gte('hora_chegada',(g._desde||'2026-10-26')+'T00:00:00').limit(8000));}catch(e){}
+    const naPortaria=new Set(port.map(x=>String(x.numero_ordem)));
+    return l.filter(c=>carregaEscopo(c.itens)!==false&&!(c.ordem_numero&&naPortaria.has(String(c.ordem_numero)))).map(c=>({ref:'CARR/'+c.id,id:c.id,quando:c.data,
       det:`Veículo ${c.placa||''} — ordem ${c.ordem_numero||c.id}`.trim(),
       pre:{placa:c.placa||'',motorista:c.motorista||'',transportadora:c.transportadora||'',ordem:c.ordem_numero||''}}));
   }},
@@ -4418,21 +4431,29 @@ const GATILHO_FONTES={
   }},
   // ── OP (tabela producao) — antes estes três liam caulim_lotes_producao, que
   // está VAZIA: por isso nunca geravam nada. Agora nascem da própria OP.
-  // POP-13: uma ficha por OP, com TODOS os lotes/produtos dela.
+  // POP-13 (item 12: "por lote / turno"): uma ficha por LOTE em cada TURNO. Várias OPs do mesmo lote no mesmo turno
+  // (lançamentos repetidos) viram uma ficha só, listando todas as OPs. A ref é a da 1ª OP (as já geradas não mudam).
   g_lote_prod:{tab:'producao',dias:3,async busca(g){
-    const l=await lst(_supabase.from('producao').select('*').gte('data',g._desde||'2026-10-26').order('data',{ascending:false}).limit(5000));
-    return l.filter(noEscopo).filter(p=>itensEscopoOP(p).length).map(p=>({ref:'OP13/'+p.id,id:p.id,quando:p.data,
-      det:`OP ${p.op_numero||p.id} — ${p.linha||''} — ${itensEscopoOP(p).map(x=>x.produto).join(' + ')}`,
-      pre:{op:p.op_numero||'',lote_producao:itensEscopoOP(p).map(x=>x.lote).filter(Boolean).join(' · '),
+    const l=(await lst(_supabase.from('producao').select('*').gte('data',g._desde||'2026-10-26').order('data',{ascending:false}).limit(5000)))
+      .filter(noEscopo).filter(p=>itensEscopoOP(p).length)
+      .sort((a,b)=>String(a.created_at||'').localeCompare(String(b.created_at||''))||String(a.id).localeCompare(String(b.id)));
+    const grp=new Map();
+    l.forEach(p=>{const lts=itensEscopoOP(p).map(x=>x.lote).filter(Boolean).sort().join(',')||('OP:'+p.id);
+      const k=String(p.data).slice(0,10)+'|'+(p.linha||'')+'|'+(p.turno||'')+'|'+lts;
+      if(!grp.has(k)) grp.set(k,{p,ops:[]}); grp.get(k).ops.push(p.op_numero||p.id);});
+    return [...grp.values()].map(({p,ops})=>({ref:'OP13/'+p.id,id:p.id,quando:p.data,
+      det:`Lote ${itensEscopoOP(p).map(x=>x.lote).filter(Boolean).join(' · ')||'—'} — ${p.linha||''} · ${p.turno||''} — ${itensEscopoOP(p).map(x=>x.produto).join(' + ')}`,
+      pre:{op:ops.join(' · '),lote_producao:itensEscopoOP(p).map(x=>x.lote).filter(Boolean).join(' · '),
            lote_mp:p.lote_mp||''}}));
   }},
   // POP-14: uma ficha por lote produzido (item da OP), propósito = conformidade
   g_amostra:{tab:'producao',dias:3,async busca(g){
     const l=await lst(_supabase.from('producao').select('*').gte('data',g._desde||'2026-10-26').order('data',{ascending:false}).limit(5000));
     const T=await totemLotes();
+    const prim=_filtroPrimeiraOP(l);
     return T.lista.map(x=>({ref:'TOT14/'+x.dia+'/'+x.linha+'/'+x.lote,id:null,quando:x.dia,det:`Amostragem — ${x.produto} · lote ${x.lote} · ${x.linha}`,
         pre:{op:'',lote:x.lote,proposito:'Conformidade do lote',produto:x.produto}}))
-     .concat(l.filter(noEscopo).flatMap(p=>itensEscopoOP(p).filter(it=>!_doTotem(T,p,it)).map((it,i)=>({ref:'OP14/'+p.id+'/'+(it.lote||i),id:p.id,quando:p.data,
+     .concat(l.filter(noEscopo).flatMap(p=>itensEscopoOP(p).filter(it=>!_doTotem(T,p,it)&&prim(p,it)).map((it,i)=>({ref:'OP14/'+p.id+'/'+(it.lote||i),id:p.id,quando:p.data,
       det:`Amostragem — OP ${p.op_numero||p.id} · ${it.produto} · lote ${it.lote||'—'}`,
       pre:{op:p.op_numero||'',lote:it.lote||'',proposito:'Conformidade do lote',produto:it.produto||''}}))));
   }},
@@ -4443,7 +4464,8 @@ const GATILHO_FONTES={
     const doTot=T.lista.filter(x=>!ehGranel({produto:x.produto})).map(x=>{ const bag=ehBag({produto:x.produto}); const tag=bag?'BAL-BAG':'BAL-ENS'; const cal=calibracaoVigente(tag);
       return {ref:'TOT18/'+x.dia+'/'+x.linha+'/'+x.lote,id:null,quando:x.dia,det:`Aferição de pesagem — ${x.produto} · lote ${x.lote} · ${x.linha}`,
         pre:{op:'',lote:x.lote,equipamento:bag?'Big Bag':'Ensacadeira — sacaria',balanca_tag:tag,balanca_calibrada:cal===null?'':(cal?'sim':'nao')}}; });
-    return doTot.concat(l.filter(noEscopo).flatMap(p=>itensEscopoOP(p).filter(it=>!ehGranel(it)&&!_doTotem(T,p,it)).map((it,i)=>{
+    const prim=_filtroPrimeiraOP(l);
+    return doTot.concat(l.filter(noEscopo).flatMap(p=>itensEscopoOP(p).filter(it=>!ehGranel(it)&&!_doTotem(T,p,it)&&prim(p,it)).map((it,i)=>{
       const bag=ehBag(it);const tag=bag?'BAL-BAG':'BAL-ENS';const cal=calibracaoVigente(tag);
       return {ref:'OP18/'+p.id+'/'+(it.lote||i),id:p.id,quando:p.data,
         det:`Aferição de pesagem — OP ${p.op_numero||p.id} · ${it.produto} · lote ${it.lote||'—'}`,
@@ -4576,15 +4598,27 @@ const GATILHO_FONTES={
     return l.filter(a=>!/extern/i.test(a.tipo||'')).map(a=>({ref:'AUD/'+a.id,id:a.id,quando:a.data,det:`Auditoria interna — ${a.escopo||a.linha||''}`,
       pre:{escopo:[a.escopo,a.linha].filter(Boolean).join(' · '),auditor:a.auditor||'',constatacoes:a.resultado||''}}));
   }},
-  // ── POP-21 (item 7): a cada carregamento — também os caminhões registrados na Portaria
+  // ── POP-21 (item 7 "a cada carregamento"; item 2: produto acabado de alimentação animal — 25 kg / Big Bag / granel).
+  // (23/11) Fonte única: a Portaria. Só gera quando o caminhão já tem ORDEM (sem ordem não é carregamento) e a ordem tem
+  // produto no escopo — conferido no romaneio importado (ou no Carregamento). Ordem só de Liga/Sikal/Felisbina não gera.
   g_veiculo_port:{tab:'portaria',async busca(g){
-    const l=(await lst(_supabase.from('portaria').select('*').gte('hora_chegada',(g._desde||hoje())+'T00:00:00').limit(5000))).filter(x=>!/^teste/i.test(String(x.nome_motorista||'').trim()));
+    const l=(await lst(_supabase.from('portaria').select('*').gte('hora_chegada',(g._desde||hoje())+'T00:00:00').limit(5000)))
+      .filter(x=>!/^teste/i.test(String(x.nome_motorista||'').trim())&&x.numero_ordem);
     const dl=v=>v?new Date(v).toLocaleDateString('sv-SE',{timeZone:'America/Sao_Paulo'}):null;
-    // o mesmo caminhão já registrado no Carregamento (placa + dia) não duplica
-    let car=[];try{car=await lst(_supabase.from('carregamentos').select('placa,data').gte('data',g._desde||hoje()).limit(5000));}catch(e){}
-    const ja=new Set(car.map(c=>_normP(c.placa)+'|'+String(c.data).slice(0,10)));
-    return l.filter(x=>!ja.has(_normP(x.placa)+'|'+dl(x.hora_chegada))).map(x=>({ref:'PORT21/'+x.id,id:x.id,quando:dl(x.hora_chegada),det:`Inspeção do veículo — ${x.placa||''} · ${x.nome_motorista||''}`,
-      pre:{placa:[x.placa,x.placa2].filter(Boolean).join(' / '),motorista:x.nome_motorista||'',transportadora:x.transportadora||'',ordem:x.ordem_numero||x.ordem||''}}));
+    const ords=[...new Set(l.map(x=>String(x.numero_ordem)))];
+    const prods={}; const add=(o,p)=>{ if(!p) return; (prods[o]=prods[o]||[]).push(p); };
+    for(let i=0;i<ords.length;i+=200){ const pd=ords.slice(i,i+200);
+      try{ const rs=await lst(_supabase.from('romaneios').select('id,numero').in('numero',pd));
+        const nr={}; rs.forEach(r=>nr[r.id]=String(r.numero));
+        if(rs.length){ const it=await lst(_supabase.from('romaneio_itens').select('romaneio_id,produto,produto_erp').in('romaneio_id',rs.map(r=>r.id)));
+          it.forEach(x=>add(nr[x.romaneio_id],x.produto_erp||x.produto)); } }catch(e){}
+      try{ const cs=await lst(_supabase.from('carregamentos').select('ordem_numero,itens').in('ordem_numero',pd));
+        cs.forEach(c=>(Array.isArray(c.itens)?c.itens:[]).forEach(x=>add(String(c.ordem_numero),x&&(x.produto||x.nome)))); }catch(e){} }
+    return l.filter(x=>(prods[String(x.numero_ordem)]||[]).some(produtoNoEscopo)).map(x=>{
+      // a ficha cancelada antes por "sem ordem" não pode bloquear a nova: ganha a ordem na ref
+      let ref='PORT21/'+x.id; if(_tarefas.some(t=>t.origem_ref===ref&&t.status==='cancelada')) ref+='/'+x.numero_ordem;
+      return {ref,id:x.id,quando:dl(x.hora_chegada),det:`Inspeção do veículo — ${x.placa||''} · ${x.nome_motorista||''} — ordem ${x.numero_ordem}`,
+        pre:{placa:[x.placa,x.placa2].filter(Boolean).join(' / '),motorista:x.nome_motorista||'',transportadora:x.transportadora||'',ordem:x.numero_ordem||''}};});
   }},
   // ── POP-08 (item 7): inspeção mensal de armadilhas, barreiras e lonas
   g_pragas:{tab:'calendario',async busca(g){return mesesDesde(g).map(k=>({ref:'CAL/g_pragas/'+k.k,id:null,quando:k.q,det:`Inspeção mensal de pragas — ${k.t}`,
@@ -4606,7 +4640,8 @@ const GATILHO_FONTES={
     const T=await totemLotes();
     const tot=T.lista.map(x=>({ref:'TOT-RASTRO/'+x.dia+'/'+x.linha+'/'+x.lote,id:null,quando:x.dia,det:`Rastreabilidade do lote ${x.lote} · ${x.linha}`,
       pre:{lote_producao:x.lote,lote_mp:'',frente:'',unidades:null,granel:'nao',obs:`${x.produto} · ${x.linha} · produção iniciada no totem`}}));
-    return tot.concat(l.flatMap(p=>itensEscopoOP(p).filter(it=>!_doTotem(T,p,it)).map((it,i)=>{const mp=mps.find(m=>_normP(m.numero)===_normP(p.lote_mp));
+    const prim=_filtroPrimeiraOP(l);
+    return tot.concat(l.flatMap(p=>itensEscopoOP(p).filter(it=>!_doTotem(T,p,it)&&prim(p,it)).map((it,i)=>{const mp=mps.find(m=>_normP(m.numero)===_normP(p.lote_mp));
       const fr=mp?((Array.isArray(mp.frentes)&&mp.frentes.length?mp.frentes.map(x=>x.nome).join(' + '):mp.frente_nome)||''):'';
       const un=Number(it.total_sacos||it.sacos||it.quantidade||0)||null;
       return {ref:'RASTRO/'+p.id+'/'+(it.lote||i),id:p.id,quando:p.data,det:`Rastreabilidade do lote ${it.lote||'—'} · ${p.linha||''} · OP ${p.op_numero||''}`,
