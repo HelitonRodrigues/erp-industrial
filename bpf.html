@@ -967,7 +967,7 @@ async function init(){
   if(EMBED){ const regId=new URLSearchParams(location.search).get('reg'); if(regId&&_regs.some(x=>x.id===regId)) abrirReg(regId);
     else document.body.innerHTML='<div style="padding:30px;font-family:sans-serif;color:#64748b;">Registro não encontrado ou fora dos seus POPs.</div>'; return; }
   // A varredura é PULL: roda ao abrir o módulo, não é trigger no Postgres.
-  if(_temFila && _gatilhos.some(g=>g.ativo)){
+  if(!_soMinhaReg() && _temFila && _gatilhos.some(g=>g.ativo)){
     const ult=+(localStorage.getItem('bpf_varredura_ts')||0);
     if(Date.now()-ult>15*60*1000){
       localStorage.setItem('bpf_varredura_ts',String(Date.now()));
@@ -977,7 +977,7 @@ async function init(){
   }
   // F5: volta para a mesma tela (POP, aba, documento, registro…); sem nada guardado, abre o Início
   limparArquivosOrfaos();
-  if(!restaurarTela()) ir(meusPops()?(_temFila?'fila':'registros'):(_temFila && (minhasTarefas().length||pendenciasAssinatura().filter(podeAssinar).length) ? 'fila' : 'painel'));
+  if(_soMinhaReg()) ir('regularizacao'); else if(!restaurarTela()) ir(meusPops()?(_temFila?'fila':'registros'):(_temFila && (minhasTarefas().length||pendenciasAssinatura().filter(podeAssinar).length) ? 'fila' : 'painel'));
   // vindo da tela da OP (producao.html): imprime as fichas daquela OP
   try{
     const regId=new URLSearchParams(location.search).get('reg');
@@ -1115,6 +1115,7 @@ function alertas(){
 
 // ── NAVEGAÇÃO ──────────────────────────────────────────────────────────────
 function renderNav(){
+  if(_soMinhaReg()){ const n=document.getElementById('nav'); if(n) n.style.display='none'; return; }
   const al=alertas();let h='';
   _sitPop={};
   for(const r of _regs){ if(r.cancelado_em||r.status==='cancelado')continue;
@@ -1335,6 +1336,7 @@ function restaurarTela(){
   return false;
 }
 function ir(sec){
+  if(_soMinhaReg()&&sec!=='regularizacao') sec='regularizacao';
   lembrarTela({sec});
   if(SECOES_LEITURA_TOTAL.includes(sec)&&meusPops()){ return telaSemAcesso(sec); }
   _sec=sec;_popSel=null;_entSel=null;marcarNav(null);
@@ -2474,6 +2476,7 @@ function renderRegularizacao(){
     concl=_regs.filter(r=>r.status==='concluido'&&r.regularizacao&&r.regularizacao.concluido_por),
     pend=_regs.filter(r=>r.status!=='concluido'&&!r.cancelado_em&&r.regularizacao&&r.regularizacao.pendente),
     pes=_regPessoas(), fNome=c=>(_forms.find(x=>x.codigo===c)||{}).titulo||c;
+  if(_soMinhaReg()) return renderMinhaRegularizacao();
   const porMes={}; [...em,...concl].forEach(r=>{const k=String(r.data).slice(0,7); const o=porMes[k]=porMes[k]||{a:0,p:0,c:0}; if(r.status==='concluido')o.c++; else if(_regPronto(r))o.p++; else o.a++;});
   const pendF={}; pend.forEach(r=>{const k=r.formulario_cod; (pendF[k]=pendF[k]||{n:0,mot:r.regularizacao.pendente,resp:r.regularizacao.responsavel}).n++;});
   document.getElementById('conteudo').innerHTML=`
@@ -2498,6 +2501,25 @@ function renderRegularizacao(){
     ${Object.keys(porMes).sort().map(k=>`<tr><td>${k.slice(5)}/${k.slice(0,4)}</td><td style="text-align:right;">${porMes[k].a}</td><td style="text-align:right;">${porMes[k].p}</td><td style="text-align:right;">${porMes[k].c}</td></tr>`).join('')}</tbody></table></div></div>
   <div class="sec-card"><h3>⏳ Pendentes de verdade (não regularizados — precisam ser feitos)</h3><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Formulário</th><th style="text-align:right;">Qtd</th><th>Motivo</th><th>Responsável</th></tr></thead><tbody>
     ${Object.entries(pendF).map(([k,o])=>`<tr><td><b>${esc(fNome(k))}</b><div class="bx-mu" style="font-size:10.5px;">${esc(k)}</div></td><td style="text-align:right;">${o.n}</td><td>${esc(o.mot)}</td><td>${esc(o.resp||'—')}</td></tr>`).join('')||'<tr><td colspan="4" style="color:#94a3b8;">Nenhum.</td></tr>'}</tbody></table></div></div>`;
+}
+function renderMinhaRegularizacao(){
+  const u=getUser()||{}, eu=u.nome||'';
+  const p=_regPessoas().find(x=>x.nome===eu)||{nome:eu,falta:[],feito:0};
+  const feitos=_regAssinadosDe(eu).length;
+  document.getElementById('conteudo').innerHTML=`
+  <div class="alerta al-info">Aqui estão <b>só os seus registros</b> da regularização BPF (registros que não foram feitos na época e foram preenchidos conforme a escala). Confira a lista e confirme com a <b>sua</b> assinatura — uma vez para todos.</div>
+  <div class="kpis">
+    <div class="kpi ${p.falta.length?'warn':'ok'}"><div class="v">${p.falta.length}</div><div class="l">Falta você assinar</div></div>
+    <div class="kpi ok"><div class="v">${feitos}</div><div class="l">Você já assinou</div></div>
+  </div>
+  <div class="sec-card"><h3>✍️ ${esc(eu)}</h3>
+    ${p.falta.length?`<div class="sub">${p.falta.length} registro(s) esperando a sua confirmação.</div>
+      <div style="max-height:46vh;overflow:auto;border:1px solid #e2e8f0;border-radius:8px;margin-top:8px;"><table class="tbl" style="font-size:12.5px;"><thead><tr><th>Data</th><th>Turno</th><th>Linha</th><th>Formulário</th><th>Nº</th><th>Checklist</th></tr></thead><tbody>${_regLinhasHtml(p.falta)}</tbody></table></div>
+      <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;"><button class="btn btn-primary" style="font-size:15px;padding:10px 18px;" onclick="regAssinarPessoa('${esc(eu).replace(/'/g,"\\'")}')">✍️ Conferi — assinar</button>
+      <button class="btn btn-secondary" onclick="regImprimirLista('${esc(eu).replace(/'/g,"\\'")}')">🖨️ Imprimir a lista</button></div>`
+     :'<div class="alerta al-ok" style="margin-top:8px;">✅ Você está em dia — não há registro seu esperando assinatura.</div>'}
+    ${feitos?`<div style="margin-top:10px;"><a href="#" onclick="regVerAssinados('${esc(eu).replace(/'/g,"\\'")}');return false;" style="font-weight:800;color:#0284c7;">👁 Ver os ${feitos} registro(s) que você já assinou</a></div>`:''}
+  </div>`;
 }
 function _regLinhasHtml(lst){
   const fNome=c=>(_forms.find(x=>x.codigo===c)||{}).titulo||c;
@@ -2526,6 +2548,7 @@ async function regDesligado(nome){
   toast(`${nome}: desligamento registrado em ${data.registros} registro(s).`,'success'); await carregar(); ir('regularizacao');
 }
 async function regAssinarPessoa(nome){
+  if(_soMinhaReg()&&nome!==((getUser()||{}).nome||'')){ await uiAlerta('Você só pode assinar os seus registros.',{titulo:'Sem permissão',tipo:'warn'}); return; }
   if(!guardAction('bpf','edit'))return;
   const p=_regPessoas().find(x=>x.nome===nome); if(!p||!p.falta.length)return;
   const decl=`Eu, ${nome}, confirmo que executei/acompanhei as atividades dos ${p.falta.length} registro(s) listados, nas datas e turnos indicados em cada um, e que estavam conformes (sem avarias ou ocorrências). Assino hoje, na regularização dos registros BPF.`;
@@ -4110,7 +4133,13 @@ function meusPops(){
 }
 function noEscopoPop(cod){ const s=meusPops(); return !s || s.has(cod); }
 function entNoEscopo(e){ return noEscopoPop(e.pop); }
+/* (23/11) Perfil PRB = Porteiro + BPF só para a PRÓPRIA regularização (ex.: Thiago Rodrigues): só vê e assina os registros
+   em que o nome dele está; o resto do BPF (POPs, registros, fila, painel…) fica escondido e não abre. */
+const PERFIS_SO_MINHA_REG=['PRB'];
+const _soMinhaReg=()=>PERFIS_SO_MINHA_REG.includes(String((getUser()||{}).perfil||'').toUpperCase());
+const _regDoUsuario=r=>{ const n=(getUser()||{}).nome||''; return !!(r.regularizacao&&(r.regularizacao.slots||[]).some(sl=>(sl.nomes||[]).includes(n))); };
 function aplicarEscopo(){
+  if(_soMinhaReg()){ _pops=_popsAll;_forms=_formsAll;_regs=_regsAll.filter(_regDoUsuario);_ncs=[];_treins=[]; aplicarEscopoNav(); return; }
   const s=meusPops();
   if(!s){ _pops=_popsAll;_forms=_formsAll;_regs=_regsAll;_ncs=_ncsAll;_treins=_treinsAll;
           aplicarEscopoNav(); return; }
@@ -4131,6 +4160,8 @@ const SECAO_NOME={auditorias:'Auditorias',canal:'Canais de manifestacao',documen
                   dossie:'Dossie de auditoria',gatilhos:'Gatilhos',travas:'Travas',ncs:'NCs',
                   treinamentos:'Treinamentos',painel:'Painel',fichas:'Fichas em branco'};
 function aplicarEscopoNav(){
+  if(_soMinhaReg()){ document.querySelectorAll('#bx-nav .bx-area').forEach(b=>{ b.style.display=b.dataset.area==='regul'?'':'none'; });
+    const w=document.querySelector('#bx-nav .bx-mais-wrap'); if(w) w.style.display='none'; return; }
   const restrito=!!meusPops();
   SECOES_LEITURA_TOTAL.concat(['config']).forEach(sec=>{
     const b=document.getElementById('tab-'+sec);
