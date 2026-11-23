@@ -2473,7 +2473,7 @@ function aplicarOrdemNova(rom,itens,avisar){
   semQr.forEach(({produto,a})=>{const l=_linhasCarr.find(x=>normNome(x.produto)===normNome(produto));if(l)(_avulsos[l.key]=_avulsos[l.key]||[]).push(a);});
   /* tamanho do pallet do caminhão pode ter mudado com a ordem nova: refaz os sacos a mais/a menos dos já bipados */
   _linhasCarr.forEach(l=>{if(l.granel||l.felis||ehBagNome(l.produto))return;const pp=Number(l.palPedido)||0;
-    (_alloc[l.key]||[]).forEach(id=>{const p=_pallets.find(x=>x.id===id);if(!p||!pp)return;const base=sacosDoPallet(p),d=pp-base;
+    (_alloc[l.key]||[]).forEach(id=>{const p=_pallets.find(x=>x.id===id);if(!p||!pp)return;if(_extra[id]&&/^Pallet misto/.test(_extra[id].obs||''))return;const base=sacosDoPallet(p),d=pp-base;
       if(!d)delete _extra[id];else _extra[id]={qtd:d,obs:d>0?`Completado para pallet de ${n0(pp)}`:`Pallet de ${n0(pp)} no caminhão — ${n0(-d)} sacos ficaram no estoque`};});});
   Object.keys(_doa).forEach(id=>{const d=_doa[id];if(!_linhasCarr.some(l=>normNome(l.produto)===normNome(d.produto))){delete _doa[id];if(typeof _doaAuto!=='undefined')delete _doaAuto[id];}});
   _carrOrdem={..._carrOrdem,numero:rom.numero,placa:rom.placa||_carrOrdem.placa,motorista:rom.motorista||_carrOrdem.motorista,
@@ -2534,16 +2534,26 @@ async function vigiarOrdensPortaria(forcar){
 if(!_ordVigia)_ordVigia=setInterval(async()=>{await vigiarOrdensPortaria();if(!document.hidden)await atualizarPortaria();},20000);
 function itensRomaneio(numero){return _romItens.filter(x=>String(x.numero)===String(numero));}
 /* produto do ERP quando a Portaria ligou o item da ordem ao cadastro (migração 054) — senão o texto da ordem */
+const fmtPal=v=>{const n=Number(v)||0;return Number.isInteger(n)?n0(n):n.toLocaleString('pt-BR',{maximumFractionDigits:1});};
+// texto do pallet misto: o que vai junto no mesmo pallet (sobras de cada produto do pedido)
+function txtMisto(l){ const m=l.palMisto; if(!m) return ''; const ls=_linhasCarr.filter(x=>x.palMisto&&x.palMisto.ped===m.ped&&(x.cliente||'')===(m.cli||''));
+  const sob=ls.map(x=>({p:x.produto,r:Math.round(x.sacksNeed||0)%m.pp})).filter(x=>x.r>0);
+  const cheios=ls.reduce((s,x)=>s+Math.floor(Math.round(x.sacksNeed||0)/m.pp),0), mistos=Math.max(1,m.n-cheios);
+  return `pedido em ${n0(m.n)} pallets: ${cheios?n0(cheios)+' cheio(s) + ':''}${n0(mistos)} misto(s) com ${sob.map(x=>n0(x.r)+' '+x.p.replace(/\s*10\s*kg$/i,'')).join(' + ')}`; }
 function linhasRomaneio(r){
   const ls=itensRomaneio(r.numero).map(it=>({felis:!!it.felis_item_id||/\(Felisbina\)\s*$/i.test(it.produto_erp||''),pedido:it.pedido||'',cidade:it.cidade||'',cliente:it.cliente||'',produto:it.produto_erp||it.produto||'',produto_ordem:it.produto||'',qtd:parseFloat(it.quantidade)||0,lote:it.lote||'',plt:Number((String(it.unidades||'').match(/(\d+)\s*(plt|pal|pallet|palete)/i)||[])[1])||0}));
   /* (23/11) a ordem às vezes põe o "N plt" só na 1ª linha do pedido, valendo para o pedido inteiro
      (ex.: De Melo 1.600 Liga + 400 Liga Imperm. = 2.000 sc em "10 plt" → 200/pallet: 8 + 2).
      Sem isto a 1ª linha ficava com 160/pallet e a outra caía no pallet do estoque (180 → 3 pallets em vez de 2). */
   const porPed={}; ls.forEach(l=>{ if(l.pedido&&!l.felis&&!ehGranel(l.produto)) (porPed[l.pedido+'|'+l.cliente]=porPed[l.pedido+'|'+l.cliente]||[]).push(l); });
-  Object.values(porPed).forEach(g=>{ const com=g.filter(l=>l.plt>0), sem=g.filter(l=>!l.plt); if(!com.length||!sem.length) return;
+  Object.values(porPed).forEach(g=>{ const com=g.filter(l=>l.plt>0); if(!com.length||g.length<2) return;
+    const precisa=g.some(l=>!l.plt)||com.some(l=>Math.round(l.qtd)%l.plt!==0); if(!precisa) return;
     const nPlt=com.reduce((s,l)=>s+l.plt,0), tot=g.reduce((s,l)=>s+Math.round(l.qtd),0); const pp=tot/nPlt;
-    if(!Number.isInteger(pp)||pp<20||g.some(l=>Math.round(l.qtd)%pp!==0)) return;
-    g.forEach(l=>{ l.plt=Math.round(l.qtd)/pp; }); });
+    if(!Number.isInteger(pp)||pp<20) return;
+    if(g.every(l=>Math.round(l.qtd)%pp===0)){ g.forEach(l=>{ l.plt=Math.round(l.qtd)/pp; }); return; }
+    /* pallet MISTO (ex.: 270 Liga + 90 Liga Imperm. em 2 plt de 180 → 1 cheio de Liga + 1 com 90 de cada):
+       cada linha usa o pallet de pp; a sobra de cada produto vai junta no(s) pallet(s) misto(s) */
+    const mx={pp,n:nPlt,ped:g[0].pedido,cli:g[0].cliente}; g.forEach(l=>{ l.plt=0; l.palMisto=mx; }); });
   return ls;
 }
 function cargasDaOrdem(numero){return _carregamentos.filter(c=>String(c.ordem_numero)===String(numero));}
@@ -3100,6 +3110,7 @@ function addLinha(l){
   /* (16/11) a ordem diz "N plt": qtd ÷ N = sacos por pallet NO CAMINHÃO (ex.: 2000 sc / 10 plt = 200) */
   const _pq=Math.round(Number(l.qtd)||0),_pn=Number(l.plt)||0;
   if(!granel&&!l.felis&&_pn>0&&_pq%_pn===0&&_pq/_pn>=20)nova.palOrdem=_pq/_pn;
+  if(!granel&&!l.felis&&l.palMisto){nova.palOrdem=l.palMisto.pp;nova.palMisto=l.palMisto;}
   _linhasCarr.push(nova);_alloc[nova.key]=[];
   /* produto da Felisbina (revenda/acabado) não tem QR: o operador CONFIRMA a quantidade carregada (patioFelis) */
   if(l.felis){nova.felis=true;nova.granel=false;nova.tonNeed=0;nova.sacksNeed=Number(l.qtd)||nova.sacksNeed||0;}
@@ -5738,9 +5749,11 @@ function patioLinhaInfo(l){
   }
   const pal=(_alloc[l.key]||[]).length+avulsosPallets(l.key),sc=allocSacks(l.key),need=l.sacksNeed||0;
   const pp=Number(l.palPedido)||palletPadraoDoProduto(l.produto)||0;
-  const palNeed=pp?Math.ceil(need/pp):0;
+  /* pallet misto: a parte de cada produto conta em fração (1,5 + 0,5 = os 2 pallets do pedido) */
+  const _mx=!!l.palMisto&&pp>0;
+  const palNeed=pp?(_mx?Math.round(need/pp*10)/10:Math.ceil(need/pp)):0;
   const faltaSc=Math.max(0,need-sc);
-  const faltaPal=pp?Math.ceil(faltaSc/pp):0;
+  const faltaPal=pp?(_mx?Math.round(faltaSc/pp*10)/10:Math.ceil(faltaSc/pp)):0;
   return {granel,pal,sc,need,pp,palNeed,faltaSc,faltaPal,ok:need>0&&sc>=need};
 }
 function selecionarLinhaPatio(key){
@@ -5808,20 +5821,20 @@ function renderPatio(){
     const soBag=infos.every(i=>i.bag),algumBag=infos.some(i=>i.bag);
     const unid=soBag?(faltaUn===1?'BAG':'BAGS'):algumBag?'PALLETS/BAGS':nomePallets(faltaUn);
     const faltaSc=infos.filter(i=>!i.it.pp).reduce((t,i)=>t+i.it.faltaSc,0);
-    const faltaTxt=tudoOk?'✔ TUDO BIPADO':(faltaUn?`FALTAM <b>${n0(faltaUn)}</b> ${unid}`:`FALTAM <b>${n0(faltaSc)}</b> SACOS`);
+    const faltaTxt=tudoOk?'✔ TUDO BIPADO':(faltaUn?`FALTAM <b>${fmtPal(faltaUn)}</b> ${unid}`:`FALTAM <b>${n0(faltaSc)}</b> SACOS`);
     const btnSt='background:#fff;color:var(--primary);border:2px solid var(--primary);min-height:36px;font-size:12.5px;padding:4px 10px;';
     const cards=infos.map(({x,it,bag})=>{
       const est=palletPadraoDoProduto(x.produto);
       const feito=bag?it.sc:(it.pp?it.pal:it.sc), alvo=bag?it.need:(it.pp?it.palNeed:it.need);
       const un=bag?'bags':(it.pp?'pallets':'sacos');
-      const tam=bag?'':`Pallet de ${it.pp?n0(it.pp):'?'} sacos`+(it.pp&&est&&it.pp>est?` · no estoque é ${n0(est)}: os +${n0(it.pp-est)} já entram sozinhos`:it.pp&&est&&it.pp<est?` · no estoque é ${n0(est)}: sai com ${n0(it.pp)} e ${n0(est-it.pp)} voltam ao estoque`:'');
+      const tam=bag?'':`Pallet de ${it.pp?n0(it.pp):'?'} sacos`+(x.palMisto?' · '+txtMisto(x):'')+(x.palMisto?'':(it.pp&&est&&it.pp>est?` · no estoque é ${n0(est)}: os +${n0(it.pp-est)} já entram sozinhos`:it.pp&&est&&it.pp<est?` · no estoque é ${n0(est)}: sai com ${n0(it.pp)} e ${n0(est-it.pp)} voltam ao estoque`:''));
       const semqr=avulsosDe(x.key).filter(a=>a.motivo===ROT_ANTIGO);
       return `<div style="background:${it.ok?'#f0fdf4':'#f8fafc'};border:2px solid ${it.ok?'#86efac':'#e2e8f0'};border-radius:12px;padding:9px 10px;margin-top:6px;">
         <div style="display:flex;align-items:center;gap:10px;">
           <div style="flex:0 0 32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;background:${it.ok?'#16a34a':'#e2e8f0'};color:${it.ok?'#fff':'#334155'};">${it.ok?'✔':''}</div>
           <div style="flex:1;min-width:0;"><div style="font-size:15px;font-weight:800;color:var(--primary);line-height:1.15;">${esc(x.produto||'(sem produto)')}</div>
             <div style="font-size:12px;color:#64748b;font-weight:600;">${esc(x.cliente||'')}</div></div>
-          <div style="text-align:right;white-space:nowrap;"><div style="font-size:24px;font-weight:900;color:${it.ok?'#15803d':'#0f172a'};line-height:1;">${n0(feito)}<span style="font-size:15px;color:#64748b;"> / ${n0(alvo)}</span></div><div style="font-size:11px;font-weight:800;color:#64748b;">${un}</div></div>
+          <div style="text-align:right;white-space:nowrap;"><div style="font-size:24px;font-weight:900;color:${it.ok?'#15803d':'#0f172a'};line-height:1;">${fmtPal(feito)}<span style="font-size:15px;color:#64748b;"> / ${fmtPal(alvo)}</span></div><div style="font-size:11px;font-weight:800;color:#64748b;">${un}</div></div>
         </div>
         ${tam?`<div style="font-size:12.5px;color:#334155;font-weight:700;margin-top:6px;">📦 ${tam}</div>`:''}
         ${semqr.map(a=>`<div style="font-size:12.5px;color:#92400e;font-weight:700;margin-top:4px;">🏷️ ${semQrTxt(x,a)} sem QR <button class="pt-x" onclick="retirarAvulso('${x.key}','${a.id}')">✕</button></div>`).join('')}
@@ -5991,6 +6004,7 @@ function patioLeitura(txt){
   return patioIncluir(p,alvo);
 }
 function patioIncluir(p,l){
+  const _faltaMx=(l.palMisto&&!ehBagNome(p.produto))?Math.max(0,Math.round((l.sacksNeed||0)-allocSacks(l.key))):null;
   alocar(l.key,p.id);
   const grupo={desc:`pallet ${codCurto(p)}`,passos:[()=>{_alloc[l.key]=(_alloc[l.key]||[]).filter(x=>x!==p.id);_allocSet.delete(p.id);delete _extra[p.id];}]};
   _patioHist.push(grupo);
@@ -6009,6 +6023,12 @@ function patioIncluir(p,l){
     dif=alvoPal-base;
     _extra[p.id]={qtd:dif,obs:`Pallet de ${n0(alvoPal)} no caminhão — ${n0(-dif)} sacos ficaram no estoque`};
     lido.txt+=` −${n0(-dif)}`;
+  }
+  /* pallet misto: deste pallet só vai o que falta do produto; o resto fica no estoque (o pallet do caminhão é completado com o outro produto) */
+  if(_faltaMx!=null&&_faltaMx>0&&_faltaMx<base+dif){
+    dif=_faltaMx-base;
+    _extra[p.id]={qtd:dif,obs:`Pallet misto — vai ${n0(_faltaMx)} sc, ${n0(-dif)} ficam no estoque`};
+    lido.txt=`${codCurto(p)} · ${n0(base)} sc −${n0(-dif)} (misto)`;
   }
   renderPatio();
   const inf=patioLinhaInfo(l);
