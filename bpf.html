@@ -1156,9 +1156,17 @@ let _sitPop={};
 const PERFIS_GESTAO_BPF=['SADM','ADM','QLD','DIR','GPR','SGR','AUD'];
 function ehGestorBpf(){const u=getUser()||{};return PERFIS_GESTAO_BPF.includes(u.perfil);}
 // a pessoa só vê o botão de assinar da FUNÇÃO para a qual está designada naquele POP
+/* (23/11) Funções que assinam SÓ NO PAPEL e são lançadas por quem coleta a ficha (serviços gerais designado, gestão do BPF):
+   pessoal da linha (vem da escala do dia — operador/encarregado/limpeza assinam a ficha impressa) e empresa terceirizada. */
+const FUNCOES_PAPEL=['escala_linha','terceirizada'];
+const ehFuncaoPapel=f=>FUNCOES_PAPEL.includes(f);
+function ehColetorBpf(){ const u=getUser()||{};
+  if(['SADM','ADM'].includes(u.perfil)||ehGestorBpf()||PERFIS_LEITURA_TOTAL.includes(u.perfil)) return true;
+  return _desig.some(d=>d.ativo&&d.funcao_cod==='servicos_gerais'&&((d.usuario_id&&d.usuario_id===u.id)||_normP(d.funcionario_nome)===_normP(u.nome))&&(!d.data_fim||d.data_fim>=hoje())); }
 function assinaFuncao(r,a){
   const u=getUser()||{};if(['SADM','ADM'].includes(u.perfil))return true;
   if(!a||!a.funcao)return true;
+  if(ehFuncaoPapel(a.funcao)) return ehColetorBpf();
   return _desig.some(d=>d.ativo&&d.funcao_cod===a.funcao&&(!d.pop_cod||d.pop_cod===r.pop_cod)&&(d.papeis||['assina']).includes('assina')
     &&((d.usuario_id&&d.usuario_id===u.id)||_normP(d.funcionario_nome)===_normP(u.nome))&&(!d.data_fim||d.data_fim>=hoje()));
 }
@@ -2250,7 +2258,7 @@ async function verRegistro(id){
             ${fe.img?`<img src="${fe.img}" alt="assinatura" style="height:40px;display:block;margin-top:3px;">`:''}<div style="font-size:10.5px;color:#64748b;margin-top:2px;">${fe.tipo==='papel'?'📄 no papel · ':''}${esc(fe.nome)} · ${fmtDH(fe.em)}</div></span>`
            :(r.cancelado_em?'<span class="badge badge-gray">—</span>'
              :!assinaFuncao(r,a)?`<span class="badge badge-gray">aguardando ${esc(a.label)}</span>`
-             :`<button class="btn btn-secondary btn-sm" onclick="assinar('${r.id}','${a.id}')">✍️ Sistema</button> <button class="btn btn-secondary btn-sm" onclick="assinar('${r.id}','${a.id}','papel')">📄 No papel</button>`)}
+             :`${ehFuncaoPapel(a.funcao)?'':`<button class="btn btn-secondary btn-sm" onclick="assinar('${r.id}','${a.id}')">✍️ Sistema</button> `}<button class="btn btn-secondary btn-sm" onclick="assinar('${r.id}','${a.id}','papel')">📄 No papel</button>`)}
         </div>`;}).join('')||'<div style="color:#94a3b8;font-size:12px;">Sem assinatura exigida.</div>'}</div>
     <div class="sec-card" style="margin-top:13px;"><h3>Trilha de auditoria</h3>
       <div class="sub" style="margin-bottom:5px;">Imutável — o banco recusa alteração e exclusão (SYS-002 / SYS-043).</div>
@@ -2274,8 +2282,9 @@ async function assinar(regId,assId,tipo){
   const exigeFoto=concluiComAnexo(r.formulario_cod)&&!formSemPapel(r.formulario_cod);
   if(!regLancado(r)||(exigeFoto&&!r.foto_ficha)){
     await uiAlerta(`A assinatura libera depois que a ficha foi <strong>digitada</strong>${exigeFoto?' e a <strong>foto da ficha</strong> anexada':''}.`,{titulo:'Ainda não',tipo:'warn'});return;}
+  if(ehFuncaoPapel(a.funcao)) tipo='papel';   // pessoal da linha / terceiros: só no papel, lançado por quem coleta
   const tv=_travas.find(t=>t.codigo==='sem_designacao');
-  if(tv?.ativa&&a.funcao){
+  if(tv?.ativa&&a.funcao&&!ehFuncaoPapel(a.funcao)){
     const ok=_desig.some(d=>d.ativo&&d.funcao_cod===a.funcao&&(!d.pop_cod||d.pop_cod===r.pop_cod)&&
       d.funcionario_nome===u.nome&&(!d.data_fim||d.data_fim>=hoje()));
     if(!ok){
@@ -2423,6 +2432,7 @@ function podeAssinar(pend){
   const tv=_travas.find(t=>t.codigo==='sem_designacao');
   if(!tv?.ativa)return true;                       // trava desligada: qualquer um
   if(!pend.ass.funcao)return true;
+  if(ehFuncaoPapel(pend.ass.funcao)) return ehColetorBpf();
   return _desig.some(d=>d.ativo&&d.funcao_cod===pend.ass.funcao&&
     (!d.pop_cod||d.pop_cod===pend.reg.pop_cod)&&d.funcionario_nome===u.nome&&
     (!d.data_fim||d.data_fim>=hoje()));
@@ -4637,6 +4647,7 @@ function pessoasDaFuncao(funcao,pop){
 }
 function souDaFuncao(funcao,pop){
   const u=getUser();if(!u)return false;
+  if(ehFuncaoPapel(funcao)) return ehColetorBpf();
   const tv=_travas.find(t=>t.codigo==='sem_designacao');
   if(!tv?.ativa)return true;                       // trava desligada: qualquer um coleta
   return pessoasDaFuncao(funcao,pop).includes(u.nome);
