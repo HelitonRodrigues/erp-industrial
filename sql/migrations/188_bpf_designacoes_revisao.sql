@@ -28,3 +28,8 @@ from usuarios u cross join (values ('POP-04'),('POP-21')) p(pop) where u.perfil 
 update bpf_tarefas set funcao_cod='escala_linha' where status='aberta' and formulario_cod in ('REG-POP03-01','REG-POP06-01','REG-POP18-01');
 update bpf_tarefas set funcao_cod='terceirizada' where status='aberta' and formulario_cod in ('REG-POP07-02','REG-POP09-01','REG-POP09-02');
 update bpf_tarefas set funcao_cod='portaria' where status='aberta' and formulario_cod in ('REG-POP04-02','REG-POP21-01');
+-- (23/11, 2ª parte) Ryan só POP-08 (pragas) e POP-14 (amostragem); no resto ele só imprime e recolhe. POP18-02 = pessoal da linha → Qualidade.
+update bpf_designacoes set ativo=false, data_fim=current_date-1, obs=coalesce(obs||' · ','')||'23/11: Ryan só pragas (POP-08) e amostragem (POP-14); no resto ele só imprime'
+ where ativo and funcionario_nome='Ryan Almeida da Silva' and pop_cod in ('POP-04','POP-05','POP-18');
+update bpf_formularios set assinaturas='[{"id":"linha","label":"Executante (pessoal da linha)","funcao":"escala_linha","obrigatoria":true},{"id":"qual","label":"Qualidade","funcao":"gerente_qual","obrigatoria":true}]'::jsonb where codigo='REG-POP18-02';
+update bpf_tarefas set funcao_cod='escala_linha' where status='aberta' and formulario_cod='REG-POP18-02';
