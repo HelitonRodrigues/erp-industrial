@@ -1,0 +1,7 @@
+-- (23/11/2026) aplicado no Supabase. POP-03 (6.d "a cada execução"; 7 frequência; "rotina diária integrada ao encerramento do lote/expediente"):
+-- uma ficha REG-POP03-01 por LIMPEZA feita. Cancelados (preservados, com trilha) 9 registros de 19 a 23/11:
+--   000696/000705/000706 (lote 20261119B02 ×3), 000702, 000700, 000712, 000716, 000719 (fim de lote = virada do dia ou troca de variação, mesma execução)
+--   e 000718 (troca Creme 02 → Branco 01 datada em 23/11; foi em 21/11 21:42 — a varredura nova gera na data certa).
+-- bpf.html: g_limp_lote não gera de 19/11 em diante (antes: uma por lote, não por OP); g_limp_var pela sequência real das impressões do totem,
+--   material = código do lote sem a data (Bag 1250 kg e 25 kg do mesmo lote não são troca).
+-- (os updates foram feitos por número de registro; ver CLAUDE.md 23/11)
