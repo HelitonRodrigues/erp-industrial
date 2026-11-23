@@ -1016,6 +1016,8 @@ async function carregar(){
   // recência, senão some registro antigo ainda pendente de assinatura.
   // TODOS os registros (paginado): com o levantamento desde a vigência são milhares, e qualquer
   // corte deixaria POP com fichas faltando no quadro e na contagem
+  // (23/11) escalas: o nome de quem assina (pessoal da linha e encarregado) vem da escala da semana
+  try{ const {data:es}=await _supabase.from('escalas').select('id,nome,status,periodo_inicio,periodo_fim,turno_nome,encarregado,operador,operadores,linhas,limpeza,turno2,turno3').gte('periodo_fim','2026-06-01').order('periodo_inicio',{ascending:false}).limit(120); _escalas=es||[]; }catch(e){ _escalas=[]; }
   const todosRegs=await selectTodos(_supabase.from('bpf_registros').select('*').order('data',{ascending:false}),{max:50000}).then(r=>r.data||[]).catch(()=>[]);
   const m=new Map();todosRegs.forEach(r=>m.set(r.id,r));
   _regs=[...m.values()].sort((a,b)=>String(b.data).localeCompare(String(a.data)));
@@ -1163,10 +1165,39 @@ const ehFuncaoPapel=f=>FUNCOES_PAPEL.includes(f);
 function ehColetorBpf(){ const u=getUser()||{};
   if(['SADM','ADM'].includes(u.perfil)||ehGestorBpf()||PERFIS_LEITURA_TOTAL.includes(u.perfil)) return true;
   return _desig.some(d=>d.ativo&&d.funcao_cod==='servicos_gerais'&&((d.usuario_id&&d.usuario_id===u.id)||_normP(d.funcionario_nome)===_normP(u.nome))&&(!d.data_fim||d.data_fim>=hoje())); }
+let _escalas=[];
+const _semAc=x=>String(x||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+function _turnoDoReg(r){ const c=r.campos||{}; const t=r.tarefa_id?_tarefas.find(x=>x.id===r.tarefa_id):null;
+  const txt=_semAc([c.turno,r.regularizacao&&r.regularizacao.turno,t&&t.origem_det].join(' '));
+  return /madrugada/.test(txt)?'madrugada':/noite/.test(txt)?'noite':/manha/.test(txt)?'manha':''; }
+function _linhaDoReg(r){ const c=r.campos||{}; const t=r.tarefa_id?_tarefas.find(x=>x.id===r.tarefa_id):null;
+  const txt=[c.linha,r.regularizacao&&r.regularizacao.linha,t&&t.origem_det].join(' ');
+  const m=txt.match(/(Linha\s*\d+|Longa Vida|Emitec)/i); return m?_semAc(m[1]).replace(/\s+/g,' '):''; }
+/* nomes da escala da semana para a assinatura (encarregado do turno; pessoal da linha = operador(es) + membros da linha + limpeza) */
+function nomesEscala(r,funcao){
+  if(!r||!r.data||!['encarregado_prod','escala_linha'].includes(funcao)) return [];
+  const d=String(r.data).slice(0,10);
+  const e=_escalas.filter(x=>x.periodo_inicio<=d&&d<=x.periodo_fim).sort((a,b)=>(b.status==='ativa')-(a.status==='ativa'))[0]; if(!e) return [];
+  const tq=_turnoDoReg(r), lq=_linhaDoReg(r);
+  const turnos=[e,e.turno2,e.turno3].filter(Boolean).filter(t=>!tq||_semAc(t.turno_nome).includes(tq));
+  const out=[];
+  turnos.forEach(t=>{
+    if(funcao==='encarregado_prod'){ if(t.encarregado&&t.encarregado.nome) out.push(t.encarregado.nome); return; }
+    if(t.operador&&t.operador.nome) out.push(t.operador.nome);
+    (t.operadores||[]).forEach(o=>o&&o.nome&&out.push(o.nome));
+    (t.linhas||[]).filter(l=>!lq||_semAc(l.nome).replace(/\s+/g,' ')===lq).forEach(l=>(l.membros||[]).forEach(m=>m&&m.nome&&out.push(m.nome)));
+    (t.limpeza||[]).forEach(m=>m&&m.nome&&out.push(m.nome));
+  });
+  return [...new Set(out)];
+}
 function assinaFuncao(r,a){
   const u=getUser()||{};if(['SADM','ADM'].includes(u.perfil))return true;
   if(!a||!a.funcao)return true;
   if(ehFuncaoPapel(a.funcao)) return ehColetorBpf();
+  if(a.funcao==='encarregado_prod'&&!_designadoPara(r,a)&&ehColetorBpf()) return true;   // quem imprime e recolhe lança a assinatura do encarregado feita no papel
+  return _designadoPara(r,a);
+}
+function _designadoPara(r,a){ const u=getUser()||{};
   return _desig.some(d=>d.ativo&&d.funcao_cod===a.funcao&&(!d.pop_cod||d.pop_cod===r.pop_cod)&&(d.papeis||['assina']).includes('assina')
     &&((d.usuario_id&&d.usuario_id===u.id)||_normP(d.funcionario_nome)===_normP(u.nome))&&(!d.data_fim||d.data_fim>=hoje()));
 }
@@ -1976,10 +2007,12 @@ function abrirRegistroFluxo(id){
       ${(f.assinaturas||[]).filter(a=>!meusPops()||assinaFuncao(r,a)||(r.assinaturas||[]).some(x=>x.id===a.id)).map(a=>{const fe=(r.assinaturas||[]).find(x=>x.id===a.id);
         const pode=regLancado(r)&&(!exigeFoto||!!foto);
         return `<tr><td><b>${esc(a.label)}</b><div class="bx-mu" style="font-size:10.5px;">${esc(nomeFuncao(a.funcao))}</div></td>
-          ${semPapel?'':`<td><input class="form-input rx-pap" id="rf-pap-${esc(a.id)}" list="lst-func" value="${esc(pap[a.id]||'')}" placeholder="nome na ficha" ${travado?'disabled':''}></td>`}
+          ${semPapel?'':(()=>{const sg=nomesEscala(r,a.funcao); const v=pap[a.id]||(sg.length===1?sg[0]:'');
+            return `<td><input class="form-input rx-pap" id="rf-pap-${esc(a.id)}" list="${sg.length?'dl-esc-'+esc(a.id):'lst-func'}" value="${esc(v)}" placeholder="nome na ficha" ${travado?'disabled':''}>
+              ${sg.length?`<datalist id="dl-esc-${esc(a.id)}">${sg.map(n=>`<option value="${esc(n)}">`).join('')}</datalist><div class="bx-mu" style="font-size:10.5px;margin-top:2px;">escala: ${esc(sg.join(', '))}</div>`:''}</td>`;})()}
           <td>${fe?`${fe.img?`<img src="${fe.img}" alt="assinatura" style="height:46px;display:block;">`:''}<span class="rx-ok">${fe.tipo==='papel'?'📄 no papel':'✓ sistema'} · ${esc(fe.nome)} · ${fmtDH(fe.em)}</span>`
             :!assinaFuncao(r,a)?`<span class="bx-mu" style="font-size:11.5px;">aguardando ${esc(a.label)}</span>`
-            :pode?`<div style="display:flex;gap:6px;flex-wrap:wrap;"><button class="btn btn-secondary btn-sm" onclick="assinar('${r.id}','${a.id}')" title="Assina na tela">✍️ Sistema</button>${semPapel?'':`<button class="btn btn-secondary btn-sm" onclick="assinar('${r.id}','${a.id}','papel')" title="A pessoa já assinou na ficha de papel">📄 No papel</button>`}</div>`
+            :pode?`<div style="display:flex;gap:6px;flex-wrap:wrap;">${ehFuncaoPapel(a.funcao)||(a.funcao==='encarregado_prod'&&!_designadoPara(r,a))?'':`<button class="btn btn-secondary btn-sm" onclick="assinar('${r.id}','${a.id}')" title="Assina na tela">✍️ Sistema</button>`}${semPapel?'':`<button class="btn btn-secondary btn-sm" onclick="assinar('${r.id}','${a.id}','papel')" title="A pessoa já assinou na ficha de papel">📄 No papel</button>`}</div>`
             :`<span class="bx-mu" style="font-size:11.5px;">${exigeFoto?'após digitação e foto':'após a digitação'}</span>`}</td></tr>`;}).join('')
         ||'<tr><td colspan="3" class="bx-mu">Sem assinatura exigida.</td></tr>'}
       </table></div>
@@ -2258,7 +2291,7 @@ async function verRegistro(id){
             ${fe.img?`<img src="${fe.img}" alt="assinatura" style="height:40px;display:block;margin-top:3px;">`:''}<div style="font-size:10.5px;color:#64748b;margin-top:2px;">${fe.tipo==='papel'?'📄 no papel · ':''}${esc(fe.nome)} · ${fmtDH(fe.em)}</div></span>`
            :(r.cancelado_em?'<span class="badge badge-gray">—</span>'
              :!assinaFuncao(r,a)?`<span class="badge badge-gray">aguardando ${esc(a.label)}</span>`
-             :`${ehFuncaoPapel(a.funcao)?'':`<button class="btn btn-secondary btn-sm" onclick="assinar('${r.id}','${a.id}')">✍️ Sistema</button> `}<button class="btn btn-secondary btn-sm" onclick="assinar('${r.id}','${a.id}','papel')">📄 No papel</button>`)}
+             :`${ehFuncaoPapel(a.funcao)||(a.funcao==='encarregado_prod'&&!_designadoPara(r,a))?'':`<button class="btn btn-secondary btn-sm" onclick="assinar('${r.id}','${a.id}')">✍️ Sistema</button> `}<button class="btn btn-secondary btn-sm" onclick="assinar('${r.id}','${a.id}','papel')">📄 No papel</button>`)}
         </div>`;}).join('')||'<div style="color:#94a3b8;font-size:12px;">Sem assinatura exigida.</div>'}</div>
     <div class="sec-card" style="margin-top:13px;"><h3>Trilha de auditoria</h3>
       <div class="sub" style="margin-bottom:5px;">Imutável — o banco recusa alteração e exclusão (SYS-002 / SYS-043).</div>
@@ -2282,9 +2315,10 @@ async function assinar(regId,assId,tipo){
   const exigeFoto=concluiComAnexo(r.formulario_cod)&&!formSemPapel(r.formulario_cod);
   if(!regLancado(r)||(exigeFoto&&!r.foto_ficha)){
     await uiAlerta(`A assinatura libera depois que a ficha foi <strong>digitada</strong>${exigeFoto?' e a <strong>foto da ficha</strong> anexada':''}.`,{titulo:'Ainda não',tipo:'warn'});return;}
-  if(ehFuncaoPapel(a.funcao)) tipo='papel';   // pessoal da linha / terceiros: só no papel, lançado por quem coleta
+  const soPapel=ehFuncaoPapel(a.funcao)||(a.funcao==='encarregado_prod'&&!_designadoPara(r,a)&&!['SADM','ADM'].includes(u.perfil));
+  if(soPapel) tipo='papel';   // pessoal da linha / terceiros / encarregado lançado por quem coleta: só no papel
   const tv=_travas.find(t=>t.codigo==='sem_designacao');
-  if(tv?.ativa&&a.funcao&&!ehFuncaoPapel(a.funcao)){
+  if(tv?.ativa&&a.funcao&&!soPapel){
     const ok=_desig.some(d=>d.ativo&&d.funcao_cod===a.funcao&&(!d.pop_cod||d.pop_cod===r.pop_cod)&&
       d.funcionario_nome===u.nome&&(!d.data_fim||d.data_fim>=hoje()));
     if(!ok){
@@ -3177,7 +3211,7 @@ function htmlFicha(f,pop,reg){
     <table style="width:100%;border-collapse:collapse;font-size:9.5px;margin-top:5px;">
       ${assin.length?assin.map(a=>`<tr>
         <td style="padding:13px 6px 4px;border-bottom:1px solid #333;width:46%;"></td>
-        <td style="padding:13px 6px 4px;border-bottom:1px solid #333;width:26%;"></td>
+        <td style="padding:13px 6px 4px;border-bottom:1px solid #333;width:26%;font-size:8.5px;color:#334155;">${reg?esc(nomesEscala(reg,a.funcao).join(' / ')):''}</td>
         <td style="padding:13px 6px 4px;border-bottom:1px solid #333;"></td></tr>
         <tr><td style="padding:2px 6px 9px;color:#555;">${esc(a.label)} — ${esc(nomeFuncao(a.funcao))}${a.obrigatoria?' *':''}</td>
         <td style="padding:2px 6px 9px;color:#555;">Nome legível</td>
