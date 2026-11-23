@@ -1145,3 +1145,4 @@ fábrica específica. Não generalizar.
 - POP-21: **fonte única = Portaria** (`g_veiculo_port`): só caminhão com `numero_ordem` e com produto no escopo (romaneio_itens ou carregamentos.itens; Liga/Sikal/Felisbina não gera). `g_veiculo` (Carregamentos) só para ordem que não passou pela Portaria. Ref `PORT21/<id>` ganha `/<ordem>` se a antiga foi cancelada (sem ordem).
 - `bpf_formularios.sem_papel=true` em REG-POP10-01, 15-01, 15-02 (eletrônicos no POP) → saem da impressão do Ryan.
 - 25 duplicadas/fora de escopo de 19–23/11 canceladas com motivo (tarefa + ficha), nunca juntadas.
+- Dossiê (`dos_lote`): inclui REG-POP07-02 e 18-02 dos dias do lote e REG-POP21-01 pela ordem de cada carga do lote (campos.ordem). dossie.html: 18-02 em Máquina, 21-01 em Método.
