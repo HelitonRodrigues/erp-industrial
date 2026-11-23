@@ -568,7 +568,15 @@ function esc2(v){ return String(v==null?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;
 // data do banco (2026-09-09) para o formato que a fábrica lê (09/09/2026)
 function fmtDataBR(d){ return d?String(d).slice(0,10).split('-').reverse().join('/'):'—'; }
 
-async function loadFuncionarios(){const{data}=await _supabase.from('funcionarios').select('*').order('nome');_funcionarios=data||[];}
+// (23/11) Dados pessoais e salário ficam em funcionarios_pessoal (só RH/Funcionários/Usuários/Custos enxergam).
+// Aqui junta de volta no mesmo objeto, então o resto da tela continua igual.
+const CAMPOS_PESSOAIS=['cpf','rg','nascimento','telefone','email','endereco','pis','cnh','ctps','custos'];
+async function loadFuncionarios(){
+  const{data,error}=await _supabase.from('funcionarios')
+    .select('*, _p:funcionarios_pessoal(cpf,rg,nascimento,telefone,email,endereco,pis,cnh,ctps,custos)').order('nome');
+  if(error){ console.error('[funcionarios]',error.message); toast('Erro ao carregar funcionários: '+error.message,'error'); }
+  _funcionarios=(data||[]).map(f=>{ const p=(Array.isArray(f._p)?f._p[0]:f._p)||{}; delete f._p; return Object.assign(f,p); });
+}
 async function loadFerias(){const{data}=await _supabase.from('rh_ferias').select('funcionario_id,data_inicio,data_fim,status').gte('data_fim',_isoLocal(new Date())).limit(500);_ferias=data||[];}
 async function loadTurnos(){const{data}=await _supabase.from('turnos').select('id,nome').eq('status','ativo');_turnos=data||[];}
 async function loadLinhas(){const{data}=await _supabase.from('linhas_producao').select('id,nome').eq('status','ativo');_linhas=data||[];}
@@ -830,13 +838,20 @@ async function salvarFuncionario(){
     // aba sem permissão não grava: o valor que já está no banco fica intacto
     if(podeCert()) dados.certificacoes=getCertificacoesFromForm();
     if(podeCusto()) dados.custos=getCustosFromForm();
+    // dados pessoais vão para funcionarios_pessoal; o resto fica em funcionarios
+    const pessoal={};
+    CAMPOS_PESSOAIS.forEach(k=>{ if(k in dados){ pessoal[k]=dados[k]; delete dados[k]; } });
+    let fid=_editingFuncId;
     if(_editingFuncId){
       await db(_supabase.from('funcionarios').update(dados).eq('id',_editingFuncId),'atualizar funcionário');
-      await addLog('UPDATE','FUNCIONARIOS',_editingFuncId,'Atualizado: '+nome); toast('Funcionário atualizado!','success');
     }else{
-      const{data}=await db(_supabase.from('funcionarios').insert(dados).select().single(),'cadastrar funcionário');
-      await addLog('CREATE','FUNCIONARIOS',data?.id,'Novo: '+nome); toast('Funcionário cadastrado!','success');
+      const{data}=await db(_supabase.from('funcionarios').insert(dados).select('id').single(),'cadastrar funcionário');
+      fid=data?.id;
     }
+    if(fid) await db(_supabase.from('funcionarios_pessoal')
+      .upsert({funcionario_id:fid,...pessoal,atualizado_em:new Date().toISOString()},{onConflict:'funcionario_id'}),'gravar dados pessoais');
+    if(_editingFuncId){ await addLog('UPDATE','FUNCIONARIOS',fid,'Atualizado: '+nome); toast('Funcionário atualizado!','success'); }
+    else{ await addLog('CREATE','FUNCIONARIOS',fid,'Novo: '+nome); toast('Funcionário cadastrado!','success'); }
     closeModal('modal-funcionario'); await loadFuncionarios(); renderFuncionarios();
   }catch(e){ erro('Erro: '+e.message); }
   btn.disabled=false; btn.innerHTML='💾 Salvar';
