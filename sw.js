@@ -18,20 +18,31 @@ self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));
 
 // Network-first para tudo do próprio domínio (HTML, JS, CSS, partials).
-// Requisições externas (Supabase, CDN, Fonts) passam direto.
+// (23/11) Antes: cache:'no-store' baixava a tela INTEIRA a cada clique (Manutenção e
+// Laboratório têm ~700 KB). Agora: 'no-cache' pergunta ao servidor "mudou?" — se não
+// mudou, a resposta é um "304" minúsculo e a tela abre da cópia do aparelho.
+// Atualização publicada continua aparecendo na hora: o servidor responde "mudou" e
+// manda a versão nova. Sem internet, abre a última cópia guardada.
+const CACHE_ERP = 'erp-telas-v1';
 self.addEventListener('fetch', (event) => {
-  const url = new URL(event.request.url);
-
-  // Ignorar requisições externas (Supabase, jsdelivr, Google Fonts, etc.)
-  if (url.origin !== APP_ORIGIN) return;
-
-  // Para tudo do próprio domínio: sempre busca da rede com no-cache
-  event.respondWith(
-    fetch(event.request, { cache: 'no-store' }).catch(() => {
-      // Se offline, tenta o cache do browser como fallback
-      return caches.match(event.request);
-    })
-  );
+  const req = event.request;
+  const url = new URL(req.url);
+  if (url.origin !== APP_ORIGIN) return;          // Supabase, CDN, Fonts: direto
+  if (req.method !== 'GET') return;
+  event.respondWith((async () => {
+    try {
+      const resp = await fetch(req, { cache: 'no-cache' });
+      if (resp && resp.ok && resp.type === 'basic') {
+        const copia = resp.clone();
+        caches.open(CACHE_ERP).then((c) => c.put(req, copia)).catch(() => {});
+      }
+      return resp;
+    } catch (e) {
+      const salvo = await caches.match(req, { ignoreSearch: false });
+      if (salvo) return salvo;
+      throw e;
+    }
+  })());
 });
 
 /* ── NOTIFICAÇÃO NO CELULAR (Status das Linhas — função push-linhas) ──
