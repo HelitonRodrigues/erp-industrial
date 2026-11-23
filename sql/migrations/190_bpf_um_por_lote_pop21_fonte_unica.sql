@@ -35,3 +35,12 @@ t as (update bpf_tarefas x set status='cancelada', cancelada_por='Heliton José 
       from c where x.origem_ref=c.ref and x.status<>'cancelada' returning x.registro_id, c.motivo)
 update bpf_registros r set cancelado_em=now(), cancelado_por='Heliton José de Almeida Rodrigues', cancelado_motivo=t.motivo
 from t where r.id=t.registro_id and r.cancelado_em is null and r.lancado_em is null;
+
+-- 2ª parte (23/11): Dossiê do lote (dos_lote) — aplicado via replace no corpo da função:
+--   dias do lote passam a incluir REG-POP07-02 (peso-padrão por turno) e REG-POP18-02 (Big Bags do dia);
+--   REG-POP21-01 entra pela ORDEM de cada carga que levou o lote: (r.formulario_cod='REG-POP21-01' and r.campos->>'ordem' in (select ordem_numero from car))
+-- Fichas POP-21 da Portaria estavam sem a ordem (lia portaria.ordem_numero; o campo é numero_ordem) → preenchido:
+update bpf_registros r set campos = r.campos || jsonb_build_object('ordem', p.numero_ordem,'placa', concat_ws(' / ', p.placa, nullif(nullif(p.placa2,''),p.placa)))
+ from bpf_tarefas t, portaria p
+ where t.id=r.tarefa_id and r.formulario_cod='REG-POP21-01' and r.cancelado_em is null and r.lancado_em is null
+   and t.origem_ref like 'PORT21/%' and p.id::text=split_part(t.origem_ref,'/',2) and p.numero_ordem is not null and coalesce(r.campos->>'ordem','')='';
