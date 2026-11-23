@@ -290,6 +290,7 @@ const MODULO_FUNCIONALIDADES = {
     { id:'cronograma', label:'📅 Cronograma' },
     { id:'monitor', label:'🖥️ Monitor' },
     { id:'motores', label:'⚡ Motores Elétricos' },
+    { id:'rolamentos', label:'🔩 Rolamentos' },
     { id:'historico', label:'📋 Ordens de Serviço' },
     { id:'kanban', label:'🗂️ Kanban' },
     { id:'agenda', label:'🗓️ Agenda' },
