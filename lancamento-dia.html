@@ -591,7 +591,7 @@ const PROMPT_FICHA=`Você está lendo a foto de uma ficha de papel "CONTROLE DI�
 Regras:
 - Turno e linha são as caixinhas marcadas (X ou ✓) no topo ("IMETEC" = Emitec). Data na ficha em dd/mm/aaaa.
 - Em "produtos" coloque só as linhas da tabela PRODUÇÃO DO TURNO que tiverem algo escrito; use o nome impresso da linha (ex.: "LIGA CONC. 10 KG", "BAG CAULIM BRANCO 01", "CAULIM GRANEL").
-- Horímetros usam vírgula decimal (57361,14 → 57361.14). Se faltar a vírgula, use as mesmas casas do outro horímetro da ficha. O final é maior ou igual ao inicial.
+- Horímetros usam vírgula decimal e têm 5 dígitos antes da vírgula (ex.: 77299,85 · 78402,55 · 16723,69 · 27770,74; o elevador da Linha 3 fica perto de 57361,14). 57361,14 → 57361.14. Se faltar a vírgula, use as mesmas casas do outro horímetro da ficha. O final é maior ou igual ao inicial.
 - "producao" é o número de sacos/bags/unidades (ignore palavras como "bags", "sc"). Na Longa Vida o número da produção é de conchas: coloque também em "conchas".
 - Paradas: início, fim e o motivo escrito. Se houver traço ou aspas repetindo o motivo de cima, repita o motivo.
 - "lenha" é o número escrito em LENHA (QTD.) — são berços.
@@ -645,12 +645,33 @@ async function lerUmaFoto(file){
   const du=await comprimir(file);
   const url=await subirFotoStorage(du,'fichas-producao',_data);
   const body=url?{prompt:PROMPT_FICHA,urls:[url]}:{prompt:PROMPT_FICHA,imagens:[du]};
-  const {data:res,error}=await _supabase.functions.invoke('ler-ficha',{body});
+  let res,error;
+  for(let t=0;t<3;t++){
+    ({data:res,error}=await _supabase.functions.invoke('ler-ficha',{body}));
+    const st=error&&error.context&&error.context.status;
+    if(!(st===503||st===429)) break;
+    toast('O leitor do Google está ocupado — tentando de novo em 20 s…','warning'); await new Promise(r=>setTimeout(r,20000));
+  }
   if(error||!res||!res.ok){ let m=res&&res.erro; if(!m&&error){ try{ m=(await error.context.json()).erro; }catch(e){ m=error.message; } } return {url,du,erro:m||'falha na leitura'}; }
   return {url,du,lido:res.dados||{},modelo:res.modelo};
 }
 /* leitura → dados do turno */
+function normLeitura(L){
+  L=L||{}; const t=N(L.turno);
+  L.turno=/MADRUG/.test(t)?'madrugada':/MANHA/.test(t)?'manha':/NOITE|TARDE/.test(t)?'noite':null;
+  const ln=N(L.linha); L.linha=/IMETEC|EMITEC/.test(ln)?'Emitec':/LONGA/.test(ln)?'Longa Vida':/3$/.test(ln)?'Linha 3':/2$/.test(ln)?'Linha 2':null;
+  const dm=/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/.exec(String(L.data||'').trim());
+  if(dm){ const y=dm[3].length===2?'20'+dm[3]:dm[3]; L.data=`${y}-${dm[2].padStart(2,'0')}-${dm[1].padStart(2,'0')}`; }
+  else if(!/^\d{4}-\d{2}-\d{2}$/.test(String(L.data||''))) L.data=null;
+  const b=v=>v==null||v===''?null:typeof v==='boolean'?v:/N[AÃ]O|^N$|FALSE/i.test(String(v))?false:/SIM|^S$|TRUE/i.test(String(v))?true:null;
+  L.desligou_refeicao=b(L.desligou_refeicao);
+  return L;
+}
+/* a leitura às vezes erra a vírgula do horímetro (77299,85 → 772998,5): ajusta pela ordem de grandeza do horímetro da linha */
+function ajustaHorim(v,ref){ v=num(v); if(v==null||!(ref>0)) return v; let best=v,d=Math.abs(v-ref);
+  [10,100,1000,0.1,0.01,0.001].forEach(k=>{ const x=r2(v/k); const dx=Math.abs(x-ref); if(dx<d){ d=dx; best=x; } }); return best; }
 function dadosDaLeitura(L,linha,turno,base){
+  L=normLeitura(L);
   const e=escalaDoTurno(linha,turno); const d=base?JSON.parse(JSON.stringify(base)):novoDados(linha,turno);
   const lv=linhaLV(linha);
   d.encarregado=funcDaFicha(L.encarregado)||d.encarregado||e.encarregado;
@@ -661,7 +682,10 @@ function dadosDaLeitura(L,linha,turno,base){
   const rasg={}; (L.embalagem_rasgada||[]).forEach(x=>{ const p=produtoDaFicha(x.produto); if(p) rasg[p]=(rasg[p]||0)+(num(x.qtd)||0); });
   d.produtos=(L.produtos||[]).filter(p=>p&&(p.hi!=null||p.hf!=null||p.producao!=null)).map(p=>{
     const nome=produtoDaFicha(p.produto); if(!nome) duv.push(`produto “${p.produto}” — escolha na lista`);
-    const it={produto:nome,hi:num(p.hi),hf:num(p.hf),qtd:num(p.producao),perda:rasg[nome]||null,obs:p.obs||null};
+    const ref=hfAnterior(linha,turno)||parseFloat((_linhas.find(l=>l.nome===linha)||{}).horimetro)||0;
+    let hi=num(p.hi), hf=num(p.hf);
+    if(ref&&hi!=null&&!ehElevador(linha,ajustaHorim(hi,ref))){ const a=ajustaHorim(hi,ref), b=ajustaHorim(hf,ref); if(a!==hi||b!==hf) duv.push(`horímetro de ${nome||p.produto}: corrigi a vírgula (${p.hi} → ${vIn(a)}) — confira`); hi=a; hf=b; }
+    const it={produto:nome,hi,hf,qtd:num(p.producao),perda:rasg[nome]||null,obs:p.obs||null};
     if(lv&&ehGranel(nome)){ it.conchas=num(L.conchas)??num(p.producao); it.qtd=null; }
     if(ehElevador(linha,it.hi)) it.elevador=true;
     return it; });
@@ -694,7 +718,7 @@ async function lerFotos(files){
     toast(`📷 Lendo ficha ${i+1} de ${files.length}…`,'info');
     let r; try{ r=await lerUmaFoto(files[i]); }catch(e){ r={erro:e.message}; }
     if(r.erro){ toast(`Ficha ${i+1}: ${r.erro}`,'danger'); continue; }
-    const L=r.lido; let linha=_linhas.find(l=>N(l.nome)===N(L.linha))?.nome, turno=(TURNOS.find(t=>t.k===L.turno)||{}).nome;
+    const L=normLeitura(r.lido); let linha=_linhas.find(l=>N(l.nome)===N(L.linha))?.nome, turno=(TURNOS.find(t=>t.k===L.turno)||{}).nome;
     if(!linha||!turno){ const q=await escolherTurno(L,r.du); if(!q) continue; linha=q.linha; turno=q.turno; }
     let dia=_data;
     if(L.data&&/^\d{4}-\d{2}-\d{2}$/.test(L.data)&&L.data!==_data){
