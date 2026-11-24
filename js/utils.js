@@ -1041,6 +1041,85 @@ function toast(msg, type = 'success') {
   setTimeout(() => el.remove(), 3500);
 }
 
+/* ============================================================
+   PADRÃO VISUAL (23/11/2026) — régua de letras + A− A A+
+   Liga a classe "escala" no <html> (o style.css faz o resto) e
+   ajusta os tamanhos escritos nos <style> de cada tela pela
+   mesma régua. Não mexe em impressão/PDF (janela própria).
+   ============================================================ */
+const PadraoVisual = (() => {
+  const pag = (location.pathname.split('/').pop() || 'index.html').replace(/\.html$/, '') || 'index';
+  const FORA = ['bpf', 'custo-precificacao', 'totem', 'estacao-impressao', 'index', 'painel-metas'];
+  const ativo = !FORA.includes(pag);
+  const CH = 'erp_letra';
+  const ler = () => { try { return localStorage.getItem(CH) || 'normal'; } catch (e) { return 'normal'; } };
+  const html = document.documentElement;
+  function aplicarLetra(v) {
+    if (v === 'menor' || v === 'maior') html.setAttribute('data-letra', v); else html.removeAttribute('data-letra');
+    document.querySelectorAll('.letra-ctl button').forEach(b => b.classList.toggle('on', b.dataset.v === (v || 'normal')));
+  }
+  function mudar(v) { try { localStorage.setItem(CH, v); } catch (e) {} aplicarLetra(v); }
+  // régua: igual à do style.css
+  function regua(x) {
+    if (x < 10 || x > 24) return null;
+    const v = x <= 16 ? Math.max(13, x * 1.15) : x * 1.1;
+    return Math.round(v * 2) / 2;
+  }
+  function ajustarRegras(regras) {
+    for (const r of Array.from(regras || [])) {
+      if (r.type === 4) { // @media
+        const m = (r.media && r.media.mediaText || '').toLowerCase();
+        if (m.includes('print') && !m.includes('screen')) continue;
+        ajustarRegras(r.cssRules); continue;
+      }
+      if (r.type === 12) { ajustarRegras(r.cssRules); continue; } // @supports
+      if (r.type !== 1 || !r.style) continue;
+      const fs = r.style.getPropertyValue('font-size');
+      const m = /^\s*([\d.]+)px\s*$/.exec(fs || '');
+      if (!m) continue;
+      const x = parseFloat(m[1]), y = regua(x);
+      if (y == null || y === x) continue;
+      r.style.setProperty('font-size', `calc(${x}px + (${y}px * var(--esc) - ${x}px) * var(--on))`, r.style.getPropertyPriority('font-size'));
+    }
+  }
+  function ajustarFolha(sh) {
+    let regras; try { regras = sh.cssRules; } catch (e) { return; } // folha de outro site (Google Fonts): ignora
+    ajustarRegras(regras);
+  }
+  function ajustarTudo() { Array.from(document.styleSheets).forEach(ajustarFolha); }
+  function montarControle() {
+    const tb = document.getElementById('topbar') || document.querySelector('.topbar');
+    if (!tb || tb.querySelector('.letra-ctl')) return;
+    const box = document.createElement('div');
+    box.className = 'letra-ctl sem-escala';
+    box.setAttribute('role', 'group'); box.setAttribute('aria-label', 'Tamanho da letra');
+    box.innerHTML = '<button type="button" data-v="menor" title="Letra menor">A−</button>' +
+                    '<button type="button" data-v="normal" title="Letra normal">A</button>' +
+                    '<button type="button" data-v="maior" title="Letra maior">A+</button>';
+    box.addEventListener('click', e => { const b = e.target.closest('button'); if (b) mudar(b.dataset.v); });
+    const titulo = tb.querySelector('.topbar-title');
+    if (titulo && titulo.nextSibling) tb.insertBefore(box, titulo.nextSibling); else tb.appendChild(box);
+    aplicarLetra(ler());
+  }
+  if (ativo) {
+    html.classList.add('escala');
+    aplicarLetra(ler());
+    const iniciar = () => {
+      ajustarTudo(); montarControle();
+      // <style> que a tela cria depois (modais etc.)
+      try {
+        new MutationObserver(ms => {
+          for (const m of ms) for (const n of m.addedNodes)
+            if (n.nodeName === 'STYLE' || (n.nodeName === 'LINK' && n.rel === 'stylesheet')) setTimeout(() => n.sheet && ajustarFolha(n.sheet), 0);
+        }).observe(document.documentElement, { childList: true, subtree: true });
+      } catch (e) {}
+    };
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', iniciar); else iniciar();
+    window.addEventListener('load', ajustarTudo);
+  }
+  return { ativo, mudar, ajustarTudo };
+})();
+
 // ── MODAL ──────────────────────────────────────────────────
 function closeModal(id) {
   document.getElementById(id)?.classList.add('hidden');
