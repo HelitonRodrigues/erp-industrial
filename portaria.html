@@ -4385,7 +4385,7 @@ function fiDesenhar(){
     <div class="fi-mot">${esc(v.nome_motorista||'—')}</div><div class="fi-sub">${[v.cpf&&'CPF '+v.cpf,v.celular&&'📞 '+v.celular,v.transportadora&&'Transportadora '+v.transportadora].filter(Boolean).map(esc).join(' · ')}</div>
     <div class="fi-tabs">${abas.map(([k,t])=>`<button class="${_fi.aba===k?'on':''}" onclick="_fi.aba='${k}';fiDesenhar()">${t}</button>`).join('')}</div></div>
     ${corpo}
-    <div class="fi-ft"><button class="btn btn-secondary btn-sm" style="color:#b45309;border-color:#fcd34d;" onclick="document.getElementById('m-ficha').remove();voltarParaCarregamento('${v.id}')">↩ Voltar para o carregamento</button><span style="flex:1"></span>
+    <div class="fi-ft"><button class="btn btn-secondary btn-sm" style="color:#b45309;border-color:#fcd34d;" onclick="document.getElementById('m-ficha').remove();voltarParaCarregamento('${v.id}')">↩ Voltar para o carregamento</button><span style="flex:1"></span>${histBtn(v).replace('🕑</button>','🕑 Histórico e fila</button>')}
       <button class="btn btn-secondary btn-sm" onclick="fiImprimirTudo()">🖨️ Imprimir tudo</button><button class="btn btn-primary btn-sm" onclick="document.getElementById('m-ficha').remove()">Fechar</button></div>`;
 }
 async function nfAbrir2(id){ const n=(_fi&&_fi.nfs||[]).find(x=>x.id===id)||(_nf.nfs||[]).find(x=>x.id===id); if(!n||!n.arquivo_path)return;
@@ -4461,6 +4461,7 @@ const ehSADM=()=>{const u=(typeof getUser==='function'&&getUser())||{};return St
 const histBtn=v=>ehSADM()?`<button class="btn btn-ghost btn-sm hp-btn" title="Histórico da passagem e da fila (SADM)" onclick="event.stopPropagation();abrirHistPassagem('${v.id}')">🕑</button>`:'';
 (function(){const s=document.createElement('style');s.textContent=`
 .hp-btn{background:#f5f3ff!important;border-color:#ddd6fe!important}
+.f-acoes>.hp-btn{grid-column:2;grid-row:2}.f-acoes>.del{grid-column:3;grid-row:2}
 #m-hist .hp-m{background:#fff;border-radius:18px;width:min(1320px,96vw);max-height:94vh;overflow:auto;padding:18px 22px;box-shadow:0 24px 60px rgba(3,32,54,.35)}
 .hp-top{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
 .hp-pl{background:var(--primary);color:var(--accent);font-weight:800;font-size:20px;border-radius:10px;padding:5px 12px;letter-spacing:.6px}
@@ -4481,6 +4482,8 @@ const histBtn=v=>ehSADM()?`<button class="btn btn-ghost btn-sm hp-btn" title="Hi
 .hp-ev.f .d i{width:20px;height:20px;font-size:10px;margin:8px 0 0;background:#fffbeb}
 .hp-ev .b{padding:6px 0 12px}.hp-ev .b>b{font-size:14px}.hp-ev.f .b{padding:7px 0 8px}.hp-ev.f .b>b{font-size:12.5px;font-weight:700;color:#475569}
 .hp-ev .h.s{font-size:12px}
+.hp-ev.ag .b{background:#f0fdf4;border:1.5px dashed #86efac;border-radius:12px;padding:8px 12px;margin-bottom:10px}
+.hp-ev.ag .d i{background:#dcfce7}
 .hp-ev .b p{font-size:12.5px;color:#475569;margin-top:2px;line-height:1.45}
 .hp-ev .b .q{font-size:11.5px;color:#64748b;font-weight:600;margin-top:2px}
 .hp-pos{display:inline-flex;align-items:center;background:var(--primary);color:var(--accent);font-weight:800;font-size:11.5px;border-radius:8px;padding:2px 8px;margin-left:6px;vertical-align:1px}
@@ -4601,7 +4604,20 @@ async function hpMontar(id){
       p:[k.assinatura_nome&&('Assinado por '+esc(k.assinatura_nome)+(k.assinatura_papel?' ('+esc(k.assinatura_papel)+')':'')),k.encarregado&&('encarregado '+esc(k.encarregado))].filter(Boolean).join(' · ')}); }
   // 8. saída
   if(tSai) ev(tSai,{ic:'✅',c:'#16a34a',tit:'Saída — pesagem final',p:[v.peso_bruto!=null&&'Bruto '+nf(v.peso_bruto,2)+' t',v.peso_produto!=null&&'produto '+nf(v.peso_produto,3)+' t',v.peso_esperado!=null&&'carregamento '+nf(v.peso_esperado,3)+' t'].filter(Boolean).join(' · '),q:v.finalizado_por});
-  E.sort((a,b)=>a.t-b.t||(a.f?1:0)-(b.f?1:0));
+  // 9. AGORA — estado atual (passagem ainda na portaria)
+  let agoraTxt='';
+  if(!tSai){
+    const naFila=(typeof fila==='function'?fila():[]), ix=naFila.findIndex(x=>x.id===v.id), px=typeof proximo==='function'?proximo():null, ehProx=px&&px.id===v.id;
+    if(v.status==='carregando'&&tIni){ agoraTxt='🚛 carregando há '+durTxt(agora-tIni);
+      ev(agora,{ic:'⏱',c:'#1F6FD1',agora:1,tit:'Agora — carregando',pos:'há '+durTxt(agora-tIni),p:v.unidade_carregamento?esc(v.unidade_carregamento):''}); }
+    else if(ix>=0){ const fr=naFila.slice(0,ix), co=fr.filter(x=>x.status==='aguardando'&&ordemDe(x)), so=fr.filter(x=>!co.includes(x));
+      agoraTxt=`${ix+1}º da fila${ehProx?' · PRÓXIMO':''}`;
+      ev(agora,{ic:'⏱',c:'#16a34a',agora:1,tit:`Agora — ${ix+1}º da fila${ehProx?' · <span style="color:#16a34a">PRÓXIMO DA VEZ</span>':''}`,
+        pos:`${fr.length} na frente${fr.length?' · '+co.length+' com ordem':''}`,
+        p:`Esperando há <b>${durTxt(agora-t0)}</b>.${v.status==='sem_ordem'?' Ainda <b>sem ordem</b>.':''}${fr.length?' Na frente agora:':''}${ehProx&&so.length?' (os sem ordem não contam na vez)':''}`,
+        pls:fr.length?`<div class="hp-pls">${fr.map(x=>`<span class="${x.status==='sem_ordem'||!ordemDe(x)?'so':''}">${esc(x.placa)}${x.status==='sem_ordem'||!ordemDe(x)?'<small>s/ ordem</small>':''}</span>`).join('')}</div>`:''}); }
+  }
+  E.sort((a,b)=>a.t-b.t||(a.agora?1:0)-(b.agora?1:0)||(a.f?1:0)-(b.f?1:0));
   // fases
   const tCarga=k&&T(k.created_at)>=t0?T(k.created_at):null;
   const fases=[['Sem ordem',(vOrd??tFila)-t0,'#94a3b8'],['Na fila com ordem',vOrd!=null?tFila-vOrd:0,'#f59e0b'],
@@ -4625,12 +4641,13 @@ async function hpMontar(id){
   const semOrdFrente=naFrenteEm(tFila).filter(x=>{const o=ordemEm(x);return o==null||o>tFila;});
   const nIni=tIni?(vOrd!=null?comOrdemEm(naFrenteEm(tIni-1),tIni).length:naFrenteEm(tIni-1).length):nAt(agora);
   const lst=l=>l.length?l.map(x=>esc(x.placa)).join(', '):'ninguém';
-  const evHtml=E.map(e=>`<div class="hp-ev ${e.f?'f':''}"><div class="h ${e.f?'s':''}">${hm2(e.t)}${e.f?'':`<small>${dm2(e.t)}</small>`}</div><div class="d"><i style="--c:${e.c}">${e.ic}</i></div>
-    <div class="b"><b>${e.tit}</b>${e.pos?`<span class="hp-pos ${e.posS?'s':''} ${e.posR?'r':''}">${e.pos}</span>`:''}${e.p?`<p>${e.p}</p>`:''}${e.pls||''}${e.q?`<div class="q">👤 ${esc(e.q)}</div>`:''}</div></div>`).join('');
+  let diaAnt=null;
+  const evHtml=E.map(e=>{const dd=dm2(e.t), mostra=!e.f||dd!==diaAnt; diaAnt=dd; return `<div class="hp-ev ${e.f?'f':''} ${e.agora?'ag':''}"><div class="h ${e.f?'s':''}">${hm2(e.t)}${mostra?`<small>${dd}</small>`:''}</div><div class="d"><i style="--c:${e.c}">${e.ic}</i></div>
+    <div class="b"><b>${e.tit}</b>${e.pos?`<span class="hp-pos ${e.posS?'s':''} ${e.posR?'r':''}">${e.pos}</span>`:''}${e.p?`<p>${e.p}</p>`:''}${e.pls||''}${e.q?`<div class="q">👤 ${esc(e.q)}</div>`:''}</div></div>`;}).join('');
   return `<div class="hp-top"><span class="hp-pl">${esc(v.placa||'')}</span>${v.numero_ordem?`<span class="hp-ch">Ordem ${esc(v.numero_ordem)}</span>`:'<span class="hp-ch w">sem ordem</span>'}
       <span class="hp-ch">${esc(doisNomes(v.nome_motorista)||'—')}${v.modelo_veiculo?' · '+esc(v.modelo_veiculo):''}${v.transportadora?' · '+esc(v.transportadora):''}</span>
       ${passouDe.length?`<span class="hp-ch w">⤴ passou na frente de ${passouDe.length}</span>`:''}${passaramFrente.length?`<span class="hp-ch w">${passaramFrente.length} passaram na frente dele</span>`:''}
-      ${tSai?`<span class="hp-ch ok">✅ saiu ${dm2(tSai)} ${hm2(tSai)}</span>`:`<span class="hp-ch w">${esc((ST[v.status]||{}).t||v.status)}</span>`}
+      ${tSai?`<span class="hp-ch ok">✅ saiu ${dm2(tSai)} ${hm2(tSai)}</span>`:`<span class="hp-ch w">${esc((ST[v.status]||{}).t||v.status)}${agoraTxt?' · agora '+agoraTxt:''}</span>`}
       <span style="font-size:13px;color:#64748b;font-weight:700;margin-left:auto">${durTxt(tFim-t0)} na fábrica${tSai?'':' até agora'}</span><button class="hp-x" onclick="document.getElementById('m-hist').remove()">✕</button></div>
     <div class="hp-fs">${fases.map(f=>`<div style="flex:${f[1]};background:${f[2]}" title="${f[0]} · ${durTxt(f[1])}">${f[0]} · ${durTxt(f[1])}</div>`).join('')}</div>
     <div class="hp-lay"><div><div class="hp-h3">Linha do tempo</div>${evHtml}</div>
