@@ -16,6 +16,9 @@
 //      - pátio = passagem da portaria em aberto cujo romaneio tem pedido DELE (romaneio_itens.pedido);
 //      - viagem = motorista e placa do caminhão do pedido dele, quantos na frente ao chegar e cada mudança
 //        (só o NÚMERO, só caminhões com ordem), chamado, início, carga conferida, saída. Nunca placa/motorista/cliente de outro caminhão.
+//  • (25/11, v9) RELATÓRIOS DA PORTARIA (DSM e Intercement) só para conta com prog_rep_contas.relatorios (migração 202):
+//      body {token, rel:{f:'dsm'|'int', ini, fim}} → linhas do período (máx. 400 dias) + dados da empresa para o cabeçalho.
+//      A lista "relatorios" vai na resposta normal para a tela mostrar a aba. Conta sem o código: 403, nada sai.
 import { createClient } from "npm:@supabase/supabase-js@2.45.4";
 
 const SITE = "https://erp-industrial-theta.vercel.app";
@@ -97,7 +100,7 @@ async function abrirDoc(doc: any, REP: string) {
       x.peso_kg = null; x.nota_fiscal = null; x.quantidade = null;
       if (lk.romaneio_id) {
         const its = chk(await sb.from("romaneio_itens").select("quantidade,produto_erp,produto").eq("romaneio_id", lk.romaneio_id).eq("pedido", meu), "itens");
-        const nm = (s: any) => String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
+        const nm = (s: any) => String(s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
         const q = its.filter((i: any) => nm(i.produto_erp) === nm(lk.produto)).reduce((a: number, i: any) => a + (parseFloat(i.quantidade) || 0), 0);
         if (q > 0) x.quantidade = q;
       }
@@ -111,17 +114,41 @@ async function abrirDoc(doc: any, REP: string) {
   return resp({ ok: false, motivo: "Tipo de documento inválido." }, 400);
 }
 
+// relatórios da portaria (DSM / Intercement) — só para conta liberada
+async function relPortaria(rel: any, RELS: string[]) {
+  const f = rel && rel.f, ini = String((rel && rel.ini) || ""), fim = String((rel && rel.fim) || "");
+  if (!RELS.includes(f)) return resp({ ok: false, motivo: "Relatório não liberado para esta conta." }, 403);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ini) || !/^\d{4}-\d{2}-\d{2}$/.test(fim) || fim < ini || (Date.parse(fim) - Date.parse(ini)) > 400 * 864e5) return resp({ ok: false, motivo: "Período inválido (máx. 400 dias)." }, 400);
+  const emp = chk(await sb.from("empresa_config").select("razao_social,nome_fantasia,cnpj,ie,rua,numero,bairro,cidade,uf,estado,cep,telefone,email,logo").limit(1).maybeSingle(), "empresa") || {};
+  const pag = async (mk: () => any) => { const out: any[] = []; for (let i = 0; i < 40; i++) { const d = chk(await mk().range(i * 1000, i * 1000 + 999), "linhas"); out.push(...d); if (d.length < 1000) break; } return out; };
+  if (f === "dsm") {
+    const cols = "id,placa,placa2,motorista,celular,modelo,ordem,observacao,status,recepcao_em,recepcao_por,inicio_em,inicio_por,peso_entrada,fim_em,fim_por,peso_saida,nf_numero,nf_serie,nf_emissao,nf_cliente,nf_valor,nf_peso_liquido,nf_quantidade,nf_unidade,nf_produto,nf_lote,nf_pedido,nf_registrado_por,saida_em,saida_por,cancelado_em,cancelado_por,cancelado_motivo,transportadora,unidade,retira,min_permanencia,min_espera,min_carregamento,min_liberacao,min_total,correcoes";
+    const l = await pag(() => sb.from("dsm_faturamento").select(cols).gte("recepcao_em", ini + "T00:00:00-03:00").lte("recepcao_em", fim + "T23:59:59-03:00").order("recepcao_em").order("id"));
+    const ids = l.map((x: any) => x.id), co: any[] = [];
+    for (let k = 0; k < ids.length; k += 150) co.push(...chk(await sb.from("dsm_correcoes").select("caminhao_id,campo,valor_anterior,valor_novo,usuario,perfil,motivo,em").in("caminhao_id", ids.slice(k, k + 150)).order("em"), "correções"));
+    return resp({ ok: true, f, ini, fim, linhas: l, correcoes: co, empresa: emp });
+  }
+  const cols = "id,ticket,data,status,motorista,placa,transportadora,produto,pedido,cacamba_kg,tara_kg,bruto_kg,liquido_kg,diferenca_kg,entrada_em,saida_em,chegada_em,porteiro,porteiro_tara,porteiro_saida,operador,nf_numero,nf_path,nf_em,nf_por,nf_dispensada,nf_valor,nf_emissao,nf_cliente,nf_quantidade,nf_unidade,nf_preco_unit,nf_peso_liquido,nf_vencimento";
+  const l = await pag(() => sb.from("filito_viagens").select(cols).gte("data", ini).lte("data", fim).order("data").order("criado_em").order("id"));
+  l.forEach((x: any) => { x.tem_pdf = !!x.nf_path; delete x.nf_path; });
+  const ped = chk(await sb.from("filito_pedidos").select("numero,nome").limit(3000), "pedidos");
+  return resp({ ok: true, f, ini, fim, linhas: l, pedidos: ped, empresa: emp });
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return resp({ ok: false, motivo: "método" }, 405);
   try {
-    const { token, doc } = await req.json().catch(() => ({}));
+    const { token, doc, rel } = await req.json().catch(() => ({}));
     if (typeof token !== "string" || token.length < 40 || token.length > 200) return resp({ ok: false, sessao: false, motivo: "Entre de novo." }, 401);
     const ses = chk(await sb.rpc("rep_sessao", { p_token: token }), "sessão");
     const conta = Array.isArray(ses) ? ses[0] : null;
     if (!conta || !conta.representante) return resp({ ok: false, sessao: false, motivo: "Sessão expirada. Entre de novo." }, 401);
     const REP: string = conta.representante;
     if (doc) return await abrirDoc(doc, REP);
+    const cr = chk(await sb.from("prog_rep_contas").select("relatorios").eq("id", conta.conta_id).maybeSingle(), "conta");
+    const RELS: string[] = ((cr && cr.relatorios) || []).filter((x: string) => x === "dsm" || x === "int");
+    if (rel) return await relPortaria(rel, RELS);
 
     const h = hojeSP(), fim = new Date(Date.parse(h) + 42 * 864e5).toISOString().slice(0, 10), desde30 = new Date(Date.parse(h) - 30 * 864e5).toISOString();
     const desdeCarr = DOCS_DESDE < desde30.slice(0, 10) ? DOCS_DESDE + "T03:00:00Z" : desde30;   // carregados: desde 03/11 (ou 30 dias, o que for mais antigo)
@@ -250,7 +277,7 @@ Deno.serve(async (req) => {
 
     return resp({ ok: true, representante: REP, nome: conta.nome, login: conta.login, hoje: h, docs_desde: DOCS_DESDE,
       atualizado: (chk(sincR, "sync")[0] || {}).atualizado_salescode || null,
-      meus, carregados, patio, livres, atrasos: chk(atR, "atrasos") });
+      meus, carregados, patio, livres, relatorios: RELS, atrasos: chk(atR, "atrasos") });
   } catch (e) {
     console.error(e);
     return resp({ ok: false, motivo: "Erro no servidor. Tente de novo em instantes." }, 500);
