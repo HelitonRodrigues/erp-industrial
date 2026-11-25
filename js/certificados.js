@@ -279,6 +279,8 @@
         }catch(e){console.warn('[certificados] relação das unidades:',e);}
       }
       w.document.open(); w.document.write(html); w.document.close();
+      // (25/11) nome do arquivo ao salvar em PDF = "Lote <lote>"
+      try{ if(l.lote) w.document.title='Lote '+String(l.lote).trim(); }catch(e){}
       setTimeout(()=>{try{w.certFit&&w.certFit();w.focus();w.print();}catch(e){}},900);
       return;
     }
