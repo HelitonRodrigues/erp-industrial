@@ -25,6 +25,12 @@
 .fg-tab td{padding:6px 8px;border-bottom:1px solid #f1f5f9;white-space:nowrap}
 .fg-tab td.n,.fg-tab th.n{text-align:right;font-variant-numeric:tabular-nums}
 .fg-tab tr.off td{color:#94a3b8;text-decoration:line-through}
+.fg-feitos-w{overflow:visible!important}
+.fg-feitos td{white-space:normal;vertical-align:middle}
+.fg-feitos th{white-space:normal}
+.fg-feitos td.ac{white-space:normal}
+.fg-feitos .acs{display:flex;flex-wrap:wrap;gap:4px;justify-content:flex-end;min-width:150px}
+.fg-feitos .acs .btn{padding:4px 8px;font-size:11.5px}
 .fg-tab tfoot td{font-weight:800;color:#042D4D;background:#f8fafc;border-top:2px solid #e2e8f0}
 .fg-tag{display:inline-block;font-size:10.5px;font-weight:800;padding:2px 7px;border-radius:99px}
 .fg-tag.ok{background:#dcfce7;color:#15803d}.fg-tag.x{background:#fee2e2;color:#b91c1c}.fg-tag.w{background:#fef3c7;color:#92400e}
@@ -160,7 +166,7 @@
       <div id="f-kpis" style="display:flex;gap:12px;flex-wrap:wrap;margin-top:12px;"></div>
     </div>
     <div class="fg-card">
-      <div class="table-wrap"><table class="fg-tab">
+      <div class="table-wrap fg-feitos-w"><table class="fg-tab fg-feitos">
         <thead><tr><th>Nº</th><th>MOTORISTA</th><th>PLACA</th><th>PERÍODO</th><th class="n">VIAGENS</th><th class="n">TONELADAS</th><th class="n">FRETE</th><th class="n">ABAST.</th><th class="n">VALOR P/ NOTA</th><th>NOTA FISCAL</th><th>SITUAÇÃO</th><th></th></tr></thead>
         <tbody id="f-tbody"></tbody>
       </table></div>
@@ -508,17 +514,17 @@ function renderFeitos(){
     const env=f.enviado_em?`<div style="font-size:10.5px;color:#16a34a;">📲 enviado ${new Date(f.enviado_em).toLocaleDateString('pt-BR')}</div>`:'';
     return `<tr class="${f.status==='cancelado'?'off':''}">
     <td><b>${esc(f.numero)}</b>${env}</td><td>${esc(f.motorista)}</td><td>${esc((f.placas||[]).join(', ')||'—')}</td>
-    <td>${dbr(f.periodo_ini)} a ${dbr(f.periodo_fim)}</td><td class="n">${f.qtd_viagens}</td><td class="n">${nf(f.total_toneladas,3)}</td>
+    <td style="white-space:nowrap">${dbr(f.periodo_ini)}<br>a ${dbr(f.periodo_fim)}</td><td class="n">${f.qtd_viagens}</td><td class="n">${nf(f.total_toneladas,3)}</td>
     <td class="n">${brl(f.total_frete)}</td><td class="n">${f.total_abastecimento?'− '+brl(f.total_abastecimento):'—'}</td><td class="n"><b>${brl(f.total_nota)}</b></td>
     <td style="text-decoration:none;">${nota}</td>
     <td style="text-decoration:none;"><span class="fg-tag ${c}" title="${esc(f.motivo_cancelamento||'')}">${t}</span></td>
-    <td style="text-decoration:none;white-space:nowrap;">
+    <td class="ac" style="text-decoration:none;"><div class="acs">
       <button class="btn btn-secondary btn-sm" onclick="pdfPorId('${f.id}')" title="Relatório para o motorista">📄 PDF</button>
       ${f.status!=='cancelado'?`<button class="btn btn-sm" style="background:#16a34a;color:#fff;border-color:#16a34a;" onclick="abrirWhats('${f.id}')" title="Enviar o relatório pelo WhatsApp">📲 WhatsApp</button>`:''}
       ${f.status==='fechado'&&podeNota?`<button class="btn btn-primary btn-sm" onclick="abrirNota('${f.id}')" title="Chegou a nota do motorista">🧾 Lançar nota</button>`:''}
       ${f.status==='nota_lancada'&&f.nota_arquivo_path?`<button class="btn btn-primary btn-sm" onclick="abrirArqNota('${f.id}')" title="Abrir o arquivo da nota fiscal">👁 Ver nota</button>`:''}
       ${f.status==='nota_lancada'?`<button class="btn btn-secondary btn-sm" onclick="abrirNota('${f.id}')" title="Ver dados / corrigir a nota">🧾 Dados</button>`:''}
-      ${f.status==='fechado'&&podeCanc?`<button class="btn btn-ghost btn-sm" style="color:#dc2626;" onclick="pedirCancelar('${f.id}')" title="Cancelar e soltar as viagens">🚫</button>`:''}</td></tr>`;}).join('')
+      ${f.status==='fechado'&&podeCanc?`<button class="btn btn-ghost btn-sm" style="color:#dc2626;" onclick="pedirCancelar('${f.id}')" title="Cancelar e soltar as viagens">🚫</button>`:''}</div></td></tr>`;}).join('')
     :'<tr><td colspan="12" class="fg-vazio">Nenhum fechamento com esses filtros.</td></tr>';
 }
 function pdfPorId(id){const f=_fechs.find(x=>x.id===id);if(f)pdfFechamento(f);}
@@ -569,12 +575,26 @@ function notaConfere(){
   $('m-nota-dif').innerHTML=$('m-nota-valor').value!==''&&Math.abs(d)>=0.01
     ?`<div class="fg-av w">A nota está ${d>0?'<b>maior</b>':'<b>menor</b>'} que o fechamento em <b>${brl(Math.abs(d))}</b>. Confira antes de lançar (explique na observação).</div>`:'';
 }
+/* nota abre em modal na própria tela (PDF/imagem/XML) */
 async function abrirArqNota(id){
   const f=_fechs.find(x=>x.id===id);if(!f||!f.nota_arquivo_path)return;
-  const w=window.open('','_blank');
-  const {data,error}=await _supabase.storage.from('documentos').createSignedUrl(f.nota_arquivo_path,600);
-  if(error){if(w)w.close();toast('Não abriu o arquivo: '+error.message,'danger');return;}
-  if(w)w.location=data.signedUrl;else location.href=data.signedUrl;
+  const {data,error}=await _supabase.storage.from('documentos').download(f.nota_arquivo_path);
+  if(error){toast('Não abriu o arquivo: '+error.message,'danger');return;}
+  const ext=(f.nota_arquivo_path.split('.').pop()||'').toLowerCase();
+  const tipo=ext==='pdf'?'application/pdf':ext==='xml'?'text/plain':data.type;
+  const url=URL.createObjectURL(new Blob([data],{type:tipo}));
+  $('m-ver')?.remove();
+  const ov=document.createElement('div'); ov.id='m-ver'; ov.className='modal-overlay';
+  const fechar=()=>{URL.revokeObjectURL(url);ov.remove();};
+  ov.onclick=e=>{if(e.target===ov)fechar();};
+  const corpo=['png','jpg','jpeg','webp','gif','heic'].includes(ext)
+    ?`<div style="flex:1;min-height:0;display:flex;align-items:center;justify-content:center;background:#f1f5f9;border-radius:10px;"><img src="${url}" style="max-width:100%;max-height:100%;object-fit:contain;"></div>`
+    :`<iframe src="${url}" style="flex:1;min-height:0;width:100%;border:1px solid #e2e8f0;border-radius:10px;background:#fff;"></iframe>`;
+  ov.innerHTML=`<div class="modal" style="max-width:min(1000px,96vw);width:96vw;height:92vh;max-height:92vh;overflow:hidden;display:flex;flex-direction:column;padding:16px 18px;">
+    <div class="modal-header" style="margin-bottom:10px;"><div class="modal-title">🧾 NF ${esc(f.nota_numero||'')} · ${esc(f.numero)} · ${esc(f.motorista)}</div>
+      <div style="display:flex;gap:8px;align-items:center;"><a class="btn btn-secondary btn-sm" href="${url}" download="${esc(f.numero)}_NF${esc(String(f.nota_numero||'').replace(/[^\w-]+/g,''))}.${ext}">⬇ Baixar</a><button class="modal-close" id="m-ver-x">✕</button></div></div>
+    ${corpo}</div>`;
+  document.body.appendChild(ov); $('m-ver-x').onclick=fechar;
 }
 async function salvarNota(){
   const f=_fechs.find(x=>x.id===_notaId);if(!f)return;
