@@ -1200,3 +1200,6 @@ fábrica específica. Não generalizar.
 - Aviso quando a hora de chegada digitada difere >10 min da hora do registro no sistema.
 - Passagem ainda na portaria: evento final "⏱ Agora" (posição atual em `fila()`, PRÓXIMO via `proximo()`, quem está na frente agora / carregando há X) + chip no topo. Data aparece sempre que o dia muda.
 - Depois que sai: 🕑 na aba 📋 Histórico e "🕑 Histórico e fila" no rodapé da ficha da saída. Na fila, 🕑 e 🗑️ ficam na 2ª linha à direita (cols 2 e 3 do grid de ações).
+
+- (25/11, migração 199) Perfil **PRE** (Porteiro + edição Caulim e Grafitoso) = cópia do PRT com `portaria.abas.minerio.edit=true` (`miPodeCorr`). Wagner Rafael (wagner.portaria) passou de PRT para PRE. Mudança no PRT não vai sozinha para o PRE.
+- (25/11) portaria.html minério: viagem que JÁ ESTÁ NA NOTA ganhou ✏️ (`miEditarNome`/`miSalvarNome`, quem tem `minerio.edit`) que corrige só placa e motorista; data, material, tara, bruto e líquido ficam travados (total da nota não muda). Viagem sem nota continua com o ✏️ completo (`miEditar`).
