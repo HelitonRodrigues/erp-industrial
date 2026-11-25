@@ -3333,8 +3333,8 @@ async function miAidSalvar(){
 }
 /* (18/11) busca de placa: digita parte da placa OU do motorista → lista com motorista(s), última viagem e caminhão interno */
 let _miSugIx=0, _miSugL=[];
-function miPlacaSug(){
-  const box=document.getElementById('mi-f-placa-sug'), inp=document.getElementById('mi-f-placa'); if(!box||!inp) return;
+function miPlacaSug(pf='mi-f'){
+  const box=document.getElementById(pf+'-placa-sug'), inp=document.getElementById(pf+'-placa'); if(!box||!inp) return;
   const q=inp.value.replace(/\s+/g,''), qn=normNome(inp.value);
   const placas=[...new Set([...Object.keys(_miInternos||{}),...Object.keys(_miUlt.placa||{})])];
   _miSugL=placas.map(p=>{ const u=(_miUlt.placa||{})[p]||{}, i=(_miInternos||{})[p], mots=[...new Set([...miMotsDaPlaca(p),u.motorista].filter(Boolean))];
@@ -3342,19 +3342,19 @@ function miPlacaSug(){
     .sort((a,b)=>(a.p.startsWith(q)?0:1)-(b.p.startsWith(q)?0:1)||String(b.u.data||'').localeCompare(String(a.u.data||''))).slice(0,10);
   if(!_miSugL.length){ box.innerHTML=q?`<div class="it"><div class="mu">Placa nova: <b>${esc(q)}</b> — preencha o motorista.</div></div>`:''; box.style.display=q?'':'none'; return; }
   _miSugIx=0;
-  box.innerHTML=_miSugL.map((x,k)=>`<div class="it ${k===0?'on':''}" onmousedown="miPlacaEscolhe('${x.p}')"><div class="pl">${esc(x.p)}</div>
+  box.innerHTML=_miSugL.map((x,k)=>`<div class="it ${k===0?'on':''}" onmousedown="miPlacaEscolhe('${x.p}','${pf}')"><div class="pl">${esc(x.p)}</div>
     <div style="flex:1"><div style="font-weight:700;font-size:13px;color:#0f172a">${esc(x.mots.join(' / ')||'sem motorista')}</div>
     <div class="mu">${x.u.data?'última: '+miData(x.u.data)+(x.u.material?' · '+esc(miMatNome(x.u.material)):'')+' · '+esc(miDest(x.u)):'sem viagem registrada'}</div></div>
     ${x.i?`<span class="tg">🚚 interno · tara ${nf((x.i.tara_kg||0)/1000,2)} t</span>`:''}</div>`).join('');
   box.style.display='';
 }
-function miPlacaTecla(e){
-  const box=document.getElementById('mi-f-placa-sug'); if(!box||box.style.display==='none'||!_miSugL.length) return;
+function miPlacaTecla(e,pf='mi-f'){
+  const box=document.getElementById(pf+'-placa-sug'); if(!box||box.style.display==='none'||!_miSugL.length) return;
   if(e.key==='ArrowDown'||e.key==='ArrowUp'){ e.preventDefault(); _miSugIx=(_miSugIx+(e.key==='ArrowDown'?1:-1)+_miSugL.length)%_miSugL.length;
     box.querySelectorAll('.it').forEach((d,k)=>d.classList.toggle('on',k===_miSugIx)); }
-  if(e.key==='Enter'){ e.preventDefault(); miPlacaEscolhe(_miSugL[_miSugIx].p); }
+  if(e.key==='Enter'){ e.preventDefault(); miPlacaEscolhe(_miSugL[_miSugIx].p,pf); }
 }
-function miPlacaEscolhe(p){ const inp=document.getElementById('mi-f-placa'); inp.value=p; document.getElementById('mi-f-placa-sug').style.display='none'; miPlaca(); document.getElementById('mi-f-mot').focus(); }
+function miPlacaEscolhe(p,pf='mi-f'){ if(pf==='mi-n') return miNPlacaEscolhe(p); const inp=document.getElementById('mi-f-placa'); inp.value=p; document.getElementById('mi-f-placa-sug').style.display='none'; miPlaca(); document.getElementById('mi-f-mot').focus(); }
 function miUniTroca(){ const u=document.getElementById('mi-f-uni').value, g=document.getElementById('mi-f-lin-g'); if(g) g.style.display=u==='FABRICA'?'':'none'; }
 
 function miSec(s){
@@ -3818,13 +3818,24 @@ function miEditarNome(id){
   const v=miAchar(id); if(!v)return;
   document.getElementById('m-mi-nome')?.remove();
   const ov=document.createElement('div'); ov.id='m-mi-nome'; ov.className='modal-overlay'; ov.onclick=e=>{if(e.target===ov)ov.remove();};
-  ov.innerHTML=`<div class="modal" style="max-width:460px"><div class="modal-header"><div class="modal-title">✏️ Corrigir motorista e placa</div><button class="modal-close" onclick="document.getElementById('m-mi-nome').remove()">✕</button></div>
+  ov.innerHTML=`<div class="modal" style="max-width:460px;overflow:visible"><div class="modal-header"><div class="modal-title">✏️ Corrigir motorista e placa</div><button class="modal-close" onclick="document.getElementById('m-mi-nome').remove()">✕</button></div>
     <div class="aviso info" style="margin-bottom:12px">Esta viagem já está na nota — <b>data, material, tara, bruto e líquido não mudam</b>.</div>
     <div style="font-size:13px;color:#475569;margin-bottom:12px">${miData(v.data)}${v.ticket?' · ticket '+miTk(v.ticket):''} · ${esc(miMatNome(v.material))} · <b>${nf(v.liquido_kg)} kg</b></div>
-    <div class="form-group" style="margin-bottom:12px"><label class="form-label">Placa <span class="req">*</span></label><input class="form-input" id="mi-n-placa" autocomplete="off" value="${esc(v.placa||'')}" style="text-transform:uppercase"></div>
-    <div class="form-group"><label class="form-label">Motorista <span class="req">*</span></label><input class="form-input" id="mi-n-mot" autocomplete="off" value="${esc(v.motorista||'')}" style="text-transform:uppercase"></div>
+    <div class="form-group" style="margin-bottom:12px;position:relative"><label class="form-label">Placa <span class="req">*</span></label><input class="form-input" id="mi-n-placa" autocomplete="off" placeholder="digite parte da placa ou o motorista" value="${esc(v.placa||'')}" oninput="this.value=this.value.toUpperCase().replace(/[^A-Z0-9 ]/g,'');miPlacaSug('mi-n')" onfocus="miPlacaSug('mi-n')" onkeydown="miPlacaTecla(event,'mi-n')" onblur="setTimeout(()=>{const b=document.getElementById('mi-n-placa-sug');if(b)b.style.display='none';},180)"><div id="mi-n-placa-sug" class="mi-sug" style="display:none;"></div></div>
+    <div class="form-group"><label class="form-label">Motorista <span class="req">*</span></label><input class="form-input" id="mi-n-mot" list="mi-dl-mot" autocomplete="off" value="${esc(v.motorista||'')}" oninput="this.value=this.value.toUpperCase();miNMotChips()"><div id="mi-n-mot-chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;"></div></div>
     <div class="modal-footer"><button class="btn btn-secondary" onclick="document.getElementById('m-mi-nome').remove()">Cancelar</button><button class="btn btn-primary" id="mi-n-ok" onclick="miSalvarNome('${v.id}')">💾 Salvar</button></div></div>`;
-  document.body.appendChild(ov); setTimeout(()=>document.getElementById('mi-n-placa')?.focus(),60);
+  document.body.appendChild(ov); miNMotChips(); setTimeout(()=>{const i=document.getElementById('mi-n-placa'); if(i){i.focus(); i.select();}},60);
+}
+function miNPlacaEscolhe(p){
+  const inp=document.getElementById('mi-n-placa'); inp.value=p; document.getElementById('mi-n-placa-sug').style.display='none';
+  const mots=miMotsDaPlaca(p), m=document.getElementById('mi-n-mot');
+  if(mots.length===1) m.value=mots[0]; else if(mots.length>1&&!mots.includes(m.value)) m.value='';
+  miNMotChips(); m.focus();
+}
+function miNMotChips(){
+  const box=document.getElementById('mi-n-mot-chips'); if(!box)return;
+  const mots=miMotsDaPlaca(document.getElementById('mi-n-placa').value), atual=document.getElementById('mi-n-mot').value;
+  box.innerHTML=mots.length>1?mots.map(m=>`<button type="button" class="btn btn-sm ${m===atual?'btn-primary':'btn-secondary'}" onclick="document.getElementById('mi-n-mot').value='${esc(m)}';miNMotChips()">👤 ${esc(m)}</button>`).join(''):'';
 }
 async function miSalvarNome(id){
   const v=miAchar(id); if(!v)return;
