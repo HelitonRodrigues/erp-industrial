@@ -12,6 +12,10 @@
 //        nunca por cliente ou caminhão; documento sem pedido não aparece;
 //      - para abrir, o servidor confere DE NOVO que o pedido é deste representante (programacao_cargas);
 //      - NF: link assinado de 5 min (bucket privado); laudo: HTML montado aqui com SÓ o cliente/pedido dele.
+//  • (25/11, v8) RECADO DA FÁBRICA (programacao_cargas.recado, só informação) + 🚛 NO PÁTIO + VIAGEM do pedido:
+//      - pátio = passagem da portaria em aberto cujo romaneio tem pedido DELE (romaneio_itens.pedido);
+//      - viagem = motorista e placa do caminhão do pedido dele, quantos na frente ao chegar e cada mudança
+//        (só o NÚMERO, só caminhões com ordem), chamado, início, carga conferida, saída. Nunca placa/motorista/cliente de outro caminhão.
 import { createClient } from "npm:@supabase/supabase-js@2.45.4";
 
 const SITE = "https://erp-industrial-theta.vercel.app";
@@ -123,7 +127,7 @@ Deno.serve(async (req) => {
     const desdeCarr = DOCS_DESDE < desde30.slice(0, 10) ? DOCS_DESDE + "T03:00:00Z" : desde30;   // carregados: desde 03/11 (ou 30 dias, o que for mais antigo)
     const [meusR, carrR, cargaR, plR, tuR, prR, alR, atR, sincR] = await Promise.all([
       sb.from("programacao_cargas").select("*").eq("representante", REP).eq("carregado", false).eq("cancelado", false).limit(2000),
-      sb.from("programacao_cargas").select("pedido,cliente_salescode,planilha,cidade,detalhes,itens,carregado_em,carregado_origem,balanca,representante").eq("representante", REP).eq("carregado", true).eq("cancelado", false).gte("carregado_em", desdeCarr).order("carregado_em", { ascending: false }).limit(800),
+      sb.from("programacao_cargas").select("pedido,cliente_salescode,planilha,cidade,detalhes,itens,carregado_em,carregado_origem,balanca,representante,portaria").eq("representante", REP).eq("carregado", true).eq("cancelado", false).gte("carregado_em", desdeCarr).order("carregado_em", { ascending: false }).limit(800),
       sb.from("programacao_cargas").select("id,itens,planilha,linha_manual,status_salescode,data_manual,data_salescode,data_planilha,colunas_salescode,a_definir,cancelado").or(`carregado.eq.false,carregado_em.gte.${desde30.slice(0, 10)}`).limit(5000),   // carregado continua ocupando o dia programado
       sb.from("planejamentos_custo").select("codigo,nome,mes,ano,estado,atualizado_em").eq("status", "ativo").order("atualizado_em", { ascending: false }).limit(24),
       sb.from("turnos").select("nome,refeicao_min,calendario").limit(200),
@@ -156,12 +160,14 @@ Deno.serve(async (req) => {
       const dt = c.detalhes || {};
       return { pedido: c.pedido, cliente: (c.planilha && c.planilha.cliente) || c.cliente_salescode || "—", cidade: dt.entrega_cidade || c.cidade || "",
         itens: its, data: M.dataDe(c), data_salescode: c.data_salescode || c.data_planilha || null, data_manual: c.data_manual,
-        status: c.status_salescode || "", fin: M.ehFinanceiro(c), coluna: M.coluna(c) };
+        status: c.status_salescode || "", fin: M.ehFinanceiro(c), coluna: M.coluna(c),
+        recado: c.recado && c.recado.txt ? { ic: c.recado.ic || "📣", motivo: c.recado.motivo || "", txt: String(c.recado.txt), em: c.recado.em || null } : null };
     }).filter(Boolean);
     const carregados = carrRaw.map((c: any) => {
       const its = itensDe(c); if (!its.length) return null; const b = (c.balanca || [])[0] || {};
       return { pedido: c.pedido, cliente: (c.planilha && c.planilha.cliente) || c.cliente_salescode || "—", cidade: (c.detalhes || {}).entrega_cidade || c.cidade || "",
-        itens: its, em: c.carregado_em, origem: c.carregado_origem, ticket: b.ticket ? String(b.ticket).replace(/^0+/, "") : null, placa: b.placa || null };
+        itens: its, em: c.carregado_em, origem: c.carregado_origem, ticket: b.ticket ? String(b.ticket).replace(/^0+/, "") : null, placa: b.placa || null,
+        _pid: (c.portaria && c.portaria.id) || null };
     }).filter(Boolean) as any[];
 
     // documentos dos carregados — SÓ pelo número do pedido deste representante
@@ -185,9 +191,66 @@ Deno.serve(async (req) => {
     }
     carregados.forEach((c: any) => { c.nfs = nfsPorPed[c.pedido] || []; c.laudos = lauPorPed[c.pedido] || []; });
 
+    // ── 🚛 pátio + viagem (só do pedido dele) ──
+    const patio: any[] = [];
+    try {
+      const meusPedAb = new Set(meus.map((c: any) => c.pedido));
+      const ab = chk(await sb.from("portaria").select("id,romaneio_id").is("hora_saida", null).neq("status", "cancelado").not("romaneio_id", "is", null)
+        .gte("hora_chegada", new Date(Date.now() - 15 * 864e5).toISOString()).limit(300), "pátio");
+      const roms = [...new Set(ab.map((r: any) => r.romaneio_id))] as string[];
+      const ri = roms.length ? chk(await sb.from("romaneio_itens").select("romaneio_id,pedido").in("romaneio_id", roms), "romaneio") : [];
+      const pidRom: Record<string, string> = {}; ab.forEach((r: any) => pidRom[r.romaneio_id] = r.id);
+      const noPatio: Record<string, string> = {};
+      ri.forEach((x: any) => { if (meusPedAb.has(x.pedido) && pidRom[x.romaneio_id]) noPatio[x.pedido] = pidRom[x.romaneio_id]; });
+      const ids = [...new Set([...Object.values(noPatio), ...carregados.map((c: any) => c._pid).filter(Boolean)])] as string[];
+      if (ids.length) {
+        const T = (x: any) => x ? Date.parse(x) : null, agora = Date.now();
+        const proprios: any[] = [];
+        for (let k = 0; k < ids.length; k += 150) proprios.push(...chk(await sb.from("portaria").select("id,placa,nome_motorista,numero_ordem,status,hora_chegada,inicio_carregamento,hora_saida,created_at").in("id", ids.slice(k, k + 150)), "passagens"));
+        const t0min = Math.min(...proprios.map((v: any) => T(v.hora_chegada) || agora));
+        const todos = chk(await sb.from("portaria").select("id,status,numero_ordem,romaneio_id,hora_chegada,inicio_carregamento,hora_saida,created_at")
+          .gte("hora_chegada", new Date(t0min - 7 * 864e5).toISOString()).neq("status", "cancelado").limit(5000), "fila");
+        const cham: any[] = [], carg: any[] = [];
+        for (let k = 0; k < ids.length; k += 150) cham.push(...chk(await sb.from("portaria_chamados").select("portaria_id,chamado_em,cancelado_em").in("portaria_id", ids.slice(k, k + 150)), "chamados"));
+        const ords = [...new Set(proprios.map((v: any) => v.numero_ordem).filter(Boolean))] as string[];
+        for (let k = 0; k < ords.length; k += 150) carg.push(...chk(await sb.from("carregamentos").select("ordem_numero,created_at").in("ordem_numero", ords.slice(k, k + 150)), "carregamentos"));
+        const iso = (t: number) => new Date(t).toISOString();
+        const viagem = (v: any, its: any[], ticket: any) => {
+          const t0 = T(v.hora_chegada); if (!t0) return null;
+          const tIni = T(v.inicio_carregamento), tSai = T(v.hora_saida), tFila = tIni || tSai || agora;
+          const antes = (x: any) => { const a = T(x.hora_chegada)!; return a < t0 || (a === t0 && String(x.created_at) < String(v.created_at)); };
+          // sem ordem não conta na vez (igual à fila da portaria)
+          const frente = todos.filter((x: any) => x.id !== v.id && (x.numero_ordem || x.romaneio_id) && T(x.hora_chegada)! > t0 - 7 * 864e5 && antes(x)
+            && (!T(x.inicio_carregamento) || T(x.inicio_carregamento)! > t0) && (!T(x.hora_saida) || T(x.hora_saida)! > t0));
+          const naFrente = (t: number) => frente.filter((x: any) => !(T(x.inicio_carregamento) && T(x.inicio_carregamento)! <= t) && !(T(x.hora_saida) && T(x.hora_saida)! <= t)).length;
+          const n0 = naFrente(t0), ev: any[] = [{ t: "chegada", em: iso(t0), n: n0 }];
+          const muda = [...new Set(frente.flatMap((x: any) => [T(x.inicio_carregamento), T(x.hora_saida)]).filter((t: any) => t && t > t0 && t <= tFila))].sort((a: any, b: any) => a - b) as number[];
+          let ult = n0; muda.forEach((t) => { const n = naFrente(t); if (n !== ult) { ev.push({ t: "pos", em: iso(t), n }); ult = n; } });
+          cham.filter((c: any) => c.portaria_id === v.id && !c.cancelado_em && c.chamado_em).forEach((c: any) => ev.push({ t: "chamado", em: c.chamado_em }));
+          if (tIni) ev.push({ t: "inicio", em: iso(tIni) });
+          const k = carg.filter((c: any) => c.ordem_numero === v.numero_ordem && T(c.created_at)! >= t0).sort((a: any, b: any) => T(b.created_at)! - T(a.created_at)!)[0];
+          const qtxt = its.map((i: any) => `${Number(i.q || 0).toLocaleString("pt-BR", { maximumFractionDigits: i.un === "t" ? 2 : 0 })} ${i.un}`).join(" + ");
+          if (k) ev.push({ t: "conferida", em: k.created_at, det: qtxt ? qtxt + " do seu pedido" : "" });
+          if (tSai) ev.push({ t: "saida", em: iso(tSai), det: ticket || null });
+          ev.sort((a, b) => Date.parse(a.em) - Date.parse(b.em));
+          return { motorista: v.nome_motorista || null, placa: v.placa || null, chegada: iso(t0), frente: n0, inicio: tIni ? iso(tIni) : null,
+            conferida: k ? k.created_at : null, saida: tSai ? iso(tSai) : null, ev,
+            agora: tSai ? null : { frente: tIni ? 0 : naFrente(agora), carregando: !!tIni || v.status === "carregando" } };
+        };
+        const porId: Record<string, any> = {}; proprios.forEach((v: any) => porId[v.id] = v);
+        carregados.forEach((c: any) => { const v = c._pid && porId[c._pid]; c.viagem = v ? viagem(v, c.itens, c.ticket) : null; });
+        Object.entries(noPatio).forEach(([ped, pid]) => {
+          const c: any = meus.find((x: any) => x.pedido === ped), v = porId[pid]; if (!c || !v) return;
+          const vi = viagem(v, c.itens, null); if (!vi) return;
+          patio.push({ pedido: c.pedido, cliente: c.cliente, cidade: c.cidade, itens: c.itens, nfs: [], laudos: [], viagem: vi });
+        });
+      }
+    } catch (e) { console.error("pátio/viagem", e); }
+    carregados.forEach((c: any) => { delete c._pid; });
+
     return resp({ ok: true, representante: REP, nome: conta.nome, login: conta.login, hoje: h, docs_desde: DOCS_DESDE,
       atualizado: (chk(sincR, "sync")[0] || {}).atualizado_salescode || null,
-      meus, carregados, livres, atrasos: chk(atR, "atrasos") });
+      meus, carregados, patio, livres, atrasos: chk(atR, "atrasos") });
   } catch (e) {
     console.error(e);
     return resp({ ok: false, motivo: "Erro no servidor. Tente de novo em instantes." }, 500);
