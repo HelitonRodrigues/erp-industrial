@@ -37,6 +37,24 @@ body{font-family:'Plus Jakarta Sans',Segoe UI,Arial,sans-serif;background:var(--
 .tabs button.on{color:var(--navy);border-bottom-color:var(--navy)}.tabs button.on .n{background:var(--navy);color:var(--lime)}
 .tabs button .hj{font-size:10.5px;background:#DCFCE7;color:#166534;border-radius:20px;padding:2px 8px}
 .wrap.ab-carr .cols:not(.c2),.wrap:not(.ab-carr) .cols.c2{display:none}
+/* (25/11) 📑 relatórios da portaria (só conta liberada) */
+.wrap.ab-rel .cols{display:none!important}.wrap:not(.ab-rel) .relbox{display:none}.relbox{margin-top:14px}
+.rtop{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:0 18px 12px}
+.rfo{display:flex;background:#F1F5F9;border-radius:12px;padding:3px;gap:3px}.rfo button{border:0;font:inherit;font-weight:800;font-size:13.5px;padding:8px 16px;border-radius:10px;background:none;color:#475569;cursor:pointer}
+.rfo button.on{background:var(--navy);color:var(--lime)}.rf1{color:var(--navy);font-size:15px}
+.rper{display:flex;gap:6px;align-items:center;flex-wrap:wrap}.rper input{border:1.5px solid #CBD5E1;border-radius:10px;padding:7px 10px;font:inherit;font-size:13px}.rper span{color:var(--mut);font-size:12px}
+.rgrid{display:grid;grid-template-columns:250px minmax(0,1fr);gap:14px;padding:0 18px 18px;align-items:start}.rgrid>div{min-width:0}
+.rlista{display:flex;flex-direction:column;gap:6px}
+.rel-it{text-align:left;border:1px solid var(--line);background:#fff;border-radius:12px;padding:9px 12px;cursor:pointer;font-family:inherit}
+.rel-it b{display:block;color:var(--navy);font-size:13px}.rel-it span{font-size:11.5px;color:var(--mut)}
+.rel-it.on{background:var(--navy);border-color:var(--navy)}.rel-it.on b{color:var(--lime)}.rel-it.on span{color:#CBD5E1}
+.rbar{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px}.rbar b{color:var(--navy);font-size:15px}.rbar span{color:var(--mut);font-size:12px}.rbt{display:flex;gap:6px;flex-wrap:wrap}
+.rk{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin-bottom:10px}.rk div{border:1px solid var(--line);border-top:3px solid var(--navy);border-radius:10px;padding:8px 10px}
+.rk b{display:block;font-size:16px;color:var(--navy)}.rk span{font-size:10.5px;color:var(--mut);text-transform:uppercase;letter-spacing:.3px}
+.rtw{border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.rt{width:100%;border-collapse:collapse;font-size:12.5px}.rt th{background:var(--navy);color:var(--lime);font-size:10.5px;text-transform:uppercase;letter-spacing:.3px;padding:8px;text-align:left;vertical-align:bottom}
+.rt td{padding:7px 8px;border-bottom:1px solid #EEF2F6}.rt td.n,.rt th.n{text-align:right;font-variant-numeric:tabular-nums}.rt tr.tt td{background:#F1F5F9;font-weight:800}
+@media(max-width:900px){.rgrid{grid-template-columns:1fr;padding:0 12px 14px}.rtop{padding:0 12px 10px}.rlista{flex-direction:row;overflow-x:auto;padding-bottom:4px}.rel-it{min-width:180px}.rtw{overflow-x:auto}}
 .wrap.ab-carr .cols.c2{margin-top:14px}
 .cbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:0 18px 12px}
 .cbar .bus{flex:1;min-width:220px;position:relative}.cbar .bus input{width:100%;box-sizing:border-box;border:1.5px solid #CBD5E1;border-radius:12px;padding:10px 12px 10px 36px;font:inherit;font-size:14px}
@@ -436,6 +454,216 @@ function desenharPasta(){
     <div class="gb">${corpo}</div>
     <div class="gf"><a class="bt wa" style="text-align:center;text-decoration:none" href="https://wa.me/?text=${wa}" target="_blank" rel="noopener">${noPatio?'Avisar o cliente da posição (WhatsApp)':'Enviar ao cliente (WhatsApp)'}</a></div></aside>`);
 }
+/* (25/11) 📑 RELATÓRIOS DA PORTARIA (DSM e Intercement) — só para conta liberada (prog_rep_contas.relatorios).
+   O servidor (prog-rep {rel}) confere a liberação e manda as linhas do período; a conta é a mesma das telas da portaria. */
+const R_FONTES={dsm:'DSM',int:'Intercement'};
+const R_SLA={espera_alerta:60,espera_critico:120,perm_alerta:180,perm_critico:300};
+const R_DSEM=['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
+const R_TZ={timeZone:'America/Sao_Paulo'};
+const R_REL={
+ dsm:[
+  {k:'tempos',t:'Tempos da operação por caminhão',d:'Os 5 eventos, quem registrou e os tempos de cada caminhão'},
+  {k:'diario',t:'Resumo diário',d:'Por dia: caminhões, NFs, toneladas e tempos médios'},
+  {k:'motorista',t:'Por motorista',d:'Visitas, toneladas e tempos médios de cada motorista'},
+  {k:'veiculo',t:'Por veículo (placa)',d:'Visitas, modelo, toneladas e tempos por placa'},
+  {k:'hora',t:'Por hora de chegada',d:'Quantos chegam em cada hora e quanto esperam'},
+  {k:'fora',t:'Fora do padrão',d:'Espera acima de 2h ou permanência acima de 5h'},
+  {k:'pesagem',t:'Pesagem × NF',d:'Peso líquido da balança comparado com o da NF'},
+  {k:'usuarios',t:'Por usuário (portaria)',d:'Chegadas, tickets, NFs e saídas registradas por cada usuário'},
+  {k:'correcoes',t:'Correções de horário (auditoria)',d:'Toda alteração de horário: antes, depois, quem e por quê'},
+  {k:'cancelados',t:'Cancelamentos',d:'Registros cancelados, por quem e o motivo'}],
+ int:[
+  {k:'tempos',t:'Tempos por viagem',d:'Chegada, tara, bruto e nota de cada caminhão, com os tempos'},
+  {k:'diario',t:'Resumo diário',d:'Por dia: viagens, notas, toneladas, valor e tempos médios'},
+  {k:'motorista',t:'Por motorista',d:'Viagens, toneladas, acima do limite e valor de cada motorista'},
+  {k:'veiculo',t:'Por veículo (placa)',d:'Viagens, toneladas e caçamba por placa'},
+  {k:'transp',t:'Por transportadora',d:'Viagens, toneladas, valor e acima do limite'},
+  {k:'pedido',t:'Por pedido',d:'Viagens, toneladas na balança e na nota, valor'},
+  {k:'hora',t:'Por hora de chegada',d:'Quantos chegam em cada hora e quanto esperam a tara'},
+  {k:'acima',t:'Acima do limite da caçamba',d:'Bruto maior que o peso da caçamba'},
+  {k:'pesagem',t:'Pesagem × NF',d:'Peso líquido da balança comparado com o da nota'},
+  {k:'pendentes',t:'Notas pendentes',d:'Viagens pesadas sem o PDF da nota'},
+  {k:'usuarios',t:'Por usuário (portaria)',d:'Chegadas, taras, brutos e notas lançadas por cada usuário'}]};
+const R_PAIS={tempos:1,diario:1,motorista:1,veiculo:1,fora:1,pesagem:1,correcoes:1,pedido:1,acima:1,pendentes:1};
+let _rf=null,_rk='tempos',_rIni=null,_rFim=null,_rDados={},_rErro='',_rCarr=false,_rOut=null;
+const rNf=(v,d=0)=>v==null||v===''||isNaN(v)?'—':Number(v).toLocaleString('pt-BR',{minimumFractionDigits:d,maximumFractionDigits:d});
+const rDh=d=>d?new Date(d).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit',...R_TZ}):'—';
+const rHm=d=>d?new Date(d).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit',...R_TZ}):'—';
+const rBr=d=>d?String(d).slice(8,10)+'/'+String(d).slice(5,7)+'/'+String(d).slice(0,4):'—';
+const rHmin=m=>m==null||isNaN(m)?'—':`${m<0?'-':''}${Math.floor(Math.abs(m)/60)}h${String(Math.round(Math.abs(m))%60).padStart(2,'0')}`;
+const rBrl=v=>v==null?'—':'R$ '+rNf(v,2);
+const rTk=n=>n?String(n).padStart(6,'0'):'';
+const rDt=v=>v?new Date(v).toLocaleString('pt-BR',R_TZ):'—';
+const rMed=a=>{a=a.filter(x=>x!=null&&!isNaN(x)).map(Number);return a.length?a.reduce((s,x)=>s+x,0)/a.length:null;};
+const rAgr=(l,f)=>{const g={};l.forEach(x=>{const k=f(x)??'—';(g[k]=g[k]||[]).push(x);});return g;};
+const rTonNF=x=>{const u=String(x.nf_unidade||'').toUpperCase();if(x.nf_quantidade!=null&&/^(T|TL|TON)/.test(u))return Number(x.nf_quantidade);
+  if(x.nf_peso_liquido!=null)return Number(x.nf_peso_liquido)>200?Number(x.nf_peso_liquido)/1000:Number(x.nf_peso_liquido);return 0;};
+const rChave=()=>`${_rf}|${_rIni}|${_rFim}`;
+function rPer(n){const h=_d.hoje;_rIni=n==='mes'?h.slice(0,8)+'01':addDias(h,-(n-1));_rFim=h;relCarregar();}
+function rFonte(f){_rf=f;if(!R_REL[f].some(r=>r.k===_rk))_rk='tempos';render();if(!_rDados[rChave()])relCarregar();}
+async function relCarregar(){
+  const k=rChave();if(_rCarr)return;_rCarr=true;_rErro='';render();
+  try{const r=await fetch(`${URL_SB}/functions/v1/prog-rep`,{method:'POST',headers:H,body:JSON.stringify({token:lerTk(),rel:{f:_rf,ini:_rIni,fim:_rFim}})});
+    const j=await r.json().catch(()=>null);
+    if(!r.ok||!j||!j.ok)_rErro=(j&&j.motivo)||'Não deu para carregar o relatório.';else _rDados[k]=j;
+  }catch(e){_rErro='Sem conexão. Tente de novo.';}
+  finally{_rCarr=false;render();}
+}
+/* ── conta de cada relatório (a mesma das telas da portaria) ── */
+function relCalc(f,k,J){
+  const r=R_REL[f].find(x=>x.k===k)||R_REL[f][0];let cols=[],rows=[],tot=null,kpis=[];
+  if(f==='dsm'){
+    const todos=J.linhas||[],l=todos.filter(x=>!x.cancelado_em),sai=l.filter(x=>x.status==='saiu');
+    const MED4=['Espera média','Carregamento médio','Liberação média','Permanência média'];
+    const lm=v=>[rHmin(rMed(v.map(x=>x.min_espera))),rHmin(rMed(v.map(x=>x.min_carregamento))),rHmin(rMed(v.map(x=>x.min_liberacao))),rHmin(rMed(v.map(x=>x.min_permanencia)))];
+    const ton=v=>rNf(v.reduce((a,x)=>a+rTonNF(x),0),1);
+    if(k==='tempos'){cols=['Placa','Motorista','NF','Recepção','Início','Fim','Emissão NF','Saída','Espera','Carreg.','Liberação','Perm.','Total','Usuários'];
+      rows=l.map(x=>[x.placa,x.motorista,x.nf_numero||'—',rDh(x.recepcao_em),rDh(x.inicio_em),rDh(x.fim_em),rDh(x.nf_emissao),rDh(x.saida_em),rHmin(x.min_espera),rHmin(x.min_carregamento),rHmin(x.min_liberacao),rHmin(x.min_permanencia),rHmin(x.min_total),[...new Set([x.recepcao_por,x.inicio_por,x.fim_por,x.nf_registrado_por].filter(Boolean))].join(', ')]);
+      tot=['Média','','','','','','','',...lm(l),rHmin(rMed(l.map(x=>x.min_total))),''];}
+    if(k==='diario'){cols=['Dia','Dia da semana','Caminhões','NFs','Toneladas',...MED4];
+      const g=rAgr(l,x=>new Date(x.recepcao_em).toLocaleDateString('sv-SE',R_TZ));
+      rows=Object.keys(g).sort().map(d=>{const v=g[d];return [rBr(d),R_DSEM[new Date(d+'T12:00:00').getDay()],v.length,v.filter(x=>x.nf_numero).length,ton(v),...lm(v)];});
+      tot=['Total','',l.length,l.filter(x=>x.nf_numero).length,ton(l),...lm(l)];}
+    if(k==='motorista'||k==='veiculo'){const porM=k==='motorista';cols=porM?['Motorista','Placas','Visitas','Toneladas',...MED4,'Última visita']:['Placa','Modelo','Motoristas','Visitas','Toneladas',...MED4];
+      const g=rAgr(l,x=>porM?x.motorista:x.placa);
+      rows=Object.entries(g).sort((a,b)=>b[1].length-a[1].length).map(([n,v])=>porM?[n,[...new Set(v.map(x=>x.placa))].join(', '),v.length,ton(v),...lm(v),rDh(v[v.length-1].recepcao_em)]
+        :[n,v[0].modelo||'—',[...new Set(v.map(x=>x.motorista))].join(', '),v.length,ton(v),...lm(v)]);}
+    if(k==='hora'){cols=['Hora de chegada','Caminhões','% do total','Espera média','Permanência média'];
+      const g=rAgr(l,x=>Number(new Date(x.recepcao_em).toLocaleTimeString('pt-BR',{hour:'2-digit',hour12:false,...R_TZ}).slice(0,2)));
+      rows=Object.keys(g).map(Number).sort((a,b)=>a-b).map(h=>[`${String(h).padStart(2,'0')}h às ${String(h).padStart(2,'0')}h59`,g[h].length,rNf(g[h].length/l.length*100,1)+'%',rHmin(rMed(g[h].map(x=>x.min_espera))),rHmin(rMed(g[h].map(x=>x.min_permanencia)))]);}
+    if(k==='fora'){cols=['Placa','Motorista','Recepção','Espera','Carreg.','Liberação','Permanência','Motivo'];
+      rows=l.filter(x=>(x.min_espera||0)>=R_SLA.espera_critico||(x.min_permanencia||0)>=R_SLA.perm_critico).sort((a,b)=>(b.min_permanencia||0)-(a.min_permanencia||0))
+        .map(x=>[x.placa,x.motorista,rDh(x.recepcao_em),rHmin(x.min_espera),rHmin(x.min_carregamento),rHmin(x.min_liberacao),rHmin(x.min_permanencia),[(x.min_espera||0)>=R_SLA.espera_critico?'espera alta':'',(x.min_permanencia||0)>=R_SLA.perm_critico?'permanência alta':''].filter(Boolean).join(' + ')]);}
+    if(k==='pesagem'){cols=['Placa','NF','Tara (kg)','Bruto (kg)','Líquido balança (kg)','Líquido NF (kg)','Diferença (kg)','Diferença %'];
+      rows=sai.filter(x=>x.peso_entrada&&x.peso_saida).map(x=>{const liq=x.peso_saida-x.peso_entrada,nfk=x.nf_peso_liquido!=null?(x.nf_peso_liquido>200?x.nf_peso_liquido:x.nf_peso_liquido*1000):null;
+        return [x.placa,x.nf_numero||'—',rNf(x.peso_entrada),rNf(x.peso_saida),rNf(liq),nfk!=null?rNf(nfk):'—',nfk!=null?rNf(liq-nfk):'—',nfk?rNf((liq-nfk)/nfk*100,2)+'%':'—'];});}
+    if(k==='usuarios'){cols=['Usuário','Chegadas','Entradas dadas','Saídas dadas','NFs registradas','Saídas'];
+      const u={},add=(n,i)=>{if(!n)return;(u[n]=u[n]||[0,0,0,0,0])[i]++;};
+      todos.forEach(x=>{add(x.recepcao_por,0);add(x.inicio_por,1);add(x.fim_por,2);add(x.nf_registrado_por,3);add(x.saida_por,4);});
+      rows=Object.entries(u).sort((a,b)=>b[1][0]-a[1][0]).map(([n,v])=>[n,...v]);}
+    if(k==='correcoes'){cols=['Quando','Placa','Etapa','Antes','Depois','Quem','Perfil','Justificativa'];const C={recepcao_em:'Recepção',inicio_em:'Início',fim_em:'Fim',nf_emissao:'Emissão NF',saida_em:'Saída'};
+      rows=(J.correcoes||[]).map(x=>{const c=todos.find(y=>y.id===x.caminhao_id)||{};return [rDh(x.em),c.placa||'',C[x.campo]||x.campo,rDt(x.valor_anterior),rDt(x.valor_novo),x.usuario,x.perfil||'',x.motivo];});}
+    if(k==='cancelados'){cols=['Recepção','Placa','Motorista','Cancelado em','Por','Motivo'];
+      rows=todos.filter(x=>x.cancelado_em).map(x=>[rDh(x.recepcao_em),x.placa,x.motorista,rDh(x.cancelado_em),x.cancelado_por||'',x.cancelado_motivo||'']);}
+    kpis=[['Caminhões no período',l.length],['Toneladas',ton(l)],['Espera média',rHmin(rMed(l.map(x=>x.min_espera)))],['Permanência média',rHmin(rMed(l.map(x=>x.min_permanencia)))]];
+  }else{
+    const todos=J.linhas||[],l=todos.filter(v=>v.bruto_kg),pn={};(J.pedidos||[]).forEach(p=>pn[p.numero]=p.nome||'');
+    const chg=v=>v.chegada_em||v.entrada_em,mins=(a,b)=>a&&b?(Date.parse(b)-Date.parse(a))/60000:null;
+    const esp=v=>mins(chg(v),v.entrada_em),bal=v=>mins(v.entrada_em,v.saida_em),tt=v=>mins(chg(v),v.saida_em);
+    const mt=x=>[rHmin(rMed(x.map(esp))),rHmin(rMed(x.map(bal))),rHmin(rMed(x.map(tt)))];const MED=['Espera tara','Balança','No pátio'];
+    const sT=x=>x.reduce((a,v)=>a+Number(v.liquido_kg||0),0)/1000,t=x=>rNf(sT(x),2),val=x=>x.reduce((a,v)=>a+Number(v.nf_valor||0),0),ac=x=>x.filter(v=>v.diferenca_kg>0).length;
+    if(k==='tempos'){cols=['Data','Ticket','Placa','Motorista','NF','Chegada','Tara','Bruto','Líquido (kg)','Espera','Balança','No pátio','Porteiro'];
+      rows=todos.map(v=>[rBr(v.data).slice(0,5),rTk(v.ticket)||'—',v.placa,v.motorista,v.nf_numero||'—',rHm(chg(v)),rHm(v.entrada_em),rHm(v.saida_em),v.liquido_kg!=null?rNf(v.liquido_kg):'—',rHmin(esp(v)),rHmin(bal(v)),rHmin(tt(v)),v.porteiro_saida||v.porteiro||'']);
+      tot=['Média','','','','','','','',t(l)+' t',...mt(todos),''];}
+    if(k==='diario'){cols=['Dia','Dia da semana','Viagens','NFs','Toneladas','Valor das notas','Acima do limite',...MED];
+      const g=rAgr(l,v=>v.data);rows=Object.keys(g).sort().map(d=>{const x=g[d];return [rBr(d),R_DSEM[new Date(d+'T12:00:00').getDay()],x.length,x.filter(v=>v.nf_numero).length,t(x),rBrl(val(x)),ac(x),...mt(x)];});
+      tot=['Total','',l.length,l.filter(v=>v.nf_numero).length,t(l),rBrl(val(l)),ac(l),...mt(l)];}
+    if(k==='motorista'||k==='veiculo'||k==='transp'){
+      const g=rAgr(l,k==='motorista'?v=>v.motorista:k==='veiculo'?v=>v.placa:v=>v.transportadora||'—');
+      cols=k==='motorista'?['Motorista','Placas','Transportadora','Viagens','Toneladas','Acima do limite','Valor das notas','Última viagem']
+        :k==='veiculo'?['Placa','Motoristas','Transportadora','Caçamba (kg)','Viagens','Toneladas','Média por viagem (t)','Acima do limite']
+        :['Transportadora','Placas','Viagens','Toneladas','Valor das notas','Acima do limite',...MED];
+      rows=Object.entries(g).sort((a,b)=>sT(b[1])-sT(a[1])).map(([n,x])=>{const u=a=>[...new Set(x.map(a).filter(Boolean))].join(', ');
+        return k==='motorista'?[n,u(v=>v.placa),u(v=>v.transportadora),x.length,t(x),ac(x),rBrl(val(x)),rBr(x[x.length-1].data)]
+          :k==='veiculo'?[n,u(v=>v.motorista),u(v=>v.transportadora),rNf(x[x.length-1].cacamba_kg),x.length,t(x),rNf(sT(x)/x.length,2),ac(x)]
+          :[n,[...new Set(x.map(v=>v.placa))].length,x.length,t(x),rBrl(val(x)),ac(x),...mt(x)];});
+      tot=k==='motorista'?['Total','','',l.length,t(l),ac(l),rBrl(val(l)),'']:k==='veiculo'?['Total','','','',l.length,t(l),l.length?rNf(sT(l)/l.length,2):'',ac(l)]:['Total','',l.length,t(l),rBrl(val(l)),ac(l),...mt(l)];}
+    if(k==='pedido'){cols=['Pedido','Viagens','Toneladas balança','Toneladas NF','Valor das notas','Notas'];const g=rAgr(l,v=>v.pedido||'—');
+      const tn=x=>x.reduce((a,v)=>a+Number(v.nf_quantidade??v.nf_peso_liquido??0),0);
+      rows=Object.entries(g).sort((a,b)=>String(a[0]).localeCompare(String(b[0]))).map(([p,x])=>[p+(pn[p]?' · '+pn[p]:''),x.length,t(x),rNf(tn(x),3),rBrl(val(x)),x.filter(v=>v.nf_numero).length]);
+      tot=['Total',l.length,t(l),rNf(tn(l),3),rBrl(val(l)),l.filter(v=>v.nf_numero).length];}
+    if(k==='hora'){cols=['Hora de chegada','Caminhões','% do total','Espera média da tara','Total médio no pátio'];
+      const g=rAgr(todos,v=>Number(new Date(chg(v)).toLocaleTimeString('pt-BR',{hour:'2-digit',hour12:false,...R_TZ}).slice(0,2)));
+      rows=Object.keys(g).map(Number).sort((a,b)=>a-b).map(h=>[`${String(h).padStart(2,'0')}h às ${String(h).padStart(2,'0')}h59`,g[h].length,rNf(g[h].length/todos.length*100,1)+'%',rHmin(rMed(g[h].map(esp))),rHmin(rMed(g[h].map(tt)))]);}
+    if(k==='acima'){cols=['Data','Ticket','Placa','Motorista','Transportadora','Caçamba (kg)','Bruto (kg)','Diferença (kg)','Líquido (kg)'];
+      const x=l.filter(v=>v.diferenca_kg>0).sort((a,b)=>b.diferenca_kg-a.diferenca_kg);
+      rows=x.map(v=>[rBr(v.data),rTk(v.ticket),v.placa,v.motorista,v.transportadora||'',rNf(v.cacamba_kg),rNf(v.bruto_kg),'+'+rNf(v.diferenca_kg),rNf(v.liquido_kg)]);
+      tot=['Total',x.length+' viagens','','','','','','+'+rNf(x.reduce((a,v)=>a+Number(v.diferenca_kg),0)),rNf(x.reduce((a,v)=>a+Number(v.liquido_kg),0))];}
+    if(k==='pesagem'){cols=['Data','Placa','NF','Tara (kg)','Bruto (kg)','Líquido balança (kg)','Líquido NF (kg)','Diferença (kg)','Diferença %'];
+      rows=l.filter(v=>v.nf_numero).map(v=>{const nk=v.nf_quantidade!=null?v.nf_quantidade*1000:v.nf_peso_liquido!=null?v.nf_peso_liquido*1000:null,d=nk!=null?v.liquido_kg-nk:null;
+        return [rBr(v.data),v.placa,v.nf_numero,rNf(v.tara_kg),rNf(v.bruto_kg),rNf(v.liquido_kg),nk!=null?rNf(nk):'—',d!=null?rNf(d):'—',nk?rNf(d/nk*100,2)+'%':'—'];});}
+    if(k==='pendentes'){cols=['Data','Ticket','Placa','Motorista','Pedido','Nº da nota','Líquido (kg)','Situação'];
+      rows=l.filter(v=>!v.tem_pdf&&!v.nf_dispensada).map(v=>[rBr(v.data),rTk(v.ticket),v.placa,v.motorista,v.pedido||'—',v.nf_numero||'—',rNf(v.liquido_kg),v.nf_numero?'falta o PDF':'falta nº e PDF']);}
+    if(k==='usuarios'){cols=['Usuário','Chegadas','Taras','Brutos (saídas)','Notas lançadas'];
+      const u={},add=(n,i)=>{if(!n)return;n=String(n).trim();(u[n]=u[n]||[0,0,0,0])[i]++;};
+      todos.forEach(v=>{add(v.porteiro,0);if(v.entrada_em)add(v.porteiro_tara||v.porteiro,1);if(v.saida_em)add(v.porteiro_saida,2);if(v.nf_em)add(v.nf_por,3);});
+      rows=Object.entries(u).sort((a,b)=>b[1][0]-a[1][0]).map(([n,v])=>[n,...v]);}
+    kpis=[['Viagens pesadas',l.length],['Toneladas',rNf(sT(l),2)],['Valor das notas',rBrl(val(l))],['Espera média da tara',rHmin(rMed(todos.map(esp)))],['Total médio no pátio',rHmin(rMed(l.map(tt)))]];
+  }
+  const num=cols.map((c,i)=>rows.length&&rows.every(rw=>rw[i]==null||/^[-+]?(R\$ )?[\d.,]+%?$|^-?\d+h\d{2}$|^—$/.test(String(rw[i]))));
+  return {titulo:r.t,sub:`${rBr(_rIni)} a ${rBr(_rFim)} · ${rows.length} linha(s)`,cols,rows,tot,kpis,num};
+}
+function relBox(D){
+  const L=D.d.relatorios||[];if(!L.length)return '';
+  if(!_rf||!L.includes(_rf))_rf=L[0];if(!_rIni){_rIni=D.hoje.slice(0,8)+'01';_rFim=D.hoje;}
+  const J=_rDados[rChave()];_rOut=J?relCalc(_rf,_rk,J):null;const o=_rOut;
+  const lista=R_REL[_rf].map(r=>`<button class="rel-it${_rk===r.k?' on':''}" onclick="_rk='${r.k}';render()"><b>${r.t}</b><span>${r.d}</span></button>`).join('');
+  const corpo=_rCarr?'<div class="vazio">⏳ Carregando o relatório…</div>':_rErro?`<div class="vazio" style="color:#B91C1C">${esc(_rErro)}<br><br><button class="bt" onclick="relCarregar()">Tentar de novo</button></div>`:!o?'<div class="vazio">Escolha o período.</div>'
+    :`<div class="rbar"><div><b>${esc(o.titulo)}</b> <span>${esc(o.sub)}</span></div><div class="rbt"><button class="chip" onclick="relImprimir()">🖨️ Imprimir</button><button class="chip" onclick="relPdf()">📄 PDF</button><button class="chip on" onclick="relExcel()">⬇️ Excel</button></div></div>
+      <div class="rk">${o.kpis.map(([l,v])=>`<div><b>${esc(v)}</b><span>${esc(l)}</span></div>`).join('')}</div>
+      <div class="rtw"><table class="rt"><thead><tr>${o.cols.map((c,i)=>`<th class="${o.num[i]?'n':''}">${esc(c)}</th>`).join('')}</tr></thead><tbody>
+      ${o.rows.length?o.rows.map(rw=>`<tr>${rw.map((v,i)=>`<td class="${o.num[i]?'n':''}">${esc(v)}</td>`).join('')}</tr>`).join(''):`<tr><td colspan="${o.cols.length}" style="text-align:center;color:#94A3B8;padding:18px">Nada no período.</td></tr>`}
+      ${o.tot&&o.rows.length?`<tr class="tt">${o.tot.map((v,i)=>`<td class="${o.num[i]?'n':''}">${esc(v)}</td>`).join('')}</tr>`:''}</tbody></table></div>`;
+  return `<div class="box relbox"><div class="bh"><h2>📑 Relatórios da portaria</h2><span>DSM e Intercement · os mesmos relatórios da portaria da fábrica</span></div>
+    <div class="rtop">${L.length>1?`<div class="rfo">${L.map(f=>`<button class="${_rf===f?'on':''}" onclick="rFonte('${f}')">${f==='dsm'?'🚛':'🪨'} ${R_FONTES[f]}</button>`).join('')}</div>`:`<b class="rf1">${R_FONTES[_rf]}</b>`}
+      <div class="rper"><input type="date" value="${_rIni}" onchange="_rIni=this.value;relCarregar()"><span>a</span><input type="date" value="${_rFim}" onchange="_rFim=this.value;relCarregar()">
+      <button class="chip" onclick="rPer(7)">7 dias</button><button class="chip" onclick="rPer(30)">30 dias</button><button class="chip" onclick="rPer('mes')">Este mês</button></div></div>
+    <div class="rgrid"><div class="rlista">${lista}</div><div class="rout">${corpo}</div></div></div>`;
+}
+/* ── imprimir / PDF / Excel (cabeçalho da empresa) ── */
+const R_CSS=`<style>.rp{font-family:'Plus Jakarta Sans',Arial,sans-serif;color:#1e293b;font-size:10.5px;line-height:1.4}
+.rp-hd{display:flex;align-items:stretch;border:1.5px solid #042D4D;border-radius:6px;overflow:hidden;margin-bottom:12px}
+.rp-hd .e{flex:1.4;padding:10px 12px;display:flex;gap:12px;align-items:center}.rp-hd .e img{max-height:38px;max-width:150px}
+.rp-hd .e .rz{font-weight:800;font-size:11.5px;color:#042D4D}.rp-hd .e .dd{font-size:8.5px;color:#475569;margin-top:2px}
+.rp-hd .t{flex:1;background:#042D4D;color:#fff;padding:10px 14px;display:flex;flex-direction:column;justify-content:center}
+.rp-hd .t b{font-size:13px;letter-spacing:.3px;color:#C9FF64}.rp-hd .t span{font-size:9px;opacity:.9;margin-top:2px}
+.rp-k{display:flex;gap:8px;margin:0 0 12px}.rp-k div{flex:1;border:1px solid #cbd5e1;border-top:3px solid #042D4D;border-radius:5px;padding:7px 9px}
+.rp-k b{display:block;font-size:15px;color:#042D4D}.rp-k span{font-size:8.5px;color:#64748b;text-transform:uppercase;letter-spacing:.3px}
+.rp table{width:100%;border-collapse:collapse;font-size:9px}.rp th{background:#042D4D;color:#fff;padding:5px 6px;text-align:left;font-weight:700;font-size:8.5px}
+.rp td{padding:4.5px 6px;border-bottom:1px solid #e2e8f0;vertical-align:top}.rp tr:nth-child(even) td{background:#f8fafc}
+.rp .n{text-align:right;white-space:nowrap}.rp tr.tt td{background:#e2e8f0!important;font-weight:800;border-top:1.5px solid #042D4D}
+.rp .ft{margin-top:14px;border-top:1px solid #cbd5e1;padding-top:5px;font-size:8px;color:#64748b;display:flex;justify-content:space-between}</style>`;
+function relHtml(){
+  const o=_rOut,J=_rDados[rChave()]||{},e=J.empresa||{},b=_brand||{};
+  let logo=e.logo||b.logo||'';if(logo&&!/^data:|^https?:/.test(logo))logo='data:image/png;base64,'+logo;
+  const end=[e.rua&&(e.rua+(e.numero?', '+e.numero:'')),e.bairro,e.cidade&&(e.cidade+'/'+(e.uf||e.estado||'')),e.cep&&('CEP '+e.cep)].filter(Boolean).join(' · ');
+  const C=o.cols.map((c,i)=>({t:c,n:o.num[i]}));
+  return `${R_CSS}<div class="rp"><div class="rp-hd"><div class="e">${logo?`<img src="${esc(logo)}">`:''}<div><div class="rz">${esc(e.razao_social||b.razao_social||'SILICATE')}</div>
+      <div class="dd">CNPJ ${esc(e.cnpj||'—')}${e.ie?' · IE '+esc(e.ie):''}</div><div class="dd">${esc(end)}</div></div></div>
+    <div class="t"><b>RELATÓRIO — ${esc(o.titulo.toUpperCase())}</b><span>${esc(R_FONTES[_rf])} · ${esc(o.sub)}</span><span>Emitido em ${new Date().toLocaleString('pt-BR')} · ${esc((_d&&_d.d.representante)||'')}</span></div></div>
+    <div class="rp-k">${o.kpis.map(([l,v])=>`<div><b>${esc(v)}</b><span>${esc(l)}</span></div>`).join('')}</div>
+    <table><thead><tr>${C.map(c=>`<th${c.n?' class="n"':''}>${esc(c.t)}</th>`).join('')}</tr></thead><tbody>
+    ${o.rows.map(r=>`<tr>${r.map((v,i)=>`<td${C[i].n?' class="n"':''}>${esc(v==null?'—':v)}</td>`).join('')}</tr>`).join('')}
+    ${o.tot?`<tr class="tt">${o.tot.map((v,i)=>`<td${C[i].n?' class="n"':''}>${esc(v==null?'':v)}</td>`).join('')}</tr>`:''}</tbody></table>
+    <div class="ft"><span>Portaria · ${esc(R_FONTES[_rf])}</span><span>Portal do representante</span></div></div>`;
+}
+const relNome=()=>`${R_FONTES[_rf]} - ${_rOut.titulo} - ${rBr(_rIni).replace(/\//g,'-')} a ${rBr(_rFim).replace(/\//g,'-')}`;
+function relImprimir(){
+  if(!_rOut)return;const p=!!R_PAIS[_rk],w=window.open('','_blank');if(!w){alert('Permita pop-ups para imprimir.');return;}
+  w.document.write(`<html><head><title>${esc(relNome())}</title><link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;700;800&display=swap" rel="stylesheet"><style>@page{size:A4 ${p?'landscape':'portrait'};margin:10mm}body{margin:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}</style></head><body>${relHtml()}</body></html>`);
+  w.document.close();const ok=()=>Promise.all([...w.document.images].map(i=>i.complete?1:new Promise(r=>{i.onload=i.onerror=r;}))).then(()=>setTimeout(()=>w.print(),350));
+  if(w.document.readyState==='complete')ok();else w.onload=ok;
+}
+let _rH2p=null,_rXl=null;
+const rScript=src=>new Promise((ok,er)=>{const s=document.createElement('script');s.src=src;s.onload=ok;s.onerror=er;document.head.appendChild(s);});
+async function relPdf(){
+  if(!_rOut)return;const p=!!R_PAIS[_rk],nome=relNome()+'.pdf';
+  if(!_rH2p)_rH2p=rScript('https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js');
+  try{await _rH2p;}catch(e){_rH2p=null;alert('Não carregou o gerador de PDF — use 🖨️ Imprimir e "Salvar como PDF".');return;}
+  await window.html2pdf().set({margin:[9,9,13,9],filename:nome,image:{type:'jpeg',quality:0.96},html2canvas:{scale:2,useCORS:true},jsPDF:{unit:'mm',format:'a4',orientation:p?'landscape':'portrait'},pagebreak:{mode:['css','legacy'],avoid:['tr']}})
+    .from(`<div style="width:${p?1040:720}px;background:#fff;">${relHtml()}</div>`,'string').toPdf().get('pdf').then(pdf=>{
+      const n=pdf.internal.getNumberOfPages(),W=pdf.internal.pageSize.getWidth(),H=pdf.internal.pageSize.getHeight();
+      for(let i=1;i<=n;i++){pdf.setPage(i);pdf.setFontSize(7.5);pdf.setTextColor(100);pdf.text(`Página ${i} de ${n}`,W-9,H-5,{align:'right'});pdf.text(nome.replace(/\.pdf$/,''),9,H-5);}
+    }).save();
+}
+async function relExcel(){
+  if(!_rOut)return;if(!_rXl)_rXl=rScript('https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js');
+  try{await _rXl;}catch(e){_rXl=null;alert('Não carregou o gerador de Excel. Tente de novo.');return;}
+  const o=_rOut,J=_rDados[rChave()]||{},e=J.empresa||{};
+  const ws=XLSX.utils.aoa_to_sheet([[e.razao_social||'SILICATE'],[`Relatório ${R_FONTES[_rf]} — ${o.titulo} — ${o.sub}`],[],o.cols,...o.rows,...(o.tot?[o.tot]:[])]);
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,o.titulo.slice(0,30));XLSX.writeFile(wb,relNome()+'.xlsx');
+}
+function irRel(){_aba='rel';render();if(!_rDados[rChave()])relCarregar();const t=[...document.querySelectorAll('.tabs,.seg')].find(x=>x.offsetParent);if(t)t.scrollIntoView({behavior:'smooth',block:'start'});}
 function irCarr(){_aba='carr';render();const t=[...document.querySelectorAll('.tabs,.seg')].find(x=>x.offsetParent);if(t)t.scrollIntoView({behavior:'smooth',block:'start'});}
 function render(){
   if(!_d)return;const D=_d,h=D.hoje,meus=D.meus;
@@ -513,11 +741,11 @@ function render(){
     <div class="nota" style="margin:0 18px 16px;">🔒 Aqui aparecem só os <b>seus</b> pedidos. A NF e o laudo saem pelo número do pedido — quando um caminhão leva pedidos de outros representantes, você vê só os do seu cliente.</div>`
     :`<div class="vazio">Nenhum pedido carregado desde ${fmtD(D.d.docs_desde||'')}.</div>`}</div>`;
 
-  const segm=`<div class="seg"><button class="${_aba==='ped'?'on':''}" onclick="_aba='ped';render()">Pedidos</button><button class="${_aba==='cal'?'on':''}" onclick="_aba='cal';render()">Dias livres</button><button class="${_aba==='carr'?'on':''}" onclick="_aba='carr';render()">Carregados</button></div>`;
-  const tabs=`<div class="tabs"><button class="${_aba!=='carr'?'on':''}" onclick="_aba='ped';render()">📋 Programação <span class="n">${meus.length} em aberto</span></button>
-    <button class="${_aba==='carr'?'on':''}" onclick="irCarr()">🚚 Carregados <span class="n">${D.carr.length}</span>${nHoje?`<span class="hj">${nHoje} hoje</span>`:''}</button></div>`;
+  const segm=`<div class="seg"><button class="${_aba==='ped'?'on':''}" onclick="_aba='ped';render()">Pedidos</button><button class="${_aba==='cal'?'on':''}" onclick="_aba='cal';render()">Dias livres</button><button class="${_aba==='carr'?'on':''}" onclick="_aba='carr';render()">Carregados</button>${(D.d.relatorios||[]).length?`<button class="${_aba==='rel'?'on':''}" onclick="irRel()">Relatórios</button>`:''}</div>`;
+  const tabs=`<div class="tabs"><button class="${_aba!=='carr'&&_aba!=='rel'?'on':''}" onclick="_aba='ped';render()">📋 Programação <span class="n">${meus.length} em aberto</span></button>
+    <button class="${_aba==='carr'?'on':''}" onclick="irCarr()">🚚 Carregados <span class="n">${D.carr.length}</span>${nHoje?`<span class="hj">${nHoje} hoje</span>`:''}</button>${(D.d.relatorios||[]).length?`<button class="${_aba==='rel'?'on':''}" onclick="irRel()">📑 Relatórios <span class="n">${(D.d.relatorios||[]).map(f=>R_FONTES[f]).join(' · ')}</span></button>`:''}</div>`;
   const b=_brand||{};
-  document.getElementById('app').innerHTML=cabecalho(D)+`<div class="wrap${_aba==='carr'?' ab-carr':''}">${kpis}${atrasos}${alertaRec}${alerta}${patioHtml(D)}${tabs}${segm}<div class="cols">${boxPed}${boxCal}</div><div class="cols c2">${boxCarr}</div></div>
+  document.getElementById('app').innerHTML=cabecalho(D)+`<div class="wrap${_aba==='carr'?' ab-carr':_aba==='rel'?' ab-rel':''}">${kpis}${atrasos}${alertaRec}${alerta}${patioHtml(D)}${tabs}${segm}<div class="cols">${boxPed}${boxCal}</div><div class="cols c2">${boxCarr}</div>${relBox(D)}</div>
     <div class="ft"><span>${esc(b.razao_social||'')}${b.razao_social?' · ':''}acesso exclusivo — não compartilhe sua senha</span><span>Para mudar uma data já programada, fale com a programação da fábrica.</span></div>`;
 }
 
