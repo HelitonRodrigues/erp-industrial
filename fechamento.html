@@ -416,7 +416,11 @@ async function gerar(){
       todos(()=>_supabase.from('granel_saidas_dsm').select('id,produto,data,kg').gte('data',inicio).lte('data',D).order('id')),
     ]);
     if(meu!==_gerando) return;
+    // (26/11) 🚧 cargas fora da fábrica na data: criadas até o fim do dia e ainda não resolvidas naquele dia
+    let cfora=[];
+    try{ const fimD=_somaDias(D,1)+'T03:00:00Z'; const {data,error}=await _supabase.from('cargas_fora').select('*').lt('criado_em',fimD).or(`status.eq.aberta,resolvido_em.gte.${fimD}`).order('criado_em'); if(!error) cfora=data||[]; }catch(e){}
     _R=calcular({D,D1,EI,ops,ins,movIns,fItens,fMov,bombas,entr,regs,prods,cargas,dsm});
+    _R.cfora=cfora;
     render();
   }catch(e){
     console.error(e);
@@ -443,7 +447,7 @@ function calcular(x){
   const quar=new Set(PA_FAB.filter(g=>g.quar).flatMap(g=>g.itens.map(i=>norm(i[1]))));
   const fora={};
   opsP.filter(p=>p.dia<=D).forEach(p=>{ if(!noModelo.has(p.k)) fora[p.k]=p.nome; });
-  _PA.filter(r=>['estoque_inicial','carregamento','diferenca'].includes(r.motivo)).forEach(r=>{ const k=norm(r.produto); if(!noModelo.has(k)) fora[k]=r.produto; });
+  _PA.filter(r=>['estoque_inicial','carregamento','diferenca','retorno_carga'].includes(r.motivo)).forEach(r=>{ const k=norm(r.produto); if(!noModelo.has(k)) fora[k]=r.produto; });
   const grupos=PA_FAB.map(g=>({g:g.g,cor:g.cor,itens:g.itens.map(([rot,erp])=>({rot,k:norm(erp)}))}));
   if(Object.keys(fora).length) grupos.push({g:'OUTROS',cor:'--g4',itens:Object.entries(fora).map(([k,n])=>({rot:String(n).toUpperCase(),k}))});
 
@@ -470,9 +474,10 @@ function calcular(x){
     const reprovado=ps.filter(p=>p.status==='reprovado').reduce((a,p)=>a+p.s,0);
     const pa=m=>_PA.filter(r=>r.motivo===m&&norm(r.produto)===it.k&&depois(r.data));
     const cs=carrAuto.filter(c=>c.k===it.k&&depois(c.data));
-    const carr=cs.reduce((a,c)=>a+c.q,0);
+    const ret=pa('retorno_carga');   // (26/11) carga fora da fábrica que voltou: entra de volta no estoque
+    const carr=cs.reduce((a,c)=>a+c.q,0)-ret.reduce((a,r)=>a+num(r.sacos),0);
     const dif=pa('diferenca').reduce((a,r)=>a+num(r.sacos),0);
-    const carrDia=cs.filter(c=>c.data===D).reduce((a,c)=>a+c.q,0);
+    const carrDia=cs.filter(c=>c.data===D).reduce((a,c)=>a+c.q,0)-ret.filter(r=>r.data===D).reduce((a,r)=>a+num(r.sacos),0);
     if(!ei&&(produzido||carr||dif)) semEI.push(it.rot);
     Object.assign(it,{prod:prodDia,anal:emAnalise,carr:carrDia,lib:(ei?num(ei.sacos):0)+produzido-emAnalise-reprovado-dif-carr,
       det:{ei:ei?num(ei.sacos):null,de,produzido,emAnalise,reprovado,dif,carr}});
@@ -601,13 +606,23 @@ function folhaRev(id,grupos){
     corpo(grupos,(it,cel)=>`<td class="nm">${esc(it.rot)}</td>${cel}${td(it.ent)}<td class="n"></td>${td(it.carr)}<td class="lib">${fmt(it.lib)}</td>`)+
     `<tr class="tot"><td>TOTAL</td><td></td>${td(s('ent'))}<td></td>${td(s('carr'))}${td(s('lib'))}</tr></tbody></table>`+fim;
 }
+/* (26/11) 🚧 carga que saiu e não chegou ao cliente (caminhão quebrou…): já saiu do estoque, fica aqui até voltar/resolver */
+function folhaCargaFora(){
+  const l=_R.cfora||[]; if(!l.length) return '';
+  const dias=c=>Math.max(0,Math.round((new Date(_R.D+'T12:00:00')-new Date(String(c.saiu_em||c.criado_em).slice(0,10)+'T12:00:00'))/864e5));
+  return `<div class="fd-folha" style="padding:14px 18px;"><div style="font-weight:800;color:#92400e;font-size:14px;margin-bottom:6px;">🚧 CARGA FORA DA FÁBRICA — já descontada do estoque acima</div>
+    <table style="width:100%;border-collapse:collapse;font-size:12px;"><tr style="background:#fef3c7;"><th style="text-align:left;padding:5px 6px;">Caminhão</th><th style="text-align:left;padding:5px 6px;">Ordem</th><th style="text-align:left;padding:5px 6px;">Carga</th><th style="text-align:left;padding:5px 6px;">Motivo</th><th style="text-align:right;padding:5px 6px;">Fora há</th></tr>
+    ${l.map(c=>`<tr style="border-bottom:1px solid #fde68a;"><td style="padding:5px 6px;"><b>${esc(c.placa)}</b> ${esc(c.motorista||'')}</td><td style="padding:5px 6px;">${esc(c.ordem_numero)}${c.recoleta_numero?' → recoleta '+esc(c.recoleta_numero):''}</td>
+      <td style="padding:5px 6px;">${(c.produtos||[]).map(p=>`${fmt(num(p.pallets))} plt ${esc(p.produto)} · <b>${fmt(num(p.sacos))}</b>`).join('<br>')}</td><td style="padding:5px 6px;">${esc(c.motivo)}${c.obs?' — '+esc(c.obs):''}</td><td style="padding:5px 6px;text-align:right;"><b>${dias(c)} dia(s)</b></td></tr>`).join('')}</table></div>`;
+}
 function render(){
-  let h=folhaPAFab()+folhaInsFab()+folhaFPA()+folhaInsMin('f-td','ESTOQUE DE INSUMOS',_R.fTD)+
+  let h=folhaPAFab()+folhaCargaFora()+folhaInsFab()+folhaFPA()+folhaInsMin('f-td','ESTOQUE DE INSUMOS',_R.fTD)+
         folhaInsMin('f-fins','ESTOQUE DE INSUMOS',_R.fIns)+folhaRev('f-prep',_R.fPrep)+folhaRev('f-tin',_R.fTin);
   if(_R.fFora.length) h+=`<div class="fd-folha no-print"><b style="color:var(--primary);">Itens da Felisbina fora do modelo do fechamento</b>
     <div class="fd-outros">${_R.fFora.map(i=>`${esc(i.nome)} (${esc(i.grupo)}): <b>${fmt(_R.fSaldo[i.id]||0,'a')}</b>`).join(' · ')}</div></div>`;
   document.getElementById('fd-folhas').innerHTML=h;
   const av=_R.avisos.slice();
+  (_R.cfora||[]).forEach(c=>av.unshift(`🚧 <b>Carga fora da fábrica:</b> ${esc(c.placa)} · ordem ${esc(c.ordem_numero)} · ${(c.produtos||[]).map(p=>esc(p.produto)+' '+fmt(num(p.sacos))).join(' + ')} — já descontada do estoque; ${esc(c.motivo).toLowerCase()} em ${dBR(String(c.saiu_em||c.criado_em).slice(0,10))}.`));
   if(_R.D===_hoje()) av.unshift('<b>Dia ainda aberto.</b> A madrugada de amanhã e os lançamentos que faltam ainda vão mudar os números.');
   document.getElementById('fx-avisos').innerHTML=[...new Set(av)].map(t=>`<div class="fx-av"><span class="ic">⚠️</span><span>${t}</span></div>`).join('');
 }

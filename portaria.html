@@ -1065,6 +1065,7 @@ const PDFJS_WORKER='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.w
 const TESSERACT='https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';
 
 let _veic=[], _ordens=[], _itens=[], _mot=[], _cargas=[], _hist=[], _aba='fila', _carregando=false;
+let _cfora=[];   // (26/11) 🚧 cargas fora da fábrica abertas
 let _prodFel=[];   // produtos da Felisbina — não têm QR (o Carregamento não pede bipagem)
 let _troca=null;   // (16/11) 🔄 mudar a carga: {portId,ordemId,numero,placa,em} — a ordem nova SUBSTITUI a do caminhão
 let _imp=null, _impArq=null, _impUrl=null, _unidades=[], _pesoPallet=28, _cfgLida=false, _prodErp=[], _aliases=[];
@@ -1109,6 +1110,7 @@ async function carregarTudo(avisar){
       db(_supabase.from('romaneios').select('*').order('importado_em',{ascending:false}).limit(400),'carregar ordens'),
       db(selectTodos(_supabase.from('motoristas').select('*').order('nome')),'carregar motoristas'),
     ]);
+    try{const {data:cf,error:ecf}=await _supabase.from('cargas_fora').select('*').eq('status','aberta').order('criado_em');_cfora=ecf?[]:(cf||[]);}catch(e){_cfora=[];}
     if(!_unidades.length){const {data:ub}=await _supabase.from('barracoes').select('nome,ordem').order('ordem'); _unidades=(ub||[]).map(b=>b.nome).filter(Boolean);}
     if(!_prodErp.length){const [pp,aa]=await Promise.all([_supabase.from('produtos').select('id,nome,unidade,peso_unidade_kg,linhas,status').order('nome'),_supabase.from('produto_aliases').select('alias_norm,produto_id,produto_nome')]);
       _prodErp=(pp.data||[]).filter(p=>p.status!=='inativo'); _aliases=aa.data||[];
@@ -1276,7 +1278,7 @@ function avisoEsquecidos(){
 function renderFila(){
   const car=_veic.filter(v=>v.status==='carregando').sort((a,b)=>Date.parse(a.inicio_carregamento||a.hora_chegada)-Date.parse(b.inicio_carregamento||b.hora_chegada));
   const f=fila(), prox=proximo(), el=document.getElementById('fila');
-  if(!f.length&&!car.length){el.innerHTML=avisoEsquecidos()+'<div class="card empty-state" style="padding:30px;"><div class="empty-icon">🚪</div><h3>Nenhum caminhão na portaria</h3><p>Use <b>＋ Registrar chegada</b> quando o caminhão chegar.</p></div>';return;}
+  if(!f.length&&!car.length){el.innerHTML=avisoCargasFora()+avisoEsquecidos()+'<div class="card empty-state" style="padding:30px;"><div class="empty-icon">🚪</div><h3>Nenhum caminhão na portaria</h3><p>Use <b>＋ Registrar chegada</b> quando o caminhão chegar.</p></div>';return;}
   const podeEditar=checkPerm(MOD,'edit');
   const ordemTxt=(o,v)=>{ if(!o){const sug=ordemSugerida(v.nome_motorista,v.placa);
       return `<a class="f-ord sem" onclick="abrirVincular('${v.id}')">📄 Sem ordem — vincular${sug?` · 💡 ${esc(sug.numero)}?`:''}</a>`;}
@@ -1301,7 +1303,7 @@ function renderFila(){
       <div class="f-mid">${ordemTxt(o,v)}<div class="f-meta">chegou ${hmDia(v.hora_chegada)}${v.celular?` · <a href="tel:${esc(String(v.celular).replace(/\D/g,''))}">${esc(v.celular)}</a>`:''}${v.peso_tara!=null?' · tara '+nf(v.peso_tara,2)+' t':''}</div></div>
       <div class="f-tempo ${m>=120?'muito':m>=60?'alta':''}"><b>${durTxt(esp)}</b><small>${st.t.toLowerCase()}</small></div>
       <div class="f-acoes" ${podeEditar?'':'style="opacity:.6;pointer-events:none;"'}>${principal}${ic('Anotação','btn-ghost',`anotar('${v.id}')`,'📝')}${ic('Editar','btn-ghost',`abrirChegada({edit:'${v.id}'})`,'✏️')}${ic('Excluir','btn-ghost del',`excluirPassagem('${v.id}')`,'🗑️')}${histBtn(v)}</div>${notasHtml(v)}</div>`;};
-  el.innerHTML=avisoEsquecidos()+car.map(linhaCarr).join('')+(car.length&&f.length?'<div class="f-sep">Fila de espera — por ordem de chegada</div>':'')+f.map(linhaFila).join('');
+  el.innerHTML=avisoCargasFora()+avisoEsquecidos()+car.map(linhaCarr).join('')+(car.length&&f.length?'<div class="f-sep">Fila de espera — por ordem de chegada</div>':'')+f.map(linhaFila).join('');
 }
 /* ── PRODUTO DA ORDEM → PRODUTO DO ERP (produtos.html) ──
    O sistema de vendas escreve diferente ("CAULIM BIG BAG – BRANCO", "LIGA ORIGINAL CONCENTRADO").
@@ -2859,7 +2861,7 @@ function renderHistorico(){
     <td class="num">${v.hora_saida?durTxt(Date.parse(v.hora_saida)-Date.parse(v.hora_chegada)):'—'}</td>
     <td class="num">${v.peso_tara!=null?nf(v.peso_tara,2):'—'}</td><td class="num">${v.peso_bruto!=null?nf(v.peso_bruto,2):'—'}</td><td class="num">${v.peso_liquido!=null?nf(v.peso_liquido,2):'—'}</td><td class="num" title="${v.qtd_pallets?v.qtd_pallets+' pallet(s) × '+v.peso_pallet_kg+' kg':''}"><b>${v.peso_produto!=null?nf(v.peso_produto,3):'—'}</b></td>
     <td><span class="badge ${(ST[v.status]||ST.aguardando).b}">${(ST[v.status]||ST.aguardando).t}</span>${v.fura_fila_motivo?` <span title="${esc(v.fura_fila_motivo)}">⤴</span>`:''}</td>
-    <td style="white-space:nowrap;">${histBtn(v)}${v.status==='finalizado'?`<button class="btn btn-ghost btn-sm" title="Romaneio e certificados" onclick="abrirDocumentos('${v.id}')">🖨️</button>`:''}<button class="btn btn-ghost btn-sm" style="color:#dc2626;" title="Excluir registro" onclick="excluirPassagem('${v.id}')">🗑️</button></td></tr>`).join('')
+    <td style="white-space:nowrap;">${histBtn(v)}${v.status==='finalizado'?`<button class="btn btn-ghost btn-sm" title="Romaneio e certificados" onclick="abrirDocumentos('${v.id}')">🖨️</button>`:''}${cfBtn(v)}<button class="btn btn-ghost btn-sm" style="color:#dc2626;" title="Excluir registro" onclick="excluirPassagem('${v.id}')">🗑️</button></td></tr>`).join('')
     :'<tr><td colspan="13"><div class="empty-state" style="padding:24px;"><p>Nenhuma passagem no período.</p></div></td></tr>';
 }
 function csvHistorico(){
@@ -4427,7 +4429,7 @@ function fiDesenhar(){
     <div class="fi-mot">${esc(v.nome_motorista||'—')}</div><div class="fi-sub">${[v.cpf&&'CPF '+v.cpf,v.celular&&'📞 '+v.celular,v.transportadora&&'Transportadora '+v.transportadora].filter(Boolean).map(esc).join(' · ')}</div>
     <div class="fi-tabs">${abas.map(([k,t])=>`<button class="${_fi.aba===k?'on':''}" onclick="_fi.aba='${k}';fiDesenhar()">${t}</button>`).join('')}</div></div>
     ${corpo}
-    <div class="fi-ft"><button class="btn btn-secondary btn-sm" style="color:#b45309;border-color:#fcd34d;" onclick="document.getElementById('m-ficha').remove();voltarParaCarregamento('${v.id}')">↩ Voltar para o carregamento</button><span style="flex:1"></span>${histBtn(v).replace('🕑</button>','🕑 Histórico e fila</button>')}
+    <div class="fi-ft"><button class="btn btn-secondary btn-sm" style="color:#b45309;border-color:#fcd34d;" onclick="document.getElementById('m-ficha').remove();voltarParaCarregamento('${v.id}')">↩ Voltar para o carregamento</button><span style="flex:1"></span>${cfBtn(v).replace('>🚧</button>','>🚧 Caminhão quebrou</button>')}${histBtn(v).replace('🕑</button>','🕑 Histórico e fila</button>')}
       <button class="btn btn-secondary btn-sm" onclick="fiImprimirTudo()">🖨️ Imprimir tudo</button><button class="btn btn-primary btn-sm" onclick="document.getElementById('m-ficha').remove()">Fechar</button></div>`;
 }
 async function nfAbrir2(id){ const n=(_fi&&_fi.nfs||[]).find(x=>x.id===id)||(_nf.nfs||[]).find(x=>x.id===id); if(!n||!n.arquivo_path)return;
@@ -4500,6 +4502,84 @@ init();
    Tudo montado do que já existe (portaria, auditoria, portaria_chamados,
    carregamentos) — nada novo gravado e o card não muda para os porteiros. */
 const ehSADM=()=>{const u=(typeof getUser==='function'&&getUser())||{};return String(u.perfil||'').toUpperCase()==='SADM';};
+/* ═══ (26/11) 🚧 CARGA FORA DA FÁBRICA — caminhão que saiu carregado e quebrou (migração 203) ═══
+   Abrir (SADM/ADM): cria a ordem de RECOLETA (<nº>-2) para o caminhão que vem buscar (carga nova sai do estoque na bipagem)
+   e guarda os pallets que ficaram no caminhão parado. Fica na faixa da Portaria e no Fechamento até resolver:
+   🔙 voltou (pallets voltam ao estoque) · 🔀 outros pedidos · ❌ perda. */
+const ehAdmCF=()=>{const u=(typeof getUser==='function'&&getUser())||{};return (typeof PERFIS_ADMIN!=='undefined'?PERFIS_ADMIN:['SADM','ADM']).includes(String(u.perfil||'').toUpperCase());};
+const cfBtn=v=>v&&v.status==='finalizado'&&v.numero_ordem&&ehAdmCF()&&!_cfora.some(c=>c.portaria_id===v.id)?`<button class="btn btn-ghost btn-sm" title="Caminhão quebrou depois de sair — carga fora da fábrica e recoleta" onclick="event.stopPropagation();abrirCargaFora('${v.id}')">🚧</button>`:'';
+const cfResumo=c=>(c.produtos||[]).map(p=>`${nf(p.pallets)} plt ${esc(p.produto)} (${nf(p.sacos)} un)`).join(' + ')||'sem pallets bipados';
+function avisoCargasFora(){
+  if(!_cfora.length) return '';
+  const adm=ehAdmCF();
+  return `<div class="aviso" style="margin-bottom:10px;border-color:#f59e0b;background:#fffbeb;">🚧 <b>${_cfora.length===1?'Carga fora da fábrica':_cfora.length+' cargas fora da fábrica'}</b> — já saíram do estoque e ainda não voltaram:
+    ${_cfora.map(c=>`<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px;padding-top:6px;border-top:1px dashed #fcd34d;">
+      <span style="flex:1;min-width:240px;"><b>${esc(c.placa)}</b> · ${esc(c.motorista||'')} · ordem <b>${esc(c.ordem_numero)}</b> · ${cfResumo(c)}<br>
+      <span style="font-size:12px;color:#92400e;">${esc(c.motivo)} · fora há ${durTxt(Date.now()-Date.parse(c.saiu_em||c.criado_em))}${c.recoleta_numero?' · recoleta pela ordem <b>'+esc(c.recoleta_numero)+'</b>':''}${c.obs?' · '+esc(c.obs):''}</span></span>
+      ${adm?`<button class="btn btn-secondary btn-sm" onclick="resolverCargaFora('${c.id}')">✔ Resolver</button>`:''}</div>`).join('')}</div>`;
+}
+async function abrirCargaFora(portId){
+  if(!ehAdmCF()){toast('Só SADM/ADM.','warning');return;}
+  let v=_veic.find(x=>x.id===portId)||(_hist||[]).find(x=>x.id===portId);
+  if(!v){const r=await _supabase.from('portaria').select('*').eq('id',portId).maybeSingle();v=r.data;}
+  if(!v)return;
+  const pal=palletsCarregados({numero:v.numero_ordem});
+  const ov=document.createElement('div');ov.className='modal-overlay';ov.id='m-cf';ov.onclick=e=>{if(e.target===ov)ov.remove();};
+  ov.innerHTML=`<div class="modal" style="max-width:560px"><div class="modal-header"><div class="modal-title">🚧 Carga fora da fábrica</div><button class="modal-close" onclick="document.getElementById('m-cf').remove()">✕</button></div>
+    <div style="font-size:13.5px;line-height:1.6;color:#334155;margin-bottom:10px;"><b>${esc(v.placa)}</b> · ${esc(v.nome_motorista||'')} · ordem <b>${esc(v.numero_ordem)}</b><br>saiu ${dtBr(v.hora_saida)}${pal?' · '+pal+' pallet(s) bipados':''}</div>
+    <div class="aviso info" style="margin-bottom:12px;">O sistema vai:<br>• criar a <b>ordem de recoleta</b> (${esc(String(v.numero_ordem).replace(/-\d+$/,''))}-2) com os mesmos pedidos, para vincular no caminhão que vem buscar — a carga nova sai do estoque na bipagem;<br>• deixar os pallets deste caminhão como <b>carga fora da fábrica</b>, na Portaria e no Fechamento, até alguém resolver.</div>
+    <div class="form-group" style="margin-bottom:10px"><label class="form-label">O que aconteceu <span class="req">*</span></label><select class="form-input" id="cf-mot"><option>Caminhão quebrou</option><option>Acidente</option><option>Carga recusada pelo cliente</option><option>Outro</option></select></div>
+    <div class="form-group"><label class="form-label">Observação</label><input class="form-input" id="cf-obs" maxlength="300" placeholder="ex.: quebrou na estrada perto de Bauru, sem previsão de conserto"></div>
+    <div class="modal-footer" style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;"><button class="btn btn-secondary" onclick="document.getElementById('m-cf').remove()">Voltar</button><button class="btn btn-primary" id="cf-ok" onclick="salvarCargaFora('${v.id}')">🚧 Registrar e criar recoleta</button></div></div>`;
+  document.body.appendChild(ov);
+}
+async function salvarCargaFora(portId){
+  const b=document.getElementById('cf-ok');b.disabled=true;
+  const {data,error}=await _supabase.rpc('carga_fora_abrir',{p_portaria_id:portId,p_motivo:document.getElementById('cf-mot').value,p_obs:document.getElementById('cf-obs').value,p_usuario:quemSou()});
+  b.disabled=false;
+  if(error){toast('Não registrou: '+error.message,'error');return;}
+  document.getElementById('m-cf').remove();
+  await erpAlert(`Pronto. Ordem de recoleta ${data.recoleta} criada — quando o caminhão que vem buscar chegar, vincule a ordem ${data.recoleta} nele.\n\n${data.pallets} pallet(s) ficaram como carga fora da fábrica até alguém resolver.`,{titulo:'🚧 Carga fora da fábrica',tipo:'ok'});
+  await carregarTudo();if(typeof carregarHistorico==='function'&&_aba==='historico')carregarHistorico();
+}
+let _cfRes=null;
+function resolverCargaFora(id){
+  if(!ehAdmCF())return;const c=_cfora.find(x=>x.id===id);if(!c)return;_cfRes={id,tipo:null};
+  const ov=document.createElement('div');ov.className='modal-overlay';ov.id='m-cfr';ov.onclick=e=>{if(e.target===ov)ov.remove();};
+  const op=(k,ic,t,d)=>`<button type="button" class="cfr-op" data-k="${k}" onclick="cfTipo('${k}')" style="text-align:left;border:1.5px solid #e2e8f0;background:#fff;border-radius:12px;padding:10px 12px;cursor:pointer;font:inherit;"><b style="font-size:14px;color:#042D4D;">${ic} ${t}</b><div style="font-size:12px;color:#64748b;margin-top:2px;">${d}</div></button>`;
+  ov.innerHTML=`<div class="modal" style="max-width:600px"><div class="modal-header"><div class="modal-title">✔ Resolver carga fora da fábrica</div><button class="modal-close" onclick="document.getElementById('m-cfr').remove()">✕</button></div>
+    <div style="font-size:13.5px;line-height:1.6;color:#334155;margin-bottom:10px;"><b>${esc(c.placa)}</b> · ordem <b>${esc(c.ordem_numero)}</b> · ${cfResumo(c)}<br><span style="color:#92400e;">${esc(c.motivo)} · fora desde ${dtBr(c.saiu_em||c.criado_em)}</span></div>
+    <div style="display:flex;flex-direction:column;gap:8px;">
+      ${op('voltou','🔙','Voltou para a fábrica','Os pallets voltam para o estoque (pelos mesmos códigos) e o fechamento soma de volta hoje.')}
+      ${op('outros_pedidos','🔀','Liberada para outros pedidos','A carga que estava no caminhão foi vendida para outros pedidos — eles ficam como carregados. Não volta estoque.')}
+      ${op('perda','❌','Perda / avaria','Baixa definitiva. Não volta estoque.')}</div>
+    <div class="form-group" id="cfr-peds-g" style="display:none;margin-top:12px;"><label class="form-label">Pedidos que levaram a carga <span class="req">*</span></label><input class="form-input" id="cfr-peds" placeholder="ex.: A01N40, A01N41" oninput="cfPedidos()" style="text-transform:uppercase"><div id="cfr-peds-i" style="font-size:12px;margin-top:4px;"></div></div>
+    <div class="form-group" style="margin-top:12px;"><label class="form-label">Observação</label><input class="form-input" id="cfr-obs" maxlength="300"></div>
+    <div class="modal-footer" style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;"><button class="btn btn-secondary" onclick="document.getElementById('m-cfr').remove()">Voltar</button><button class="btn btn-primary" id="cfr-ok" disabled onclick="salvarResolucaoCF()">✔ Resolver</button></div></div>`;
+  document.body.appendChild(ov);
+}
+function cfTipo(k){_cfRes.tipo=k;document.querySelectorAll('.cfr-op').forEach(b=>{const on=b.dataset.k===k;b.style.borderColor=on?'#042D4D':'#e2e8f0';b.style.background=on?'#f0f7ff':'#fff';});
+  document.getElementById('cfr-peds-g').style.display=k==='outros_pedidos'?'':'none';document.getElementById('cfr-ok').disabled=false;}
+const cfLista=()=>[...new Set(String(document.getElementById('cfr-peds').value||'').toUpperCase().split(/[\s,;]+/).map(x=>x.trim()).filter(Boolean))];
+let _cfPedT=null;
+function cfPedidos(){clearTimeout(_cfPedT);_cfPedT=setTimeout(async()=>{const l=cfLista(),el=document.getElementById('cfr-peds-i');if(!l.length){el.innerHTML='';return;}
+  const {data}=await _supabase.from('programacao_cargas').select('pedido,cliente_salescode,planilha,carregado,cancelado').in('pedido',l);
+  el.innerHTML=l.map(p=>{const c=(data||[]).find(x=>x.pedido===p);return !c?`<span style="color:#b91c1c;font-weight:700;">⚠️ ${esc(p)} não encontrado</span>`
+    :c.cancelado?`<span style="color:#b91c1c;font-weight:700;">⚠️ ${esc(p)} cancelado</span>`:c.carregado?`<span style="color:#b45309;font-weight:700;">${esc(p)} já carregado (fica como está)</span>`
+    :`<span style="color:#166534;font-weight:700;">✓ ${esc(p)} · ${esc((c.planilha&&c.planilha.cliente)||c.cliente_salescode||'')}</span>`;}).join('<br>');},350);}
+async function salvarResolucaoCF(){
+  const r=_cfRes;if(!r||!r.tipo)return;const peds=r.tipo==='outros_pedidos'?cfLista():null;
+  if(r.tipo==='outros_pedidos'&&!peds.length){toast('Informe os pedidos.','warning');return;}
+  const c=_cfora.find(x=>x.id===r.id);
+  const msg=r.tipo==='voltou'?`Os ${(c.pallets||[]).length} pallet(s) da ordem ${c.ordem_numero} voltam para o estoque hoje.`:r.tipo==='outros_pedidos'?`A carga fica como dos pedidos ${peds.join(', ')}, que passam a carregados.`:'A carga fica como perda — não volta estoque.';
+  if(!(await erpConfirm(msg+'\n\nConfirma?',{titulo:'✔ Resolver carga fora da fábrica',ok:'Confirmar',cancelar:'Voltar'})))return;
+  const b=document.getElementById('cfr-ok');b.disabled=true;
+  const {data,error}=await _supabase.rpc('carga_fora_resolver',{p_id:r.id,p_tipo:r.tipo,p_obs:document.getElementById('cfr-obs').value,p_pedidos:peds,p_usuario:quemSou()});
+  b.disabled=false;if(error){toast('Não resolveu: '+error.message,'error');return;}
+  document.getElementById('m-cfr').remove();
+  toast(r.tipo==='voltou'?`${data.pallets} pallet(s) de volta ao estoque.`:r.tipo==='outros_pedidos'?`${data.pedidos} pedido(s) marcados como carregados.`:'Registrado como perda.','success');
+  carregarTudo();
+}
 const histBtn=v=>ehSADM()?`<button class="btn btn-ghost btn-sm hp-btn" title="Histórico da passagem e da fila (SADM)" onclick="event.stopPropagation();abrirHistPassagem('${v.id}')">🕑</button>`:'';
 (function(){const s=document.createElement('style');s.textContent=`
 .hp-btn{background:#f5f3ff!important;border-color:#ddd6fe!important}

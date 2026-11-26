@@ -1074,6 +1074,9 @@ async function carregarPA(){
   cargas.forEach(c=>(c.itens||[]).forEach(i=>{ if(!i||i.doador||!i.produto||/\(felisbina\)/i.test(i.produto)) return; const k=N(i.produto), o=pk(k,i.produto), d=String(c.data).slice(0,10);
     const q=(i.unidade==='t'||Number(i.ton)>0)?Number(i.ton)*1000:Number(i.sacos)||0; if(dep(o,d)){ o.carr+=q; if(d===D) o.carrD+=q; } }));
   dsm.forEach(r=>{ const k=N(r.produto), o=pk(k,r.produto), d=String(r.data).slice(0,10), q=Number(r.kg)||0; if(dep(o,d)){ o.carr+=q; if(d===D) o.carrD+=q; } });
+  // (26/11) carga fora da fábrica que voltou: soma de volta (aparece negativa no carregado do dia)
+  PA.filter(r=>r.motivo==='retorno_carga').forEach(r=>{ const k=N(r.produto), o=pk(k,r.produto), q=Number(r.sacos)||0; if(dep(o,r.data)){ o.carr-=q; if(r.data===D) o.carrD-=q; } });
+  try{ const fimD=D1+'T03:00:00Z'; const {data:cf,error:ecf}=await _supabase.from('cargas_fora').select('*').lt('criado_em',fimD).or(`status.eq.aberta,resolvido_em.gte.${fimD}`).order('criado_em'); _cfora=ecf?[]:(cf||[]); }catch(e){ _cfora=[]; }
   PA.filter(r=>r.motivo==='diferenca').forEach(r=>{ const k=N(r.produto), o=pk(k,r.produto); if(dep(o,r.data)){ o.dif+=Number(r.sacos)||0; if(r.data===D) o.difD+=Number(r.sacos)||0; } });
   Object.values(P).forEach(o=>{ const pr=prodObj(o.nome); if(pr) o.nome=pr.nome; o.base=o.ei+o.prod-o.anal-o.rep-o.carr-(o.dif-o.difD); });
   const rascu=_R['DIA|produto']&&_R['DIA|produto'].status!=='lancado'?(_R['DIA|produto'].dados||{}).val||{}:{};
@@ -1082,6 +1085,9 @@ async function carregarPA(){
 }
 function paLinha(o){ const v=_pa.val[o.k]||{}; let dif=v.dif!=null&&v.dif!==''?num(v.dif):o.difD; const cont=v.cont!=null&&v.cont!==''?num(v.cont):null;
   if(cont!=null) dif=Math.round((o.base-cont)*1000)/1000; return {dif:dif||0,cont,lib:o.base-(dif||0)}; }
+let _cfora=[];
+function avisoCF(){ if(!_cfora.length) return '';
+  return `<div style="border:1.5px solid #f59e0b;background:#fffbeb;border-radius:12px;padding:10px 12px;margin-bottom:10px;font-size:13px;color:#78350f;">🚧 <b>Carga fora da fábrica</b> — já descontada do estoque, ainda não voltou:${_cfora.map(c=>`<div style="margin-top:4px;"><b>${esc(c.placa)}</b> · ordem ${esc(c.ordem_numero)} · ${(c.produtos||[]).map(p=>esc(p.produto)+' '+fQ(Number(p.sacos)||0)).join(' + ')} · ${esc(c.motivo)}</div>`).join('')}</div>`; }
 function renderPA(){
   const lista=Object.values(_pa.P).filter(o=>Math.abs(o.base)>0.001||o.prodD||o.carrD||o.difD).sort((a,b)=>a.nome.localeCompare(b.nome));
   const un=o=>ehGranel(o.nome)?'kg':/bag/i.test(o.nome)?'bags':'sc';
@@ -1092,6 +1098,7 @@ function renderPA(){
       <td><input data-k="${esc(o.k)}" data-f="cont" value="${esc(v.cont||'')}" oninput="paSet(this)" class="${v.cont?'mud':''}" style="width:88px"></td>
       <td class="sep fim" id="pa-lib-${esc(o.k)}">${fQ(k.lib)}</td></tr>`; });
   document.getElementById('pa-tab').innerHTML=h+'</tbody>';
+  { const t=document.getElementById('pa-tab'); let a=document.getElementById('pa-cf'); if(!a){ a=document.createElement('div'); a.id='pa-cf'; t.parentNode.insertBefore(a,t); } a.innerHTML=avisoCF(); }
   const st=_R['DIA|produto']; document.getElementById('pa-info').innerHTML=st&&st.status==='lancado'?`<span class="tg ok">✔ gravado por ${esc(st.lancado_por||'')}</span>`:'A diferença que já estava lançada no dia aparece preenchida.';
 }
 function paSet(el){ const k=el.dataset.k, f=el.dataset.f; _pa.val[k]=_pa.val[k]||{}; _pa.val[k][f]=el.value.trim()===''?null:el.value.trim(); el.classList.toggle('mud',!!el.value.trim());
