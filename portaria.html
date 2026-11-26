@@ -4553,10 +4553,25 @@ function resolverCargaFora(id){
       ${op('voltou','🔙','Voltou para a fábrica','Os pallets voltam para o estoque (pelos mesmos códigos) e o fechamento soma de volta hoje.')}
       ${op('outros_pedidos','🔀','Liberada para outros pedidos','A carga que estava no caminhão foi vendida para outros pedidos — eles ficam como carregados. Não volta estoque.')}
       ${op('perda','❌','Perda / avaria','Baixa definitiva. Não volta estoque.')}</div>
-    <div class="form-group" id="cfr-peds-g" style="display:none;margin-top:12px;"><label class="form-label">Pedidos que levaram a carga <span class="req">*</span></label><input class="form-input" id="cfr-peds" placeholder="ex.: A01N40, A01N41" oninput="cfPedidos()" style="text-transform:uppercase"><div id="cfr-peds-i" style="font-size:12px;margin-top:4px;"></div></div>
+    <div class="form-group" id="cfr-peds-g" style="display:none;margin-top:12px;"><label class="form-label">Pedidos que levaram a carga <span class="req">*</span></label><div style="display:flex;gap:8px;flex-wrap:wrap;"><input class="form-input" id="cfr-peds" placeholder="ex.: A01N40, A01N41" oninput="cfPedidos()" style="text-transform:uppercase;flex:1;min-width:200px;">
+      <label class="btn btn-secondary" style="cursor:pointer;white-space:nowrap;" title="Lê os pedidos da ordem de carregamento e guarda o arquivo junto">📄 Ler da ordem (PDF ou foto)<input type="file" accept="application/pdf,image/*" style="display:none" onchange="cfLerOrdem(this.files[0]);this.value=''"></label></div>
+      <div id="cfr-ord" style="font-size:12.5px;margin-top:6px;"></div><div id="cfr-peds-i" style="font-size:12px;margin-top:4px;"></div></div>
     <div class="form-group" style="margin-top:12px;"><label class="form-label">Observação</label><input class="form-input" id="cfr-obs" maxlength="300"></div>
     <div class="modal-footer" style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;"><button class="btn btn-secondary" onclick="document.getElementById('m-cfr').remove()">Voltar</button><button class="btn btn-primary" id="cfr-ok" disabled onclick="salvarResolucaoCF()">✔ Resolver</button></div></div>`;
   document.body.appendChild(ov);
+}
+/* ordem (PDF ou foto) dos pedidos que levaram a carga: lê os pedidos e guarda o arquivo na resolução */
+async function cfLerOrdem(f){
+  if(!f||!_cfRes)return;const el=document.getElementById('cfr-ord');el.innerHTML='⏳ Lendo a ordem…';
+  try{const ehPdf=f.type==='application/pdf'||/\.pdf$/i.test(f.name||'');
+    const r=lerOrdemDeTexto(ehPdf?await pecasDoPdf(f):await pecasDaImagem(f));
+    const peds=[...new Set((r.itens||[]).map(i=>String(i.pedido||'').toUpperCase()).filter(Boolean))];
+    _cfRes.arq=f;_cfRes.ordem=r.numero||null;
+    if(!peds.length){el.innerHTML=`<span style="color:#b45309;font-weight:700;">📎 ${esc(f.name)} guardado, mas não achei pedidos — digite os pedidos.</span>`;return;}
+    const inp=document.getElementById('cfr-peds');inp.value=[...new Set([...cfLista(),...peds])].join(', ');
+    el.innerHTML=`<span style="color:#166534;font-weight:700;">📎 Ordem ${esc(r.numero||'')} lida — ${peds.length} pedido(s). O arquivo fica guardado junto.</span> <a href="#" onclick="_cfRes.arq=null;_cfRes.ordem=null;document.getElementById('cfr-ord').innerHTML='';return false;" style="color:#b91c1c;">tirar</a>`;
+    cfPedidos();
+  }catch(e){console.error(e);_cfRes.arq=f;el.innerHTML=`<span style="color:#b45309;font-weight:700;">📎 ${esc(f.name)} guardado, mas não consegui ler — digite os pedidos.</span>`;}
 }
 function cfTipo(k){_cfRes.tipo=k;document.querySelectorAll('.cfr-op').forEach(b=>{const on=b.dataset.k===k;b.style.borderColor=on?'#042D4D':'#e2e8f0';b.style.background=on?'#f0f7ff':'#fff';});
   document.getElementById('cfr-peds-g').style.display=k==='outros_pedidos'?'':'none';document.getElementById('cfr-ok').disabled=false;}
@@ -4576,6 +4591,11 @@ async function salvarResolucaoCF(){
   const b=document.getElementById('cfr-ok');b.disabled=true;
   const {data,error}=await _supabase.rpc('carga_fora_resolver',{p_id:r.id,p_tipo:r.tipo,p_obs:document.getElementById('cfr-obs').value,p_pedidos:peds,p_usuario:quemSou()});
   b.disabled=false;if(error){toast('Não resolveu: '+error.message,'error');return;}
+  if(r.tipo==='outros_pedidos'&&(r.arq||r.ordem)){
+    try{const up={resolucao_ordem:r.ordem||null};
+      if(r.arq){const ext=((r.arq.name||'').split('.').pop()||'pdf').toLowerCase().replace(/[^a-z0-9]/g,'')||'pdf',path=`portaria/cargas_fora/${r.id}_${Date.now()}.${ext}`;
+        const u=await _supabase.storage.from('documentos').upload(path,r.arq,{upsert:false,contentType:r.arq.type||undefined});if(!u.error)up.resolucao_arquivo=path;else toast('Resolvido, mas o arquivo da ordem não subiu: '+u.error.message,'warning');}
+      await _supabase.from('cargas_fora').update(up).eq('id',r.id);}catch(e){console.warn('[carga fora] ordem:',e);}}
   document.getElementById('m-cfr').remove();
   toast(r.tipo==='voltou'?`${data.pallets} pallet(s) de volta ao estoque.`:r.tipo==='outros_pedidos'?`${data.pedidos} pedido(s) marcados como carregados.`:'Registrado como perda.','success');
   carregarTudo();
