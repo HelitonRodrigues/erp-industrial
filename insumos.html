@@ -3935,6 +3935,8 @@ async function carregar() {
    situacao, consumoPeriodo…). Nenhuma regra nova de cálculo aqui.
    PDF sai pelo exportarPDF() do utils.js — já com o cabeçalho da empresa. */
 const RELATORIOS = [
+  { id: 'compilado', ic: '📒', tit: 'Compilado do estoque (igual à planilha)', periodo: true,
+    txt: 'Por insumo: estoque no início, entrada, consumo, perda, doação/saída, diferença e estoque atual — o mesmo quadro do RELATÓRIO COMPILADO da planilha.' },
   { id: 'posicao',  ic: '📦', tit: 'Posição de estoque', periodo: false,
     txt: 'Saldo atual de cada insumo, mínimo, situação, custo médio e valor em estoque.' },
   { id: 'comprar',  ic: '🚨', tit: 'Lista de compras', periodo: false,
@@ -4010,6 +4012,19 @@ function dadosRelatorio(id) {
       linhas: ativos.map((i) => [i.codigo || '', i.nome, i.grupo || '', fmt(saldo(i.id)), i.unidade_estoque || '',
         fmt(i.estoque_minimo), situacao(i).lbl, fmtR$(custoMedio(i.id)), fmtR$(valorEstoque(i.id))]),
       total: ativos.length ? ['', 'TOTAL', '', '', '', '', '', '', fmtR$(tot)] : null,
+    };
+  }
+  if (id === 'compilado') {
+    const antes = addDias(de, -1);
+    const soma = (i, tipos) => (idxMovs()[i.id] || []).filter((m) => tipos.includes(m.tipo) && m.data >= de && m.data <= ate)
+      .reduce((s, m) => s + n(m.quantidade), 0);
+    const lista = ativos.map((i) => ({ i, ini: saldo(i.id, antes), ent: soma(i, ['entrada', 'devolucao', 'retorno']), cons: soma(i, ['consumo']),
+      perda: soma(i, ['perda']), sai: soma(i, ['saida']), dif: soma(i, ['ajuste']), atual: saldo(i.id, ate) }))
+      .filter((x) => x.ini || x.ent || x.cons || x.perda || x.sai || x.dif || x.atual);
+    return {
+      titulo: 'Compilado do estoque de insumos' + sufixo + ' — ' + fmtData(de) + ' a ' + fmtData(ate),
+      cols: ['Insumo', 'Un.', 'Estoque início', 'Entrada', 'Consumo', 'Perda', 'Doação/saída', 'Diferença', 'Estoque atual'],
+      linhas: lista.map((x) => [x.i.nome, x.i.unidade_estoque || '', fmt(x.ini), fmt(x.ent), fmt(x.cons), fmt(x.perda), fmt(x.sai), fmt(x.dif), fmt(x.atual)]),
     };
   }
   if (id === 'comprar') {
@@ -4129,6 +4144,9 @@ function linhaDoMov(m, mapa) {
     if (x) return x[1].trim();
     return 'OP sem linha';
   }
+  /* (26/11) consumo lançado à mão com a linha no texto ("Consumo Emitec", "Acerto … — Linha 3") */
+  const lm = String(m.obs || '').match(/(Linha 2|Linha 3|Emitec|Longa Vida)/i);
+  if (lm) { const nm = lm[1].toLowerCase(); return nm === 'emitec' ? 'Emitec' : nm === 'longa vida' ? 'Longa Vida' : nm === 'linha 2' ? 'Linha 2' : 'Linha 3'; }
   return CL_SEM;
 }
 
