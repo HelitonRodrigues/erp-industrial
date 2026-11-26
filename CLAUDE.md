@@ -5,8 +5,8 @@
 
 ## Situação atual
 
-**Pré-produção.** O dono (Heliton — CEO e gerente de produção) está alimentando
-cadastros e testando módulo a módulo. Ninguém da fábrica usa ainda.
+**Pré-produção.** Heliton (gerente de produção) está alimentando cadastros e
+testando módulo a módulo.
 
 Isso define a prioridade: **fazer primeiro o que fica mais caro depois.**
 Enquanto não há usuários, errar RLS ou schema custa quase nada. Depois do
@@ -21,7 +21,7 @@ go-live, custa parada de linha.
 [x] 1    Auth Supabase✓ + anon key✓ + RLS baseline✓ + 1c por perfil nas sensíveis✓
 [~] 2    TODOS os fallbacks apagados✓ (silenciosos + schema-strip) — só falta 001_baseline (opcional)
 [x] 2.5  Helper db() + espalhado em ~20 módulos (todos os fluxos de dado)✓
-[~] 3    js/regras.js✓ — TONELAGEM✓ + PALLET✓ + EFICIÊNCIA✓ (núcleo fechado); falta snippet 95 (dono) + aposentar colunas de peso antigas
+[~] 3    js/regras.js✓ — TONELAGEM✓ + PALLET✓ + EFICIÊNCIA✓ (núcleo fechado); falta snippet 95 (Heliton) + aposentar colunas de peso antigas
 [x] 4    limit/filtro queries abertas — relatorios page-load 100% (compras/qualidade/epi/carreg/gerencial/bpf/RH)✓; RPC de agregado deferida (baixo valor em pré-prod, justificado)
 [~] 4.5  Fotos base64 → Storage (+ incluir Storage no backup) — EM ANDAMENTO (investigando código)
 [ ] 5    Deep-links entre módulos (?equip=&aba=)
@@ -65,11 +65,11 @@ memória do projeto entre sessões.
 - ✅ Landmines **RESOLVIDAS**: os 3 setup scripts com `DISABLE ROW LEVEL SECURITY`
   (frota_veiculos, planejamentos_custo, folhas_pagamento) → `ENABLE` + policy base (`376b113`).
 - ⚠️ `custo-precificacao.html` era mantido **pelo DONO** (regra antiga: não editar, passar
-  snippet). **MUDOU na sessão 2026-08-07:** o dono pediu pra eu **editar direto no GitHub**
+  snippet). **MUDOU na sessão 2026-08-07:** o Heliton pediu pra eu **editar direto no GitHub**
   (ele baixa de volta como base). Editei muito a aba **planejado x realizado** — ver memória
   `custo-precificacao-aba-planejado-realizado` (o que foi feito + o que falta) e
   `testar-custo-precificacao-local` (como testar contornando login, com os dados reais dele).
-  Funcional pronto e testado; **falta:** preenchimento do realizado da planilha (só o dono
+  Funcional pronto e testado; **falta:** preenchimento do realizado da planilha (só o Heliton
   salva — sem meu acesso ao Supabase; dados espalhados em log diário + CUSTO REAL de MAIO
   desatualizada) e o layout ⑤ (agrupar aditivo/pallet). Sempre `git pull` no início.
 Ponto de retorno: tag `antes-item-1`.
@@ -103,15 +103,15 @@ Ponto de retorno: tag `antes-item-1`.
 
 ## Item 3 — js/regras.js (em andamento, sessão 2026-08-06)
 
-Fonte única de cálculo. Estratégia acordada com o dono: **um cálculo de cada vez,
+Fonte única de cálculo. Estratégia acordada com o Heliton: **um cálculo de cada vez,
 com piloto, ele confere o número, só então espalha.** Primeiro cálculo: **TONELAGEM.**
 
 - **Passo 1 — modelo do peso (commit `2b56eb5`).** Faltava peso do produto como
   campo: estava embutido no nome ("...10kg"), então ninguém convertia certo.
   Novo campo **`produtos.peso_unidade_kg`** (numeric, opcional) + input no
-  `produtos.html` (salvar/editar/limpar/detalhe). SQL rodado pelo dono:
+  `produtos.html` (salvar/editar/limpar/detalhe). SQL rodado pelo Heliton:
   `alter table produtos add column if not exists peso_unidade_kg numeric;`
-  Dono preencheu todos: saco 10/20/25 → 10/20/25; Concentrado → 10; Big Bag → 1000;
+  Heliton preencheu todos: saco 10/20/25 → 10/20/25; Concentrado → 10; Big Bag → 1000;
   Granel (contado por tonelada) → 1000. Modelo universal:
   **`toneladas = quantidade × peso_unidade_kg ÷ 1000`** (granel c/ peso 1000 se auto-corrige).
 - **Passo 2 — `js/regras.js` + piloto (commit `bb36989`).** Criado `js/regras.js`
@@ -122,7 +122,7 @@ com piloto, ele confere o número, só então espalha.** Primeiro cálculo: **TO
   custo/ton (`renderCustoTon` + `renderCustoProduto`) **deixaram de assumir 10 kg/saco**
   (bug `pesoSaco=0.01`) e usam `peso_unidade_kg`. Produto sem peso ou nome divergente
   **não entra na tonelagem** → banner amarelo + "⚠️ sem peso" por linha (protocolo #7,
-  nada de número errado silencioso). Dono validou o número ("no meu ponto de vista está ok").
+  nada de número errado silencioso). Heliton validou o número ("no meu ponto de vista está ok").
 - **Passo 3 — espalhar (commit `29db10b`).** Descoberto: peso estava **fragmentado em 4
   nomes** — `peso_unidade_kg` (já era convenção no `insumos.html`), `peso_saco`
   (só `expedicao`), `peso`/`peso_embalagem` (só `almoxarifado`, com extração-do-nome).
@@ -137,14 +137,14 @@ com piloto, ele confere o número, só então espalha.** Primeiro cálculo: **TO
   = 18 cheios + 60 sobra → 19 pallets). No `producao.html`: helper `_lerItensPallet(div)`
   (única leitura de DOM) + os **5 sites** duplicados (calcProdOP, calcTotaisOP,
   calcEficienciaOP, validação, SAVE) passam a chamar `regras.js`. Estrutura do array
-  `pallets` persistido preservada byte a byte. Dono validou ("está ok").
+  `pallets` persistido preservada byte a byte. Heliton validou ("está ok").
 - **Passo 5 — EFICIÊNCIA DE PRODUÇÃO (commit `e2d1fef`).** Terceiro cálculo.
   `regras.js`: `metaSacos(capHora,horas)` + `eficienciaProducao(sacos,meta)`. Comentário
   fixo de que **NÃO** é o fator de planejamento do `planejamento.html` (`perda = brutos ×
   (100−efic)/100` — entrada de planejamento, não medição; não unificar — alerta da skill).
   No `producao.html`: os 3 pontos que faziam `capHora×h` e `sacos/meta×100` (save,
   calcEficienciaOP, performance do OEE) passam a chamar `regras.js`. Número idêntico.
-- **Bug de lógica achado pelo dono no piloto (commit `331b2fd`, validado).** A meta
+- **Bug de lógica achado pelo Heliton no piloto (commit `331b2fd`, validado).** A meta
   de produção usava horas **TRABALHADAS** (`capHora × htProduto`) → trabalhar mais
   inflava a meta e nunca batia. Correto: meta fixa = `capHora × horas DISPONÍVEIS
   planejadas` (`getHorasDispDia`, ex: 6,23h). Ex.: 500 sc/h × 6,23h = **3.115** (antes
@@ -162,7 +162,7 @@ com piloto, ele confere o número, só então espalha.** Primeiro cálculo: **TO
 **Bug `sacosPorPallet:95` — RESOLVIDO (verificado 2026-08-07).** Conferido o
 `custo-precificacao.html`: CAULIM25 já está `sacosPorPallet: 77` (linha 287), L20=91,
 CONC=180. Não há mais nenhum `95` de pallet (os `95` restantes são largura CSS, preset
-de eficiência 95% e valor de folha — não relacionados). O dono corrigiu numa edição
+de eficiência 95% e valor de folha — não relacionados). O Heliton corrigiu numa edição
 manual anterior. Nada a fazer. (Obs.: a SKILL ainda cita o `95` como bug aberto —
 desatualizada nesse ponto.)
 
@@ -180,8 +180,8 @@ produção; também usa aditivo `sacos/9` para todo produto) — não corrigido,
 
 ## Item 4 — limit/filtro nas queries abertas (em andamento, sessão 2026-08-07)
 
-Escolha do dono: **passe completo e caprichado** (janela server-side por tela),
-não trava de segurança genérica. Disciplina de piloto (dono confere cada tela).
+Escolha do Heliton: **passe completo e caprichado** (janela server-side por tela),
+não trava de segurança genérica. Disciplina de piloto (Heliton confere cada tela).
 
 **Mapa (agente Explore):** ~140 "queries abertas" reportadas, MAS o scanner tem
 **falsos positivos** — queries "builder" (`let q=…; if(x) q=q.eq(…)`) que filtram
@@ -215,7 +215,7 @@ Novo `safeCount` (traz `r.count` sem baixar linhas) ao lado do `safe`.
   compare do cliente em date E timestamp — sem risco de borda); tabela (mostrava TODAS,
   sem slice) + export→`.limit(500)`.
 Smoke test de cada aba local (login fake, RLS bloqueia anon → renderiza 0 sem quebrar,
-0 erro JS). **Números reais o dono confere autenticado na produção** (RLS me bloqueia).
+0 erro JS). **Números reais o Heliton confere autenticado na produção** (RLS me bloqueia).
 
 **Feito 3 (sessão 2026-08-10) — família "logs":** `abaPortaria` e `abaAbastecimento`
 já eram por período (nada a fazer); `abaExpedicao` idem (KPIs somam o período, NÃO
@@ -233,7 +233,7 @@ smoke limpo. **Varredura final:** todas as demais `select('*')` de page-load do 
 já têm janela (período/status/limit) ou são catálogo pequeno (frota, bombas, naturezas/
 centros, equipamentos, prestadores). **Passada de CORREÇÃO de page-load do relatorios: COMPLETA.**
 
-**Resta (otimização, não correção — NÃO bloqueia; precisa de mim escrevendo SQL + o dono rodando):**
+**Resta (otimização, não correção — NÃO bloqueia; precisa de mim escrevendo SQL + o Heliton rodando):**
 1. **Subprojeto RPC/view** (0 RPCs hoje): agregados que hoje baixam linhas p/ somar no
    cliente — almoxarifado (alertas de estoque: `estoque_atual < estoque_minimo`, comparação
    coluna×coluna que PostgREST não faz sem view/RPC), ABC, e os totais de período do
@@ -265,7 +265,7 @@ a seguir. **`backup.yml` só faz `pg_dump`, NÃO cobre Storage** (o "+Storage no
 
 **Fase 1 FEITA (`50222a1`, no ar):** compressão canvas no `linhas.html:previewFotoLinha`
 (maxD 1000, jpeg 0.82, = frota). Teste e2e: PNG 5.6MB → JPEG 109KB (−98,1%). Fotos
-existentes encolhem quando o dono reenviar. Code-only, sem tocar no banco.
+existentes encolhem quando o Heliton reenviar. Code-only, sem tocar no banco.
 
 **Fase 2 — frota.documentos: FEITA no branch `feat/frota-docs-storage` (`0592e4a`, NÃO na main/prod).**
 `uploadDocVeiculo` virou híbrido (≤4MB base64, >4MB → bucket `documentos`, fallback base64
@@ -274,7 +274,7 @@ se o Storage falhar); `renderDocsVeiculo` lê `data||url` (retrocompatível). Te
 p/ mergear:** o DONO testar o upload REAL autenticado (subir doc >4MB num veículo e ver ir
 pro Storage), confirmar RLS/visibilidade do bucket `documentos`. Só então merge→main.
 
-**Fase 2 (resto — sub-projeto, precisa BACKUP FRESCO + dono):** demais módulos reusando
+**Fase 2 (resto — sub-projeto, precisa BACKUP FRESCO + Heliton):** demais módulos reusando
 o helper do bpf. Ordem por ganho: linhas.foto → frota.documentos (PDF/office crus) →
 frota.foto/componentes → manutencao.fotos_servico → terceiros fotos/anexos. Assinaturas
 (png canvas pequenas) por último/nem migra. Backfill dos base64 existentes (script único).
@@ -290,7 +290,7 @@ no `backup.yml`. Sites de escrita a mudar: `linhas.html:231/234/235`, `frota.htm
 3. [x] **GitHub Actions com dump noturno** — `.github/workflows/backup.yml`,
    03:00 BRT, artifact `erp-backup` (retenção 14 dias). Testado verde (run #3).
    - Region: `sa-east-1`. Host real do pooler: **`aws-1`**-sa-east-1 (não aws-0).
-   - Secret `SUPABASE_DB_URL` = URI do **Session Pooler** (IPv4). Só o dono edita.
+   - Secret `SUPABASE_DB_URL` = URI do **Session Pooler** (IPv4). Só o Heliton edita.
    - Pegadinha resolvida: o runner resolve `pg_dump` pro 16 → version mismatch
      com o servidor 17.6. Fixado chamando `/usr/lib/postgresql/17/bin/pg_dump`.
    - Senha do banco foi resetada p/ alfanumérica (evita URL-encode). NÃO quebra
@@ -349,8 +349,8 @@ Pesagem saco a saco da **Linha 3** (2 bicos). Sem Node-RED.
   ~1x/s → SP1 (pulso curto) perdido, 30 sacos e só 1 gravado. Corrigido: um laço e uma conexão
   por bico, bico mudo cai para 1 leitura/s, TID não exigido (casar pelo unit), e rede de
   segurança `sem_sp1` (grava na retirada o último peso estável). Tolerância padrão 10 kg −150/+200 g,
-  20 kg −200/+300 g, 25 kg −250/+350 g — chute inicial, o dono ajusta na aba Configuração.
-- **v1.2.0 — regra de captura do dono (09/10):** SP1 é o peso programado que fecha o pistão (ex.: 10,30).
+  20 kg −200/+300 g, 25 kg −250/+350 g — chute inicial, o Heliton ajusta na aba Configuração.
+- **v1.2.0 — regra de captura do Heliton (09/10):** SP1 é o peso programado que fecha o pistão (ex.: 10,30).
   Grava a **1ª leitura com SP1=1** (`metodo='sp1'`), sem esperar estável — o estável do indicador sobe
   depois (10,80) e não é o peso real (balança de chão dá 10,10–10,20). Só conta saco que **começou do zero**
   (armou abaixo de `rearme_kg`) e chegou no SP1; pistão fechado antes do SP1 (entupimento) **não grava**.
@@ -395,7 +395,7 @@ Pesagem saco a saco da **Linha 3** (2 bicos). Sem Node-RED.
    cuidado que em qualquer `.html` isolado.
 7. **Não esconder falha.** Nada de `.filter(Boolean)` ou `try/catch` vazio para
    silenciar elemento ausente ou erro de query. Se falhou, tem que aparecer.
-8. Nunca digitar ou manipular senha e credencial do dono — pedir a ele.
+8. Nunca digitar ou manipular senha e credencial do Heliton — pedir a ele.
 
 ## Escopo — o que NÃO construir
 
@@ -546,7 +546,7 @@ fábrica específica. Não generalizar.
   (Python): Stop → SetAVTransportURI → TV buscou a foto (image/jpeg) → Play. Captura da WebView fora da tela: não testável aqui.
 
 ### Painel de Metas para TV (`painel-metas.html`, sessões 2026-10-13/14, migração 059)
-- Módulo `painel_metas` (grupo Produção, "Painel de Metas (TV)"). **v2 (pedido do dono): tela CLARA e linguagem simples**
+- Módulo `painel_metas` (grupo Produção, "Painel de Metas (TV)"). **v2 (pedido do Heliton): tela CLARA e linguagem simples**
   (público com fundamental incompleto): "Fizemos X sacos · A meta era Y · Faltaram Z" / "Passou Z da meta 👏"; "Máquina rodando:
   Rodou 13 horas e 16 min · A meta era … · Faltou …". Cabeçalho do cartão = 👍 BATEU / 👎 NÃO BATEU (meta de PRODUÇÃO).
   Frase do dia ("1 de 4 linhas bateu a meta…"), turnos 👍/👎, últimos 6 dias ✓/✗ e 🔥 sequência. Sem %, sem jargão, sem nomes.
@@ -628,11 +628,11 @@ fábrica específica. Não generalizar.
 - Sync: RPCs `sync_planilha(p_token,p_linhas)` e `sync_salescode(p_token,p_itens)` (SECURITY DEFINER; token em `integracao_tokens`
   sem policy; usuário logado não precisa de token). Lista curta (<5 / <3) não altera nada (proteção contra página que não carregou).
   Planilha: `docs/integracoes/planilha-carregamentos.gs` (Apps Script, a cada 10 min, sem PC). Salescode não tem API: lê os cartões da
-  tela (`docs/integracoes/salescode-coletor.js`) — roda no navegador do PC do dono (tarefa agendada) ou como favorito.
+  tela (`docs/integracoes/salescode-coletor.js`) — roda no navegador do PC do Heliton (tarefa agendada) ou como favorito.
   Botão "Importar planilha (.xlsx)" na tela faz o mesmo que o Apps Script.
 
 ### Programação de Cargas v2 — só Salescode + representante (migração 119/120)
-- Planilha saiu do fluxo (dono decidiu): tela sem "Importar planilha"; os pedidos que vieram dela ficam como "fora do Salescode".
+- Planilha saiu do fluxo (Heliton decidiu): tela sem "Importar planilha"; os pedidos que vieram dela ficam como "fora do Salescode".
   Data que vale: `data_manual` (data da FÁBRICA, arrastada) > `data_salescode` (data do representante) > `data_planilha` (legado).
 - 119: pedido normalizado no servidor (`^[A-Za-z0-9]+`, maiúsculo) — o Salescode mostra "A01MRV" e "A01MRV prog." em lanes
   diferentes e isso duplicava. 120 (inclui a 119): colunas `representante`, `comprador`, `detalhes` jsonb, `detalhes_em`;
@@ -660,7 +660,7 @@ fábrica específica. Não generalizar.
 - Link público `programacao-rep.html?c=CODIGO` (sem login): RPC `prog_publico(p_codigo)` (anon, SECURITY DEFINER) devolve os
   pedidos do representante + a carga de TODOS sem cliente/representante (só data, itens, linha, status) + planos (sem equipe) +
   turnos + produtos + apelidos; a página faz a mesma conta e mostra dias livres de Big Bag e 25 kg em 4 semanas (seg–sáb).
-  Atualiza a cada 2 min. `prog_links` (1 código por representante; '*' = link geral do dono, todos os produtos e pedidos);
+  Atualiza a cada 2 min. `prog_links` (1 código por representante; '*' = link geral do Heliton, todos os produtos e pedidos);
   `prog_link_gerar(p_rep,p_trocar)` (logado) gera/troca. Tela "🔗 Links dos representantes": gerar, copiar, WhatsApp, trocar.
 - **📄 Ver pedido** (modal do pedido): espelho do pedido do Salescode montado de `detalhes._bruto` (`lerPedidoBruto` → cliente,
   condições, itens com valor, pagamento, endereços de cobrança/entrega, frete com itens), cabeçalho da empresa, imprimir/salvar PDF.
@@ -669,7 +669,7 @@ fábrica específica. Não generalizar.
   Hoje grava a hora de agora; outro dia grava 12:00 daquele dia. Já carregado: "✏️ Data do carregamento" no pedido e ✏️ em 📦 Carregadas.
 
 ### Programação de Cargas — baixa pela BALANÇA (migração 122, extensão v1.2)
-- Portal de Relatórios da balança (`http://45.184.42.85:8007`, login do dono no Chrome): Consulta Ticket (POST com `inicio/fim/_csrf`)
+- Portal de Relatórios da balança (`http://45.184.42.85:8007`, login do Heliton no Chrome): Consulta Ticket (POST com `inicio/fim/_csrf`)
   lista os tickets; a impressão `/relatorio/ticket/impressao/<ticket>` tem STATUS, placa, motorista, tabela de itens
   (Pedido · Cliente · Quantidade · Peso · Produto), Pesagem Final (Data/Hora, peso), PESO LÍQUIDO e ANOTAÇÃO (NF, lotes).
   Ticket de granel (CERAL/EMBRAMACO/INTERCEMENT) vem sem itens.
@@ -695,18 +695,18 @@ fábrica específica. Não generalizar.
 - `ProgMotor.coluna(c)` = a mais adiantada (Ordem de Carga > A contratar > Ordem Cancelada > Programados > Financeiro; sem colunas
   usa `status_salescode`), `prioridade(c)` = índice. Cartão e lateral mostram a etiqueta (🚚 📋 ✖ 🗓); Atrasados e Sem data
   ordenados por prioridade; dentro do dia `ordem_dia` → prioridade; filtro "Todas as colunas do Salescode".
-- **Financeiro programado conta capacidade** (14/11: agora TODO financeiro com data conta — `contaCapacidade = !a_definir`): `contaCapacidade(c)` = não financeiro OU tem `data_manual` (o dono pôs o dia).
+- **Financeiro programado conta capacidade** (14/11: agora TODO financeiro com data conta — `contaCapacidade = !a_definir`): `contaCapacidade(c)` = não financeiro OU tem `data_manual` (o Heliton pôs o dia).
   Antes o pedido "Em Aberto" arrastado para um dia não ocupava hora ("cabem mais 89" com 90 programados). `prog_publico` manda
   `man`/`col` na carga para o link do representante fazer a mesma conta.
 - **↶ Desfazer** (botão no topo + Ctrl+Z, fora de campos de texto): pilha da sessão (60) com o estado anterior de data_manual,
   ordem_dia, linha_manual e carregado_*; grava só o que mudou. Vale para mover, trocar linha, carregado e desfazer carregado.
-- 12/11 09:26–09:38: o dono pediu para voltar 16 pedidos arrastados — data_manual zerada (A01M8H voltou a 11/11), registrado em auditoria.
+- 12/11 09:26–09:38: o Heliton pediu para voltar 16 pedidos arrastados — data_manual zerada (A01M8H voltou a 11/11), registrado em auditoria.
 - **🔗 Links dos representantes** separado em 2 grupos: "Caulim — Big Bag e ensacado 25 kg" (rep com pedido aberto de família
   Bag/Linha 25kg; mostra "N de Big Bag / 25 kg · M de outros") e "Demais representantes" (recolhido em `<details>`).
 - **🆕 Pedidos novos (124)**: `visto_em` vazio = entrou no Salescode depois (todos os existentes em 12/11 marcados vistos).
   Cartão cinza-escuro "🆕 NOVO no Salescode" + "✓ Visto"; botão "🆕 N novos" no topo abre a lista (marcar todos / mostrar só os
   novos; filtro "🆕 Só os novos"). Arrastar marca visto. **Na conta de capacidade os novos ficam por último no dia** (`ordenar`
-  começa por `_novo`): o que o dono já programou continua cabendo. O sync nunca mexe em `data_manual`.
+  começa por `_novo`): o que o Heliton já programou continua cabendo. O sync nunca mexe em `data_manual`.
 - Filtro de representante virou campo de digitar (`#sel-rep` + `datalist`): acha por parte do nome ou pelo nº, sem acento
   (`doRep` com `M.norm`); a lista mostra quantos pedidos em aberto cada um tem.
 - **Link do representante v2 (`programacao-rep.html`)**: cabeçalho com logo (`branding_publico().logo`, senão o símbolo SVG da
@@ -745,7 +745,7 @@ fábrica específica. Não generalizar.
   anon sem acesso a tabelas/RPCs internas; A (308) recebeu 25 pedidos e B (275) 11, **0 de outro representante**; dias livres conferidos com a
   soma dos pedidos (17/11 39 → cabem 50; 18/11 14 → 75; 19/11 72 → 17; 28/11 80 → 9). Contas de teste `teste.claude.a/.b` ficaram desativadas.
 - **Telegram (migração 126)**: o robô do CallMeBot lotou em 12/11. `prog_whats_enviar` agora manda por canal (`prog_aviso_destinos.canal`
-  'whatsapp' | 'telegram' + `chat_id`). Token do robô (criado pelo dono no @BotFather) em `prog_aviso_config` (sem policy, nunca volta para a tela):
+  'whatsapp' | 'telegram' + `chat_id`). Token do robô (criado pelo Heliton no @BotFather) em `prog_aviso_config` (sem policy, nunca volta para a tela):
   `prog_tg_salvar_token` / `prog_tg_status` / `prog_tg_chamar('getMe'|'getUpdates')` / `prog_http_resposta` (só ADM/SADM). Tela ⋯ Mais →
   📲 Avisos no celular: salvar token → cada pessoa toca INICIAR no robô → "Procurar quem mandou /start" → "＋ Receber avisos" → "Enviar teste".
 
@@ -805,13 +805,13 @@ fábrica específica. Não generalizar.
 
 ### Perfil CAR — Encarregado de Carregamento (só pátio, 15/11/2026)
 - `perfis` CAR = só `carregamento` (mesmas abas do ENC). Usuários: Luciano de Brito (era ENC — perdeu BPF/Qualidade), Narcizo, Henrique, Lucas Henrique
-  (logins narcizo/henrique/lucas, e-mail login@silicate.com.br; **sem senha** — o dono cria pelo 🔑 em Usuários).
+  (logins narcizo/henrique/lucas, e-mail login@silicate.com.br; **sem senha** — o Heliton cria pelo 🔑 em Usuários).
 - carregamento.html `PERFIS_SO_PATIO=['CAR']` / `soPatio()`: abre sempre no pátio (ignora a preferência salva e o tamanho da tela); "✕ SAIR" vira ☰ (`patioMenu`):
   🟢 COMO ESTÃO AS LINHAS (`patioLinhas`: `linhas_status_atual`, cor por status, atualiza a cada 60 s) · 🚚 CARREGAR CAMINHÃO · 🔒 Sair do sistema (logout; rascunho fica).
   Tocar na linha (`patioLinhaDet`) mostra a última análise (`laboratorio`): umidade, granulometria (soma das peneiras) com BOM/RUIM pelas faixas do
   `Regras.labIndicadoresCard` (as mesmas do Laboratório: umidade ≤ 0,60 %, granulometria 20–25 %, Longa Vida ≥ 30 %), peneiras, separador, massa, recado.
 - Entrada: com só `carregamento` nas permissões, o login já cai no carregamento.html; outras páginas devolvem para ele (requireAuth → 1º módulo permitido).
-- (15/11) Linha sem teste HOJE fica cinza "⏳ SEM TESTE HOJE · esperando o laboratório" e o detalhe NÃO mostra números (pedido do dono); separador 0 não aparece.
+- (15/11) Linha sem teste HOJE fica cinza "⏳ SEM TESTE HOJE · esperando o laboratório" e o detalhe NÃO mostra números (pedido do Heliton); separador 0 não aparece.
   Som: carregamento.html carrega `js/alerta-linhas.js` e, só no perfil CAR, `AlertaLinhas.iniciar` (som por status + aviso grande; Parada repete até "OK, VI";
   o 1º toque na tela libera o som). 🔔 sobe para 96 px do rodapé no pátio (não cobre o TERMINEI).
 - (15/11) ⌨️ DIGITAR no pátio: as OPs com pallet do produto da linha no estoque viram botões (`digOpsDoProduto`, até 8; a última usada `_digUltOp`
@@ -939,7 +939,7 @@ fábrica específica. Não generalizar.
 - (17/11) **"Sair" só deste aparelho**: `signOut()` do Supabase é GLOBAL por padrão — o "Sair" de um usuário em um PC derrubava a sessão do mesmo
   usuário em todos os outros (central de rótulos, estações de impressão, celular) → "Refresh Token Not Found" nos logs. Agora
   `signOut({scope:'local'})` em js/utils.js (`doLogout`) e index.html.
-- (17/11) **custo-precificacao.html** (pedido do dono): saiu o "📊 Programado no mês — por linha" (`renderTotaisLinhas` não é mais chamado;
+- (17/11) **custo-precificacao.html** (pedido do Heliton): saiu o "📊 Programado no mês — por linha" (`renderTotaisLinhas` não é mais chamado;
   junto saiu o "E se a linha parar"). **Pessoas do plano** no layout A: 1 linha por pessoa (`.cp-pes`), nome curto 1º+último em Title Case
   (completo no mouse), função em cinza, custo, ⇄ (select pequeno) e ✕; motivo do "fora" vira campo discreto "motivo ✎". Pessoa muda de grupo
   só pelo ⇄. **Arrastar os QUADROS** pela alça ⠿ do cabeçalho muda a ordem dos grupos (`cpArrasta/cpSobre/cpSolta` reordenam `state.grupos`). Grupos em `.cp-grupos` (grid dense): grupo com mais de
@@ -1220,3 +1220,21 @@ fábrica específica. Não generalizar.
 - Tabela `cargas_fora` (status aberta/voltou/outros_pedidos/perda, pallets e produtos do caminhão parado, ordem de recoleta). RPCs `carga_fora_abrir(portaria_id, motivo, obs, usuario)` — cria romaneio `<nº>-2` (origem 'recoleta', status recebido, mesmos romaneio_itens) e anota — e `carga_fora_resolver(id, tipo, obs, pedidos[], usuario)`: **voltou** = producao_pallets voltam a `estoque_status='estoque'` + `pa_ajustes` motivo **retorno_carga** (soma de volta); **outros_pedidos** = programacao_cargas desses pedidos carregado (origem 'carga_fora') — no modal, "📄 Ler da ordem (PDF ou foto)" (`cfLerOrdem`, usa `lerOrdemDeTexto`) preenche os pedidos e guarda o arquivo em `resolucao_arquivo` (storage documentos/portaria/cargas_fora/) + `resolucao_ordem`; **perda** = só registra (`fora_estoque_motivo`).
 - portaria.html (SADM/ADM): 🚧 na linha do Histórico (finalizado) e "🚧 Caminhão quebrou" na ficha; faixa amarela no topo da fila enquanto aberta, com ✔ Resolver. fechamento.html: folha "🚧 CARGA FORA DA FÁBRICA" (impressa) + aviso; `retorno_carga` entra no cálculo (carregamento do dia negativo). lancamento-dia.html: aviso na etapa de produto acabado + `retorno_carga` no cálculo.
 - (26/11) carregamento.html `linhasRomaneio`: a conta do pallet por pedido ("N plt" valendo para o pedido, pallet misto) só usa linhas de SACO (`/\d\s*kg/`, não bag). Antes o Vedamassa 18L/3,6L do mesmo pedido herdava o pallet da Liga (209/201) e 1 "sem QR" virava 209 un — carga 028606 de 25/11 corrigida no banco (3,6L A01N3L 8, 18L A01N3L 10, 18L A01N3Q 6).
+
+## ⛔ REGRA DE OURO — Carga = Ordem (26/11/2026)
+**Sempre é carregado o que está na ordem.** Carregamento e Portaria têm que bater com a ordem **pedido a pedido, produto a produto**. Nunca deixar passar a mais.
+- Casos que geraram a regra: 028570 (A01N0R Liga 10kg 200 → 360 na carga), 028589 (A01MYE 400 → 540; A01MYI c/ impermeabilizante 50 → 200 sem QR), 028607 (sem QR 600 → 400). Corrigidos no banco para a ordem (itens `sacos`/`sacos_extra` + `portaria.peso_esperado`); o que passou volta ao estoque pela conta da carga.
+- **carregamento.html** (travas — não remover):
+  - `linhaCompleta(l)`: produto já completo **recusa** pallet (pátio: só "NÃO CARREGAR", sem "carregar mesmo assim"; computador: `fb` de erro).
+  - `patioIncluir` / `limitarAOrdem(l,id)`: o **último pallet leva só o que falta** — `_extra` negativo "Último pallet — vai só N sc (o que falta da ordem), X ficam no estoque". Vale para todo produto em saco (antes só pallet misto).
+  - `semQrAdd`: sem QR não passa do que falta.
+  - `excedentesSaco()`: salvar / TERMINEI / `gravarCarregamento` **bloqueiam** se algum produto em saco > ordem ("⛔ PASSOU DA ORDEM"). Granel fica de fora (balança nunca fecha — só aviso).
+  - Carga a MENOS continua permitida só com motivo (`motivo_menos`, ex.: motorista quis levar menos — bags 028512/513/535/585/587).
+- **portaria.html**:
+  - `cargaDaOrdem` devolve `faltas` e **`sobras`**; `confirmarSaida` **bloqueia a saída** com sobra ("⛔ Carga maior que a ordem — volte para o Carregamento").
+  - Ficha → Conferência: "Pedido × carregado: igual à ordem" (mostra faltou / a mais).
+  - Fechamento do dia: cada linha tem `diverg` (ordem × carga por produto em saco, sem Felisbina); faixa vermelha no topo + "⚠ Carga ≠ ordem" na linha.
+  - Felisbina não é bipada: entra no fechamento pela ordem (`felDaOrdem`) — não é divergência.
+- **Balança:** `peso_esperado` = carga × `produtos.peso_unidade_kg` + o que está na ordem sem bipar. Item sem peso no cadastro (TopDry, Liga 50g, Chapistec, Vedamassa da Felisbina) **não entra** → balança dá a mais (028570 +1,7 t, 028589 +2,9 t). Solução: cadastrar o peso desses produtos.
+- **Tara errada** dá diferença grande: 028554 NIG3H27 (Truck) tara 13,62 t em 21/11 × 9,02 t em 17/11 → produto 14,9 t × 20,0 esperado; com 9,02 dá −519 kg (normal). A carga estava certa. Pendente (se Heliton pedir): aviso quando a tara fugir > 1 t da última tara da mesma placa; corrigir a tara da 028554 pelo ticket.
+- **Auditoria** (rodar quando perguntarem "está batendo?"): `romaneio_itens` (numero, pedido, `coalesce(produto_erp,produto)`, soma quantidade) FULL JOIN `carregamentos.itens` (ordem_numero, pedido, produto, soma sacos/ton, sem `doador`) das ordens com `portaria.status='finalizado'`; listar onde difere. Em 26/11 (desde 01/11) só sobraram bags a menos com motivo e Felisbina pela ordem.
