@@ -20,7 +20,8 @@ create table if not exists public.cargas_fora (
   pallets jsonb not null default '[]',      -- [{id,codigo,produto,sacos,pedido}]
   produtos jsonb not null default '[]',     -- [{produto,pallets,sacos}]
   status text not null default 'aberta' check (status in ('aberta','voltou','outros_pedidos','perda')),
-  resolvido_em timestamptz, resolvido_por text, resolucao_obs text, resolucao_pedidos text[]
+  resolvido_em timestamptz, resolvido_por text, resolucao_obs text, resolucao_pedidos text[],
+  resolucao_ordem text, resolucao_arquivo text   -- ordem (PDF/foto) dos pedidos que levaram a carga
 );
 create index if not exists cargas_fora_status on public.cargas_fora(status);
 alter table public.cargas_fora enable row level security;
