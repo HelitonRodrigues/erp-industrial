@@ -3750,8 +3750,9 @@ function confirmarLido(){
   const p=_pallets.find(x=>x.id===c.id);
   const l=c.linhaKey?linhaObj(c.linhaKey):null;
   if(!p||!l){fb('Item da carga não encontrado.','err');return;}
-  alocar(l.key,p.id);
-  const s=sacosDoPallet(p);
+  if(linhaCompleta(l)){fb(`✋ ${esc(l.produto)} já está completo na carga (${n0(allocSacks(l.key))} de ${n0(l.sacksNeed)} sc) — não inclua este pallet.`,'err');beep('block');return;}
+  alocar(l.key,p.id); limitarAOrdem(l,p.id);
+  const s=sacosItem(p.id);
   const rest=l.sacksNeed?Math.max(0,l.sacksNeed-allocSacks(l.key)):0;
   fb(`✅ <span class="mono">${esc(codigoDigitavel(palCodigo(p)))}</span> +${n0(s)} sc`+
      (l.sacksNeed?(rest>0?` · faltam <strong>${n0(rest)} sc</strong>`:' · <strong>item completo</strong>'):''),'ok');
@@ -3855,11 +3856,24 @@ function processarLeitura(txt){
     fb(`👁️ Confira a ficha de <span class="mono">${esc(codigoDigitavel(palCodigo(p)))}</span> e confirme.`,'info');
     return 'conf';
   }
-  alocar(l.key,p.id);
+  if(linhaCompleta(l)){fb(`✋ ${esc(l.produto)} já está completo na carga (${n0(allocSacks(l.key))} de ${n0(l.sacksNeed)} sc) — não inclua este pallet.`,'err');return 'block';}
+  alocar(l.key,p.id); limitarAOrdem(l,p.id);
   const rest=l.sacksNeed?Math.max(0,l.sacksNeed-allocSacks(l.key)):0;
-  fb(`✅ <span class="mono">${esc(codigoDigitavel(palCodigo(p)))}</span> +${n0(s)} sc`+(l.sacksNeed?(rest>0?` · faltam <strong>${n0(rest)} sc</strong>`:' · <strong>item completo</strong>'):''),'ok');
+  fb(`✅ <span class="mono">${esc(codigoDigitavel(palCodigo(p)))}</span> +${n0(sacosItem(p.id))} sc`+(l.sacksNeed?(rest>0?` · faltam <strong>${n0(rest)} sc</strong>`:' · <strong>item completo</strong>'):''),'ok');
   return 'ok';
 }
+/* (26/11) SEMPRE sai o que está na ordem: produto já completo não aceita mais pallet,
+   e o último pallet só leva o que falta (o resto fica no estoque) */
+function linhaCompleta(l){return !!(l&&!l.granel&&(Number(l.sacksNeed)||0)>0&&allocSacks(l.key)>=l.sacksNeed);}
+function limitarAOrdem(l,id){
+  if(!l||l.granel||!((Number(l.sacksNeed)||0)>0))return;
+  const p=_pallets.find(x=>x.id===id); if(!p||ehBagNome(p.produto))return;
+  const over=Math.round(allocSacks(l.key)-l.sacksNeed); if(over<=0)return;
+  const vai=sacosItem(id)-over, q=(Number((_extra[id]||{}).qtd)||0)-over;
+  _extra[id]={qtd:q,obs:`Último pallet — vai só ${n0(vai)} sc (o que falta da ordem), ${n0(sacosDoPallet(p)-vai)} ficam no estoque`};
+  renderCarr();
+}
+function excedentesSaco(){return _linhasCarr.filter(l=>!l.granel&&(Number(l.sacksNeed)||0)>0&&allocSacks(l.key)>l.sacksNeed+0.0005);}
 function alocar(key,id){
   if(_allocSet.has(id))return;
   if(!_alloc[key])_alloc[key]=[];
@@ -4038,6 +4052,11 @@ async function salvarCarregamento(){
     // Excesso é informação, não erro: mostra a diferença e segue.
     toast(excedentes.map(l=>`🚛 ${esc(l.produto)}: pedido ${n2(l.tonNeed)} t · carregado ${n2(avulsosTon(l.key))} t · +${n2(avulsosTon(l.key)-l.tonNeed)} t`).join(' · '),'warning');
   }
+  { const exc=excedentesSaco();
+    if(exc.length){ const m=exc.map(l=>`${l.produto}${l.cliente?' ('+l.cliente+')':''}: ordem ${n0(l.sacksNeed)} · na carga ${n0(allocSacks(l.key))} (+${n0(allocSacks(l.key)-l.sacksNeed)})`).join('<br>');
+      if(_patio) patioFlash('err','⛔','PASSOU DA ORDEM',m+'<br>Tire o que passou — sai só o que está na ordem.',{botao:'ENTENDI'});
+      else toast('⛔ Carga maior que a ordem — sai só o que está na ordem. '+m.replace(/<br>/g,' · '),'danger');
+      beep('block'); return; } }
   const semDoador=conferenciaDoacoes();
   if(semDoador.length&&!_patio){
     confirmar('Sacos a mais sem pallet de origem',
@@ -4085,6 +4104,7 @@ async function salvarCarregamentoPasso2(incompletas){
 }
 async function gravarCarregamento(opts){
   opts=opts||{};
+  if(!opts.silencioso&&excedentesSaco().length){ toast('⛔ Carga maior que a ordem — corrija antes de salvar.','danger'); return; }
   if(!opts.silencioso&&!opts._assinado&&linhasIncompletas().some(faltaRigida)){ toast('Carga incompleta: bipe ou declare os pallets sem QR antes de salvar.','danger'); if(_patio) patioSemQrPerguntar(); return; }
   try{await garantirLotesRotulo(Object.values(_alloc).flat());}catch(e){console.warn('[carregamento] lote do rótulo:',e);}
   const btn=document.getElementById('btn-salvar-carr');btn.disabled=true;btn.textContent='Salvando...';
@@ -6005,8 +6025,8 @@ function patioLeitura(txt){
   if(!sacosDoPallet(p)){patioFlash('err','⚠️','PALLET SEM QUANTIDADE NO SISTEMA','Chame o encarregado.',{botao:'ENTENDI'});return 'err';}
   if(alvo.sacksNeed>0&&allocSacks(alvo.key)>=alvo.sacksNeed){
     patioFlash('warn','✋','ESTE PRODUTO JÁ ESTÁ COMPLETO',`O caminhão já tem todo o ${esc(alvo.produto)} pedido.<br>Não precisa deste pallet.`,
-      {botao:'NÃO CARREGAR',botao2:'CARREGAR MESMO ASSIM',depois2:()=>patioIncluir(p,alvo)});
-    return 'dup';
+      {botao:'NÃO CARREGAR'});
+    return 'block';
   }
   return patioIncluir(p,alvo);
 }
