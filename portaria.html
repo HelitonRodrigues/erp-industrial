@@ -2929,8 +2929,17 @@ async function carregarFechamento(){
       its.filter(i=>String(i.numero)===String(num)&&!felDaOrdem(i)).forEach(i=>{const pe=produtoErpDoItem(i), nome=pe?pe.nome:i.produto;
         if(!nome||bipN.has(normNome(nome))) return; add(nome,parseFloat(i.quantidade)||0,pe?null:'UN',!pe); fonte='carga + ordem';}); }
     else{fonte='ordem'; its.filter(i=>String(i.numero)===String(num)).forEach(i=>{const pe=produtoErpDoItem(i); add(pe?(pe.felis?pe.nome+' (Felisbina)':pe.nome):i.produto,parseFloat(i.quantidade)||0,pe?null:'UN',!pe);});}
+    /* (26/11) conferência CARGA × ORDEM por produto em saco: o carregado tem que bater com a ordem (028570 levou 360 de 200 pedidos) */
+    const diverg=[];
+    if(carga.length){ const ord={}, cg={};
+      its.filter(i=>String(i.numero)===String(num)&&!felDaOrdem(i)).forEach(i=>{const pe=produtoErpDoItem(i); if(!pe)return;
+        const t=window.certTipoProduto?certTipoProduto(pe.nome):'saco'; if(t!=='saco')return;
+        const kx=normNome(pe.nome); ord[kx]=ord[kx]||{nome:pe.nome,q:0}; ord[kx].q+=parseFloat(i.quantidade)||0;});
+      carga.forEach(i=>{if(ehFelisNome(i.produto)||i.motivo_avulso==='felisbina'||i.unidade==='t')return; const kx=normNome(i.produto); cg[kx]=(cg[kx]||0)+(Number(i.sacos)||0);});
+      Object.entries(ord).forEach(([kx,o])=>{const c=Math.round(cg[kx]||0); if(c>0&&Math.round(o.q)!==c) diverg.push({nome:o.nome,ordem:Math.round(o.q),carga:c});});
+    }
     const rom=roms.find(r=>String(r.numero)===String(num));
-    return {n:k+1,id:v.id,placa:v.placa,motorista:v.nome_motorista,ordem:num,veiculo:v.modelo_veiculo,unidade:v.unidade_carregamento,
+    return {diverg,n:k+1,id:v.id,placa:v.placa,motorista:v.nome_motorista,ordem:num,veiculo:v.modelo_veiculo,unidade:v.unidade_carregamento,
       chegada:v.hora_chegada,inicio:v.inicio_carregamento,saida:v.hora_saida,pallets:v.qtd_pallets??null,
       tara:v.peso_tara,bruto:v.peso_bruto,liquido:v.peso_liquido,produto_t:v.peso_produto??v.peso_liquido,esperado:v.peso_esperado,
       transp:v.transportadora||(rom&&rom.transportadora)||'',fonte,prods};
@@ -2984,13 +2993,15 @@ function renderFechamento(){
     :`<span class="badge badge-gray">Em aberto</span> ${hoje?'— feche no fim do expediente':''}`;
   document.getElementById('fe-btn').textContent=fz?'🔒 Refazer fechamento':'🔒 Fechar o dia';
   document.getElementById('fe-sub').textContent=f.linhas.length?`${f.linhas.length} caminhão(ões) · ${dataBrDia(f.dia)}`:'';
-  document.getElementById('fe-body').innerHTML=f.linhas.length?f.linhas.map(l=>`<tr ${l.dsm?'':`style="cursor:pointer" title="Clique para ver tudo desta saída" onclick="if(!event.target.closest('button,a'))abrirFicha('${l.id}')"`}><td>${l.n}</td><td><b>${esc(l.placa)}</b></td><td>${esc(l.motorista||'—')}</td><td>${esc(l.ordem||'—')}</td>
+  const _dv=f.linhas.filter(l=>l.diverg&&l.diverg.length);
+  document.getElementById('fe-body').innerHTML=(_dv.length?`<tr><td colspan="13" style="background:#fef2f2;color:#991b1b;font-size:12.5px;padding:8px 10px;">⚠️ <b>${_dv.length} caminhão(ões) com carga diferente da ordem</b> — confira antes de fechar: ${_dv.map(l=>`<b>${esc(l.ordem||l.placa)}</b> (${l.diverg.map(d=>`${esc(d.nome)}: ordem ${nf(d.ordem)} · carga ${nf(d.carga)}`).join('; ')})`).join(' · ')}</td></tr>`:'')+
+    (f.linhas.length?f.linhas.map(l=>`<tr ${l.dsm?'':`style="cursor:pointer" title="Clique para ver tudo desta saída" onclick="if(!event.target.closest('button,a'))abrirFicha('${l.id}')"`}><td>${l.n}</td><td><b>${esc(l.placa)}</b></td><td>${esc(l.motorista||'—')}</td><td>${esc(l.ordem||'—')}</td>
     <td>${esc(l.veiculo||'—')}</td><td>${esc(l.unidade||'—')}</td><td class="num">${hm(l.chegada)}</td><td class="num">${hm(l.saida)}</td><td class="num">${durTxt(Date.parse(l.saida)-Date.parse(l.chegada))}</td>
     <td class="num">${l.pallets??'—'}</td><td class="num">${(()=>{const d=difKg(l.produto_t,l.esperado), fora=d!=null&&Math.abs(d)>TOL_KG;
       return `<b class="${d==null?'':fora?'liq-erro':'liq-ok'}">${l.produto_t!=null?nf(l.produto_t,3)+' t':'—'}</b>${d!=null?`<div style="font-size:10.5px;" class="${fora?'liq-erro':'liq-ok'}">${fora?'⚠ ':''}${difTxt(d)}</div>`:''}`;})()}</td>
-    <td><div class="fe-prods">${Object.entries(l.prods).map(([n,p])=>`<span class="${p.sem?'sem':''}" title="${p.sem?'Sem cadastro no ERP':''}">${esc(n)} <b>${fmtUn(p.qtd,p.un)}</b></span>`).join('')||'<span>—</span>'}${l.fonte==='ordem'&&Object.keys(l.prods).length?' <span style="background:none;color:#94a3b8;">(pela ordem)</span>':''}</div></td>
+    <td><div class="fe-prods">${Object.entries(l.prods).map(([n,p])=>`<span class="${p.sem?'sem':''}" title="${p.sem?'Sem cadastro no ERP':''}">${esc(n)} <b>${fmtUn(p.qtd,p.un)}</b></span>`).join('')||'<span>—</span>'}${l.fonte==='ordem'&&Object.keys(l.prods).length?' <span style="background:none;color:#94a3b8;">(pela ordem)</span>':''}${l.diverg&&l.diverg.length?`<div style="font-size:10.5px;color:#b91c1c;margin-top:3px;">⚠ Carga ≠ ordem: ${l.diverg.map(d=>`${esc(d.nome)} ${nf(d.ordem)}→${nf(d.carga)}`).join(' · ')}</div>`:''}</div></td>
     <td style="white-space:nowrap;text-align:right;">${l.dsm?`<a class="badge badge-info" href="portaria-dsm.html" title="Caminhão da DSM — detalhes na aba DSM">DSM</a>`:`${feNfBadge(l.ordem)}<button class="btn btn-secondary btn-sm" onclick="feAcoes(event,'${l.id}',${l.ordem?`'${esc(l.ordem)}'`:'null'})">⋯ Ações</button>`}</td></tr>`).join('')
-    :'<tr><td colspan="13"><div class="empty-state" style="padding:24px;"><p>Nenhum caminhão saiu neste dia.</p></div></td></tr>';
+    :'<tr><td colspan="13"><div class="empty-state" style="padding:24px;"><p>Nenhum caminhão saiu neste dia.</p></div></td></tr>');
   const gs=Object.entries(f.grupos).sort((a,b)=>(a[0]==='Sem cadastro no ERP')-(b[0]==='Sem cadastro no ERP')||a[0].localeCompare(b[0]));
   document.getElementById('fe-grupos').innerHTML=gs.map(([g,ps])=>{const lst=Object.entries(ps).sort((a,b)=>b[1].qtd-a[1].qtd), un=[...new Set(lst.map(x=>x[1].un))];
     return `<div class="card fe-grupo"><h4>${esc(g)}</h4><div class="table-wrap"><table class="fe-tab"><thead><tr><th>Produto</th><th>Un.</th><th class="num">Quantidade</th></tr></thead><tbody>
