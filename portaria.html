@@ -2542,16 +2542,18 @@ async function cargaDaOrdem(numero){
   }catch(e){ console.warn('[portaria] itens da ordem:',e); }
   /* (20/11) A QUANTIDADE TEM QUE BATER: produto da ordem com menos sacos que o pedido e SEM motivo registrado no Carregamento
      (nem pallet sem QR declarado) trava a saída. Felisbina e Topdry (sem rótulo) não entram nesta conta. */
-  const faltas=[];
+  const faltas=[], sobras=[];
   try{
     const {data:ri2}=await _supabase.from('romaneio_itens').select('*').eq('numero',String(numero));
     const ped={}; (ri2||[]).forEach(i=>{const pe=produtoErpDoItem(i), nome=pe?pe.nome:i.produto, q=parseFloat(i.quantidade)||0; if(!q||!nome||(pe&&pe.felis)||/felisbina/i.test(nome)||/topdry/i.test(nome))return;
       const k=normNome(nome); ped[k]=ped[k]||{nome,q:0}; ped[k].q+=q;});
     const car={}, mot={}; itens.forEach(i=>{ const k=normNome(i.produto); const t=tipo(i.produto);
       car[k]=(car[k]||0)+(t==='granel'||i.unidade==='t'?(Number(i.ton)||0):t==='bag'?(Number(i.sacos)||1):(Number(i.sacos)||0)); if(i.motivo_menos) mot[k]=i.motivo_menos; });
-    Object.entries(ped).forEach(([k,p])=>{ const c=car[k]||0; if(c<p.q-0.0005&&!mot[k]) faltas.push({nome:p.nome,pedido:p.q,carregado:c,falta:+(p.q-c).toFixed(3)}); });
+    Object.entries(ped).forEach(([k,p])=>{ const c=car[k]||0; if(c<p.q-0.0005&&!mot[k]) faltas.push({nome:p.nome,pedido:p.q,carregado:c,falta:+(p.q-c).toFixed(3)});
+      /* (26/11) sempre sai o que está na ORDEM: carregado a mais (em saco) trava a saída — 028570 saiu com 360 de 200 */
+      else if(c>p.q+0.0005&&!/granel/i.test(p.nome)&&tipo(p.nome)==='saco') sobras.push({nome:p.nome,pedido:p.q,carregado:c,sobra:+(c-p.q).toFixed(3)}); });
   }catch(e){ console.warn('[portaria] conferência da quantidade:',e); }
-  const res={numero:String(numero),cargas:cs||[],itens,grupos,nPal,esperadoKg:kg,semPeso:[...semPeso],naoBip,faltas};
+  const res={numero:String(numero),cargas:cs||[],itens,grupos,nPal,esperadoKg:kg,semPeso:[...semPeso],naoBip,faltas,sobras};
   _cargaCache[String(numero)]=res;
   return res;
 }
@@ -2611,7 +2613,7 @@ async function contarCarga(o,v){
   if(_sa.portId!==v.id)return;
   _sa.carga=c; document.getElementById('sa-carga').innerHTML=`<div class="sec-tit" style="margin:12px 0 6px;"><h3>📦 Carga bipada (QR)</h3><span>${c.grupos.length?c.itens.length+' item(ns)':''}</span></div>${htmlCarga(c)}`;
   if(!c.itens.length)return;
-  _sa.nPal=c.nPal; _sa.esperadoKg=c.esperadoKg; _sa.semPeso=c.semPeso; _sa.naoBip=c.naoBip||[]; _sa.faltas=c.faltas||[];
+  _sa.nPal=c.nPal; _sa.esperadoKg=c.esperadoKg; _sa.semPeso=c.semPeso; _sa.naoBip=c.naoBip||[]; _sa.faltas=c.faltas||[]; _sa.sobras=c.sobras||[];
   /* (18/11) nº de pallets vem do Carregamento (antes era digitado: 028515 com 18 na portaria e 14 na carga). Com item da ordem
      sem bipar (vai pallet a mais que o sistema não sabe), fica liberado para o porteiro corrigir. */
   const np=document.getElementById('sa-npal');
@@ -2651,6 +2653,7 @@ async function confirmarSaida(){
   const t=parseFloat(document.getElementById('sa-tara').value), b=parseFloat(document.getElementById('sa-bruto').value), err=document.getElementById('sa-erro');
   const n=parseInt(document.getElementById('sa-npal').value)||0, pk=parseFloat(document.getElementById('sa-ppal').value)||0;
   if(isNaN(b)||b<=0){err.textContent='Informe o peso bruto.';err.classList.remove('hidden');return;}
+  if((_sa.sobras||[]).length){err.innerHTML='⛔ <b>Carga maior que a ordem</b> — '+_sa.sobras.map(x=>`${esc(x.nome)}: ordem ${nf(x.pedido)} · carregado ${nf(x.carregado)} (+${nf(x.sobra)})`).join('; ')+'. Sempre sai o que está na ordem: volte para o Carregamento e corrija.';err.classList.remove('hidden');return;}
   if(!isNaN(t)&&b<t){err.textContent='Bruto menor que a tara — confira.';err.classList.remove('hidden');return;}
   const liq=isNaN(t)?null:+(b-t).toFixed(3), prod=liq!=null?+(liq-n*pk/1000).toFixed(3):null;
   const agora=new Date();
@@ -4371,7 +4374,7 @@ function fiDesenhar(){
   const caulimCls=cls.filter(c=>c.prods.some(p=>p.caulim)), nfOk=caulimCls.filter(c=>nfsDe(c).length).length;
   const temCaulim=caulimCls.length>0;
   const dif=difKg(v.peso_produto,v.peso_esperado), balOk=dif!=null&&Math.abs(dif)<=TOL_KG;
-  const faltas=(carga&&carga.faltas)||[];
+  const faltas=(carga&&carga.faltas)||[], sobras=(carga&&carga.sobras)||[];
   const trOrd=o&&o.transportadora, trDif=trOrd&&v.transportadora&&normNome(trOrd)!==normNome(v.transportadora);
   const pend=(ok,txtOk,txtNo)=>`<div>${ok?'✅':'⚠️'} ${ok?txtOk:'<b style="color:#b45309">'+txtNo+'</b>'}</div>`;
   const ch=(t,cls)=>`<span class="fi-tg ${cls||''}">${t}</span>`;
@@ -4406,7 +4409,7 @@ function fiDesenhar(){
         <span>Transportadora</span><div>${esc(v.transportadora||'—')}</div><span>Unidade</span><div>${esc(v.unidade_carregamento||'—')}</div></div>
         ${trDif?`<div class="fi-av">⚠️ Na <b>ordem</b> a transportadora é <b>${esc(trOrd)}</b> — na portaria foi registrada <b>${esc(v.transportadora)}</b>.</div>`:''}</div>
       <div class="fi-c"><h4>CONFERÊNCIA <span>tudo bate?</span></h4><div class="fi-conf">
-        ${pend(!faltas.length,'Pedido × carregado: completo','Faltou: '+faltas.map(f=>esc(f.nome)+' '+nf(f.falta)).join(', '))}
+        ${pend(!faltas.length&&!sobras.length,'Pedido × carregado: igual à ordem',[faltas.length?'Faltou: '+faltas.map(f=>esc(f.nome)+' '+nf(f.falta)).join(', '):'',sobras.length?'A mais: '+sobras.map(f=>esc(f.nome)+' +'+nf(f.sobra)).join(', '):''].filter(Boolean).join(' · '))}
         ${dif!=null?pend(balOk,'Balança dentro da tolerância (±'+TOL_KG+' kg)','Balança '+difTxt(dif)+' fora da tolerância'):''}
         ${temCaulim?pend(nfOk===caulimCls.length,`NF de todos os clientes (${nfOk}/${caulimCls.length})`,`Falta NF: ${caulimCls.length-nfOk} de ${caulimCls.length}`):''}
         ${temCaulim?pend(certs.length>0,'Certificado de análise ligado','Sem certificado — o laboratório precisa finalizar o laudo'):''}
